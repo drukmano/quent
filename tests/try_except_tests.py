@@ -35,6 +35,25 @@ class TryExceptTest(IsolatedAsyncioTestCase):
   # TODO add tests to test the return value of all possible exception formats
   # TODO improve naming
 
+  async def test_raise_on_await(self):
+    class A:
+      def __await__(self):
+        raise Exception
+
+    for fn, efc_cls in get_empty_and_cls():
+      with self.subTest(fn=fn):
+        exc_fin_check = efc_cls()
+        try:
+          await await_(Chain(A()).except_(exc_fin_check.on_except).run())
+        except Exception: pass
+        self.assertTrue(exc_fin_check.ran_exc)
+
+        exc_fin_check = efc_cls()
+        try:
+          await await_(Chain(fn).then(A, ...).except_(exc_fin_check.on_except).run())
+        except Exception: pass
+        self.assertTrue(exc_fin_check.ran_exc)
+
   async def test_try_except_1(self):
     for fn, efc_cls in get_empty_and_cls():
       with self.subTest(fn=fn):

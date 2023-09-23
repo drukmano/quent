@@ -1,10 +1,17 @@
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
-from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException
+from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException, run
 
 
 class MainTest(IsolatedAsyncioTestCase):
   # TODO write tests that test async functions down the line, not as root value
+
+  async def test_pipe(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_((Chain(1) | (lambda v: v+1) | fn | (lambda v: v+5)).eq(7).run()))
+        self.assertTrue(await await_(Chain(1) | (lambda v: v+1) | fn | (lambda v: v+5) | (lambda v: v == 7) | run()))
+
   async def test_void(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
