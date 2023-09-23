@@ -299,13 +299,14 @@ cdef class Chain:
     #   bool,   # whether 'v' is attribute
     #   bool,   # whether 'v' is method attribute
     #   bool,   # whether to evaluate 'v' with the [evaluated] root value
+    #   bool,   # whether to ignore this link evaluation result
     #   tuple,  # the arguments to evaluate 'v' with
     #   dict    # the keyword-arguments to evaluate 'v' with
     # )
     self.links = []
 
     if not self.is_void:
-      self.root_link = (root_value, False, False, False, args, kwargs)
+      self.root_link = (root_value, False, False, False, False, args, kwargs)
     else:
       self.root_link = None
 
@@ -315,7 +316,7 @@ cdef class Chain:
     self.current_attr = None
 
   # https://github.com/cython/cython/issues/1630
-  cdef int _then(self, object v, bint is_attr = False, bint is_fattr = False, bint is_with_root = False, tuple args = None, dict kwargs = None) except -1:
+  cdef int _then(self, object v, bint is_attr = False, bint is_fattr = False, bint is_with_root = False, bint ignore_result = False, tuple args = None, dict kwargs = None) except -1:
     if self.current_attr is not None:
       self.finalize_attr()
     if self.current_on_true is not None:
@@ -324,7 +325,7 @@ cdef class Chain:
     is_with_root = is_with_root or self.is_cascade
     if _PipeCls is not None and isinstance(v, _PipeCls):
       v = v.function
-    self.links.append((v, is_attr, is_fattr, is_with_root, args, kwargs))
+    self.links.append((v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs))
 
   cdef object _run(self, object v, tuple args, dict kwargs):
     if self.current_attr is not None:
@@ -335,8 +336,8 @@ cdef class Chain:
     cdef:
       # previous value, root value
       object pv = Null, rv = Null, result
-      bint is_attr = False, is_fattr = False, is_with_root = False, is_void = self.is_void, ignore_try = False,
-      bint is_null = v is Null
+      bint is_attr = False, is_fattr = False, is_with_root = False, ignore_result = False,
+      bint is_void = self.is_void, ignore_try = False, is_null = v is Null
       list links = self.links
       tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
       int idx = -1
@@ -349,18 +350,18 @@ cdef class Chain:
     try:
       if not (is_void and is_null):
         if root_link is not None:
-          v, is_attr, is_fattr, is_with_root, args, kwargs = root_link
+          v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs = root_link
         rv = pv = evaluate_value(
           v=v, pv=Null, is_attr=False, is_fattr=False, is_void=True, args=args, kwargs=kwargs
         )
         is_void = False
         if isawaitable(rv):
           ignore_try = True
-          return self._run_async(rv, Null, idx, v, Null, False, False, is_void, args, kwargs)
+          return self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
 
       for idx, link in enumerate(links):
         # TODO optimize this line
-        v, is_attr, is_fattr, is_with_root, args, kwargs = link
+        v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs = link
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
@@ -371,8 +372,9 @@ cdef class Chain:
           result = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
           if isawaitable(result):
             ignore_try = True
-            return self._run_async(result, rv, idx, v, pv, is_attr, is_fattr, is_void, args, kwargs)
-          pv = result
+            return self._run_async(result, rv, idx, is_void, v, pv, is_attr, is_fattr, ignore_result, args, kwargs)
+          if not ignore_result:
+            pv = result
 
       if self.is_cascade:
         pv = rv
@@ -388,8 +390,8 @@ cdef class Chain:
         run_callback(on_finally, rv, is_void)
 
   async def _run_async(
-    self, object result, object rv, int idx,
-    object v, object pv, bint is_attr, bint is_fattr, bint is_void, tuple args, dict kwargs
+    self, object result, object rv, int idx, bint is_void,
+    object v, object pv, bint is_attr, bint is_fattr, bint ignore_result, tuple args, dict kwargs
   ):
     # we pass the full current link data to be able to format an appropriate
     # exception message in case one is raised from awaiting `result`
@@ -400,7 +402,9 @@ cdef class Chain:
 
     try:
       try:
-        pv = await result
+        result = await result
+        if not ignore_result:
+          pv = result
       except:
         is_exc_raised_on_await = True
         raise
@@ -410,7 +414,7 @@ cdef class Chain:
         rv = pv
 
       for idx in range(idx+1, len(links)):
-        v, is_attr, is_fattr, is_with_root, args, kwargs = self.links[idx]
+        v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs = self.links[idx]
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
@@ -424,7 +428,7 @@ cdef class Chain:
             except:
               is_exc_raised_on_await = True
               raise
-          else:
+          elif not ignore_result:
             pv = result
 
       if self.is_cascade:
@@ -488,32 +492,30 @@ cdef class Chain:
     if on_true_v is not Null or on_false_v is not Null:
       self._then(build_conditional(on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs))
 
-  # cannot use cpdef with *args **kwargs.
-  def then(self, v: Any | Callable, *args, **kwargs) -> Chain:
-    self._then(v, is_attr=False, is_fattr=False, is_with_root=False, args=args, kwargs=kwargs)
-    return self
-
   def run(self, v: Any | Callable = Null, *args, **kwargs) -> Any:
     return self._run(v, args, kwargs)
+
+  # cannot use cpdef with *args **kwargs.
+  def then(self, v: Any | Callable, *args, **kwargs) -> Chain:
+    self._then(v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
+    return self
+
+  def root(self, v: Any | Callable = Null, *args, **kwargs) -> Chain:
+    self._then(v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+    return self
+
+  def void(self, v: Any | Callable, *args, **kwargs) -> Chain:
+    # the 'void' name here is not the same as the internal 'self.is_void' - quite the opposite, this
+    # function registers a value which will be evaluated normally, but will not propagate its result forwards.
+    self._then(v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
+    return self
 
   def attr(self, attr: str) -> Chain:
     self._then(attr, is_attr=True)
     return self
 
   def call(self, attr: str, *args, **kwargs) -> Chain:
-    self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, args=args, kwargs=kwargs)
-    return self
-
-  def root(self, v: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._then(v, is_attr=False, is_fattr=False, is_with_root=True, args=args, kwargs=kwargs)
-    return self
-
-  def root_attr(self, attr: str) -> Chain:
-    self._then(attr, is_attr=True, is_fattr=False, is_with_root=True)
-    return self
-
-  def root_call(self, attr: str, *args, **kwargs) -> Chain:
-    self._then(attr, is_attr=True, is_fattr=True, is_with_root=True, args=args, kwargs=kwargs)
+    self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
   def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
@@ -595,7 +597,7 @@ cdef class Chain:
       object s = f'<{self.__class__.__name__}'
 
     if root_link is not None:
-      s += f'({root_link[0]}, {root_link[4]}, {root_link[5]})'
+      s += f'({root_link[0]}, {root_link[5]}, {root_link[6]})'
     else:
       s += f'()'
     s += f'({len(self.links)} links)>'
@@ -615,7 +617,7 @@ cdef class ChainR(Chain):
   cdef int finalize_fattr(self, tuple args, dict kwargs) except -1:
     cdef str attr = self.current_attr
     self.current_attr = None
-    self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, args=args, kwargs=kwargs)
+    self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
 
   def __getattr__(self, attr: str) -> ChainR:
     self.on_attr(attr)

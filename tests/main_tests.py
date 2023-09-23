@@ -3,8 +3,15 @@ from tests.utils import throw_if, empty, aempty, await_
 from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException
 
 
-class MiscTest(IsolatedAsyncioTestCase):
+class MainTest(IsolatedAsyncioTestCase):
   # TODO write tests that test async functions down the line, not as root value
+  async def test_void(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain(10).then(fn).void(lambda v: v/10).eq(10).run()))
+        self.assertTrue(await await_(Chain(10).then(fn).then(lambda v: v/10).eq(1).run()))
+        self.assertTrue(await await_(Chain(10).void(fn, 100).eq(10).run()))
+        self.assertTrue(await await_(Chain(10).then(fn, 100).eq(100).run()))
 
   async def test_empty_root(self):
     for fn in [empty, aempty]:
