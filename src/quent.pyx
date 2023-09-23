@@ -1,4 +1,4 @@
-# cython: binding=False, boundscheck=False, wraparound=False, language_level=3str
+# cython: binding=False, boundscheck=False, wraparound=False, language_level=3
 ## cython: profile=True, linetrace=True, warn.undeclared=True
 ## distutils: define_macros=CYTHON_TRACE_NOGIL=1
 
@@ -57,6 +57,84 @@ cdef bint isawaitable(object obj):
       _nonawaitable_cache_count += 1
       _nonawaitable_typecache.add(obj_t)
     return False
+
+
+def create_chain_link_exception(
+  v: Any, pv: Any, is_attr: bool, is_fattr: bool, is_void: bool, args: tuple | None, kwargs: dict | None, idx: int,
+  is_exc_raised_on_await: bool = False
+) -> QuentException:
+  """
+  Create a string representation of the evaluation of 'v' based on the same rules
+  used in `evaluate_value`
+  """
+
+  def get_object_name(o: Any, literal: bool) -> str:
+    if literal:
+      return str(o)
+    try:
+      return o.__name__
+    except AttributeError:
+      return type(o).__name__
+
+  def append_await(s: str) -> str:
+    if is_exc_raised_on_await:
+      s = f'await {s}'
+    return s
+
+  def format_exception_details(literal: bool):
+    if v is Null:
+      return str(v), 'Null'
+
+    elif is_attr:
+      if not is_fattr:
+        s = get_object_name(pv, literal)
+        return f'Attribute \'{v}\' of \'{pv}\'', f'{s}.{v}'
+
+    if args and args[0] is ...:
+      if is_fattr:
+        s = get_object_name(pv, literal)
+        return f'Method attribute \'{v}\' of \'{pv}\'', f'{s}.{v}()'
+      s = get_object_name(v, literal)
+      return f'{v}', f'{s}()'
+
+    elif args or kwargs:
+      kwargs_ = [f'{k}={v_}' for k, v_ in kwargs.items()]
+      args_ = ', '.join(str(arg) for arg in list(args) + kwargs_)
+      if is_fattr:
+        s = get_object_name(pv, literal)
+        return f'Method attribute \'{v}\' of \'{pv}\'', f'{s}.{v}({args_})'
+      s = get_object_name(v, literal)
+      return f'{v}', f'{s}({args_})'
+
+    elif is_fattr:
+      s = get_object_name(pv, literal)
+      return f'Method attribute \'{v}\' of \'{pv}\'', f'{s}.{v}()'
+
+    elif not is_attr and callable(v):
+      s = get_object_name(v, literal)
+      return f'{v}', f'{s}()' if is_void or pv is Null else f'{s}({pv})'
+
+    else:
+      return str(v), str(v)
+
+  try:
+    object_str, readable_str = format_exception_details(literal=False)
+  except AttributeError as e:
+    # this should not happen, but just in case.
+    object_str, readable_str = format_exception_details(literal=True)
+
+  if idx == -1:
+    s = f'The chain root link has raised an exception:'
+  else:
+    s = f'A chain link has raised an exception:'
+    s += f'\n\tLink position (not including the root link): {idx}'
+  if is_exc_raised_on_await:
+    s += f'\n\tThe exception was raised as the result of awaiting a coroutine'
+  return QuentException(
+    s
+    + f'\n\t{object_str}'
+    + f'\n\t`{append_await(readable_str)}`'
+  )
 
 
 cdef object evaluate_value(object v, object pv, bint is_attr, bint is_fattr, bint is_void, tuple args, dict kwargs):
@@ -141,7 +219,7 @@ cdef object build_conditional(
   """
   # a similar implementation using a class was tested and found to be marginally slower than this
   # so there isn't really a way to further optimize it until Cython adds support for nested `cdef`s.
-  def fn(bint v):
+  def if_else(bint v):
     if v:
       if on_true_v is not Null:
         return evaluate_value(
@@ -152,7 +230,7 @@ cdef object build_conditional(
         v=on_false_v, pv=Null, is_attr=False, is_fattr=False, is_void=True, args=false_args, kwargs=false_kwargs
       )
     return v
-  return fn
+  return if_else
 
 
 cdef class run:
@@ -256,11 +334,12 @@ cdef class Chain:
 
     cdef:
       # previous value, root value
-      object pv, rv = Null
-      bint is_attr, is_fattr, is_with_root, is_void = self.is_void, ignore_try = False, is_null = v is Null
+      object pv = Null, rv = Null, result
+      bint is_attr = False, is_fattr = False, is_with_root = False, is_void = self.is_void, ignore_try = False,
+      bint is_null = v is Null
       list links = self.links
       tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
-      int idx
+      int idx = -1
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
@@ -277,7 +356,7 @@ cdef class Chain:
         is_void = False
         if isawaitable(rv):
           ignore_try = True
-          return self._run_async(rv, Null, 0, is_void)
+          return self._run_async(rv, Null, idx, v, Null, False, False, is_void, args, kwargs)
 
       for idx, link in enumerate(links):
         # TODO optimize this line
@@ -289,67 +368,87 @@ cdef class Chain:
           pv = rv
         # `v is Null` is only possible when an empty `.root()` call has been made.
         if v is not Null:
-          pv = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
-          if isawaitable(pv):
+          result = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
+          if isawaitable(result):
             ignore_try = True
-            return self._run_async(pv, rv, idx+1, is_void)
+            return self._run_async(result, rv, idx, v, pv, is_attr, is_fattr, is_void, args, kwargs)
+          pv = result
 
       if self.is_cascade:
         pv = rv
       return pv if not is_void and pv is not Null else None
 
-    except:
+    except Exception as e:
       if not ignore_try and on_except is not None:
         run_callback(on_except, rv, is_void)
-      raise
+      raise e from create_chain_link_exception(v, pv, is_attr, is_fattr, is_void, args, kwargs, idx)
 
     finally:
       if not ignore_try and on_finally is not None:
         run_callback(on_finally, rv, is_void)
 
-  async def _run_async(self, object pv, object rv, int i, bint is_void):
+  async def _run_async(
+    self, object result, object rv, int idx,
+    object v, object pv, bint is_attr, bint is_fattr, bint is_void, tuple args, dict kwargs
+  ):
+    # we pass the full current link data to be able to format an appropriate
+    # exception message in case one is raised from awaiting `result`
     cdef:
-      object v, callback_v
-      bint is_attr, is_fattr, is_with_root, ignore_try = False
-      tuple args, link, on_except = self.on_except, on_finally = self.on_finally
+      bint is_with_root = False, is_exc_raised_on_await = False
+      tuple link, on_except = self.on_except, on_finally = self.on_finally
       list links = self.links
-      dict kwargs
 
     try:
-      pv = await pv
+      try:
+        pv = await result
+      except:
+        is_exc_raised_on_await = True
+        raise
       # update the root value only if this is not a void chain, since otherwise
       # if this is a void chain, `rv` should always be `Null`.
       if not is_void and rv is Null:
         rv = pv
 
-      for link in links[i:]:
-        v, is_attr, is_fattr, is_with_root, args, kwargs = link
+      for idx in range(idx+1, len(links)):
+        v, is_attr, is_fattr, is_with_root, args, kwargs = self.links[idx]
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
         if is_with_root:
           pv = rv
         if v is not Null:
-          pv = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
-          if isawaitable(pv):
-            pv = await pv
+          result = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
+          if isawaitable(result):
+            try:
+              pv = await result
+            except:
+              is_exc_raised_on_await = True
+              raise
+          else:
+            pv = result
 
       if self.is_cascade:
         pv = rv
       return pv if not is_void and pv is not Null else None
 
-    except:
-      if not ignore_try and on_except is not None:
-        callback_v = run_callback(on_except, rv, is_void)
-        if isawaitable(callback_v):
-          await callback_v
-      raise
+    except Exception as e:
+      # even though it seems that a coroutine that has raised an exception still
+      # returns True for `isawaitable(result)`, I don't want to use this method to check
+      # whether an exception was raised from awaiting `result` as I couldn't find if
+      # this is an intended behavior or not.
+      if on_except is not None:
+        result = run_callback(on_except, rv, is_void)
+        if isawaitable(result):
+          await result
+      raise e from create_chain_link_exception(
+        v, pv, is_attr, is_fattr, is_void, args, kwargs, idx, is_exc_raised_on_await
+      )
 
     finally:
-      if not ignore_try and on_finally is not None:
-        callback_v = run_callback(on_finally, rv, is_void)
-        if isawaitable(callback_v):
-          await callback_v
+      if on_finally is not None:
+        result = run_callback(on_finally, rv, is_void)
+        if isawaitable(result):
+          await result
 
   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs):
     if self.on_except is not None:
@@ -425,7 +524,7 @@ cdef class Chain:
     self._finally(fn_or_attr, args, kwargs)
     return self
 
-  def if_(self, v: Any | Callable | Ellipsis, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
+  def if_(self, v: Any | Callable | Ellipsis = Ellipsis, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
     if v is Ellipsis:
       v = bool
     self._if(v, on_true, args, kwargs)
@@ -435,36 +534,41 @@ cdef class Chain:
     self._else(on_false, args, kwargs)
     return self
 
-  def truthy(self) -> Chain:
-    self._if(bool)
-    return self
-
   def not_(self, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: not pv)
+    # use a named function (instead of a lambda) to for more clarity during an exception
+    def not_(object pv) -> bool: return not pv
+    # TODO add unittest for not_(on_true, )
+    self._if(not_)#, on_true, args, kwargs)
     return self
 
   def eq(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: pv == v, on_true, args, kwargs)
+    def equals(object pv) -> bool: return pv == v
+    self._if(equals, on_true, args, kwargs)
     return self
 
   def neq(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: pv != v, on_true, args, kwargs)
+    def not_equals(object pv) -> bool: return pv != v
+    self._if(not_equals, on_true, args, kwargs)
     return self
 
   def is_(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: pv is v, on_true, args, kwargs)
+    def is_(object pv) -> bool: return pv is v
+    self._if(is_, on_true, args, kwargs)
     return self
 
   def is_not(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: pv is not v, on_true, args, kwargs)
+    def is_not(object pv) -> bool: return pv is not v
+    self._if(is_not, on_true, args, kwargs)
     return self
 
   def in_(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: pv in v, on_true, args, kwargs)
+    def in_(object pv) -> bool: return pv in v
+    self._if(in_, on_true, args, kwargs)
     return self
 
   def not_in(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._if(lambda pv: pv not in v, on_true, args, kwargs)
+    def not_in(object pv) -> bool: return pv not in v
+    self._if(not_in, on_true, args, kwargs)
     return self
 
   def __or__(self, other: Any) -> Chain | Coroutine:
@@ -534,6 +638,7 @@ cdef class Cascade(Chain):
     self.init(v, args, kwargs, is_cascade=True)
 
 
+# TODO test the memory footprint increase of having __getattr__ implemented (add `cdef dict __dict__`)
 # cannot have multiple inheritance in Cython.
 cdef class CascadeR(ChainR):
   # noinspection PyMissingConstructor

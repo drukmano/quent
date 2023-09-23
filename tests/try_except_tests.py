@@ -32,7 +32,9 @@ def get_empty_and_cls():
 
 
 class TryExceptTest(IsolatedAsyncioTestCase):
+  # TODO add tests to test the return value of all possible exception formats
   # TODO improve naming
+
   async def test_try_except_1(self):
     for fn, efc_cls in get_empty_and_cls():
       with self.subTest(fn=fn):

@@ -4,6 +4,8 @@ from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException
 
 
 class MiscTest(IsolatedAsyncioTestCase):
+  # TODO write tests that test async functions down the line, not as root value
+
   async def test_empty_root(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
