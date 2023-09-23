@@ -163,7 +163,7 @@ cdef class run:
       Chain().then(f2).run(f1) == Chain() | f2 | run(f1)
   """
   cdef public:
-    object v
+    object root_value
     tuple args
     dict kwargs
 
@@ -171,7 +171,7 @@ cdef class run:
     self.init(v, args, kwargs)
 
   cdef int init(self, object v, tuple args, dict kwargs) except -1:
-    self.v = v
+    self.root_value = v
     self.args = args
     self.kwargs = kwargs
 
@@ -189,198 +189,114 @@ cdef Chain from_list(object cls, tuple links):
 
 cdef class Chain:
   cdef:
-    object v, pv
-    bint is_void, is_with_root, is_root_evaluated, is_eager, is_lazy, is_root_await, is_resolved
+    tuple root_link
+    bint is_cascade, is_void
     list links
-    tuple on_except, on_finally, on_true
-    str cattr
-
-  @classmethod
-  def eager(cls, v: Any | Callable = Null, *args, **kwargs):
-    return cls(v, *args, _seqeag=True, **kwargs)
+    tuple on_except, on_finally, current_on_true
+    str current_attr
 
   @classmethod
   def from_(cls, *args) -> Chain:
     return from_list(cls, args)
 
-  def __init__(self, v: Any | Callable = Null, *args, **kwargs):
+  def __init__(self, root_value: Any | Callable = Null, *args, **kwargs):
     """
     Create a new Chain
     :param v: the root value of the chain
     :param args: arguments to pass to `v`
     :param kwargs: keyword-arguments to pass to `v`
     """
-    self.init(v, args, kwargs)
+    self.init(root_value, args, kwargs)
 
-  cdef int init(self, object v, args: tuple, kwargs: dict, bint is_with_root = False, bint is_eager = False) except -1:
-    # whether all links will be evaluated with the root value as the previous value.
-    # this variable indicates that this Chain is a Cascade.
-    self.is_with_root = is_with_root
-
+  cdef int init(self, object root_value, args: tuple, kwargs: dict, bint is_cascade = False) except -1:
+    self.is_cascade = is_cascade
     # whether all links will be evaluated with no arguments (except links with explicit arguments).
     # note that if `is_void=True`, calling `.run()` without a root value is only possible
     # with Cascade, e.g. for running a sequence of operations that are independent of each other.
-    self.is_void = v is Null
+    self.is_void = root_value is Null
 
-    # whether this chain is lazily evaluated. this variable is only used
-    # to disallow registering on-except/on-finally callbacks on an eager chain.
-    self.is_lazy = not is_eager or self.is_void
+    # `links` is a list which contains tuples of the following structure:
+    # (
+    #   object, # the link value, 'v'
+    #   bool,   # whether 'v' is attribute
+    #   bool,   # whether 'v' is method attribute
+    #   bool,   # whether to evaluate 'v' with the [evaluated] root value
+    #   tuple,  # the arguments to evaluate 'v' with
+    #   dict    # the keyword-arguments to evaluate 'v' with
+    # )
+    self.links = []
+
+    if not self.is_void:
+      self.root_link = (root_value, False, False, False, args, kwargs)
+    else:
+      self.root_link = None
 
     self.on_except = None
     self.on_finally = None
-    self.on_true = None
-    self.cattr = None
-    self.is_resolved = False
-
-    # using is_eager is not enough since an empty chain obviously cannot be eagerly evaluated.
-    if is_eager and not self.is_void:
-      v = evaluate_value(v=v, pv=Null, is_attr=False, is_fattr=False, is_void=True, args=args, kwargs=kwargs)
-      self.is_root_await = isawaitable(v)
-      self.is_eager = not self.is_root_await
-      self.is_root_evaluated = True
-      if not self.is_eager:
-        self.links = []
-
-    else:
-      self.is_eager = False
-      self.is_root_await = False
-      self.is_root_evaluated = False
-      if not self.is_void:
-        self.links = [
-          (
-            v,      # a value
-            False,  # is an attribute
-            False,  # is a function attribute
-            False,  # whether to evaluate `v` with the root value
-            args,   # arguments
-            kwargs  # keyword-arguments
-          )
-        ]
-      else:
-        self.links = []
-
-    self.v = self.pv = v
+    self.current_on_true = None
+    self.current_attr = None
 
   # https://github.com/cython/cython/issues/1630
   cdef int _then(self, object v, bint is_attr = False, bint is_fattr = False, bint is_with_root = False, tuple args = None, dict kwargs = None) except -1:
-    if self.cattr is not None:
+    if self.current_attr is not None:
       self.finalize_attr()
-    if self.on_true is not None:
+    if self.current_on_true is not None:
       self.finalize_conditional()
 
-    is_with_root = is_with_root or self.is_with_root
-    # normally, the only case where this is true is when calling an empty `.root()`.
-    if is_with_root and v is Null:
-      v = self.v
+    is_with_root = is_with_root or self.is_cascade
     if _PipeCls is not None and isinstance(v, _PipeCls):
       v = v.function
-
-    if self.is_eager:
-      self.pv = evaluate_value(
-        v=v, pv=self.v if is_with_root else self.pv, is_attr=is_attr, is_fattr=is_fattr, is_void=self.is_void,
-        args=args, kwargs=kwargs
-      )
-      if isawaitable(self.pv):
-        self.is_eager = False
-        self.links = []
-    else:
-      self.links.append((v, is_attr, is_fattr, is_with_root, args, kwargs))
+    self.links.append((v, is_attr, is_fattr, is_with_root, args, kwargs))
 
   cdef object _run(self, object v, tuple args, dict kwargs):
-    if self.is_resolved:
-      raise QuentException('You cannot re-run a chain on eager mode.')
-    if self.cattr is not None:
+    if self.current_attr is not None:
       self.finalize_attr()
-    if self.on_true is not None:
+    if self.current_on_true is not None:
       self.finalize_conditional()
 
-    if self.is_eager:
-      # no need to check for `not is_void` here since if `is_eager=True` then we have a root value.
-      if v is not Null:
-        raise QuentException('Cannot override the root value of a Chain.')
-      self.is_resolved = True
-      v = self.v if self.is_with_root else self.pv
-      return v if v is not Null else None
-
     cdef:
-      object pv, rv = self.v  # rv - root value
-      bint is_attr, is_fattr, is_with_root, is_void = self.is_void, is_root_evaluated = self.is_root_evaluated
-      bint is_root_await = self.is_root_await, ignore_try = False, is_null = v is Null
+      # previous value, root value
+      object pv, rv = Null
+      bint is_attr, is_fattr, is_with_root, is_void = self.is_void, ignore_try = False, is_null = v is Null
       list links = self.links
-      tuple link, on_except = self.on_except, on_finally = self.on_finally
-      int i
+      tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
+      int idx
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
-    elif is_void and is_null and not self.is_with_root:
+    elif is_void and is_null and not self.is_cascade:
       raise QuentException('Unable to run a Chain without a root value. Use Cascade for that.')
 
     try:
-      # since an awaitable cannot be re-awaited, we need to handle a few cases
-      # to avoid awaiting the root value more than once (which will raise an exception).
-      # case 1: the root value is an awaitable.
-      if is_root_await:
-        ignore_try = True
-        return self._run_async(rv, Null, 0, is_void)
-
-      # if a root value is not set and `v` is defined.
-      if is_void and not is_null:
+      if not (is_void and is_null):
+        if root_link is not None:
+          v, is_attr, is_fattr, is_with_root, args, kwargs = root_link
         rv = pv = evaluate_value(
           v=v, pv=Null, is_attr=False, is_fattr=False, is_void=True, args=args, kwargs=kwargs
         )
-        is_root_evaluated = True
-        # now that we have a root value, links should use the previous value / root value (on Cascade).
         is_void = False
-        # case 2: the new root value is an awaitable.
         if isawaitable(rv):
           ignore_try = True
           return self._run_async(rv, Null, 0, is_void)
 
-      else:
-        if is_root_evaluated:
-          pv = self.pv
-          # case 3: some eagerly evaluated value is an awaitable; this is NOT the root value (see `case 1`).
-          if isawaitable(pv):
-            ignore_try = True
-            return self._run_async(pv, rv, 0, is_void)
-        else:
-          # in this case the root value is pending and in the links list.
-          pv = Null
-
-      for i, link in enumerate(links):
+      for idx, link in enumerate(links):
         # TODO optimize this line
         v, is_attr, is_fattr, is_with_root, args, kwargs = link
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
-        # this will never be true for the root link since we manually added it
-        # to the links list with `is_with_root=False` (see `.init()`).
         if is_with_root:
           pv = rv
-        pv = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
-
-        if not is_root_evaluated:
-          is_root_evaluated = True
-
-          # case 4: the lazily evaluated root value is an awaitable.
+        # `v is Null` is only possible when an empty `.root()` call has been made.
+        if v is not Null:
+          pv = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
           if isawaitable(pv):
             ignore_try = True
-            # `i` here is always 0.
-            return self._run_async(pv, Null, 1, is_void)
+            return self._run_async(pv, rv, idx+1, is_void)
 
-          # update the root value only if this is not a void chain
-          if not is_void:
-            rv = pv
-          continue
-
-        # case 5: this is certainly not the root value.
-        if isawaitable(pv):
-          ignore_try = True
-          return self._run_async(pv, rv, i+1, is_void)
-
-      if self.is_with_root:
+      if self.is_cascade:
         pv = rv
-      return pv if pv is not Null else None
+      return pv if not is_void and pv is not Null else None
 
     except:
       if not ignore_try and on_except is not None:
@@ -401,7 +317,8 @@ cdef class Chain:
 
     try:
       pv = await pv
-      # update the root value only if this is not a void chain
+      # update the root value only if this is not a void chain, since otherwise
+      # if this is a void chain, `rv` should always be `Null`.
       if not is_void and rv is Null:
         rv = pv
 
@@ -412,13 +329,14 @@ cdef class Chain:
 
         if is_with_root:
           pv = rv
-        pv = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
-        if isawaitable(pv):
-          pv = await pv
+        if v is not Null:
+          pv = evaluate_value(v, pv, is_attr, is_fattr, is_void, args, kwargs)
+          if isawaitable(pv):
+            pv = await pv
 
-      if self.is_with_root:
+      if self.is_cascade:
         pv = rv
-      return pv if pv is not Null else None
+      return pv if not is_void and pv is not Null else None
 
     except:
       if not ignore_try and on_except is not None:
@@ -434,33 +352,29 @@ cdef class Chain:
           await callback_v
 
   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs):
-    if not self.is_lazy:
-      raise QuentException('You cannot register an \'except\' callback when operating on eager mode.')
     if self.on_except is not None:
       raise QuentException('You can only register one \'except\' callback.')
     self.on_except = fn_or_attr, args, kwargs
 
   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
-    if not self.is_lazy:
-      raise QuentException('You cannot register a \'finally\' callback when operating on eager mode.')
     if self.on_finally is not None:
       raise QuentException('You can only register one \'finally\' callback.')
     self.on_finally = fn_or_attr, args, kwargs
 
   cdef int _if(self, object predicate, object on_true_v = Null, tuple true_args = None, dict true_kwargs = None) except -1:
     self._then(predicate)
-    self.on_true = (on_true_v, true_args, true_kwargs)
+    self.current_on_true = (on_true_v, true_args, true_kwargs)
 
   cdef int _else(self, object on_false_v, tuple false_args, dict false_kwargs) except -1:
-    if self.on_true is None:
+    if self.current_on_true is None:
       raise QuentException(
         'You cannot use \'.else_()\' without a preceding conditional (\'.if_()\', \'.eq()\', etc.)'
       )
     self.finalize_conditional(on_false_v, false_args, false_kwargs)
 
   cdef int finalize_attr(self) except -1:
-    cdef str attr = self.cattr
-    self.cattr = None
+    cdef str attr = self.current_attr
+    self.current_attr = None
     self._then(attr, is_attr=True)
 
   cdef int finalize_conditional(
@@ -470,8 +384,8 @@ cdef class Chain:
       object on_true_v
       tuple true_args
       dict true_kwargs
-    on_true_v, true_args, true_kwargs = self.on_true
-    self.on_true = None
+    on_true_v, true_args, true_kwargs = self.current_on_true
+    self.current_on_true = None
     if on_true_v is not Null or on_false_v is not Null:
       self._then(build_conditional(on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs))
 
@@ -555,7 +469,7 @@ cdef class Chain:
 
   def __or__(self, other: Any) -> Chain | Coroutine:
     if isinstance(other, run):
-      return self._run(other.v, other.args, other.kwargs)
+      return self._run(other.root_value, other.args, other.kwargs)
     self._then(other)
     return self
 
@@ -573,31 +487,30 @@ cdef class Chain:
 
   def __repr__(self):
     cdef:
-      list links = self.links
+      tuple root_link = self.root_link
       object s = f'<{self.__class__.__name__}'
 
-    if len(links) == 0:
-      return s + '>'
-    if self.v is not Null:
-      s += f'({self.links[0][0]}, {self.links[0][4]}, {self.links[0][5]}) ({len(self.links)-1} links)'
+    if root_link is not None:
+      s += f'({root_link[0]}, {root_link[4]}, {root_link[5]})'
     else:
-      s += f'() ({len(self.links)} links)'
-    return s + '>'
+      s += f'()'
+    s += f'({len(self.links)} links)>'
+    return s
 
 
 cdef class ChainR(Chain):
   cdef dict __dict__
 
   cdef int on_attr(self, str attr) except -1:
-    if self.cattr is not None:
+    if self.current_attr is not None:
       self.finalize_attr()
-    if self.on_true is not None:
+    if self.current_on_true is not None:
       self.finalize_conditional()
-    self.cattr = attr
+    self.current_attr = attr
 
   cdef int finalize_fattr(self, tuple args, dict kwargs) except -1:
-    cdef str attr = self.cattr
-    self.cattr = None
+    cdef str attr = self.current_attr
+    self.current_attr = None
     self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, args=args, kwargs=kwargs)
 
   def __getattr__(self, attr: str) -> ChainR:
@@ -605,7 +518,7 @@ cdef class ChainR(Chain):
     return self
 
   def __call__(self, *args, **kwargs) -> Any | ChainR:
-    if self.cattr is None:
+    if self.current_attr is None:
       # much slower than directly calling `._run()`, but we have no choice since
       # we wish support arbitrary __call__ invocations on attributes.
       # avoid running a chain this way. opt to use `.run()` instead.
@@ -618,11 +531,11 @@ cdef class ChainR(Chain):
 cdef class Cascade(Chain):
   # noinspection PyMissingConstructor
   def __init__(self, v: Any | Callable = Null, *args, **kwargs):
-    self.init(v, args, kwargs, is_with_root=True)
+    self.init(v, args, kwargs, is_cascade=True)
 
 
 # cannot have multiple inheritance in Cython.
 cdef class CascadeR(ChainR):
   # noinspection PyMissingConstructor
   def __init__(self, v: Any | Callable = Null, *args, **kwargs):
-    self.init(v, args, kwargs, is_with_root=True)
+    self.init(v, args, kwargs, is_cascade=True)

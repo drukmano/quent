@@ -4,6 +4,11 @@ from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException
 
 
 class MiscTest(IsolatedAsyncioTestCase):
+  async def test_empty_root(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain().then(1).then(fn).root().then(lambda v: v+10).eq(10).run(0)))
+
   async def test_root_value_async(self):
     self.assertTrue(await Chain(aempty, 5).eq(5).run())
     self.assertTrue(await Chain().eq(5).run(aempty, 5))
