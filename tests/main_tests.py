@@ -40,9 +40,9 @@ class MainTest(IsolatedAsyncioTestCase):
   async def test_void(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
-        self.assertTrue(await await_(Chain(10).then(fn).void(lambda v: v/10).eq(10).run()))
+        self.assertTrue(await await_(Chain(10).then(fn).ignore(lambda v: v/10).eq(10).run()))
         self.assertTrue(await await_(Chain(10).then(fn).then(lambda v: v/10).eq(1).run()))
-        self.assertTrue(await await_(Chain(10).void(fn, 100).eq(10).run()))
+        self.assertTrue(await await_(Chain(10).ignore(fn, 100).eq(10).run()))
         self.assertTrue(await await_(Chain(10).then(fn, 100).eq(100).run()))
 
   async def test_empty_root(self):

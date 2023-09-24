@@ -504,9 +504,8 @@ cdef class Chain:
     self._then(v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def void(self, v: Any | Callable, *args, **kwargs) -> Chain:
-    # the 'void' name here is not the same as the internal 'self.is_void' - quite the opposite, this
-    # function registers a value which will be evaluated normally, but will not propagate its result forwards.
+  def ignore(self, v: Any | Callable, *args, **kwargs) -> Chain:
+    # register a value to be evaluated but will not propagate its result forwards.
     self._then(v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
@@ -514,7 +513,7 @@ cdef class Chain:
     self._then(attr, is_attr=True)
     return self
 
-  def call(self, attr: str, *args, **kwargs) -> Chain:
+  def attr_fn(self, attr: str, *args, **kwargs) -> Chain:
     self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 

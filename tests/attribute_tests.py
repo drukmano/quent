@@ -121,11 +121,11 @@ class AttributesTest(IsolatedAsyncioTestCase):
     for fn, (A, B, C) in [(empty, (A_sync, B_sync, C_sync)), (aempty, (A_async, B_async, C_async))]:
       with self.subTest(fn=fn):
         a = A()
-        self.assertTrue(await await_(Chain(a).attr('a1').call('f1').call('f2', 1).call('f2', ...).call('f3').eq(1).run()))
+        self.assertTrue(await await_(Chain(a).attr('a1').attr_fn('f1').attr_fn('f2', 1).attr_fn('f2', ...).attr_fn('f3').eq(1).run()))
         self.assertTrue(await await_(ChainR(a).a1.f1().f2('123').f2(...).f2().f3().eq(1).run()))
 
         b = B()
-        self.assertTrue(await await_(Chain(Cascade(b).attr('b1').call('f1').call('f2', 1).call('f2', ...).call('f3').attr('b1')).is_(b).run()))
+        self.assertTrue(await await_(Chain(Cascade(b).attr('b1').attr_fn('f1').attr_fn('f2', 1).attr_fn('f2', ...).attr_fn('f3').attr('b1')).is_(b).run()))
         self.assertTrue(await await_(Chain(CascadeR(b).b1.f1().f2('123').f2(...).f2().f3().b1.f1()).is_(b).run()))
 
         c = C()

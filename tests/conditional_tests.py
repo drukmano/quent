@@ -4,9 +4,6 @@ from src.quent import Chain, ChainR, Cascade, CascadeR
 
 
 class ConditionalTests(IsolatedAsyncioTestCase):
-  # TODO also create a single line for each Quent class (Seq, Inseq, etc.) that will have 100%
-  #  coverage (or as much as possible; since Chain cannot have coverage on __getattr__)
-
   async def yield_conditional(self, root_value, conditional_attr, truthy_value, falsy_value):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
@@ -76,7 +73,7 @@ class ConditionalTests(IsolatedAsyncioTestCase):
     for fn, cls in [(empty, DummySync), (aempty, DummyAsync)]:
       with self.subTest(fn=fn):
         o = cls()
-        self.assertTrue(await await_(Chain(o).then(fn).attr('a1').is_(o, o).call('b1').is_(o).run()))
+        self.assertTrue(await await_(Chain(o).then(fn).attr('a1').is_(o, o).attr_fn('b1').is_(o).run()))
         self.assertTrue(await await_(ChainR(o).then(fn).a1.is_(o, o).b1().is_(o).run()))
 
   async def test_combinations(self):
