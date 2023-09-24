@@ -94,7 +94,6 @@ class C_async:
 
 
 class AttributesTest(IsolatedAsyncioTestCase):
-  # TODO comment the many_attrs test, then add individual operations, to document all capabilities
   async def test_attribute_last(self):
     for fn, (A, B, C) in [(empty, (A_sync, B_sync, C_sync)), (aempty, (A_async, B_async, C_async))]:
       with self.subTest(fn=fn):

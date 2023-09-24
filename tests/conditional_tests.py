@@ -4,7 +4,6 @@ from src.quent import Chain, ChainR, Cascade, CascadeR
 
 
 class ConditionalTests(IsolatedAsyncioTestCase):
-  # TODO same with attributes - test each one individually, then this many
   # TODO also create a single line for each Quent class (Seq, Inseq, etc.) that will have 100%
   #  coverage (or as much as possible; since Chain cannot have coverage on __getattr__)
 
@@ -23,6 +22,18 @@ class ConditionalTests(IsolatedAsyncioTestCase):
         self.assertTrue(await await_(get_seq()(truthy_value, lambda: False).not_().run()))
         self.assertTrue(await await_(get_seq()(truthy_value, lambda: True).else_(lambda: False).run()))
         self.assertTrue(await await_(get_seq()(truthy_value).not_().else_(lambda: True).run()))
+
+  async def test_not(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain(False).not_().run()))
+        self.assertTrue(await await_(Chain(False).then(fn).not_().run()))
+        self.assertTrue(await await_(Chain(fn).then(False).not_().run()))
+        self.assertTrue(await await_(Chain(True).not_().not_().run()))
+        self.assertTrue(await await_(Chain(False).not_().run()))
+        self.assertTrue(await await_(Chain(True).not_().else_(True).run()))
+        self.assertTrue(await await_(Chain(True).then(fn).not_().else_(True).run()))
+        self.assertTrue(await await_(Chain(fn).then(True).not_().else_(True).run()))
 
   async def test_eq(self):
     with self.subTest(conditional='eq'):

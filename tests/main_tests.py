@@ -1,10 +1,35 @@
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
+from tests.try_except_tests import assertRaisesSync, assertRaisesAsync
 from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException, run
 
 
 class MainTest(IsolatedAsyncioTestCase):
-  # TODO write tests that test async functions down the line, not as root value
+  async def test_root_is_literal_value(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEquals(await await_(Chain(1).run()), 1)
+        self.assertEquals(await await_(Chain(1).then(2).run()), 2)
+        self.assertEquals(await await_(Chain(1).then(fn).run()), 1)
+        self.assertEquals(await await_(Chain(1).then(2).then(fn).run()), 2)
+        self.assertEquals(await await_(Chain(1).then(fn).then(2).run()), 2)
+        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(1).then(throw_if).run())))
+        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(1).then(fn).then(throw_if).run())))
+        self.assertEquals(await await_(Chain(0).then(throw_if).then(fn).then(1).run()), 1)
+        self.assertEquals(await await_(Chain(0).then(fn).then(throw_if).then(1).run()), 1)
+
+  async def test_root_is_callable(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEquals(await await_(Chain(fn).run()), None)
+        self.assertEquals(await await_(Chain(fn).then(1).run()), 1)
+        self.assertEquals(await await_(Chain(fn).then(2).run()), 2)
+        self.assertEquals(await await_(Chain(fn).then(1).then(fn).run()), 1)
+        self.assertEquals(await await_(Chain(fn).then(fn).then(1).run()), 1)
+        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
+        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
+        self.assertEquals(await await_(Chain(fn).then(throw_if).then(fn).then(1).run()), 1)
+        self.assertEquals(await await_(Chain(fn).then(fn).then(throw_if).then(1).run()), 1)
 
   async def test_pipe(self):
     for fn in [empty, aempty]:

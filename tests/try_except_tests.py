@@ -27,6 +27,24 @@ class ExceptFinallyCheckAsync:
     self.ran_finally = register
 
 
+def assertRaisesSync(exc, fn, *args, **kwargs) -> bool:
+  exc_fin_check = ExceptFinallyCheckSync()
+  try:
+    fn(*args, **kwargs)
+  except *exc:
+    exc_fin_check.on_except()
+  return exc_fin_check.ran_exc
+
+
+async def assertRaisesAsync(exc, fn, *args, **kwargs) -> bool:
+  exc_fin_check = ExceptFinallyCheckAsync()
+  try:
+    await fn(*args, **kwargs)
+  except *exc:
+    await exc_fin_check.on_except()
+  return exc_fin_check.ran_exc
+
+
 def get_empty_and_cls():
   yield from iter([(empty, ExceptFinallyCheckSync), (aempty, ExceptFinallyCheckAsync)])
 

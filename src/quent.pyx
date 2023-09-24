@@ -536,11 +536,10 @@ cdef class Chain:
     self._else(on_false, args, kwargs)
     return self
 
-  def not_(self, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
+  def not_(self, ) -> Chain:
     # use a named function (instead of a lambda) to for more clarity during an exception
     def not_(object pv) -> bool: return not pv
-    # TODO add unittest for not_(on_true, )
-    self._if(not_)#, on_true, args, kwargs)
+    self._if(not_)
     return self
 
   def eq(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
