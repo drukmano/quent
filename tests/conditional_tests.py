@@ -1,6 +1,6 @@
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_, DummySync, DummyAsync
-from src.quent import Chain, ChainR, Cascade, CascadeR
+from src.quent import Chain, ChainAttr, Cascade, CascadeAttr
 
 
 class ConditionalTests(IsolatedAsyncioTestCase):
@@ -74,7 +74,7 @@ class ConditionalTests(IsolatedAsyncioTestCase):
       with self.subTest(fn=fn):
         o = cls()
         self.assertTrue(await await_(Chain(o).then(fn).attr('a1').is_(o, o).attr_fn('b1').is_(o).run()))
-        self.assertTrue(await await_(ChainR(o).then(fn).a1.is_(o, o).b1().is_(o).run()))
+        self.assertTrue(await await_(ChainAttr(o).then(fn).a1.is_(o, o).b1().is_(o).run()))
 
   async def test_combinations(self):
     # a few random combinations of conditionals

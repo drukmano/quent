@@ -602,9 +602,13 @@ cdef class Chain:
     return s
 
 
-cdef class ChainR(Chain):
-  cdef dict __dict__
+cdef class Cascade(Chain):
+  # noinspection PyMissingConstructor
+  def __init__(self, v: Any | Callable = Null, *args, **kwargs):
+    self.init(v, args, kwargs, is_cascade=True)
 
+
+cdef class ChainAttr(Chain):
   cdef int on_attr(self, str attr) except -1:
     if self.current_attr is not None:
       self.finalize_attr()
@@ -617,11 +621,11 @@ cdef class ChainR(Chain):
     self.current_attr = None
     self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
 
-  def __getattr__(self, attr: str) -> ChainR:
+  def __getattr__(self, attr: str) -> ChainAttr:
     self.on_attr(attr)
     return self
 
-  def __call__(self, *args, **kwargs) -> Any | ChainR:
+  def __call__(self, *args, **kwargs) -> Any | ChainAttr:
     if self.current_attr is None:
       # much slower than directly calling `._run()`, but we have no choice since
       # we wish support arbitrary __call__ invocations on attributes.
@@ -632,15 +636,8 @@ cdef class ChainR(Chain):
       return self
 
 
-cdef class Cascade(Chain):
-  # noinspection PyMissingConstructor
-  def __init__(self, v: Any | Callable = Null, *args, **kwargs):
-    self.init(v, args, kwargs, is_cascade=True)
-
-
-# TODO test the memory footprint increase of having __getattr__ implemented (add `cdef dict __dict__`)
 # cannot have multiple inheritance in Cython.
-cdef class CascadeR(ChainR):
+cdef class CascadeAttr(ChainAttr):
   # noinspection PyMissingConstructor
   def __init__(self, v: Any | Callable = Null, *args, **kwargs):
     self.init(v, args, kwargs, is_cascade=True)

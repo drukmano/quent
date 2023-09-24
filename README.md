@@ -39,7 +39,7 @@ Pipe syntax is also supported
 ```python
 Chain(fetch_data) | process_data | normalize_data | send_data | run()
 ```
-Quent is written in C (using Cython) to maximize execution speed and minimize memory footprint as much as possible, to make it truly "transparent" --- most of the time, there is little to none performance drop when using it.
+Quent is written in C (using Cython) to minimize the overhead of using it.
 
 ## Getting Started
 To install Quent,
@@ -80,7 +80,7 @@ async def get_foo():
   return f
 
 def better_get_foo():
-  return CascadeR(Foo()).foo().bar().baz().run()
+  return CascadeAttr(Foo()).foo().bar().baz().run()
 ```
 You can use *Pipe* with Quent:
 ```python
@@ -114,7 +114,7 @@ With Quent, I can have a single class and all I have to do is:
 ```python
 class Query:
   def all(self):
-    return ChainR(self.execute).all().run()
+    return ChainAttr(self.execute).all().run()
 ```
 You can also re-use the Chain to significantly improve performance,
 ```python
@@ -140,7 +140,7 @@ Or, if you really like one-liners, Quent can do almost anything:
 ```python
 def flush(self):
   return (
-    ChainR(self.r.pipeline(transaction=self.transaction))
+    ChainAttr(self.r.pipeline(transaction=self.transaction))
     .then(self.apply_pipe_chain)
     .root().execute(raise_on_error=True)
     .then(self.remove_ignored_commands)

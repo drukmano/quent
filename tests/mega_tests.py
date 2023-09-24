@@ -1,7 +1,7 @@
 from tests.try_except_tests import get_empty_and_cls
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import empty, aempty, await_, DummySync, DummyAsync
-from src.quent import Chain, ChainR, Cascade, CascadeR, run
+from src.quent import Chain, ChainAttr, Cascade, CascadeAttr, run
 
 
 class Exc1(Exception):
@@ -65,8 +65,8 @@ class MegaTests(IsolatedAsyncioTestCase):
             .ignore(
               Cascade()
               .then(Chain(A()).attr('a1').root().attr_fn('b1').attr('a1'))
-              .then(ChainR(A()).a1.root().b1().a1.root().a1.run)
-              .then(CascadeR(A()).a1.a1.a1.a1.b1().a1.a1.run)
+              .then(ChainAttr(A()).a1.root().b1().a1.root().a1.run)
+              .then(CascadeAttr(A()).a1.a1.a1.a1.b1().a1.a1.run)
               .then(lambda: 10)
               .then(lambda v: Chain() | 5 | run(v), 1)
               .then(print, Chain())

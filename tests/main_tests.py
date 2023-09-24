@@ -1,7 +1,7 @@
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from tests.try_except_tests import assertRaisesSync, assertRaisesAsync
-from src.quent import Chain, ChainR, Cascade, CascadeR, QuentException, run
+from src.quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
 
 
 class MainTest(IsolatedAsyncioTestCase):
