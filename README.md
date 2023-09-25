@@ -219,7 +219,7 @@ Chain(A()).attr_fn('a1', foo=1)
 ChainAttr(A()).a1(2)
 ```
 
-### `.foreach(fn: Callable) -> Chain`
+### `foreach(fn: Callable) -> Chain`
 Iterates over the current chain value and invokes `fn(element)` for each element. Similarly to `.ignore()`,
 this function does not change the current chain value.
 
@@ -230,7 +230,16 @@ Chain(list_of_ids)
 ```
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
 
-### `.with_(...) -> Chain`
+### `with_(...) -> Chain`
+
+### `Chain.from_(*args) -> Chain`
+Creates a `Chain` template, and registers `args` as chain items.
+
+```python
+Chain.from_(validate_data, normalize_data, send_data).run(fetch_data, id)
+# is the same as doing
+Chain().then(validate_data).then(normalize_data).then(send_data).run(fetch_data, id)
+```
 
 ### Callbacks
 ### `except_(fn: Callable | str, *args, **kwargs) -> Chain`

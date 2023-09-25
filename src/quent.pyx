@@ -257,10 +257,8 @@ cdef class run:
 # TODO how to declare `Type[Chain] cls` ?
 cdef Chain from_list(object cls, tuple links):
   cdef object el
-  if not links:
-    return cls()
-  cdef Chain seq = cls(links[0])
-  for el in links[1:]:
+  cdef Chain seq = cls()
+  for el in links:
     seq._then(el)
   return seq
 
@@ -540,7 +538,7 @@ cdef class Chain:
     return self
 
   def not_(self) -> Chain:
-    # use a named function (instead of a lambda) to for more clarity during an exception
+    # use a named function (instead of a lambda) to have more details in the exception stacktrace
     def not_(object cv) -> bool: return not cv
     self._if(not_)
     return self
@@ -584,7 +582,7 @@ cdef class Chain:
   def __call__(self, v: Any | Callable = Null, *args, **kwargs) -> Any:
     return self._run(v, args, kwargs)
 
-  # while this is nice to have, I fear it will lead to unexpected behavior as
+  # while this may be nice to have, I fear that it will cause troubles as
   # people might forget to call `.run()` when dealing with non-async code (or
   # code that could be both but is not known to the one creating the chain).
   #def __await__(self):
