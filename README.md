@@ -201,7 +201,7 @@ else:
 The `evaluate_value` function contains the full evaluation logic.
 
 ### Core
-### `__init__(value: Any = None, *args, **kwargs)`
+#### `__init__(value: Any = None, *args, **kwargs)`
 Creates a new chain with `value` as the chain's root item. `value` can be anything - a literal value,
 a function, a class, etc.
 If `args` or `kwargs` are provided, `value` is assumed to be a callable and will be evaluated with those
@@ -219,7 +219,7 @@ Chain(cls, name='foo')
 Chain(lambda v: v*10, 4.2)
 ```
 
-### `run(value: Any = None, *args, **kwargs) -> Any | Coroutine`
+#### `run(value: Any = None, *args, **kwargs) -> Any | Coroutine`
 Evaluates the chain and returns the result, or a coroutine if there are any coroutines in the chain.
 
 If the chain is a template chain (initialized without a value), you must call `.run()` with a value, which will act
@@ -237,7 +237,7 @@ Chain().run(cls, name='foo')
 Chain().run(lambda v: v*10, 2)
 ```
 
-### `then(value: Any, *args, **kwargs) -> Chain`
+#### `then(value: Any, *args, **kwargs) -> Chain`
 Adds `value` to the chain as a chain item. `value` can be anything - a literal value, a function, a class, etc.
 
 Sets the evaluation of `value` as the current chain value.
@@ -252,7 +252,7 @@ Chain(42).then(verify_result)
 Chain('<uuid>').then(uuid.UUID)
 ```
 
-### `root(value: Any = None, *args, **kwargs) -> Chain`
+#### `root(value: Any = None, *args, **kwargs) -> Chain`
 Like `.then()`, but it first sets the root value as the current chain value. Then it evaluates `value`
 by the default [evaluation procedure](#value-evaluation).
 
@@ -264,7 +264,7 @@ Read more in [Flow Modifiers](#flow-modifiers).
 Chain(42).then(lambda v: v/10).root(lambda v: v == 42)
 ```
 
-### `ignore(value: Any, *args, **kwargs) -> Chain`
+#### `ignore(value: Any, *args, **kwargs) -> Chain`
 Like `.then()`, but keeps the current chain value unchanged.
 Read more in [Flow Modifiers](#flow-modifiers).
 
@@ -272,14 +272,14 @@ Read more in [Flow Modifiers](#flow-modifiers).
 Chain(fetch_data, id).ignore(print).then(validate_data)
 ```
 
-### `root_ignore(value: Any, *args, **kwargs) -> Chain`
+#### `root_ignore(value: Any, *args, **kwargs) -> Chain`
 The combination of `.root()` and `.ignore()`.
 
 ```python
 Chain(fetch_data, id).then(validate_data).root_ignore(print).then(normalize_data)
 ```
 
-### `attr(name: str) -> Chain`
+#### `attr(name: str) -> Chain`
 Like `.then()`, but evaluates to `getattr(current_chain_item, name)`.
 
 ```python
@@ -293,7 +293,7 @@ Chain(A()).attr('a1')
 ChainAttr(A()).a1
 ```
 
-### `attr_fn(name: str, *args, **kwargs) -> Chain`
+#### `attr_fn(name: str, *args, **kwargs) -> Chain`
 Like `.attr()`, but evaluates to `getattr(current_chain_item, name)(*args, **kwargs)`.
 
 ```python
@@ -306,7 +306,7 @@ Chain(A()).attr_fn('a1', foo=1)
 ChainAttr(A()).a1(2)
 ```
 
-### `foreach(fn: Callable) -> Chain`
+#### `foreach(fn: Callable) -> Chain`
 Iterates over the current chain value and invokes `fn(element)` for each element. Similarly to `.ignore()`,
 this function does not change the current chain value.
 
@@ -317,9 +317,9 @@ Chain(list_of_ids)
 ```
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
 
-### `with_(...) -> Chain`
+#### `with_(...) -> Chain`
 
-### `Chain.from_(*args) -> Chain`
+#### `Chain.from_(*args) -> Chain`
 Creates a `Chain` template, and registers `args` as chain items.
 
 ```python
@@ -329,7 +329,7 @@ Chain().then(validate_data).then(normalize_data).then(send_data).run(fetch_data,
 ```
 
 ### Callbacks
-### `except_(fn: Callable | str, *args, **kwargs) -> Chain`
+#### `except_(fn: Callable | str, *args, **kwargs) -> Chain`
 Register a callback that will be called if an exception is raised anytime during the chain's
 evaluation. The callback is evaluated with the root value, or with `args` and `kwargs`.
 
@@ -339,7 +339,7 @@ If `fn` is a string, then it is assumed to be an attribute method of the root va
 Chain(fetch_data).then(validate_data).except_(discard_data)
 ```
 
-### `finally_(fn: Callable | str, *args, **kwargs) -> Chain`
+#### `finally_(fn: Callable | str, *args, **kwargs) -> Chain`
 
 Register a callback that will **always** be called after the chain's evaluation. The callback is evaluated with
 the root value, or with `args` and `kwargs`.
@@ -351,7 +351,7 @@ Chain(get_id).then(aqcuire_lock).root(fetch_data).finally_(release_lock)
 ```
 
 ### Conditionals
-### `if_(fn: Callable | Ellipsis = ..., on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `if_(fn: Callable | Ellipsis = ..., on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 Registers a function `fn` which will be called with the current chain value. If `on_true` is provided and
 the result of `fn` is truthy, evaluates `on_true` and sets the result as the current chain value.
 If `on_true` is not provided, sets the result of `fn` as the current chain value.
@@ -364,7 +364,7 @@ If `fn` is an `Ellipsis`, evaluates the truthiness of the current chain value (`
 Chain(get_random_number).if_(lambda num: num > 5, you_win, prize=1)
 ```
 
-### `else_(on_false: Any | Callable, *args, **kwargs) -> Chain`
+#### `else_(on_false: Any | Callable, *args, **kwargs) -> Chain`
 If a previous conditional result is falsy, evaluates `on_false` and sets the result as the current chain value.
 
 `on_false` may be anything and follows the default [evaluation procedure](#value-evaluation) as described above.
@@ -375,7 +375,7 @@ If a previous conditional result is falsy, evaluates `on_false` and sets the res
 Chain(get_random_number).if_(lambda num: num > 5, you_win, prize=1).else_(you_lose, cost=10)
 ```
 
-### `not_() -> Chain`
+#### `not_() -> Chain`
 - `not current_chain_value`
 
 This method currently does not support the `on_true` argument since it looks confusing.
@@ -385,7 +385,7 @@ I might add it in the future.
 Chain(is_valid, 'something').not_()
 ```
 
-### `eq(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `eq(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 - `current_chain_value == value`
 
 ```python
@@ -393,35 +393,35 @@ Chain(420).then(lambda v: v/10).eq(42)
 Chain(420).then(lambda v: v/10).eq(40).else_(on_fail)
 ```
 
-### `neq(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `neq(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 - `current_chain_value != value`
 
 ```python
 Chain(420).then(lambda v: v/10).neq(40)
 ```
 
-### `is_(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `is_(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 - `current_chain_value is value`
 
 ```python
 Chain(object()).is_(1)
 ```
 
-### `is_not(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `is_not(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 - `current_chain_value is not value`
 
 ```python
 Chain(object()).is_not(object())
 ```
 
-### `in_(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `in_(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 - `current_chain_value in value`
 
 ```python
 Chain('sub').in_('subway')
 ```
 
-### `not_in(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `not_in(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 - `current_chain_value not in value`
 
 ```python
