@@ -10,12 +10,6 @@ pip install quent
 ## Table of Contents
 - [Introduction](#introduction)
 - [Real World Example](#real-world-example)
-- [API](#api)
-  - [Core](#core)
-  - [`except`, `finally`](#callbacks)
-  - [Conditionals](#conditionals)
-- [Cascade](#cascade)
-- [Direct Attribute Access](#direct-attribute-access)
 - [Details & Examples](#details--examples)
   - [Literal Values](#literal-values)
   - [Custom Arguments (`args`, `kwargs`, `Ellipsis`)](#custom-arguments)
@@ -23,6 +17,12 @@ pip install quent
   - [Chain Template / Reuse](#reusing-a-chain)
   - [Chain Nesting](#nesting-a-chain)
   - [Pipe Syntax](#pipe-syntax)
+- [API](#api)
+  - [Core](#core)
+  - [`except`, `finally`](#callbacks)
+  - [Conditionals](#conditionals)
+- [Cascade](#cascade)
+- [Direct Attribute Access](#direct-attribute-access)
 - [Limitations](#limitations)
 
 **Suggestions and contributions are more than welcome.**
@@ -93,6 +93,93 @@ Some would say that this pattern can cause unexpected behavior, since it isn't c
 will return a coroutine or not. I see it no differently than any undocumented code - with a proper
 and clear documentation (be it an external documentation or just a simple docstring), there shouldn't be
 any *unexpected* behavior.
+
+## Details & Examples
+### Literal Values
+You don't have to pass a callable as a chain item - literal values works just as well.
+```python
+Chain(fetch_data, id).then(True).run()
+```
+will execute `fetch_data(id)`, and then return `True`.
+
+### Custom Arguments
+You may provide `args` or `kwargs` to a chain item - doing so will assume that the item is a callable
+and will evaluate it with the provided arguments, instead of evaluating it with the current chain value.
+```python
+Chain(fetch_data, id).then(fetch_data, another_id, password=password).run()
+```
+will execute `fetch_data(id)`, and then `fetch_data(another_id, password=password)`.
+#### Ellipsis
+The `Ellipsis` / `...` is a special case - if the first argument for anything is `...`,
+the item will be evaluated without any arguments.
+```python
+Chain(fetch_data, id).then(do_something, ...).run()
+```
+will execute `fetch_data(id)`, and then `do_something()`.
+
+### Flow Modifiers
+While the default operation of a chain is to, well, chain operations (using `.then()`), there are cases where you may
+want to break out of this flow. For this, `Chain` provides the functions `.root()` and `.ignore()`.
+They both behave like `.then()`, but with a small difference:
+
+- `.root()` evaluates the item using the root value, instead of the current chain value.
+- `.ignore()` evaluates the item with the current chain value but will not propagate its result forwards.
+
+There is also a `.root_ignore()` which is the combination of `.root()` and `.ignore()`.
+
+### Reusing A Chain
+You may reuse a chain as many times as you wish.
+```python
+chain = Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data)
+chain.run()
+chain.run()
+...
+```
+
+There are many cases where you may need to apply the same sequence of operations but with different inputs. Take our
+previous example:
+```python
+Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data).run()
+```
+Instead, we can create a template chain and reuse it, passing different values to `.run()`:
+```python
+handle_data = Chain().then(validate_data).then(normalize_data).then(send_data)
+
+for id in list_of_ids:
+  handle_data.run(fetch_data, id)
+```
+Re-using a `Chain` object will significantly reduce its overhead, as most of the performance hit is due
+to the creation of a new `Chain` instance. Nonetheless, the performance hit is negligible and not worth to sacrifice
+readability for. So unless it makes sense (or you need to really squeeze out performance),
+it's better to create a new `Chain` instance.
+
+### Nesting A Chain
+You can nest a `Chain` object within another `Chain` object:
+```python
+Chain(fetch_data, id)
+.then(Chain().then(validate_data).then(normalize_data))
+.then(send_data)
+.run()
+```
+A nested chain must always be a template chain.
+
+A nested chain will be evaluated with the current [outer] chain value passed to its `.run()` method.
+
+### Pipe Syntax
+Pipe syntax is supported:
+```python
+from quent import Chain, run
+
+(Chain(fetch_data) | process_data | normalize_data | send_data).run()
+Chain(fetch_data) | process_data | normalize_data | send_data | run()
+```
+You can also use [Pipe](https://github.com/JulienPalard/Pipe) with Quent:
+```python
+from pipe import map
+
+Chain(get_items).then(map(lambda item: item.is_valid()))
+Chain(get_items) | map(lambda item: item.is_valid())
+```
 
 ## API
 #### Value Evaluation
@@ -404,100 +491,13 @@ A void `Cascade` will always return `None`.
 
 ### Direct Attribute Access
 Both `Chain` and `Cascade` can support "direct" attribute access via the `ChainAttr` and `CascadeAttr` classes.
-See the section above to see an example of `CascadeAttr` usage. The same principle holds for
+See the [Cascade](#cascade) section above to see an example of `CascadeAttr` usage. The same principle holds for
 `ChainAttr`.
 
 The reason I decided to separate this functionality from the main classes is due to the fact
 that it requires overriding `__getattr__`, which drastically increases the overhead of both creating an instance and
 accessing any properties / methods. And since I don't think this kind of usage will be common, I decided
 to keep this functionality opt-in.
-
-## Details & Examples
-### Literal Values
-You don't have to pass a callable as a chain item - literal values works just as well.
-```python
-Chain(fetch_data, id).then(True).run()
-```
-will execute `fetch_data(id)`, and then return `True`.
-
-### Custom Arguments
-You may provide `args` or `kwargs` to a chain item - doing so will assume that the item is a callable
-and will evaluate it with the provided arguments, instead of evaluating it with the current chain value.
-```python
-Chain(fetch_data, id).then(fetch_data, another_id, password=password).run()
-```
-will execute `fetch_data(id)`, and then `fetch_data(another_id, password=password)`.
-#### Ellipsis
-The `Ellipsis` / `...` is a special case - if the first argument for anything is `...`,
-the item will be evaluated without any arguments.
-```python
-Chain(fetch_data, id).then(do_something, ...).run()
-```
-will execute `fetch_data(id)`, and then `do_something()`.
-
-### Flow Modifiers
-While the default operation of a chain is to, well, chain operations (using `.then()`), there are cases where you may
-want to break out of this flow. For this, `Chain` provides the functions `.root()` and `.ignore()`.
-They both behave like `.then()`, but with a small difference:
-
-- `.root()` evaluates the item using the root value, instead of the current chain value.
-- `.ignore()` evaluates the item with the current chain value but will not propagate its result forwards.
-
-There is also a `.root_ignore()` which is the combination of `.root()` and `.ignore()`.
-
-### Reusing A Chain
-You may reuse a chain as many times as you wish.
-```python
-chain = Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data)
-chain.run()
-chain.run()
-...
-```
- 
-There are many cases where you may need to apply the same sequence of operations but with different inputs. Take our
-previous example:
-```python
-Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data).run()
-```
-Instead, we can create a template chain and reuse it, passing different values to `.run()`:
-```python
-handle_data = Chain().then(validate_data).then(normalize_data).then(send_data)
-
-for id in list_of_ids:
-  handle_data.run(fetch_data, id)
-```
-Re-using a `Chain` object will significantly reduce its overhead, as most of the performance hit is due
-to the creation of a new `Chain` instance. Nonetheless, the performance hit is negligible and not worth to sacrifice
-readability for. So unless it makes sense (or you need to really squeeze out performance),
-it's better to create a new `Chain` instance.
-
-### Nesting A Chain
-You can nest a `Chain` object within another `Chain` object:
-```python
-Chain(fetch_data, id)
-.then(Chain().then(validate_data).then(normalize_data))
-.then(send_data)
-.run()
-```
-A nested chain must always be a template chain.
-
-A nested chain will be evaluated with the current [outer] chain value passed to its `.run()` method.
-
-### Pipe Syntax
-Pipe syntax is supported:
-```python
-from quent import Chain, run
-
-(Chain(fetch_data) | process_data | normalize_data | send_data).run()
-Chain(fetch_data) | process_data | normalize_data | send_data | run()
-```
-You can also use [Pipe](https://github.com/JulienPalard/Pipe) with Quent:
-```python
-from pipe import map
-
-Chain(get_items).then(map(lambda item: item.is_valid()))
-Chain(get_items) | map(lambda item: item.is_valid())
-```
 
 ## Limitations
 ### An important note about `except` and `finally` callbacks
