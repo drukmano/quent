@@ -1,3 +1,4 @@
+import asyncio
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from tests.try_except_tests import assertRaisesSync, assertRaisesAsync
@@ -73,3 +74,30 @@ class MainTest(IsolatedAsyncioTestCase):
     self.assertIsNone(Cascade().root().run())
     self.assertIsNone(Cascade().then(lambda: 5).then(lambda: 6).run())
     self.assertIn('6 links', str(Chain(5).then(lambda v: v).eq(5).else_(10).in_([10]).else_(False).not_()))
+
+  async def test_foreach(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        def f(i):
+          nonlocal counter
+          counter += i**2
+
+        counter = 0
+        await await_(Chain(range(10)).foreach(lambda v: fn(f(v))).run())
+        self.assertEquals(counter, sum(i**2 for i in range(10)))
+
+        counter = 0
+        await await_(Chain(range(10)).then(fn).foreach(lambda v: fn(f(v))).run())
+        self.assertEquals(counter, sum(i**2 for i in range(10)))
+
+  async def test_foreach_async_mid_loop(self):
+      def f(i):
+        nonlocal counter
+        counter += i**2
+        if 4 <= i <= 7:
+          return aempty()
+
+      counter = 0
+      await await_(Chain(range(10)).foreach(f).run())
+      self.assertEquals(counter, sum(i**2 for i in range(10)))
+      self.assertTrue(asyncio.iscoroutine(Chain(range(10)).foreach(f).run()))

@@ -342,6 +342,7 @@ cdef class Chain:
       list links = self.links
       tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
       int idx = -1
+      Exception e
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
@@ -401,6 +402,7 @@ cdef class Chain:
       bint is_with_root = False, is_exc_raised_on_await = False
       tuple link, on_except = self.on_except, on_finally = self.on_finally
       list links = self.links
+      Exception e
 
     try:
       try:
@@ -519,6 +521,21 @@ cdef class Chain:
     self._then(name, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
+  def foreach(self, fn: Callable) -> Chain:
+    # this can be a little bit optimized by performing the 'foreach' loop
+    # directly within the main `run` loop, but it requires significant
+    # changes to handle cases where `fn(el)` might return a coroutine.
+    # using `Cascade` makes this very short and clear.
+    def foreach(object cv):
+      cdef Cascade cascade
+      cdef object el
+      cascade = Cascade()
+      for el in cv:
+        cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
+      return cascade.run()
+    self._then(foreach, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
+    return self
+
   def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
     self._except(fn_or_attr, args, kwargs)
     return self
@@ -605,6 +622,8 @@ cdef class Chain:
 
 
 cdef class Cascade(Chain):
+  # TODO mark all cascade items as `ignore_result=True` to (marginally) increase performance.
+
   # noinspection PyMissingConstructor
   def __init__(self, v: Any | Callable = Null, *args, **kwargs):
     self.init(v, args, kwargs, is_cascade=True)
