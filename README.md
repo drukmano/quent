@@ -85,6 +85,8 @@ of them. Finally, it will reset the `pipe` object. Any function passed to `.fina
 even if an exception has been raised during the execution of the chain. The purpose of the `...` here is explained
 in the [Ellipsis](#ellipsis) section.
 
+`pipe.execute` and `pipe.reset` are both performing a network request to Redis, and in the case of an `async` Redis
+object - are coroutines and would have to be awaited.
 Notice that I return without an explicit `await` - if the user of this wrapper has initialized the class with an
 async `Redis` instance, they will know that they need to `await` it. This allows me to focus on the actual logic,
 without caring about `sync` vs `async`.
@@ -103,14 +105,15 @@ Chain(fetch_data, id).then(True).run()
 will execute `fetch_data(id)`, and then return `True`.
 
 ### Custom Arguments
-You may provide `args` or `kwargs` to a chain item - doing so will assume that the item is a callable
+You may provide `args` or `kwargs` to a chain item - by doing so, Quent assumes that the item is a callable
 and will evaluate it with the provided arguments, instead of evaluating it with the current chain value.
 ```python
 Chain(fetch_data, id).then(fetch_data, another_id, password=password).run()
 ```
 will execute `fetch_data(id)`, and then `fetch_data(another_id, password=password)`.
 #### Ellipsis
-The `Ellipsis` / `...` is a special case - if the first argument for anything is `...`,
+The `Ellipsis` / `...` is a special case - if the first argument for *most* functions that register a chain item
+or a callback is `...`,
 the item will be evaluated without any arguments.
 ```python
 Chain(fetch_data, id).then(do_something, ...).run()
@@ -163,7 +166,7 @@ Chain(fetch_data, id)
 ```
 A nested chain must always be a template chain.
 
-A nested chain will be evaluated with the current [outer] chain value passed to its `.run()` method.
+A nested chain will be evaluated with the current chain value of the parent chain passed to its `.run()` method.
 
 ### Pipe Syntax
 Pipe syntax is supported:
@@ -175,10 +178,10 @@ Chain(fetch_data) | process_data | normalize_data | send_data | run()
 ```
 You can also use [Pipe](https://github.com/JulienPalard/Pipe) with Quent:
 ```python
-from pipe import map
+from pipe import where
 
-Chain(get_items).then(map(lambda item: item.is_valid()))
-Chain(get_items) | map(lambda item: item.is_valid())
+Chain(get_items).then(where(lambda item: item.is_valid()))
+Chain(get_items) | where(lambda item: item.is_valid())
 ```
 
 ## API
@@ -472,8 +475,15 @@ def better_get_foo():
   return CascadeAttr(Foo()).foo().bar().baz().run()
 ```
 
+`Cascade` works for any kind of object:
+```python
+from quent import CascadeAttr
+
+CascadeAttr([]).append(1).append(2).append(3).run() == [1, 2, 3]
+```
+
 #### Cascade - Void Mode
-In some cases it may be desired to run a bunch of independent operations. Using `Cascade`, you can
+In some cases it may be desired to run a bunch of independent operations. Using `Cascade`, one can
 achieve this by simply not passing a root value to the constructor nor to `.run()`. All the chain items
 will not receive any arguments (excluding explicitly provided `args` / `kwargs`).
 ```python
@@ -492,7 +502,7 @@ A void `Cascade` will always return `None`.
 ### Direct Attribute Access
 Both `Chain` and `Cascade` can support "direct" attribute access via the `ChainAttr` and `CascadeAttr` classes.
 See the [Cascade](#cascade) section above to see an example of `CascadeAttr` usage. The same principle holds for
-`ChainAttr`.
+`ChainAttr`. Accessing attributes without using the `Attr` subclass is possible using `.attr()` and `.attr_fn()`.
 
 The reason I decided to separate this functionality from the main classes is due to the fact
 that it requires overriding `__getattr__`, which drastically increases the overhead of both creating an instance and
@@ -500,14 +510,23 @@ accessing any properties / methods. And since I don't think this kind of usage w
 to keep this functionality opt-in.
 
 ## Limitations
-### An important note about `except` and `finally` callbacks
+### Asynchronous `except` and `finally` callbacks
 If an except/finally callback is a coroutine function, and an exception is raised *before*
 the first coroutine of the chain has been evaluated, or if there aren't any coroutines in the chain - the
 callbacks will **not** be awaited.
 
 This limitation is due to the fact that we cannot (nor want to) return the result of the callbacks so that
-they will be awaited downstream. So in order to `await` the callbacks, the execution must be inside a coroutine.
+they will be awaited downstream. So in order to `await` the callbacks, the execution must be inside a coroutine, so that
+we can `await` the callbacks.
 And the only case where we evaluate the chain inside a coroutine is when we detect a coroutine during the chain's
 evaluation.
 
-This shouldn't be an issue in most use cases, but something to be aware of.
+This shouldn't be an issue in most use cases, but it is important to be aware of this limitation.
+
+As an example, suppose that `fetch_data` is synchronous, and `report_usage` is asynchronous.
+```python
+Chain(fetch_data).then(raise_exception, ...).finally_(report_usage).run()
+```
+will execute `fetch_data()`, then `raise_exception()`, and then `report_usage(data)`. But `report_usage(data)` is a
+coroutine, and `fetch_data` and `raise_exceptions` are not. This will cause `report_usage(data)` to be invoked **but
+not awaited**.
