@@ -1,4 +1,6 @@
 import asyncio
+import contextlib
+import inspect
 from contextlib import contextmanager, asynccontextmanager
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
@@ -82,13 +84,22 @@ class MainTest(IsolatedAsyncioTestCase):
         def f(i):
           nonlocal counter
           counter += i**2
+          return i
 
         counter = 0
-        await await_(Chain(range(10)).foreach(lambda v: fn(f(v))).run())
+        self.assertTrue(await await_(Chain(range(10)).foreach(lambda v: fn(f(v))).eq(list(range(10))).run()))
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
         counter = 0
-        await await_(Chain(range(10)).then(fn).foreach(lambda v: fn(f(v))).run())
+        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach(lambda v: fn(f(v))).eq(list(range(10))).run()))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
+
+        counter = 0
+        self.assertTrue(await await_(Chain(range(10)).foreach_do(lambda v: fn(f(v))).eq(range(10)).run()))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
+
+        counter = 0
+        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach_do(lambda v: fn(f(v))).eq(range(10)).run()))
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
   async def test_foreach_async_gen(self):
@@ -100,13 +111,22 @@ class MainTest(IsolatedAsyncioTestCase):
         def f(n):
           nonlocal num
           num = n
+          return n
 
         num = 0
-        await await_(Chain(gen).foreach(f).run())
+        self.assertTrue(await await_(Chain(gen).foreach(f).eq([42]).run()))
         self.assertEqual(num, 42)
 
         num = 0
-        await await_(Chain(gen).then(fn).foreach(f).run())
+        self.assertTrue(await await_(Chain(gen).then(fn).foreach(f).eq([42]).run()))
+        self.assertEqual(num, 42)
+
+        num = 0
+        self.assertTrue(await await_(Chain(gen).foreach_do(f).then(inspect.isasyncgen).run()))
+        self.assertEqual(num, 42)
+
+        num = 0
+        await await_(Chain(gen).then(fn).foreach_do(f).run())
         self.assertEqual(num, 42)
 
   async def test_foreach_async_mid_loop(self):
@@ -114,12 +134,22 @@ class MainTest(IsolatedAsyncioTestCase):
         nonlocal counter
         counter += i**2
         if 4 <= i <= 7:
-          return aempty()
+          return aempty(i)
+        return i
 
       counter = 0
-      await await_(Chain(range(10)).foreach(f).run())
+      self.assertTrue(await await_(Chain(range(10)).foreach(f).eq(list(range(10))).run()))
       self.assertEqual(counter, sum(i**2 for i in range(10)))
+
       coro = Chain(range(10)).foreach(f).run()
+      self.assertTrue(asyncio.iscoroutine(coro))
+      await coro
+
+      counter = 0
+      self.assertTrue(await await_(Chain(range(10)).foreach_do(f).eq(range(10)).run()))
+      self.assertEqual(counter, sum(i**2 for i in range(10)))
+
+      coro = Chain(range(10)).foreach_do(f).run()
       self.assertTrue(asyncio.iscoroutine(coro))
       await coro
 
@@ -132,11 +162,19 @@ class MainTest(IsolatedAsyncioTestCase):
     async def async_ctx(v: int):
       yield v**2
 
-    for ctx in [sync_ctx, async_ctx]:
+    sync_cls = contextlib.AbstractContextManager
+    async_cls = contextlib.AbstractAsyncContextManager
+
+    for ctx, cls in [(sync_ctx, sync_cls), (async_ctx, async_cls)]:
       for fn in [empty, aempty]:
         with self.subTest(ctx=ctx, fn=fn):
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).neq(100).run()))
-          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(...).eq(100).run()))
-          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(..., lambda v: v/10).eq(10).run()))
-          self.assertTrue(await await_(Chain(None).then(fn).with_(ctx(10)).eq(100).run()))
-          self.assertTrue(await await_(Chain(None).then(fn).with_(ctx(10), lambda v: v/10).eq(10).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_().eq(100).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(lambda v: v/10).eq(10).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_().eq(100).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_(lambda v: v/10).eq(10).run()))
+
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(100).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(100).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))

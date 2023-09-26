@@ -82,6 +82,6 @@ class ConditionalTests(IsolatedAsyncioTestCase):
       with self.subTest(fn=fn):
         self.assertTrue(await await_(Chain(None).then(fn).is_(None, lambda: False).else_(True).is_(False).run()))
         self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51], fn, 9).else_(fn, 10).eq(9).run()))
-        self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51], fn, 9).else_(fn, 10).if_(lambda v: v < 10, lambda: False).is_(False).is_not(False).run()))
-        self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v*10).neq(10, lambda: 5).else_(lambda: 6)).neq(6).if_(..., lambda: False).else_(True).run()))
+        self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51], fn, 9).else_(fn, 10).then(lambda v: v < 10).if_(lambda: False).is_(False).is_not(False).run()))
+        self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v*10).neq(10, lambda: 5).else_(lambda: 6)).neq(6).if_(lambda: False).else_(True).run()))
         self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v+5)).eq(6).run()))

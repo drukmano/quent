@@ -519,27 +519,51 @@ cdef class Chain:
 
   def foreach(self, fn: Callable) -> Chain:
     async def async_foreach(object cv):
-      cdef Cascade cascade
+      cdef list lst = []
+      cdef Chain chain = Chain(lst)
       cdef object el
-      cascade = Cascade()
       async for el in cv:
-        cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
-      return cascade.run()
+        chain._then(fn, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=(el,), kwargs={})
+        chain._then(lst.append)
+      chain._then(Null, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=None, kwargs=None)
+      return chain.run()
 
     def foreach(object cv):
       if hasattr(cv, '__aiter__'):
         return async_foreach(cv)
-      cdef Cascade cascade
+      cdef list lst = []
+      cdef Chain chain = Chain(lst)
       cdef object el
-      cascade = Cascade()
+      for el in cv:
+        chain._then(fn, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=(el,), kwargs={})
+        chain._then(lst.append)
+      chain._then(Null, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=None, kwargs=None)
+      return chain.run()
+
+    self._then(foreach)
+    return self
+
+  def foreach_do(self, fn: Callable) -> Chain:
+    async def async_foreach_do(object cv):
+      cdef Cascade cascade = Cascade()
+      cdef object el
+      async for el in cv:
+        cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
+      return cascade.run()
+
+    def foreach_do(object cv):
+      if hasattr(cv, '__aiter__'):
+        return async_foreach_do(cv)
+      cdef Cascade cascade = Cascade()
+      cdef object el
       for el in cv:
         cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
       return cascade.run()
 
-    self._then(foreach, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
+    self._then(foreach_do, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
     return self
 
-  def with_(self, context: Any | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
+  def with_(self, v: Any | Callable = Null, *args, **kwargs) -> Chain:
     async def async_with(object cv):
       cdef object ctx, result
       async with cv as ctx:
@@ -553,8 +577,6 @@ cdef class Chain:
         return result
 
     def with_(object cv):
-      if context is not ...:
-        cv = context
       if hasattr(cv, '__aenter__'):
         return async_with(cv)
       cdef object ctx
@@ -568,6 +590,28 @@ cdef class Chain:
     self._then(with_, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
     return self
 
+  def with_do(self, v: Any | Callable, *args, **kwargs) -> Chain:
+    async def async_with_do(object cv):
+      cdef object ctx, result
+      async with cv as ctx:
+        result = evaluate_value(
+          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
+        )
+        if isawaitable(result):
+          await result
+
+    def with_do(object cv):
+      if hasattr(cv, '__aenter__'):
+        return async_with_do(cv)
+      cdef object ctx
+      with cv as ctx:
+        evaluate_value(
+          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
+        )
+
+    self._then(with_do, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
+    return self
+
   def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
     self._except(fn_or_attr, args, kwargs)
     return self
@@ -576,10 +620,8 @@ cdef class Chain:
     self._finally(fn_or_attr, args, kwargs)
     return self
 
-  def if_(self, v: Callable | Ellipsis = ..., on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    if v is ...:
-      v = bool
-    self._if(v, on_true, args, kwargs)
+  def if_(self, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
+    self._if(bool, on_true, args, kwargs)
     return self
 
   def else_(self, on_false: Any | Callable, *args, **kwargs) -> Chain:
