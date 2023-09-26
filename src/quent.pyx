@@ -524,14 +524,7 @@ cdef class Chain:
         cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
       return cascade.run()
 
-    # this can be a little bit optimized by performing the 'foreach' loop
-    # directly within the main `run` loop, but it requires significant
-    # changes to handle cases where `fn(el)` might return a coroutine.
-    # using `Cascade` makes this very short and clear.
     def foreach(object cv):
-      # similarly to `.with_()`, a class may implement both `__iter__` and `__aiter__`.
-      # since this case is not common (`async def ... yield` syntax is the most common
-      # way to define an async generator), we don't handle those cases for now.
       if hasattr(cv, '__aiter__'):
         return async_foreach(cv)
       cdef Cascade cascade
@@ -558,13 +551,11 @@ cdef class Chain:
         return result
 
     def with_(object cv):
-      cdef object ctx
       if context is not ...:
         cv = context
-      # a class *may* implement both `__enter__` and `__aenter__`. in that case,
-      # the user must use `.async_with()` if they wish to use `async with ...`.
-      if not hasattr(cv, '__enter__'):
+      if hasattr(cv, '__aenter__'):
         return async_with(cv)
+      cdef object ctx
       with cv as ctx:
         if v is Null:
           return ctx
@@ -573,27 +564,6 @@ cdef class Chain:
         )
 
     self._then(with_, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
-    return self
-
-  def async_with(self, context: Any | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
-    # this method should only be used for cases where a context manager class
-    # implements both `__enter__` and `__aenter__`, and `__aenter__` usage
-    # is explicitly required.
-    async def async_with(object cv):
-      cdef object ctx, result
-      if context is not ...:
-        cv = context
-      async with cv as ctx:
-        if v is Null:
-          return ctx
-        result = evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
-        )
-        if isawaitable(result):
-          return await result
-        return result
-
-    self._then(async_with, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
     return self
 
   def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:

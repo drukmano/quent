@@ -351,6 +351,9 @@ ChainAttr(A()).a1(2)
 Iterates over the current chain value and invokes `fn(element)` for each element. Similarly to `.ignore()`,
 this function does not change the current chain value.
 
+If the iterator implements `__aiter__`, `async for ...` will be used.
+
+Example:
 ```python
 Chain(list_of_ids)
 .foreach(Chain().then(fetch_data).then(validate_data).then(normalize_data).then(send_data))
@@ -358,29 +361,29 @@ Chain(list_of_ids)
 ```
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
 
-If the iterator is an [asynchronous generator](https://peps.python.org/pep-0525/), Quent will use `async for ...`
-to iterate over it.
-
 #### With
 #### `with_(self, context: Any | Ellipsis = ..., value: Any | Callable = None, *args, **kwargs) -> Chain`
-Evaluates `value` by the default [evaluation procedure](#value-evaluation) inside a context. Returns the
+Evaluates `value` by the default [evaluation procedure](#value-evaluation) inside a context and returns the
 result.
 
 If `context` is an `Ellipsis`, The current chain value is used as the context. Otherwise,
 `context` is used as-is.
 
 If `value` is not provided, the function returns the object that is returned from the `__enter__`
-or `__aenter__` methods of the context. A check is performed to determine whether the context
-should be used in a `with ...` or a `async with ...` statement.
+or `__aenter__` methods of the context. 
 
-**Note: if a context implements both `__enter__` and `__aenter__` methods, it will always be used in a regular `with ...`
-statement. If this is the case, and you need to explicitly use `async with ...`, use `Chain.async_with()`.**
+If the context object implements `__aenter__`, `async with ...` will be used.
 
-#### `async_with(self, context: Any | Ellipsis = ..., value: Any | Callable = None, *args, **kwargs) -> Chain`
-Just like `.with()`, but explicitly for async contexts.
-
-Do not use this method unless you have to. Opt to use `.with_()` instead, as it can handle both sync and async
-contexts.
+Example:
+```python
+Chain(get_lock, id).with_(..., fetch_data, id).run()
+```
+is roughly equivalent to:
+```python
+# or `async with get_lock(id)` if `get_lock(id)` returns an object that implements `__aenter__`
+with get_lock(id):
+  return fetch_data(id)
+```
 
 #### `Chain.from_(*args) -> Chain`
 Creates a `Chain` template, and registers `args` as chain items.

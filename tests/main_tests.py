@@ -140,10 +140,3 @@ class MainTest(IsolatedAsyncioTestCase):
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(..., lambda v: v/10).eq(10).run()))
           self.assertTrue(await await_(Chain(None).then(fn).with_(ctx(10)).eq(100).run()))
           self.assertTrue(await await_(Chain(None).then(fn).with_(ctx(10), lambda v: v/10).eq(10).run()))
-
-    for fn in [empty, aempty]:
-      with self.subTest(fn=fn):
-        self.assertTrue(await await_(Chain(async_ctx, 10).then(fn).async_with(...).eq(100).run()))
-        self.assertTrue(await await_(Chain(async_ctx, 10).then(fn).async_with(..., lambda v: v/10).eq(10).run()))
-        self.assertTrue(await await_(Chain(None).then(fn).async_with(async_ctx(10)).eq(100).run()))
-        self.assertTrue(await await_(Chain(None).then(fn).async_with(async_ctx(10), lambda v: v/10).eq(10).run()))
