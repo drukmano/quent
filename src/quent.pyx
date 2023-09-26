@@ -509,6 +509,10 @@ cdef class Chain:
     self._then(v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
+  def root_ignore(self, v: Any | Callable, *args, **kwargs) -> Chain:
+    self._then(v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
+    return self
+
   def attr(self, name: str) -> Chain:
     self._then(name, is_attr=True)
     return self
