@@ -522,17 +522,31 @@ cdef class Chain:
     return self
 
   def foreach(self, fn: Callable) -> Chain:
+    async def async_foreach(object cv):
+      cdef Cascade cascade
+      cdef object el
+      cascade = Cascade()
+      async for el in cv:
+        cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
+      return cascade.run()
+
     # this can be a little bit optimized by performing the 'foreach' loop
     # directly within the main `run` loop, but it requires significant
     # changes to handle cases where `fn(el)` might return a coroutine.
     # using `Cascade` makes this very short and clear.
     def foreach(object cv):
+      # similarly to `.with_()`, a class may implement both `__iter__` and `__aiter__`.
+      # since this case is not common (`async def ... yield` syntax is the most common
+      # way to define an async generator), we don't handle those cases for now.
+      if hasattr(cv, '__aiter__'):
+        return async_foreach(cv)
       cdef Cascade cascade
       cdef object el
       cascade = Cascade()
       for el in cv:
         cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
       return cascade.run()
+
     self._then(foreach, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
     return self
 

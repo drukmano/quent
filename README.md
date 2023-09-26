@@ -201,6 +201,14 @@ Chain(get_key).in_(list_of_keys)  # == get_key() in list_of_keys
 ```
 See the full list of operations in [Conditionals](#conditionals).
 
+### Iterators
+You can easily iterate over the result of something:
+```python
+Chain(fetch_keys).foreach(do_something_with_key)
+```
+The full details of `.foreach()` are explained
+[here](#foreach).
+
 ### Contexts
 You can execute a function (or do quite anything you want) inside a context:
 ```python
@@ -208,7 +216,7 @@ Chain(get_lock, id).with_(..., fetch_data, id)
 Chain(start_conn, id).with_(get_lock(id), fetch_data, id)
 ```
 The full details of `.with_()` are explained
-[here](#withself-context-any--ellipsis---value-any--callable--none-args-kwargs---chain).
+[here](#with).
 
 ## API
 #### Value Evaluation
@@ -338,6 +346,7 @@ Chain(A()).attr_fn('a1', foo=1)
 ChainAttr(A()).a1(2)
 ```
 
+#### Foreach
 #### `foreach(fn: Callable) -> Chain`
 Iterates over the current chain value and invokes `fn(element)` for each element. Similarly to `.ignore()`,
 this function does not change the current chain value.
@@ -349,6 +358,10 @@ Chain(list_of_ids)
 ```
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
 
+If the iterator is an [asynchronous generator](https://peps.python.org/pep-0525/), Quent will use `async for ...`
+to iterate over it.
+
+#### With
 #### `with_(self, context: Any | Ellipsis = ..., value: Any | Callable = None, *args, **kwargs) -> Chain`
 Evaluates `value` by the default [evaluation procedure](#value-evaluation) inside a context. Returns the
 result.

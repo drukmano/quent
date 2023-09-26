@@ -91,6 +91,24 @@ class MainTest(IsolatedAsyncioTestCase):
         await await_(Chain(range(10)).then(fn).foreach(lambda v: fn(f(v))).run())
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
+  async def test_foreach_async_gen(self):
+    async def gen():
+      yield 42
+
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        def f(n):
+          nonlocal num
+          num = n
+
+        num = 0
+        await await_(Chain(gen).foreach(f).run())
+        self.assertEqual(num, 42)
+
+        num = 0
+        await await_(Chain(gen).then(fn).foreach(f).run())
+        self.assertEqual(num, 42)
+
   async def test_foreach_async_mid_loop(self):
       def f(i):
         nonlocal counter
