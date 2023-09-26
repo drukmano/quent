@@ -37,6 +37,10 @@ Quent is an [enhanced](#details--examples), [chain interface](https://en.wikiped
 Python, designed to handle coroutines transparently. The interface and usage of Quent remains exactly the same,
 whether you feed it synchronous or asynchronous objects - it can handle almost any use case.
 
+*To avoid having to say this for every API and every example - you can, for every single documented API, pass a
+coroutine, and it will work the exact same way as with a regular non-async object / function. Quent automatically awaits any
+coroutines, even the coroutine that a function passed to `.foreach()` may return.*
+
 Quent is written in C (using Cython) to minimize it's overhead as much as possible.
 
 As a basic example, take this function:
