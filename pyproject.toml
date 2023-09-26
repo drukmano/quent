@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quent"
-version = "1.0.4"
+version = "1.0.5"
 authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
 description = "Yet Another Chain Interface."
 license = { file = "LICENSE" }
