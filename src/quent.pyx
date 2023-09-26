@@ -422,7 +422,9 @@ cdef class Chain:
           result = evaluate_value(v, cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             try:
-              cv = await result
+              result = await result
+              if not ignore_result:
+                cv = result
             except:
               is_exc_raised_on_await = True
               raise
