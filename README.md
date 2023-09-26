@@ -32,12 +32,14 @@ pip install quent
 **Suggestions and contributions are more than welcome.**
 
 ## Introduction
-Quent is an [enhanced](#core), [chain interface](https://en.wikipedia.org/wiki/Method_chaining) implementation for Python. As opposed to
-other simple chain implementations, Quent seamlessly handles coroutines.
+
+Quent is an [enhanced](#details--examples), [chain interface](https://en.wikipedia.org/wiki/Method_chaining) implementation for
+Python, designed to handle coroutines transparently. The interface and usage of Quent remains exactly the same,
+whether you feed it synchronous or asynchronous objects - it can handle almost any use case.
 
 Quent is written in C (using Cython) to minimize it's overhead as much as possible.
 
-As an example, take this function:
+As a basic example, take this function:
 ```python
 async def handle_request(id):
   data = await fetch_data(id)
@@ -59,12 +61,12 @@ async def handle_request(id):
   return await Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data).run()
 ```
 Once there is at least one coroutine in the chain, `.run()` will return a coroutine.
-This opens up a lot of new ways to write elegant and readable code.
+This opens up a lot of new ways to write more elegant and readable code.
 
 Besides `Chain`, Quent provides the [Cascade](#cascade) class which implements the [fluent interface](https://en.wikipedia.org/wiki/Fluent_interface).
 
-Quent aims to provide you with all the necessary tools that you may need to write better code.
-Visit [API](#api) to see the full power of Quent.
+Quent aims to provide all the necessary tools to handle every use case.
+See the full capabilities of Quent in the [API Section](#api).
 
 ## Real World Example
 This snippet is taken from a thin Redis wrapper I wrote, which supports both the sync and async versions
@@ -98,7 +100,7 @@ without caring about `sync` vs `async`.
 Some would say that this pattern can cause unexpected behavior, since it isn't clear when it
 will return a coroutine or not. I see it no differently than any undocumented code - with a proper
 and clear documentation (be it an external documentation or just a simple docstring), there shouldn't be
-any *unexpected* behavior.
+any truly *unexpected* behavior (barring any unknown bugs).
 
 ## Details & Examples
 ### Literal Values
@@ -110,7 +112,7 @@ will execute `fetch_data(id)`, and then return `True`.
 
 ### Custom Arguments
 You may provide `args` or `kwargs` to a chain item - by doing so, Quent assumes that the item is a callable
-and will evaluate it with the provided arguments, instead of evaluating it with the current chain value.
+and will evaluate it with the provided arguments, instead of evaluating it with the current value.
 ```python
 Chain(fetch_data, id).then(fetch_data, another_id, password=password).run()
 ```
@@ -129,8 +131,8 @@ While the default operation of a chain is to, well, chain operations (using `.th
 want to break out of this flow. For this, `Chain` provides the functions `.root()` and `.ignore()`.
 They both behave like `.then()`, but with a small difference:
 
-- `.root()` evaluates the item using the root value, instead of the current chain value.
-- `.ignore()` evaluates the item with the current chain value but will not propagate its result forwards.
+- `.root()` evaluates the item using the root value, instead of the current value.
+- `.ignore()` evaluates the item with the current value but will not propagate its result forwards.
 
 There is also a `.root_ignore()` which is the combination of `.root()` and `.ignore()`.
 
@@ -170,7 +172,7 @@ Chain(fetch_data, id)
 ```
 A nested chain must always be a template chain.
 
-A nested chain will be evaluated with the current chain value of the parent chain passed to its `.run()` method.
+A nested chain will be evaluated with the current value of the parent chain passed to its `.run()` method.
 
 ### Pipe Syntax
 Pipe syntax is supported:
@@ -230,7 +232,7 @@ elif args or kwargs:
   return value(*args, **kwargs)
 
 elif callable(value):
-  return value(current_chain_value)
+  return value(current_value)
 
 else:
   return value
@@ -290,7 +292,7 @@ Chain('<uuid>').then(uuid.UUID)
 ```
 
 #### `root(value: Any = None, *args, **kwargs) -> Chain`
-Like `.then()`, but it first sets the root value as the current chain value, and then it evaluates `value`
+Like `.then()`, but it first sets the root value as the current value, and then it evaluates `value`
 by the default [evaluation procedure](#value-evaluation).
 
 Calling `.root()` without a value simply returns the root value.
@@ -302,7 +304,7 @@ Chain(42).then(lambda v: v/10).root(lambda v: v == 42)
 ```
 
 #### `ignore(value: Any, *args, **kwargs) -> Chain`
-Like `.then()`, but keeps the current chain value unchanged.
+Like `.then()`, but keeps the current value unchanged.
 
 In other words, this function does not affect the flow of the chain.
 
@@ -320,7 +322,7 @@ Chain(fetch_data, id).then(validate_data).root_ignore(print).then(normalize_data
 ```
 
 #### `attr(name: str) -> Chain`
-Like `.then()`, but evaluates to `getattr(current_chain_item, name)`.
+Like `.then()`, but evaluates to `getattr(current_value, name)`.
 
 ```python
 class A:
@@ -334,7 +336,7 @@ ChainAttr(A()).a1
 ```
 
 #### `attr_fn(name: str, *args, **kwargs) -> Chain`
-Like `.attr()`, but evaluates to `getattr(current_chain_item, name)(*args, **kwargs)`.
+Like `.attr()`, but evaluates to `getattr(current_value, name)(*args, **kwargs)`.
 
 ```python
 class A:
@@ -348,7 +350,7 @@ ChainAttr(A()).a1(2)
 
 #### Foreach
 #### `foreach(fn: Callable) -> Chain`
-Iterates over the current chain value and invokes `fn(element)` for each element. Returns a list
+Iterates over the current value and invokes `fn(element)` for each element. Returns a list
 that is the result of `fn(element)` for each `element`.
 
 If the iterator implements `__aiter__`, `async for ...` will be used.
@@ -373,14 +375,14 @@ will iterate over `list_of_ids`, invoke the nested chain with each different `id
 
 #### With
 #### `with_(self, value: Any | Callable = None, *args, **kwargs) -> Chain`
-Executes `with current_chain_value as ctx` and evaluates `value` inside the context block,
-**with `ctx` as the current chain value**, and returns the result. If `value` is not provided, returns `ctx`.
+Executes `with current_value as ctx` and evaluates `value` inside the context block,
+**with `ctx` as the current value**, and returns the result. If `value` is not provided, returns `ctx`.
 This method follows the [default evaluation](#value-evaluation) procedure, so passing `args` or `kwargs`
 is perfectly valid.
 
 Depending on `value` (and `args`/`kwargs`), this is roughly equivalent to
 ```python
-with current_chain_value as ctx:
+with current_value as ctx:
   return value(ctx)
 ```
 If the context object implements `__aenter__`, `async with ...` will be used.
@@ -434,7 +436,7 @@ Chain(get_id).then(aqcuire_lock).root(fetch_data).finally_(release_lock)
 
 ### Conditionals
 #### `if_(on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-Evaluates the truthiness of the current chain value (`bool(current_chain_value)`).
+Evaluates the truthiness of the current value (`bool(current_value)`).
 If `on_true` is provided and the result is `True`, evaluates `on_true` and returns the result.
 If `on_true` is not provided, simply returns the truthiness result (`bool`).
 
@@ -456,7 +458,7 @@ Chain(get_random_number).then(lambda n: n > 5).if_(you_win, prize=1).else_(you_l
 ```
 
 #### `not_() -> Chain`
-- `not current_chain_value`
+- `not current_value`
 
 This method currently does not support the `on_true` argument since it looks confusing.
 I might add it in the future.
@@ -466,7 +468,7 @@ Chain(is_valid, 'something').not_()
 ```
 
 #### `eq(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-- `current_chain_value == value`
+- `current_value == value`
 
 ```python
 Chain(420).then(lambda v: v/10).eq(42)
@@ -474,35 +476,35 @@ Chain(420).then(lambda v: v/10).eq(40).else_(on_fail)
 ```
 
 #### `neq(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-- `current_chain_value != value`
+- `current_value != value`
 
 ```python
 Chain(420).then(lambda v: v/10).neq(40)
 ```
 
 #### `is_(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-- `current_chain_value is value`
+- `current_value is value`
 
 ```python
 Chain(object()).is_(1)
 ```
 
 #### `is_not(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-- `current_chain_value is not value`
+- `current_value is not value`
 
 ```python
 Chain(object()).is_not(object())
 ```
 
 #### `in_(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-- `current_chain_value in value`
+- `current_value in value`
 
 ```python
 Chain('sub').in_('subway')
 ```
 
 #### `not_in(value: Any, on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-- `current_chain_value not in value`
+- `current_value not in value`
 
 ```python
 Chain('bus').then(lambda s: s[::-1]).not_in('subway')
@@ -512,7 +514,7 @@ Chain('bus').then(lambda s: s[::-1]).not_in('subway')
 Although considered unpythonic, in some cases the [cascade design](https://en.wikipedia.org/wiki/Fluent_interface)
 can be very helpful. The `Cascade` class is identical to `Chain`, except that during the chain's evaluation,
 each chain item is evaluated using the root value as an argument
-(or in other words, the current chain value is always the chain's root value).
+(or in other words, the current value is always the chain's root value).
 The return value of `Cascade.run()` is always its root value.
 ```python
 from quent import Cascade
