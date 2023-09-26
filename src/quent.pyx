@@ -362,11 +362,12 @@ cdef class Chain:
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
-        if is_with_root:
+        # do not change the current value if .root_ignore() is called.
+        if is_with_root and not ignore_result:
           cv = rv
         # `v is Null` is only possible when an empty `.root()` call has been made.
         if v is not Null:
-          result = evaluate_value(v, cv, is_attr, is_fattr, args, kwargs)
+          result = evaluate_value(v, rv if is_with_root else cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             ignore_try = True
             return self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
@@ -416,10 +417,10 @@ cdef class Chain:
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
-        if is_with_root:
+        if is_with_root and not ignore_result:
           cv = rv
         if v is not Null:
-          result = evaluate_value(v, cv, is_attr, is_fattr, args, kwargs)
+          result = evaluate_value(v, rv if is_with_root else cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             try:
               result = await result
@@ -707,7 +708,7 @@ async def async_gen_foreach(object cv, object fn, bint with_lst):
   cdef list lst
   if with_lst:
     lst = []
-  cdef object el
+  cdef object el, result
   async for el in cv:
     result = fn(el)
     if isawaitable(result):

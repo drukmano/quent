@@ -48,6 +48,7 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertTrue(await await_(Chain(10).then(fn).then(lambda v: v/10).eq(1).run()))
         self.assertTrue(await await_(Chain(10).ignore(fn, 100).eq(10).run()))
         self.assertTrue(await await_(Chain(10).then(fn, 100).eq(100).run()))
+        self.assertEqual(await await_(Chain(10).then(fn, 100).root_ignore(lambda v: v/10).run()), 100)
 
   async def test_empty_root(self):
     for fn in [empty, aempty]:
@@ -111,7 +112,7 @@ class MainTest(IsolatedAsyncioTestCase):
         def f(n):
           nonlocal num
           num = n
-          return n
+          return fn(n)
 
         num = 0
         self.assertTrue(await await_(Chain(gen).foreach(f).eq([42]).run()))
@@ -171,10 +172,14 @@ class MainTest(IsolatedAsyncioTestCase):
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).neq(100).run()))
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_().eq(100).run()))
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(lambda v: v/10).eq(10).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).with_(fn).eq(100).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_().eq(100).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_(lambda v: v/10).eq(10).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_(fn).eq(100).run()))
 
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(100).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).with_do(fn).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(100).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(fn).then(lambda v: isinstance(v, cls)).run()))
