@@ -368,7 +368,7 @@ Like `.foreach()`, but returns nothing. In other words, this is the combination 
 Example:
 ```python
 Chain(list_of_ids)
-.foreach(Chain().then(fetch_data).then(validate_data).then(normalize_data).then(send_data))
+.foreach_do(Chain().then(fetch_data).then(validate_data).then(normalize_data).then(send_data))
 .run()
 ```
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
@@ -609,3 +609,12 @@ Chain(fetch_data).then(raise_exception, ...).finally_(report_usage).run()
 will execute `fetch_data()`, then `raise_exception()`, and then `report_usage(data)`. But `report_usage(data)` is a
 coroutine, and `fetch_data` and `raise_exceptions` are not. This will cause `report_usage(data)` to be invoked **but
 not awaited**.
+
+If you must, you can "force" the chain to return a coroutine by giving it a dummy coroutine:
+```python
+async def fn():
+  pass
+
+await Chain(fn).then(fetch_data, ...).then(raise_exception, ...).finally_(report_usage).run()
+```
+This will ensure that `report_usage()` will be awaited.
