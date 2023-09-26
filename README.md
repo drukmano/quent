@@ -320,7 +320,25 @@ Chain(list_of_ids)
 ```
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
 
-#### `with_(...) -> Chain`
+#### `with_(self, context: Any | Ellipsis = ..., value: Any | Callable = None, *args, **kwargs) -> Chain`
+Evaluates `value` by the default [evaluation procedure](#value-evaluation) inside a context. Returns the
+result.
+
+If `context` is an `Ellipsis`, Quent uses the current chain value as the context. Otherwise,
+`context` is used as-is.
+
+If `value` is not provided, the function returns the object that is returned from the `__enter__`
+or `__aenter__` methods of the context. A check is performed to determine whether the context
+should be used in a `with ...` or a `async with ...` statement.
+
+**Note: if a context implements both `__enter__` and `__aenter__` methods, it will always be used in a regular `with ...`
+statement. If this is the case, and you need to explicitly use `async with ...`, use `Chain.async_with()`.**
+
+#### `async_with(self, context: Any | Ellipsis = ..., value: Any | Callable = None, *args, **kwargs) -> Chain`
+Just like `.with()`, but explicitly for async contexts.
+
+Do not use this method unless you have to. Opt to use `.with_()` instead, as it can handle both sync and async
+contexts.
 
 #### `Chain.from_(*args) -> Chain`
 Creates a `Chain` template, and registers `args` as chain items.
