@@ -522,98 +522,24 @@ cdef class Chain:
     return self
 
   def foreach(self, fn: Callable) -> Chain:
-    async def async_foreach(object cv):
-      cdef list lst = []
-      cdef Chain chain = Chain(lst)
-      cdef object el
-      async for el in cv:
-        chain._then(fn, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=(el,), kwargs={})
-        chain._then(lst.append)
-      chain._then(Null, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=None, kwargs=None)
-      return chain.run()
-
-    def foreach(object cv):
-      if hasattr(cv, '__aiter__'):
-        return async_foreach(cv)
-      cdef list lst = []
-      cdef Chain chain = Chain(lst)
-      cdef object el
-      for el in cv:
-        chain._then(fn, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=(el,), kwargs={})
-        chain._then(lst.append)
-      chain._then(Null, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=None, kwargs=None)
-      return chain.run()
-
-    self._then(foreach)
+    self._then(foreach(fn, True))
     return self
 
   def foreach_do(self, fn: Callable) -> Chain:
-    async def async_foreach_do(object cv):
-      cdef Cascade cascade = Cascade()
-      cdef object el
-      async for el in cv:
-        cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
-      return cascade.run()
-
-    def foreach_do(object cv):
-      if hasattr(cv, '__aiter__'):
-        return async_foreach_do(cv)
-      cdef Cascade cascade = Cascade()
-      cdef object el
-      for el in cv:
-        cascade._then(fn, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=(el,), kwargs={})
-      return cascade.run()
-
-    self._then(foreach_do, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
+    self._then(
+      foreach(fn, False), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None
+    )
     return self
 
   def with_(self, v: Any | Callable = Null, *args, **kwargs) -> Chain:
-    async def async_with(object cv):
-      cdef object ctx, result
-      async with cv as ctx:
-        if v is Null:
-          return ctx
-        result = evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
-        )
-        if isawaitable(result):
-          return await result
-        return result
-
-    def with_(object cv):
-      if hasattr(cv, '__aenter__'):
-        return async_with(cv)
-      cdef object ctx
-      with cv as ctx:
-        if v is Null:
-          return ctx
-        return evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
-        )
-
-    self._then(with_, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
+    self._then(with_(v, args, kwargs))
     return self
 
   def with_do(self, v: Any | Callable, *args, **kwargs) -> Chain:
-    async def async_with_do(object cv):
-      cdef object ctx, result
-      async with cv as ctx:
-        result = evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
-        )
-        if isawaitable(result):
-          await result
-
-    def with_do(object cv):
-      if hasattr(cv, '__aenter__'):
-        return async_with_do(cv)
-      cdef object ctx
-      with cv as ctx:
-        evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
-        )
-
-    self._then(with_do, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
+    self._then(
+      with_(v, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
+      kwargs=None
+    )
     return self
 
   def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
@@ -740,3 +666,82 @@ cdef class CascadeAttr(ChainAttr):
   # noinspection PyMissingConstructor
   def __init__(self, v: Any | Callable = Null, *args, **kwargs):
     self.init(v, args, kwargs, is_cascade=True)
+
+
+cdef object foreach(object fn, bint with_lst):
+  """ A helper method for `.foreach()` """
+  def foreach(object cv):
+    if hasattr(cv, '__aiter__'):
+      return async_gen_foreach(cv, fn, with_lst)
+    cdef list lst = []
+    cdef object el, result
+    cv = iter(cv)
+    for el in cv:
+      result = fn(el)
+      if isawaitable(result):
+        return async_foreach(cv, fn, result, lst, with_lst)
+      if with_lst:
+        lst.append(result)
+    if with_lst:
+      return lst
+  return foreach
+
+
+async def async_foreach(object cv, object fn, object result, list lst, bint with_lst):
+  """ A helper method for `.foreach()` """
+  cdef object el
+  if with_lst:
+    lst.append(await result)
+  for el in cv:
+    result = fn(el)
+    if isawaitable(result):
+      result = await result
+    if with_lst:
+      lst.append(result)
+  if with_lst:
+    return lst
+
+
+async def async_gen_foreach(object cv, object fn, bint with_lst):
+  """ A helper method for `.foreach()` """
+  cdef list lst
+  if with_lst:
+    lst = []
+  cdef object el
+  async for el in cv:
+    result = fn(el)
+    if isawaitable(result):
+      result = await result
+    if with_lst:
+      lst.append(result)
+  if with_lst:
+    return lst
+
+
+cdef object with_(object v, tuple args, dict kwargs):
+  """ A helper method for `.with_()` """
+  def with_(object cv):
+    if hasattr(cv, '__aenter__'):
+      return async_with(v, cv, args, kwargs)
+    cdef object ctx
+    with cv as ctx:
+      if v is Null:
+        return ctx
+      return evaluate_value(
+        v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
+      )
+  return with_
+
+
+async def async_with(object v, object cv, tuple args, dict kwargs):
+  """ A helper method for `.with_()` """
+  cdef object ctx, result
+  async with cv as ctx:
+    if v is Null:
+      return ctx
+    result = evaluate_value(
+      v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
+    )
+    if isawaitable(result):
+      return await result
+    return result
