@@ -124,12 +124,12 @@ def create_chain_link_exception(
     object_str, readable_str = format_exception_details(literal=True)
 
   if idx == -1:
-    s = f'The chain root link has raised an exception:'
+    s = 'The chain root link has raised an exception:'
   else:
-    s = f'A chain link has raised an exception:'
+    s = 'A chain link has raised an exception:'
     s += f'\n\tLink position (not including the root link): {idx}'
   if is_exc_raised_on_await:
-    s += f'\n\tThe exception was raised as the result of awaiting a coroutine'
+    s += '\n\tThe exception was raised as the result of awaiting a coroutine'
   return QuentException(
     s
     + f'\n\t{object_str}'
@@ -400,7 +400,7 @@ cdef class Chain:
     # exception message in case one is raised from awaiting `result`
     cdef:
       bint is_with_root = False, is_exc_raised_on_await = False
-      tuple link, on_except = self.on_except, on_finally = self.on_finally
+      tuple on_except = self.on_except, on_finally = self.on_finally
       list links = self.links
       Exception e
 
@@ -418,7 +418,7 @@ cdef class Chain:
         rv = cv
 
       for idx in range(idx+1, len(links)):
-        v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs = self.links[idx]
+        v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs = links[idx]
         if is_attr and is_void:
           raise QuentException('Cannot use attributes without a root value.')
 
@@ -616,7 +616,7 @@ cdef class Chain:
     if root_link is not None:
       s += f'({root_link[0]}, {root_link[5]}, {root_link[6]})'
     else:
-      s += f'()'
+      s += '()'
     s += f'({len(self.links)} links)>'
     return s
 
