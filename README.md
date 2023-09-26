@@ -324,7 +324,7 @@ will iterate over `list_of_ids`, invoke the nested chain with each different `id
 Evaluates `value` by the default [evaluation procedure](#value-evaluation) inside a context. Returns the
 result.
 
-If `context` is an `Ellipsis`, Quent uses the current chain value as the context. Otherwise,
+If `context` is an `Ellipsis`, The current chain value is used as the context. Otherwise,
 `context` is used as-is.
 
 If `value` is not provided, the function returns the object that is returned from the `__enter__`
