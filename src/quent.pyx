@@ -536,6 +536,58 @@ cdef class Chain:
     self._then(foreach, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
     return self
 
+  def with_(self, context: Any | Callable | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
+    async def async_with(object cv):
+      cdef object ctx, result
+      async with cv as ctx:
+        if v is Null:
+          return ctx
+        result = evaluate_value(
+          v=v, cv=ctx, is_attr=False, is_fattr=False, is_void=False, args=args, kwargs=kwargs
+        )
+        if isawaitable(result):
+          return await result
+        return result
+
+    def with_(object cv):
+      cdef object ctx
+      if context is not ...:
+        cv = context
+      # a class *may* implement both `__enter__` and `__aenter__`. in that case,
+      # the user must use `.async_with()` if they wish to use `async with ...`.
+      if not hasattr(cv, '__enter__'):
+        return async_with(cv)
+      with cv as ctx:
+        if v is Null:
+          return ctx
+        return evaluate_value(
+          v=v, cv=ctx, is_attr=False, is_fattr=False, is_void=False, args=args, kwargs=kwargs
+        )
+
+    self._then(with_, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
+    return self
+
+  def async_with(self, context: Any | Callable | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
+    # this method should only be used for cases where a context manager class
+    # implements both `__enter__` and `__aenter__`, and `__aenter__` usage
+    # is explicitly required.
+    async def async_with(object cv):
+      cdef object ctx, result
+      if context is not ...:
+        cv = context
+      async with cv as ctx:
+        if v is Null:
+          return ctx
+        result = evaluate_value(
+          v=v, cv=ctx, is_attr=False, is_fattr=False, is_void=False, args=args, kwargs=kwargs
+        )
+        if isawaitable(result):
+          return await result
+        return result
+
+    self._then(async_with, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
+    return self
+
   def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
     self._except(fn_or_attr, args, kwargs)
     return self

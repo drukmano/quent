@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import contextmanager, asynccontextmanager
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from tests.try_except_tests import assertRaisesSync, assertRaisesAsync
@@ -9,28 +10,28 @@ class MainTest(IsolatedAsyncioTestCase):
   async def test_root_is_literal_value(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
-        self.assertEquals(await await_(Chain(1).run()), 1)
-        self.assertEquals(await await_(Chain(1).then(2).run()), 2)
-        self.assertEquals(await await_(Chain(1).then(fn).run()), 1)
-        self.assertEquals(await await_(Chain(1).then(2).then(fn).run()), 2)
-        self.assertEquals(await await_(Chain(1).then(fn).then(2).run()), 2)
+        self.assertEqual(await await_(Chain(1).run()), 1)
+        self.assertEqual(await await_(Chain(1).then(2).run()), 2)
+        self.assertEqual(await await_(Chain(1).then(fn).run()), 1)
+        self.assertEqual(await await_(Chain(1).then(2).then(fn).run()), 2)
+        self.assertEqual(await await_(Chain(1).then(fn).then(2).run()), 2)
         self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(1).then(throw_if).run())))
         self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(1).then(fn).then(throw_if).run())))
-        self.assertEquals(await await_(Chain(0).then(throw_if).then(fn).then(1).run()), 1)
-        self.assertEquals(await await_(Chain(0).then(fn).then(throw_if).then(1).run()), 1)
+        self.assertEqual(await await_(Chain(0).then(throw_if).then(fn).then(1).run()), 1)
+        self.assertEqual(await await_(Chain(0).then(fn).then(throw_if).then(1).run()), 1)
 
   async def test_root_is_callable(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
-        self.assertEquals(await await_(Chain(fn).run()), None)
-        self.assertEquals(await await_(Chain(fn).then(1).run()), 1)
-        self.assertEquals(await await_(Chain(fn).then(2).run()), 2)
-        self.assertEquals(await await_(Chain(fn).then(1).then(fn).run()), 1)
-        self.assertEquals(await await_(Chain(fn).then(fn).then(1).run()), 1)
+        self.assertEqual(await await_(Chain(fn).run()), None)
+        self.assertEqual(await await_(Chain(fn).then(1).run()), 1)
+        self.assertEqual(await await_(Chain(fn).then(2).run()), 2)
+        self.assertEqual(await await_(Chain(fn).then(1).then(fn).run()), 1)
+        self.assertEqual(await await_(Chain(fn).then(fn).then(1).run()), 1)
         self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
         self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
-        self.assertEquals(await await_(Chain(fn).then(throw_if).then(fn).then(1).run()), 1)
-        self.assertEquals(await await_(Chain(fn).then(fn).then(throw_if).then(1).run()), 1)
+        self.assertEqual(await await_(Chain(fn).then(throw_if).then(fn).then(1).run()), 1)
+        self.assertEqual(await await_(Chain(fn).then(fn).then(throw_if).then(1).run()), 1)
 
   async def test_pipe(self):
     for fn in [empty, aempty]:
@@ -84,11 +85,11 @@ class MainTest(IsolatedAsyncioTestCase):
 
         counter = 0
         await await_(Chain(range(10)).foreach(lambda v: fn(f(v))).run())
-        self.assertEquals(counter, sum(i**2 for i in range(10)))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
 
         counter = 0
         await await_(Chain(range(10)).then(fn).foreach(lambda v: fn(f(v))).run())
-        self.assertEquals(counter, sum(i**2 for i in range(10)))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
 
   async def test_foreach_async_mid_loop(self):
       def f(i):
@@ -99,5 +100,32 @@ class MainTest(IsolatedAsyncioTestCase):
 
       counter = 0
       await await_(Chain(range(10)).foreach(f).run())
-      self.assertEquals(counter, sum(i**2 for i in range(10)))
-      self.assertTrue(asyncio.iscoroutine(Chain(range(10)).foreach(f).run()))
+      self.assertEqual(counter, sum(i**2 for i in range(10)))
+      coro = Chain(range(10)).foreach(f).run()
+      self.assertTrue(asyncio.iscoroutine(coro))
+      await coro
+
+  async def test_with(self):
+    @contextmanager
+    def sync_ctx(v: int):
+      yield v**2
+
+    @asynccontextmanager
+    async def async_ctx(v: int):
+      yield v**2
+
+    for ctx in [sync_ctx, async_ctx]:
+      for fn in [empty, aempty]:
+        with self.subTest(ctx=ctx, fn=fn):
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).neq(100).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(...).eq(100).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(..., lambda v: v/10).eq(10).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).with_(ctx(10)).eq(100).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).with_(ctx(10), lambda v: v/10).eq(10).run()))
+
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain(async_ctx, 10).then(fn).async_with(...).eq(100).run()))
+        self.assertTrue(await await_(Chain(async_ctx, 10).then(fn).async_with(..., lambda v: v/10).eq(10).run()))
+        self.assertTrue(await await_(Chain(None).then(fn).async_with(async_ctx(10)).eq(100).run()))
+        self.assertTrue(await await_(Chain(None).then(fn).async_with(async_ctx(10), lambda v: v/10).eq(10).run()))
