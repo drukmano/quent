@@ -60,7 +60,7 @@ cdef bint isawaitable(object obj):
 
 
 def create_chain_link_exception(
-  v: Any, cv: Any, is_attr: bool, is_fattr: bool, is_void: bool, args: tuple | None, kwargs: dict | None, idx: int,
+  v: Any, cv: Any, is_attr: bool, is_fattr: bool, args: tuple | None, kwargs: dict | None, idx: int,
   is_exc_raised_on_await: bool = False
 ) -> QuentException:
   """
@@ -112,7 +112,7 @@ def create_chain_link_exception(
 
     elif not is_attr and callable(v):
       s = get_object_name(v, literal)
-      return f'{v}', f'{s}()' if is_void or cv is Null else f'{s}({cv})'
+      return f'{v}', f'{s}()' if cv is Null else f'{s}({cv})'
 
     else:
       return str(v), str(v)
@@ -137,14 +137,13 @@ def create_chain_link_exception(
   )
 
 
-cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, bint is_void, tuple args, dict kwargs):
+cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, tuple args, dict kwargs):
   """
   Given a value `v`, and a value `cv`, evaluates `v`.
   :param v: a value.
   :param cv: the current chain value.
   :param is_attr: whether `v` is an attribute of `cv`.
   :param is_fattr: whether `v` is a method attribute of `cv`.
-  :param is_void: whether `v` should be applied with no arguments.
   :param args: the arguments to pass to `v`.
   :param kwargs: the keyword-arguments to pass to `v`.
   :return: `Null`, `v`, or the evaluation of `v`.
@@ -172,18 +171,17 @@ cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, bin
 
   elif not is_attr and callable(v):
     # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
-    return v() if is_void or cv is Null else v(cv)
+    return v() if cv is Null else v(cv)
 
   else:
     return v
 
 
-cdef object run_callback(tuple callback_meta, object rv, bint is_void):
+cdef object run_callback(tuple callback_meta, object rv):
   """
   A helper method to run the callbacks of on-except/on-finally
   :param callback_meta: A tuple of the form `(fn_or_attr, args, kwargs)`.
   :param rv: the root value of the Chain.
-  :param is_void: whether `fn` should be applied with no parameters.
   :return: the result of the callback.
   """
   cdef:
@@ -199,7 +197,7 @@ cdef object run_callback(tuple callback_meta, object rv, bint is_void):
   # (unless it is a @property function, which is not common, and a bad design to have a
   # @property function perform actions).
   return evaluate_value(
-    v=fn_or_attr, cv=rv, is_attr=is_attr, is_fattr=is_attr, is_void=is_void, args=args, kwargs=kwargs
+    v=fn_or_attr, cv=rv, is_attr=is_attr, is_fattr=is_attr, args=args, kwargs=kwargs
   )
 
 
@@ -223,11 +221,11 @@ cdef object build_conditional(
     if v:
       if on_true_v is not Null:
         return evaluate_value(
-          v=on_true_v, cv=Null, is_attr=False, is_fattr=False, is_void=True, args=true_args, kwargs=true_kwargs
+          v=on_true_v, cv=Null, is_attr=False, is_fattr=False, args=true_args, kwargs=true_kwargs
         )
     elif on_false_v is not Null:
       return evaluate_value(
-        v=on_false_v, cv=Null, is_attr=False, is_fattr=False, is_void=True, args=false_args, kwargs=false_kwargs
+        v=on_false_v, cv=Null, is_attr=False, is_fattr=False, args=false_args, kwargs=false_kwargs
       )
     return v
   return if_else
@@ -266,7 +264,7 @@ cdef Chain from_list(object cls, tuple links):
 cdef class Chain:
   cdef:
     tuple root_link
-    bint is_cascade, is_void
+    bint is_cascade
     list links
     tuple on_except, on_finally, current_on_true
     str current_attr
@@ -286,10 +284,6 @@ cdef class Chain:
 
   cdef int init(self, object root_value, args: tuple, kwargs: dict, bint is_cascade = False) except -1:
     self.is_cascade = is_cascade
-    # whether all links will be evaluated with no arguments (except links with explicit arguments).
-    # note that if `is_void=True`, calling `.run()` without a root value is only possible
-    # with Cascade, e.g. for running a sequence of operations that are independent of each other.
-    self.is_void = root_value is Null
 
     # `links` is a list which contains tuples of the following structure:
     # (
@@ -303,7 +297,7 @@ cdef class Chain:
     # )
     self.links = []
 
-    if not self.is_void:
+    if root_value is not Null:
       self.root_link = (root_value, False, False, False, False, args, kwargs)
     else:
       self.root_link = None
@@ -338,7 +332,7 @@ cdef class Chain:
       # current chain value, root value
       object cv = Null, rv = Null, result
       bint is_attr = False, is_fattr = False, is_with_root = False, ignore_result = False,
-      bint is_void = self.is_void, ignore_try = False, is_null = v is Null
+      bint is_void = self.root_link is None, ignore_try = False, is_null = v is Null
       list links = self.links
       tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
       int idx = -1
@@ -355,7 +349,7 @@ cdef class Chain:
         if root_link is not None:
           v, is_attr, is_fattr, is_with_root, ignore_result, args, kwargs = root_link
         rv = cv = evaluate_value(
-          v=v, cv=Null, is_attr=False, is_fattr=False, is_void=True, args=args, kwargs=kwargs
+          v=v, cv=Null, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
         )
         is_void = False
         if isawaitable(rv):
@@ -372,7 +366,7 @@ cdef class Chain:
           cv = rv
         # `v is Null` is only possible when an empty `.root()` call has been made.
         if v is not Null:
-          result = evaluate_value(v, cv, is_attr, is_fattr, is_void, args, kwargs)
+          result = evaluate_value(v, cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             ignore_try = True
             return self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
@@ -381,16 +375,16 @@ cdef class Chain:
 
       if self.is_cascade:
         cv = rv
-      return cv if not is_void and cv is not Null else None
+      return cv if cv is not Null else None
 
     except Exception as e:
       if not ignore_try and on_except is not None:
-        run_callback(on_except, rv, is_void)
-      raise e from create_chain_link_exception(v, cv, is_attr, is_fattr, is_void, args, kwargs, idx)
+        run_callback(on_except, rv)
+      raise e from create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx)
 
     finally:
       if not ignore_try and on_finally is not None:
-        run_callback(on_finally, rv, is_void)
+        run_callback(on_finally, rv)
 
   async def _run_async(
     self, object result, object rv, int idx, bint is_void,
@@ -425,7 +419,7 @@ cdef class Chain:
         if is_with_root:
           cv = rv
         if v is not Null:
-          result = evaluate_value(v, cv, is_attr, is_fattr, is_void, args, kwargs)
+          result = evaluate_value(v, cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             try:
               cv = await result
@@ -437,7 +431,7 @@ cdef class Chain:
 
       if self.is_cascade:
         cv = rv
-      return cv if not is_void and cv is not Null else None
+      return cv if cv is not Null else None
 
     except Exception as e:
       # even though it seems that a coroutine that has raised an exception still
@@ -445,16 +439,16 @@ cdef class Chain:
       # whether an exception was raised from awaiting `result` as I couldn't find if
       # this is an intended behavior or not.
       if on_except is not None:
-        result = run_callback(on_except, rv, is_void)
+        result = run_callback(on_except, rv)
         if isawaitable(result):
           await result
       raise e from create_chain_link_exception(
-        v, cv, is_attr, is_fattr, is_void, args, kwargs, idx, is_exc_raised_on_await
+        v, cv, is_attr, is_fattr, args, kwargs, idx, is_exc_raised_on_await
       )
 
     finally:
       if on_finally is not None:
-        result = run_callback(on_finally, rv, is_void)
+        result = run_callback(on_finally, rv)
         if isawaitable(result):
           await result
 
@@ -557,7 +551,7 @@ cdef class Chain:
         if v is Null:
           return ctx
         result = evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, is_void=False, args=args, kwargs=kwargs
+          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
         )
         if isawaitable(result):
           return await result
@@ -575,7 +569,7 @@ cdef class Chain:
         if v is Null:
           return ctx
         return evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, is_void=False, args=args, kwargs=kwargs
+          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
         )
 
     self._then(with_, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
@@ -593,7 +587,7 @@ cdef class Chain:
         if v is Null:
           return ctx
         result = evaluate_value(
-          v=v, cv=ctx, is_attr=False, is_fattr=False, is_void=False, args=args, kwargs=kwargs
+          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
         )
         if isawaitable(result):
           return await result
