@@ -19,6 +19,7 @@ pip install quent
   - [Pipe Syntax](#pipe-syntax)
   - [Safety Callbacks](#safety-callbacks)
   - [Comparisons](#comparisons)
+  - [Iterators](#iterators)
   - [Contexts](#contexts)
 - [API](#api)
   - [Core](#core)
@@ -212,8 +213,7 @@ The full details of `.foreach()` are explained
 ### Contexts
 You can execute a function (or do quite anything you want) inside a context:
 ```python
-Chain(get_lock, id).with_(..., fetch_data, id)
-Chain(start_conn, id).with_(get_lock(id), fetch_data, id)
+Chain(get_lock, id).with_(fetch_data, id)
 ```
 The full details of `.with_()` are explained
 [here](#with).
@@ -348,10 +348,20 @@ ChainAttr(A()).a1(2)
 
 #### Foreach
 #### `foreach(fn: Callable) -> Chain`
-Iterates over the current chain value and invokes `fn(element)` for each element. Similarly to `.ignore()`,
-this function does not change the current chain value.
+Iterates over the current chain value and invokes `fn(element)` for each element. Returns a list
+that is the result of `fn(element)` for each `element`.
 
 If the iterator implements `__aiter__`, `async for ...` will be used.
+
+Example:
+```python
+Chain(list_of_ids).foreach(validate_id).run()
+```
+will iterate over `list_of_ids`, and return a list that is equivalent to `[validate_id(id) for id in list_of_ids]`.
+
+#### `foreach_do(fn: Callable) -> Chain`
+Like `.foreach()`, but returns nothing. In other words, this is the combination of
+`.foreach()` and `.ignore()`.
 
 Example:
 ```python
@@ -362,29 +372,35 @@ Chain(list_of_ids)
 will iterate over `list_of_ids`, invoke the nested chain with each different `id`, and then return `list_of_ids`.
 
 #### With
-#### `with_(self, context: Any | Ellipsis = ..., value: Any | Callable = None, *args, **kwargs) -> Chain`
-Evaluates `value` by the default [evaluation procedure](#value-evaluation) inside a context and returns the
-result.
+#### `with_(self, value: Any | Callable = None, *args, **kwargs) -> Chain`
+Executes `with current_chain_value as ctx` and evaluates `value` inside the context block,
+**with `ctx` as the current chain value**, and returns the result. If `value` is not provided, returns `ctx`.
+This method follows the [default evaluation](#value-evaluation) procedure, so passing `args` or `kwargs`
+is perfectly valid.
 
-If `context` is an `Ellipsis`, The current chain value is used as the context. Otherwise,
-`context` is used as-is.
-
-If `value` is not provided, the function returns the object that is returned from the `__enter__`
-or `__aenter__` methods of the context. 
-
+Depending on `value` (and `args`/`kwargs`), this is roughly equivalent to
+```python
+with current_chain_value as ctx:
+  return value(ctx)
+```
 If the context object implements `__aenter__`, `async with ...` will be used.
 
 Example:
 ```python
-Chain(get_lock, id).with_(..., fetch_data, id).run()
+Chain(get_lock, id).with_(fetch_data, id).run()
 ```
 is roughly equivalent to:
 ```python
-# or `async with get_lock(id)` if `get_lock(id)` returns an object that implements `__aenter__`
-with get_lock(id):
+with get_lock(id) as lock:
+  # `lock` is not used here since we passed a custom argument `id`.
   return fetch_data(id)
 ```
 
+#### `with_do(self, value: Any | Callable, *args, **kwargs) -> Chain`
+Like `.with_()`, but returns nothing. In other words, this is the combination of
+`.with_()` and `.ignore()`.
+
+#### Class Methods
 #### `Chain.from_(*args) -> Chain`
 Creates a `Chain` template, and registers `args` as chain items.
 
@@ -417,17 +433,15 @@ Chain(get_id).then(aqcuire_lock).root(fetch_data).finally_(release_lock)
 ```
 
 ### Conditionals
-#### `if_(fn: Callable | Ellipsis = ..., on_true: Any | Callable = None, *args, **kwargs) -> Chain`
-Registers a function `fn` which will be called with the current chain value. If `on_true` is provided and
-the result of `fn` is truthy, evaluates `on_true` and returns the result.
-If `on_true` is not provided, it returns the result of `fn`.
-
-If `fn` is an `Ellipsis`, evaluates the truthiness of the current chain value (`bool(current_chain_value)`).
+#### `if_(on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+Evaluates the truthiness of the current chain value (`bool(current_chain_value)`).
+If `on_true` is provided and the result is `True`, evaluates `on_true` and returns the result.
+If `on_true` is not provided, simply returns the truthiness result (`bool`).
 
 `on_true` may be anything and follows the default [evaluation procedure](#value-evaluation) as described above.
 
 ```python
-Chain(get_random_number).if_(lambda num: num > 5, you_win, prize=1)
+Chain(get_random_number).then(lambda n: n > 5).if_(you_win, prize=1)
 ```
 
 #### `else_(on_false: Any | Callable, *args, **kwargs) -> Chain`
@@ -438,7 +452,7 @@ If a previous conditional result is falsy, evaluates `on_false` and returns the 
 **Can only be called immediately following a conditional.**
 
 ```python
-Chain(get_random_number).if_(lambda num: num > 5, you_win, prize=1).else_(you_lose, cost=10)
+Chain(get_random_number).then(lambda n: n > 5).if_(you_win, prize=1).else_(you_lose, cost=10)
 ```
 
 #### `not_() -> Chain`
