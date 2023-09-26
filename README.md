@@ -184,6 +184,29 @@ Chain(get_items).then(where(lambda item: item.is_valid()))
 Chain(get_items) | where(lambda item: item.is_valid())
 ```
 
+### Safety Callbacks
+The usage of `except` and `finally` is supported:
+```python
+Chain(open('<file-path>')).then(do_something_with_file).finally_(lambda f: f.close())
+```
+Read more about it in [Callbacks](#callbacks).
+
+### Comparisons
+Most basic comparison operations are supported:
+```python
+Chain(get_key).in_(list_of_keys)  # == get_key() in list_of_keys
+```
+See the full list of operations in [Conditionals](#conditionals).
+
+### Contexts
+You can execute a function (or do quite anything you want) inside a context:
+```python
+Chain(get_lock, id).with_(..., fetch_data, id)
+Chain(start_conn, id).with_(get_lock(id), fetch_data, id)
+```
+The full details of `.with_()` are explained
+[here](#withself-context-any--ellipsis---value-any--callable--none-args-kwargs---chain).
+
 ## API
 #### Value Evaluation
 Most of the methods in the following section receives `value`, `args`, and `kwargs`. Unless explicitly told otherwise,
@@ -243,7 +266,7 @@ Chain().run(lambda v: v*10, 2)
 #### `then(value: Any, *args, **kwargs) -> Chain`
 Adds `value` to the chain as a chain item. `value` can be anything - a literal value, a function, a class, etc.
 
-Sets the evaluation of `value` as the current chain value.
+Returns the [evaluation](#value-evaluation) of `value`.
 
 This is the main and default way of adding items to the chain.
 
@@ -256,10 +279,10 @@ Chain('<uuid>').then(uuid.UUID)
 ```
 
 #### `root(value: Any = None, *args, **kwargs) -> Chain`
-Like `.then()`, but it first sets the root value as the current chain value. Then it evaluates `value`
+Like `.then()`, but it first sets the root value as the current chain value, and then it evaluates `value`
 by the default [evaluation procedure](#value-evaluation).
 
-Calling `.root()` without a value simply sets the root value as the current chain value.
+Calling `.root()` without a value simply returns the root value.
 
 Read more in [Flow Modifiers](#flow-modifiers).
 
@@ -269,6 +292,9 @@ Chain(42).then(lambda v: v/10).root(lambda v: v == 42)
 
 #### `ignore(value: Any, *args, **kwargs) -> Chain`
 Like `.then()`, but keeps the current chain value unchanged.
+
+In other words, this function does not affect the flow of the chain.
+
 Read more in [Flow Modifiers](#flow-modifiers).
 
 ```python
@@ -352,7 +378,7 @@ Chain().then(validate_data).then(normalize_data).then(send_data).run(fetch_data,
 ### Callbacks
 #### `except_(fn: Callable | str, *args, **kwargs) -> Chain`
 Register a callback that will be called if an exception is raised anytime during the chain's
-evaluation. The callback is evaluated with the root value, or with `args` and `kwargs`.
+evaluation. The callback is evaluated with the root value, or with `args` and `kwargs` if provided.
 
 If `fn` is a string, then it is assumed to be an attribute method of the root value.
 
@@ -363,7 +389,7 @@ Chain(fetch_data).then(validate_data).except_(discard_data)
 #### `finally_(fn: Callable | str, *args, **kwargs) -> Chain`
 
 Register a callback that will **always** be called after the chain's evaluation. The callback is evaluated with
-the root value, or with `args` and `kwargs`.
+the root value, or with `args` and `kwargs` if provided.
 
 If `fn` is a string, then it is assumed to be an attribute method of the root value.
 
@@ -374,8 +400,8 @@ Chain(get_id).then(aqcuire_lock).root(fetch_data).finally_(release_lock)
 ### Conditionals
 #### `if_(fn: Callable | Ellipsis = ..., on_true: Any | Callable = None, *args, **kwargs) -> Chain`
 Registers a function `fn` which will be called with the current chain value. If `on_true` is provided and
-the result of `fn` is truthy, evaluates `on_true` and sets the result as the current chain value.
-If `on_true` is not provided, sets the result of `fn` as the current chain value.
+the result of `fn` is truthy, evaluates `on_true` and returns the result.
+If `on_true` is not provided, it returns the result of `fn`.
 
 If `fn` is an `Ellipsis`, evaluates the truthiness of the current chain value (`bool(current_chain_value)`).
 
@@ -386,7 +412,7 @@ Chain(get_random_number).if_(lambda num: num > 5, you_win, prize=1)
 ```
 
 #### `else_(on_false: Any | Callable, *args, **kwargs) -> Chain`
-If a previous conditional result is falsy, evaluates `on_false` and sets the result as the current chain value.
+If a previous conditional result is falsy, evaluates `on_false` and returns the result.
 
 `on_false` may be anything and follows the default [evaluation procedure](#value-evaluation) as described above.
 
