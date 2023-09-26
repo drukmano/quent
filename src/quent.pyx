@@ -536,7 +536,7 @@ cdef class Chain:
     self._then(foreach, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None)
     return self
 
-  def with_(self, context: Any | Callable | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
+  def with_(self, context: Any | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
     async def async_with(object cv):
       cdef object ctx, result
       async with cv as ctx:
@@ -567,7 +567,7 @@ cdef class Chain:
     self._then(with_, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=None, kwargs=None)
     return self
 
-  def async_with(self, context: Any | Callable | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
+  def async_with(self, context: Any | Ellipsis = ..., v: Any | Callable = Null, *args, **kwargs) -> Chain:
     # this method should only be used for cases where a context manager class
     # implements both `__enter__` and `__aenter__`, and `__aenter__` usage
     # is explicitly required.
