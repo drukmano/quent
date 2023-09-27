@@ -176,7 +176,7 @@ Chain(fetch_data, id)
 .then(send_data)
 .run()
 ```
-A nested chain must always be a template chain.
+A nested chain must always be a template chain (i.e. initialized without arguments).
 
 A nested chain will be evaluated with the current value of the parent chain passed to its `.run()` method.
 
@@ -441,7 +441,7 @@ Chain(get_id).then(aqcuire_lock).root(fetch_data).finally_(release_lock)
 ```
 
 ### Conditionals
-#### `if_(on_true: Any | Callable = None, *args, **kwargs) -> Chain`
+#### `if_(on_true: Any | Callable, *args, **kwargs) -> Chain`
 Evaluates the truthiness of the current value (`bool(current_value)`).
 If `on_true` is provided and the result is `True`, evaluates `on_true` and returns the result.
 If `on_true` is not provided, simply returns the truthiness result (`bool`).

@@ -77,7 +77,7 @@ class MainTest(IsolatedAsyncioTestCase):
   async def test_misc_1(self):
     self.assertIsNone(Cascade().root().run())
     self.assertIsNone(Cascade().then(lambda: 5).then(lambda: 6).run())
-    self.assertIn('6 links', str(Chain(5).then(lambda v: v).eq(5).else_(10).in_([10]).else_(False).not_()))
+    self.assertIn('3 links', str(Chain(5).then(lambda v: v).eq(5).if_not(10).in_([10]).if_(True).else_(False).not_()))
 
   async def test_foreach(self):
     for fn in [empty, aempty]:
@@ -199,3 +199,10 @@ class MainTest(IsolatedAsyncioTestCase):
         for _ in range(100):
           chain.then(chain := Chain().then(fn))
         self.assertEqual(await await_(parent_chain.run()), 42)
+
+  async def test_or(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain(lambda: None).or_(6).eq(6).run()))
+        self.assertTrue(await await_(Chain(6).or_(5).eq(6).run()))
+        self.assertTrue(await await_(Chain(0).or_(5).eq(5).run()))

@@ -63,7 +63,7 @@ class TryExceptTest(IsolatedAsyncioTestCase):
       with self.subTest(fn=fn):
         exc_fin_check = efc_cls()
         try:
-          await await_(Chain(A()).except_(exc_fin_check.on_except).run())
+          await await_(Chain(A()).then(fn).except_(exc_fin_check.on_except).run())
         except Exception: pass
         self.assertTrue(exc_fin_check.ran_exc)
 

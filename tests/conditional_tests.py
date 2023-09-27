@@ -1,4 +1,5 @@
 from unittest import TestCase, IsolatedAsyncioTestCase
+from try_except_tests import get_empty_and_cls
 from tests.utils import throw_if, empty, aempty, await_, DummySync, DummyAsync
 from src.quent import Chain, ChainAttr, Cascade, CascadeAttr
 
@@ -9,16 +10,25 @@ class ConditionalTests(IsolatedAsyncioTestCase):
       with self.subTest(fn=fn):
         get_seq = lambda: getattr(Chain(root_value).then(fn), conditional_attr)
         self.assertTrue(await await_(get_seq()(truthy_value).run()))
-        self.assertTrue(await await_(get_seq()(truthy_value).else_(False).run()))
-        self.assertTrue(await await_(get_seq()(falsy_value).else_(True).run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).if_(True).else_(False).run()))
+        self.assertTrue(await await_(get_seq()(falsy_value).if_(False).else_(True).run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).if_not(False).run()))
+        self.assertTrue(await await_(get_seq()(falsy_value).if_not(True).run()))
 
-        self.assertTrue(await await_(get_seq()(truthy_value, False).not_().run()))
-        self.assertTrue(await await_(get_seq()(truthy_value, True).else_(False).run()))
-        self.assertTrue(await await_(get_seq()(truthy_value).not_().else_(True).run()))
+        # this shows that a falsy conditional is skipped (the 'if_' is not invoked) and
+        # the chain continues with the current value unchanged by the conditional
+        self.assertTrue(await await_(get_seq()(truthy_value).if_not(False).eq(root_value).run()))
+        self.assertTrue(await await_(get_seq()(falsy_value).if_(False).eq(root_value).run()))
+        self.assertTrue(await await_(get_seq()(falsy_value).if_(False).else_(falsy_value).eq(falsy_value).run()))
 
-        self.assertTrue(await await_(get_seq()(truthy_value, lambda: False).not_().run()))
-        self.assertTrue(await await_(get_seq()(truthy_value, lambda: True).else_(lambda: False).run()))
-        self.assertTrue(await await_(get_seq()(truthy_value).not_().else_(lambda: True).run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).if_(False).not_().run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).if_(True).else_(False).run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).not_().if_(False).else_(True).run()))
+
+        self.assertTrue(await await_(get_seq()(truthy_value).if_(False).not_().run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).if_(lambda v: True).else_(lambda v: False).run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).if_(lambda: True, ...).else_(lambda: False, ...).run()))
+        self.assertTrue(await await_(get_seq()(truthy_value).not_().if_(lambda v: v, False).else_(lambda v: v, True).run()))
 
   async def test_not(self):
     for fn in [empty, aempty]:
@@ -28,9 +38,10 @@ class ConditionalTests(IsolatedAsyncioTestCase):
         self.assertTrue(await await_(Chain(fn).then(False).not_().run()))
         self.assertTrue(await await_(Chain(True).not_().not_().run()))
         self.assertTrue(await await_(Chain(False).not_().run()))
-        self.assertTrue(await await_(Chain(True).not_().else_(True).run()))
-        self.assertTrue(await await_(Chain(True).then(fn).not_().else_(True).run()))
-        self.assertTrue(await await_(Chain(fn).then(True).not_().else_(True).run()))
+        self.assertTrue(await await_(Chain(True).not_().if_(False).else_(True).run()))
+        self.assertTrue(await await_(Chain(True).not_().if_not(True).run()))
+        self.assertTrue(await await_(Chain(True).then(fn).not_().if_(False).else_(True).run()))
+        self.assertTrue(await await_(Chain(fn).then(True).not_().if_(False).else_(True).run()))
 
   async def test_eq(self):
     with self.subTest(conditional='eq'):
@@ -73,15 +84,45 @@ class ConditionalTests(IsolatedAsyncioTestCase):
     for fn, cls in [(empty, DummySync), (aempty, DummyAsync)]:
       with self.subTest(fn=fn):
         o = cls()
-        self.assertTrue(await await_(Chain(o).then(fn).attr('a1').is_(o, o).attr_fn('b1').is_(o).run()))
-        self.assertTrue(await await_(ChainAttr(o).then(fn).a1.is_(o, o).b1().is_(o).run()))
+        self.assertTrue(await await_(Chain(o).then(fn).attr('a1').is_(o).if_(o).attr_fn('b1').is_(o).run()))
+        self.assertTrue(await await_(ChainAttr(o).then(fn).a1.is_(o).if_(o).else_(None).b1().is_(o).run()))
 
   async def test_combinations(self):
     # a few random combinations of conditionals
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
-        self.assertTrue(await await_(Chain(None).then(fn).is_(None, lambda: False).else_(True).is_(False).run()))
-        self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51], fn, 9).else_(fn, 10).eq(9).run()))
-        self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51], fn, 9).else_(fn, 10).then(lambda v: v < 10).if_(lambda: False).is_(False).is_not(False).run()))
-        self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v*10).neq(10, lambda: 5).else_(lambda: 6)).neq(6).if_(lambda: False).else_(True).run()))
+        self.assertTrue(await await_(Chain(None).then(fn).is_(None).if_(lambda: False, ...).else_(True).is_(False).run()))
+        self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51]).if_(fn, 9).else_(fn, 10).eq(9).run()))
+        self.assertTrue(await await_(Chain(5).then(lambda v: v*10).in_([50, 51]).if_(fn, 9).else_(fn, 10).then(lambda v: v < 10).if_(lambda v: False).is_(False).is_not(False).run()))
+        self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v*10).neq(10).if_(lambda: 5, ...).else_(lambda v: 6)).neq(6).if_(lambda v: False).else_(True).run()))
         self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v+5)).eq(6).run()))
+
+  async def test_raise_if(self):
+    class Exc(Exception): pass
+    for fn, efc_cls in get_empty_and_cls():
+      with self.subTest(fn=fn):
+        exc_fin_check = efc_cls()
+        try:
+          await await_(Chain(1).then(fn).raise_(Exc(1)).except_(exc_fin_check.on_except).run())
+        except Exc: pass
+        self.assertTrue(exc_fin_check.ran_exc)
+
+        exc_fin_check = efc_cls()
+        try:
+          await await_(Chain(1).then(fn).eq(1).if_raise(Exc(1)).except_(exc_fin_check.on_except).run())
+        except Exc: pass
+        self.assertTrue(exc_fin_check.ran_exc)
+
+        exc_fin_check = efc_cls()
+        try:
+          await await_(Chain(1).then(fn).neq(1).if_raise(Exc(1)).else_raise(Exception(1)).except_(exc_fin_check.on_except).run())
+        except Exc: self.assertTrue(False)
+        except Exception: pass
+        self.assertTrue(exc_fin_check.ran_exc)
+
+        self.assertTrue(await await_(Chain(1).then(fn).neq(1).if_raise(Exc(1)).eq(1).run()))
+
+  async def test_custom_conditional(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain(1).condition(lambda v: fn(v % 2 == 0)).if_(False).else_(lambda v: fn(v*10)).eq(10).run()))

@@ -163,7 +163,7 @@ cdef class Chain:
     tuple root_link
     bint is_cascade
     list links
-    tuple on_except, on_finally, current_on_true
+    tuple on_except, on_finally, current_conditional, current_on_true
     str current_attr
 
   @classmethod
@@ -201,6 +201,7 @@ cdef class Chain:
 
     self.on_except = None
     self.on_finally = None
+    self.current_conditional = None
     self.current_on_true = None
     self.current_attr = None
 
@@ -211,7 +212,7 @@ cdef class Chain:
   ) except -1:
     if self.current_attr is not None:
       self.finalize_attr()
-    if self.current_on_true is not None:
+    if self.current_conditional is not None:
       self.finalize_conditional()
 
     is_with_root = is_with_root or self.is_cascade
@@ -222,7 +223,7 @@ cdef class Chain:
   cdef object _run(self, object v, tuple args, dict kwargs):
     if self.current_attr is not None:
       self.finalize_attr()
-    if self.current_on_true is not None:
+    if self.current_conditional is not None:
       self.finalize_conditional()
 
     cdef:
@@ -272,7 +273,7 @@ cdef class Chain:
             return ensure_future(
               self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
             )
-          if not ignore_result:
+          if not ignore_result and result is not Null:
             cv = result
 
       if self.is_cascade:
@@ -315,11 +316,11 @@ cdef class Chain:
     try:
       try:
         result = await result
-        if not ignore_result:
-          cv = result
       except:
         is_exc_raised_on_await = True
         raise
+      if not ignore_result and result is not Null:
+        cv = result
       # update the root value only if this is not a void chain, since otherwise
       # if this is a void chain, `rv` should always be `Null`.
       if not is_void and rv is Null:
@@ -337,12 +338,10 @@ cdef class Chain:
           if isawaitable(result):
             try:
               result = await result
-              if not ignore_result:
-                cv = result
             except:
               is_exc_raised_on_await = True
               raise
-          elif not ignore_result:
+          if not ignore_result and result is not Null:
             cv = result
 
       if self.is_cascade:
@@ -378,33 +377,19 @@ cdef class Chain:
       raise QuentException('You can only register one \'finally\' callback.')
     self.on_finally = fn_or_attr, args, kwargs
 
-  cdef int _if(self, object predicate, object on_true_v = Null, tuple true_args = None, dict true_kwargs = None) except -1:
-    self._then(predicate)
-    self.current_on_true = (on_true_v, true_args, true_kwargs)
+  cdef int _if(
+    self, object on_true_v, tuple true_args = None, dict true_kwargs = None, bint not_ = False
+  ) except -1:
+    if self.current_conditional is None:
+      self.current_conditional = (bool, False)
+    self.current_on_true = (on_true_v, true_args, true_kwargs, not_)
 
-  cdef int _else(self, object on_false_v, tuple false_args, dict false_kwargs) except -1:
+  cdef int _else(self, object on_false_v, tuple false_args = None, dict false_kwargs = None) except -1:
     if self.current_on_true is None:
       raise QuentException(
-        'You cannot use \'.else_()\' without a preceding conditional (\'.if_()\', \'.eq()\', etc.)'
+        'You cannot use \'.else_()\' without a preceding \'.if_()\' or \'.if_not()\''
       )
     self.finalize_conditional(on_false_v, false_args, false_kwargs)
-
-  cdef int finalize_attr(self) except -1:
-    cdef str attr = self.current_attr
-    self.current_attr = None
-    self._then(attr, is_attr=True)
-
-  cdef int finalize_conditional(
-    self, object on_false_v = Null, tuple false_args = None, dict false_kwargs = None
-  ) except -1:
-    cdef:
-      object on_true_v
-      tuple true_args
-      dict true_kwargs
-    on_true_v, true_args, true_kwargs = self.current_on_true
-    self.current_on_true = None
-    if on_true_v is not Null or on_false_v is not Null:
-      self._then(build_conditional(on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs))
 
   def run(self, value=Null, *args, **kwargs):
     return self._run(value, args, kwargs)
@@ -464,49 +449,111 @@ cdef class Chain:
     self._finally(fn_or_attr, args, kwargs)
     return self
 
-  def if_(self, on_true=Null, *args, **kwargs) -> Chain:
-    self._if(bool, on_true, args, kwargs)
+  def if_(self, on_true, *args, **kwargs) -> Chain:
+    self._if(on_true, args, kwargs)
     return self
 
   def else_(self, on_false, *args, **kwargs) -> Chain:
     self._else(on_false, args, kwargs)
     return self
 
+  def if_not(self, on_true, *args, **kwargs) -> Chain:
+    self._if(on_true, args, kwargs, not_=True)
+    return self
+
+  def if_raise(self, exc: Exception) -> Chain:
+    def if_raise(object cv): raise exc
+    self._if(if_raise)
+    return self
+
+  def else_raise(self, exc: Exception) -> Chain:
+    def else_raise(object cv): raise exc
+    self._else(else_raise)
+    return self
+
+  def if_not_raise(self, exc: Exception) -> Chain:
+    def if_not_raise(object cv): raise exc
+    self._if(if_not_raise, None, None, not_=True)
+    return self
+
+  def condition(self, value, *args, **kwargs) -> Chain:
+    def condition(object cv):
+      return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+    self.set_conditional(condition, custom=True)
+    return self
+
   def not_(self) -> Chain:
-    # use a named function (instead of a lambda) to have more details in the exception stacktrace
+    # use named functions (instead of a lambda) to have more details in the exception stacktrace
     def not_(object cv) -> bool: return not cv
-    self._if(not_)
+    self.set_conditional(not_)
     return self
 
-  def eq(self, value, on_true=Null, *args, **kwargs) -> Chain:
+  def eq(self, value) -> Chain:
     def equals(object cv) -> bool: return cv == value
-    self._if(equals, on_true, args, kwargs)
+    self.set_conditional(equals)
     return self
 
-  def neq(self, value, on_true=Null, *args, **kwargs) -> Chain:
+  def neq(self, value) -> Chain:
     def not_equals(object cv) -> bool: return cv != value
-    self._if(not_equals, on_true, args, kwargs)
+    self.set_conditional(not_equals)
     return self
 
-  def is_(self, value, on_true=Null, *args, **kwargs) -> Chain:
+  def is_(self, value) -> Chain:
     def is_(object cv) -> bool: return cv is value
-    self._if(is_, on_true, args, kwargs)
+    self.set_conditional(is_)
     return self
 
-  def is_not(self, value, on_true=Null, *args, **kwargs) -> Chain:
+  def is_not(self, value) -> Chain:
     def is_not(object cv) -> bool: return cv is not value
-    self._if(is_not, on_true, args, kwargs)
+    self.set_conditional(is_not)
     return self
 
-  def in_(self, value, on_true=Null, *args, **kwargs) -> Chain:
+  def in_(self, value) -> Chain:
     def in_(object cv) -> bool: return cv in value
-    self._if(in_, on_true, args, kwargs)
+    self.set_conditional(in_)
     return self
 
-  def not_in(self, value, on_true=Null, *args, **kwargs) -> Chain:
+  def not_in(self, value) -> Chain:
     def not_in(object cv) -> bool: return cv not in value
-    self._if(not_in, on_true, args, kwargs)
+    self.set_conditional(not_in)
     return self
+
+  def or_(self, value) -> Chain:
+    def or_(object cv): return cv or value
+    self._then(or_)
+    return self
+
+  def raise_(self, exc: Exception) -> Chain:
+    def raise_(object cv): raise exc
+    self._then(raise_)
+    return self
+
+  cdef int finalize_attr(self) except -1:
+    cdef str attr = self.current_attr
+    self.current_attr = None
+    self._then(attr, is_attr=True)
+
+  cdef int finalize_conditional(
+    self, object on_false_v = Null, tuple false_args = None, dict false_kwargs = None
+  ) except -1:
+    cdef:
+      object conditional, on_true_v
+      tuple true_args
+      dict true_kwargs
+      bint is_custom, not_
+    conditional, is_custom = self.current_conditional
+    self.current_conditional = None
+    if self.current_on_true:
+      on_true_v, true_args, true_kwargs, not_ = self.current_on_true
+      self.current_on_true = None
+      self._then(build_conditional(conditional, is_custom, not_, on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs))
+    else:
+      self._then(conditional)
+
+  cdef int set_conditional(self, object conditional, bint custom = False) except -1:
+    if self.current_conditional is not None:
+      self.finalize_conditional()
+    self.current_conditional = (conditional, custom)
 
   def __or__(self, other) -> Chain:
     if isinstance(other, run):
@@ -551,7 +598,7 @@ cdef class ChainAttr(Chain):
   cdef int on_attr(self, str attr) except -1:
     if self.current_attr is not None:
       self.finalize_attr()
-    if self.current_on_true is not None:
+    if self.current_conditional is not None:
       self.finalize_conditional()
     self.current_attr = attr
 
@@ -583,7 +630,8 @@ cdef class CascadeAttr(ChainAttr):
 
 
 cdef object build_conditional(
-  object on_true_v, tuple true_args, dict true_kwargs, object on_false_v, tuple false_args, dict false_kwargs
+  object conditional, bint is_custom, bint not_, object on_true_v, tuple true_args, dict true_kwargs, object on_false_v,
+  tuple false_args, dict false_kwargs
 ):
   """ A helper method to create conditionals
   
@@ -599,17 +647,31 @@ cdef object build_conditional(
   """
   # a similar implementation using a class was tested and found to be marginally slower than this
   # so there isn't really a way to further optimize it until Cython adds support for nested `cdef`s.
-  def if_else(bint v):
-    if v:
-      if on_true_v is not Null:
-        return evaluate_value(
-          v=on_true_v, cv=Null, is_attr=False, is_fattr=False, args=true_args, kwargs=true_kwargs
-        )
+  async def if_else_async(object r, object cv):
+    r = _if_else(await r, cv)
+    if isawaitable(r):
+      r = await r
+    return r
+
+  def if_else(object cv):
+    r = conditional(cv)
+    if is_custom and isawaitable(r):
+      return if_else_async(r, cv)
+    return _if_else(r, cv)
+
+  def _if_else(object r, object cv):
+    if not_:
+      r = not r
+    if r:
+      return evaluate_value(
+        v=on_true_v, cv=cv, is_attr=False, is_fattr=False, args=true_args, kwargs=true_kwargs
+      )
     elif on_false_v is not Null:
       return evaluate_value(
-        v=on_false_v, cv=Null, is_attr=False, is_fattr=False, args=false_args, kwargs=false_kwargs
+        v=on_false_v, cv=cv, is_attr=False, is_fattr=False, args=false_args, kwargs=false_kwargs
       )
-    return v
+    return cv
+
   return if_else
 
 
