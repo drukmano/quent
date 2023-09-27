@@ -1,4 +1,4 @@
-# cython: binding=False, boundscheck=False, wraparound=False, language_level=3
+# cython: binding=False, boundscheck=False, wraparound=False, language_level=3, embedsignature=True
 ## cython: profile=True, linetrace=True, warn.undeclared=True
 ## distutils: define_macros=CYTHON_TRACE_NOGIL=1
 
