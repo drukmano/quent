@@ -614,8 +614,9 @@ cdef object foreach(object fn, bint with_lst):
 async def async_foreach(object cv, object fn, object result, list lst, bint with_lst):
   """ A helper method for `.foreach()` """
   cdef object el
+  result = await result
   if with_lst:
-    lst.append(await result)
+    lst.append(result)
   for el in cv:
     result = fn(el)
     if isawaitable(result):
