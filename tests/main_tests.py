@@ -131,28 +131,36 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertEqual(num, 42)
 
   async def test_foreach_async_mid_loop(self):
-      def f(i):
-        nonlocal counter
-        counter += i**2
-        if 4 <= i <= 7:
-          return aempty(i)
-        return i
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        def f(i):
+          nonlocal counter
+          counter += i**2
+          if 4 <= i <= 7:
+            return aempty(i)
+          return i
 
-      counter = 0
-      self.assertTrue(await await_(Chain(range(10)).foreach(f).eq(list(range(10))).run()))
-      self.assertEqual(counter, sum(i**2 for i in range(10)))
+        counter = 0
+        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach(f).eq(list(range(10))).run()))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
+        counter = 0
+        self.assertTrue(await await_(Chain(range(10)).foreach(f).then(fn).eq(list(range(10))).run()))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
 
-      coro = Chain(range(10)).foreach(f).run()
-      self.assertTrue(asyncio.iscoroutine(coro))
-      await coro
+        coro = Chain(range(10)).foreach(f).run()
+        self.assertTrue(inspect.isawaitable(coro))
+        await coro
 
-      counter = 0
-      self.assertTrue(await await_(Chain(range(10)).foreach_do(f).eq(range(10)).run()))
-      self.assertEqual(counter, sum(i**2 for i in range(10)))
+        counter = 0
+        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach_do(f).eq(range(10)).run()))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
+        counter = 0
+        self.assertTrue(await await_(Chain(range(10)).foreach_do(f).then(fn).eq(range(10)).run()))
+        self.assertEqual(counter, sum(i**2 for i in range(10)))
 
-      coro = Chain(range(10)).foreach_do(f).run()
-      self.assertTrue(asyncio.iscoroutine(coro))
-      await coro
+        coro = Chain(range(10)).foreach_do(f).run()
+        self.assertTrue(inspect.isawaitable(coro))
+        await coro
 
   async def test_with(self):
     @contextmanager
@@ -183,3 +191,11 @@ class MainTest(IsolatedAsyncioTestCase):
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(100).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(fn).then(lambda v: isinstance(v, cls)).run()))
+
+  async def test_many_nested_chains(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        parent_chain = chain = Chain(42).then(fn)
+        for _ in range(100):
+          chain.then(chain := Chain().then(fn))
+        self.assertEqual(await await_(parent_chain.run()), 42)

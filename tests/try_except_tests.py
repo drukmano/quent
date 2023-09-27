@@ -1,3 +1,4 @@
+import asyncio
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from src.quent import Chain, ChainAttr, Cascade, CascadeAttr
@@ -129,10 +130,18 @@ class TryExceptTest(IsolatedAsyncioTestCase):
   async def test_try_except_unknown_async_at_exc(self):
     # this function shows that if an exception is raised "before" an async coroutine has been
     # run (or if there aren't any async functions at all), and the except / finally callbacks are async,
-    # they will not be awaited
+    # they will be called in a separate task.
     exc_fin_check = ExceptFinallyCheckAsync()
     try:
-      await await_(Chain(True).then(throw_if).then(aempty).except_(exc_fin_check.on_except).finally_(exc_fin_check.on_finally).run())
+      await await_(
+        Chain(True).then(throw_if).then(aempty)
+        .except_(Chain(asyncio.sleep, 0.1).then(exc_fin_check.on_except), ...)
+        .finally_(Chain(asyncio.sleep, 0.1).then(exc_fin_check.on_finally), ...)
+        .run()
+      )
     except Exception: pass
     self.assertFalse(exc_fin_check.ran_exc)
     self.assertFalse(exc_fin_check.ran_finally)
+    await asyncio.sleep(0.3)  # allow for the tasks to finish
+    self.assertTrue(exc_fin_check.ran_exc)
+    self.assertTrue(exc_fin_check.ran_finally)

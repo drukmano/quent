@@ -5,6 +5,11 @@
 #cimport cython
 import collections.abc
 import types
+import warnings
+
+
+cdef object _ensure_future
+from asyncio import ensure_future as _ensure_future
 
 
 cdef object _PipeCls
@@ -23,6 +28,30 @@ cdef _Null Null = _Null()
 
 cdef class QuentException(Exception):
   pass
+
+
+# this holds a strong reference to all tasks that we create
+# see: https://stackoverflow.com/a/75941086
+# "... the asyncio loop avoids creating hard references (just weak) to the tasks,
+# and when it is under heavy load, it may just "drop" tasks that are not referenced somewhere else."
+cdef set task_registry = set()
+
+cdef int remove_task(object task) except -1:
+  # this may occur when asyncio.ensure_future() is called on a Task -
+  # it returns the same Task as-is. and even though we are not registering
+  # the callback if the task is already in `task_registry`, a race condition is possible.
+  if task in task_registry:
+    try:
+      task_registry.remove(task)
+    except KeyError:
+      pass
+
+cdef object ensure_future(object coro):
+  cdef object task = _ensure_future(coro)
+  if task not in task_registry:
+    task_registry.add(task)
+    task.add_done_callback(remove_task)
+  return task
 
 
 # a modified version of `asyncio.iscoroutine`.
@@ -222,7 +251,9 @@ cdef class Chain:
         is_void = False
         if isawaitable(rv):
           ignore_try = True
-          return self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
+          return ensure_future(
+            self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
+          )
 
       for idx, link in enumerate(links):
         # TODO optimize this line
@@ -238,7 +269,9 @@ cdef class Chain:
           result = evaluate_value(v, rv if is_with_root else cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             ignore_try = True
-            return self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
+            return ensure_future(
+              self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
+            )
           if not ignore_result:
             cv = result
 
@@ -248,12 +281,24 @@ cdef class Chain:
 
     except Exception as e:
       if not ignore_try and on_except is not None:
-        run_callback(on_except, rv)
+        result = run_callback(on_except, rv)
+        if isawaitable(result):
+          ensure_future(result)
+          warnings.warn(
+            'The \'except\' callback has returned a coroutine, but the chain is in synchronous mode.',
+            category=RuntimeWarning
+          )
       raise e from create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx)
 
     finally:
       if not ignore_try and on_finally is not None:
-        run_callback(on_finally, rv)
+        result = run_callback(on_finally, rv)
+        if isawaitable(result):
+          ensure_future(result)
+          warnings.warn(
+            'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode.',
+            category=RuntimeWarning
+          )
 
   async def _run_async(
     self, object result, object rv, int idx, bint is_void,

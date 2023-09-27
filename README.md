@@ -27,7 +27,7 @@ pip install quent
   - [Conditionals](#conditionals)
 - [Cascade](#cascade)
 - [Direct Attribute Access](#direct-attribute-access)
-- [Limitations](#limitations)
+- [Important Notes](#important-notes)
 
 **Suggestions and contributions are more than welcome.**
 
@@ -61,11 +61,13 @@ With Quent, we can chain these operations:
 ```python
 from quent import Chain
 
-async def handle_request(id):
-  return await Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data).run()
+def handle_request(id):
+  return Chain(fetch_data, id).then(validate_data).then(normalize_data).then(send_data).run()
 ```
-Once there is at least one coroutine in the chain, `.run()` will return a coroutine.
-This opens up a lot of new ways to write more elegant and readable code.
+
+**Upon evaluation (calling `.run()`), if an awaitable object is detected, Quent wraps it in a Task and returns it.
+The task is automatically scheduled for execution and the chain evaluation continues within the task.
+As Task objects need not be `await`-ed in order to run, you may or may not `await` it, depending on your needs.**
 
 Besides `Chain`, Quent provides the [Cascade](#cascade) class which implements the [fluent interface](https://en.wikipedia.org/wiki/Fluent_interface).
 
@@ -102,7 +104,7 @@ async `Redis` instance, they will know that they need to `await` it. This allows
 without caring about `sync` vs `async`.
 
 Some would say that this pattern can cause unexpected behavior, since it isn't clear when it
-will return a coroutine or not. I see it no differently than any undocumented code - with a proper
+will return a Task or not. I see it no differently than any undocumented code - with a proper
 and clear documentation (be it an external documentation or just a simple docstring), there shouldn't be
 any truly *unexpected* behavior (barring any unknown bugs).
 
@@ -262,8 +264,8 @@ Chain(cls, name='foo')
 Chain(lambda v: v*10, 4.2)
 ```
 
-#### `run(value: Any = None, *args, **kwargs) -> Any | Coroutine`
-Evaluates the chain and returns the result, or a coroutine if there are any coroutines in the chain.
+#### `run(value: Any = None, *args, **kwargs) -> Any | asyncio.Task`
+Evaluates the chain and returns the result, or a Task if there are any coroutines in the chain.
 
 If the chain is a template chain (initialized without a value), you must call `.run()` with a value, which will act
 as the root item of the chain.
@@ -592,33 +594,29 @@ that it requires overriding `__getattr__`, which drastically increases the overh
 accessing any properties / methods. And since I don't think this kind of usage will be common, I decided
 to keep this functionality opt-in.
 
-## Limitations
+## Important Notes
 ### Asynchronous `except` and `finally` callbacks
 If an except/finally callback is a coroutine function, and an exception is raised *before*
-the first coroutine of the chain has been evaluated, or if there aren't any coroutines in the chain - the
-callbacks will **not** be awaited.
+the first coroutine of the chain has been evaluated, or if there aren't any coroutines in the chain - each
+callback will be invoked inside a new Task, which you won't have access to.
+This is due to the fact that we cannot return the new Task(s) from the `except`/`finally` clauses.
 
-This limitation is due to the fact that we cannot (nor want to) return the result of the callbacks so that
-they will be awaited downstream. So in order to `await` the callbacks, the execution must be inside a coroutine, so that
-we can `await` the callbacks.
-And the only case where we evaluate the chain inside a coroutine is when we detect a coroutine during the chain's
-evaluation.
-
-This shouldn't be an issue in most use cases, but it is important to be aware of this limitation.
+This shouldn't be an issue in most use cases, but important to be aware of.
+A `RuntimeWarning` will be emitted in such a case.
 
 As an example, suppose that `fetch_data` is synchronous, and `report_usage` is asynchronous.
 ```python
 Chain(fetch_data).then(raise_exception, ...).finally_(report_usage).run()
 ```
 will execute `fetch_data()`, then `raise_exception()`, and then `report_usage(data)`. But `report_usage(data)` is a
-coroutine, and `fetch_data` and `raise_exceptions` are not. This will cause `report_usage(data)` to be invoked **but
-not awaited**.
+coroutine, and `fetch_data` and `raise_exceptions` are not. Then Quent will wrap `report_usage(data)` in a Task
+and "forget" about it.
 
-If you must, you can "force" the chain to return a coroutine by giving it a dummy coroutine:
+If you must, you can "force" an async chain by giving it a dummy coroutine:
 ```python
-async def fn():
-  pass
+async def fn(v):
+  return v
 
-await Chain(fn).then(fetch_data, ...).then(raise_exception, ...).finally_(report_usage).run()
+await Chain(fetch_data).then(fn).then(raise_exception, ...).finally_(report_usage).run()
 ```
-This will ensure that `report_usage()` will be awaited.
+This will ensure that `report_usage()` will be awaited properly.
