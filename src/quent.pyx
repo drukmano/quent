@@ -59,86 +59,9 @@ cdef bint isawaitable(object obj):
     return False
 
 
-def create_chain_link_exception(
-  v: Any, cv: Any, is_attr: bool, is_fattr: bool, args: tuple | None, kwargs: dict | None, idx: int,
-  is_exc_raised_on_await: bool = False
-) -> QuentException:
-  """
-  Create a string representation of the evaluation of 'v' based on the same rules
-  used in `evaluate_value`
-  """
-
-  def get_object_name(o: Any, literal: bool) -> str:
-    if literal:
-      return str(o)
-    try:
-      return o.__name__
-    except AttributeError:
-      return type(o).__name__
-
-  def append_await(s: str) -> str:
-    if is_exc_raised_on_await:
-      s = f'await {s}'
-    return s
-
-  def format_exception_details(literal: bool):
-    if v is Null:
-      return str(v), 'Null'
-
-    elif is_attr:
-      if not is_fattr:
-        s = get_object_name(cv, literal)
-        return f'Attribute \'{v}\' of \'{cv}\'', f'{s}.{v}'
-
-    if args and args[0] is ...:
-      if is_fattr:
-        s = get_object_name(cv, literal)
-        return f'Method attribute \'{v}\' of \'{cv}\'', f'{s}.{v}()'
-      s = get_object_name(v, literal)
-      return f'{v}', f'{s}()'
-
-    elif args or kwargs:
-      kwargs_ = [f'{k}={v_}' for k, v_ in kwargs.items()]
-      args_ = ', '.join(str(arg) for arg in list(args) + kwargs_)
-      if is_fattr:
-        s = get_object_name(cv, literal)
-        return f'Method attribute \'{v}\' of \'{cv}\'', f'{s}.{v}({args_})'
-      s = get_object_name(v, literal)
-      return f'{v}', f'{s}({args_})'
-
-    elif is_fattr:
-      s = get_object_name(cv, literal)
-      return f'Method attribute \'{v}\' of \'{cv}\'', f'{s}.{v}()'
-
-    elif not is_attr and callable(v):
-      s = get_object_name(v, literal)
-      return f'{v}', f'{s}()' if cv is Null else f'{s}({cv})'
-
-    else:
-      return str(v), str(v)
-
-  try:
-    object_str, readable_str = format_exception_details(literal=False)
-  except AttributeError as e:
-    # this should not happen, but just in case.
-    object_str, readable_str = format_exception_details(literal=True)
-
-  if idx == -1:
-    s = 'The chain root link has raised an exception:'
-  else:
-    s = 'A chain link has raised an exception:'
-    s += f'\n\tLink position (not including the root link): {idx}'
-  if is_exc_raised_on_await:
-    s += '\n\tThe exception was raised as the result of awaiting a coroutine'
-  return QuentException(
-    s
-    + f'\n\t{object_str}'
-    + f'\n\t`{append_await(readable_str)}`'
-  )
-
-
 cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, tuple args, dict kwargs):
-  """
+  """ The main value evaluation function
+  
   Given a value `v`, and a value `cv`, evaluates `v`.
   :param v: a value.
   :param cv: the current chain value.
@@ -175,60 +98,6 @@ cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, tup
 
   else:
     return v
-
-
-cdef object run_callback(tuple callback_meta, object rv):
-  """
-  A helper method to run the callbacks of on-except/on-finally
-  :param callback_meta: A tuple of the form `(fn_or_attr, args, kwargs)`.
-  :param rv: the root value of the Chain.
-  :return: the result of the callback.
-  """
-  cdef:
-    object fn_or_attr
-    bint is_attr
-    tuple args
-    dict kwargs
-
-  fn_or_attr, args, kwargs = callback_meta
-  is_attr = isinstance(fn_or_attr, str)
-  # if the target is an attribute, we also assume that it is a method attribute, since
-  # it doesn't really make sense to access an attribute of an object on except/finally
-  # (unless it is a @property function, which is not common, and a bad design to have a
-  # @property function perform actions).
-  return evaluate_value(
-    v=fn_or_attr, cv=rv, is_attr=is_attr, is_fattr=is_attr, args=args, kwargs=kwargs
-  )
-
-
-cdef object build_conditional(
-  object on_true_v, tuple true_args, dict true_kwargs, object on_false_v, tuple false_args, dict false_kwargs
-):
-  """
-  Creates a function which conditionally invokes a callback.
-  :param on_true_v: a callback for a truthy value.
-  :param true_args: the arguments for the truthy callback.
-  :param true_kwargs: the keyword-arguments for the truthy callback.
-  :param on_false_v: a callback for a falsy value.
-  :param false_args: the arguments for the falsy callback. 
-  :param false_kwargs: the keyword-arguments for the falsy callback.
-  :return: A function which accepts a boolean value and returns either the same value, or the evaluation of the
-  corresponding callback.
-  """
-  # a similar implementation using a class was tested and found to be marginally slower than this
-  # so there isn't really a way to further optimize it until Cython adds support for nested `cdef`s.
-  def if_else(bint v):
-    if v:
-      if on_true_v is not Null:
-        return evaluate_value(
-          v=on_true_v, cv=Null, is_attr=False, is_fattr=False, args=true_args, kwargs=true_kwargs
-        )
-    elif on_false_v is not Null:
-      return evaluate_value(
-        v=on_false_v, cv=Null, is_attr=False, is_fattr=False, args=false_args, kwargs=false_kwargs
-      )
-    return v
-  return if_else
 
 
 cdef class run:
@@ -669,6 +538,61 @@ cdef class CascadeAttr(ChainAttr):
     self.init(v, args, kwargs, is_cascade=True)
 
 
+cdef object build_conditional(
+  object on_true_v, tuple true_args, dict true_kwargs, object on_false_v, tuple false_args, dict false_kwargs
+):
+  """ A helper method to create conditionals
+  
+  Creates a function which conditionally invokes a callback.
+  :param on_true_v: a callback for a truthy value.
+  :param true_args: the arguments for the truthy callback.
+  :param true_kwargs: the keyword-arguments for the truthy callback.
+  :param on_false_v: a callback for a falsy value.
+  :param false_args: the arguments for the falsy callback. 
+  :param false_kwargs: the keyword-arguments for the falsy callback.
+  :return: A function which accepts a boolean value and returns either the same value, or the evaluation of the
+  corresponding callback.
+  """
+  # a similar implementation using a class was tested and found to be marginally slower than this
+  # so there isn't really a way to further optimize it until Cython adds support for nested `cdef`s.
+  def if_else(bint v):
+    if v:
+      if on_true_v is not Null:
+        return evaluate_value(
+          v=on_true_v, cv=Null, is_attr=False, is_fattr=False, args=true_args, kwargs=true_kwargs
+        )
+    elif on_false_v is not Null:
+      return evaluate_value(
+        v=on_false_v, cv=Null, is_attr=False, is_fattr=False, args=false_args, kwargs=false_kwargs
+      )
+    return v
+  return if_else
+
+
+cdef object run_callback(tuple callback_meta, object rv):
+  """
+  A helper method to run the callbacks of on-except/on-finally
+  :param callback_meta: A tuple of the form `(fn_or_attr, args, kwargs)`.
+  :param rv: the root value of the Chain.
+  :return: the result of the callback.
+  """
+  cdef:
+    object fn_or_attr
+    bint is_attr
+    tuple args
+    dict kwargs
+
+  fn_or_attr, args, kwargs = callback_meta
+  is_attr = isinstance(fn_or_attr, str)
+  # if the target is an attribute, we also assume that it is a method attribute, since
+  # it doesn't really make sense to access an attribute of an object on except/finally
+  # (unless it is a @property function, which is not common, and a bad design to have a
+  # @property function perform actions).
+  return evaluate_value(
+    v=fn_or_attr, cv=rv, is_attr=is_attr, is_fattr=is_attr, args=args, kwargs=kwargs
+  )
+
+
 cdef object foreach(object fn, bint with_lst):
   """ A helper method for `.foreach()` """
   def foreach(object cv):
@@ -746,3 +670,81 @@ async def async_with(object v, object cv, tuple args, dict kwargs):
     if isawaitable(result):
       return await result
     return result
+
+
+def create_chain_link_exception(
+  v: Any, cv: Any, is_attr: bool, is_fattr: bool, args: tuple | None, kwargs: dict | None, idx: int,
+  is_exc_raised_on_await: bool = False
+) -> QuentException:
+  """
+  Create a string representation of the evaluation of 'v' based on the same rules
+  used in `evaluate_value`
+  """
+
+  def get_object_name(o: Any, literal: bool) -> str:
+    if literal:
+      return str(o)
+    try:
+      return o.__name__
+    except AttributeError:
+      return type(o).__name__
+
+  def append_await(s: str) -> str:
+    if is_exc_raised_on_await:
+      s = f'await {s}'
+    return s
+
+  def format_exception_details(literal: bool):
+    if v is Null:
+      return str(v), 'Null'
+
+    elif is_attr:
+      if not is_fattr:
+        s = get_object_name(cv, literal)
+        return f'Attribute \'{v}\' of \'{cv}\'', f'{s}.{v}'
+
+    if args and args[0] is ...:
+      if is_fattr:
+        s = get_object_name(cv, literal)
+        return f'Method attribute \'{v}\' of \'{cv}\'', f'{s}.{v}()'
+      s = get_object_name(v, literal)
+      return f'{v}', f'{s}()'
+
+    elif args or kwargs:
+      kwargs_ = [f'{k}={v_}' for k, v_ in kwargs.items()]
+      args_ = ', '.join(str(arg) for arg in list(args) + kwargs_)
+      if is_fattr:
+        s = get_object_name(cv, literal)
+        return f'Method attribute \'{v}\' of \'{cv}\'', f'{s}.{v}({args_})'
+      s = get_object_name(v, literal)
+      return f'{v}', f'{s}({args_})'
+
+    elif is_fattr:
+      s = get_object_name(cv, literal)
+      return f'Method attribute \'{v}\' of \'{cv}\'', f'{s}.{v}()'
+
+    elif not is_attr and callable(v):
+      s = get_object_name(v, literal)
+      return f'{v}', f'{s}()' if cv is Null else f'{s}({cv})'
+
+    else:
+      return str(v), str(v)
+
+  try:
+    object_str, readable_str = format_exception_details(literal=False)
+  except AttributeError as e:
+    # this should not happen, but just in case.
+    object_str, readable_str = format_exception_details(literal=True)
+
+  if idx == -1:
+    s = 'The chain root link has raised an exception:'
+  else:
+    s = 'A chain link has raised an exception:'
+    s += f'\n\tLink position (not including the root link): {idx}'
+  if is_exc_raised_on_await:
+    s += '\n\tThe exception was raised as the result of awaiting a coroutine'
+  return QuentException(
+    s
+    + f'\n\t{object_str}'
+    + f'\n\t`{append_await(readable_str)}`'
+  )
