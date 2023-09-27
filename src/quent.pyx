@@ -5,7 +5,6 @@
 #cimport cython
 import collections.abc
 import types
-from typing import Any, Callable, Coroutine
 
 
 cdef object _PipeCls
@@ -112,8 +111,8 @@ cdef class run:
     tuple args
     dict kwargs
 
-  def __init__(self, v: Any | Callable = Null, *args, **kwargs):
-    self.init(v, args, kwargs)
+  def __init__(self, value=Null, *args, **kwargs):
+    self.init(value, args, kwargs)
 
   cdef int init(self, object v, tuple args, dict kwargs) except -1:
     self.root_value = v
@@ -142,14 +141,14 @@ cdef class Chain:
   def from_(cls, *args) -> Chain:
     return from_list(cls, args)
 
-  def __init__(self, root_value: Any | Callable = Null, *args, **kwargs):
+  def __init__(self, value=Null, *args, **kwargs):
     """
     Create a new Chain
     :param v: the root value of the chain
     :param args: arguments to pass to `v`
     :param kwargs: keyword-arguments to pass to `v`
     """
-    self.init(root_value, args, kwargs)
+    self.init(value, args, kwargs)
 
   cdef int init(self, object root_value, args: tuple, kwargs: dict, bint is_cascade = False) except -1:
     self.is_cascade = is_cascade
@@ -362,25 +361,25 @@ cdef class Chain:
     if on_true_v is not Null or on_false_v is not Null:
       self._then(build_conditional(on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs))
 
-  def run(self, v: Any | Callable = Null, *args, **kwargs) -> Any:
-    return self._run(v, args, kwargs)
+  def run(self, value=Null, *args, **kwargs):
+    return self._run(value, args, kwargs)
 
   # cannot use cpdef with *args **kwargs.
-  def then(self, v: Any | Callable, *args, **kwargs) -> Chain:
-    self._then(v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
+  def then(self, value, *args, **kwargs) -> Chain:
+    self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def root(self, v: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._then(v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+  def root(self, value=Null, *args, **kwargs) -> Chain:
+    self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def ignore(self, v: Any | Callable, *args, **kwargs) -> Chain:
+  def ignore(self, value, *args, **kwargs) -> Chain:
     # register a value to be evaluated but will not propagate its result forwards.
-    self._then(v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
+    self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
-  def root_ignore(self, v: Any | Callable, *args, **kwargs) -> Chain:
-    self._then(v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
+  def root_ignore(self, value, *args, **kwargs) -> Chain:
+    self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
   def attr(self, name: str) -> Chain:
@@ -391,40 +390,40 @@ cdef class Chain:
     self._then(name, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def foreach(self, fn: Callable) -> Chain:
+  def foreach(self, fn) -> Chain:
     self._then(foreach(fn, True))
     return self
 
-  def foreach_do(self, fn: Callable) -> Chain:
+  def foreach_do(self, fn) -> Chain:
     self._then(
       foreach(fn, False), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None
     )
     return self
 
-  def with_(self, v: Any | Callable = Null, *args, **kwargs) -> Chain:
-    self._then(with_(v, args, kwargs))
+  def with_(self, value=Null, *args, **kwargs) -> Chain:
+    self._then(with_(value, args, kwargs))
     return self
 
-  def with_do(self, v: Any | Callable, *args, **kwargs) -> Chain:
+  def with_do(self, value, *args, **kwargs) -> Chain:
     self._then(
-      with_(v, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
+      with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
       kwargs=None
     )
     return self
 
-  def except_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
+  def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
     self._except(fn_or_attr, args, kwargs)
     return self
 
-  def finally_(self, fn_or_attr: Callable | str, *args, **kwargs) -> Chain:
+  def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
     self._finally(fn_or_attr, args, kwargs)
     return self
 
-  def if_(self, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
+  def if_(self, on_true=Null, *args, **kwargs) -> Chain:
     self._if(bool, on_true, args, kwargs)
     return self
 
-  def else_(self, on_false: Any | Callable, *args, **kwargs) -> Chain:
+  def else_(self, on_false, *args, **kwargs) -> Chain:
     self._else(on_false, args, kwargs)
     return self
 
@@ -434,44 +433,44 @@ cdef class Chain:
     self._if(not_)
     return self
 
-  def eq(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    def equals(object cv) -> bool: return cv == v
+  def eq(self, value, on_true=Null, *args, **kwargs) -> Chain:
+    def equals(object cv) -> bool: return cv == value
     self._if(equals, on_true, args, kwargs)
     return self
 
-  def neq(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    def not_equals(object cv) -> bool: return cv != v
+  def neq(self, value, on_true=Null, *args, **kwargs) -> Chain:
+    def not_equals(object cv) -> bool: return cv != value
     self._if(not_equals, on_true, args, kwargs)
     return self
 
-  def is_(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    def is_(object cv) -> bool: return cv is v
+  def is_(self, value, on_true=Null, *args, **kwargs) -> Chain:
+    def is_(object cv) -> bool: return cv is value
     self._if(is_, on_true, args, kwargs)
     return self
 
-  def is_not(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    def is_not(object cv) -> bool: return cv is not v
+  def is_not(self, value, on_true=Null, *args, **kwargs) -> Chain:
+    def is_not(object cv) -> bool: return cv is not value
     self._if(is_not, on_true, args, kwargs)
     return self
 
-  def in_(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    def in_(object cv) -> bool: return cv in v
+  def in_(self, value, on_true=Null, *args, **kwargs) -> Chain:
+    def in_(object cv) -> bool: return cv in value
     self._if(in_, on_true, args, kwargs)
     return self
 
-  def not_in(self, v: Any, on_true: Any | Callable = Null, *args, **kwargs) -> Chain:
-    def not_in(object cv) -> bool: return cv not in v
+  def not_in(self, value, on_true=Null, *args, **kwargs) -> Chain:
+    def not_in(object cv) -> bool: return cv not in value
     self._if(not_in, on_true, args, kwargs)
     return self
 
-  def __or__(self, other: Any) -> Chain | Coroutine:
+  def __or__(self, other) -> Chain:
     if isinstance(other, run):
       return self._run(other.root_value, other.args, other.kwargs)
     self._then(other)
     return self
 
-  def __call__(self, v: Any | Callable = Null, *args, **kwargs) -> Any:
-    return self._run(v, args, kwargs)
+  def __call__(self, value=Null, *args, **kwargs):
+    return self._run(value, args, kwargs)
 
   # while this may be nice to have, I fear that it will cause troubles as
   # people might forget to call `.run()` when dealing with non-async code (or
@@ -499,8 +498,8 @@ cdef class Cascade(Chain):
   # TODO mark all cascade items as `ignore_result=True` to (marginally) increase performance.
 
   # noinspection PyMissingConstructor
-  def __init__(self, v: Any | Callable = Null, *args, **kwargs):
-    self.init(v, args, kwargs, is_cascade=True)
+  def __init__(self, value=Null, *args, **kwargs):
+    self.init(value, args, kwargs, is_cascade=True)
 
 
 cdef class ChainAttr(Chain):
@@ -520,7 +519,7 @@ cdef class ChainAttr(Chain):
     self.on_attr(attr)
     return self
 
-  def __call__(self, *args, **kwargs) -> Any | ChainAttr:
+  def __call__(self, *args, **kwargs) -> ChainAttr:
     if self.current_attr is None:
       # much slower than directly calling `._run()`, but we have no choice since
       # we wish support arbitrary __call__ invocations on attributes.
@@ -534,8 +533,8 @@ cdef class ChainAttr(Chain):
 # cannot have multiple inheritance in Cython.
 cdef class CascadeAttr(ChainAttr):
   # noinspection PyMissingConstructor
-  def __init__(self, v: Any | Callable = Null, *args, **kwargs):
-    self.init(v, args, kwargs, is_cascade=True)
+  def __init__(self, value=Null, *args, **kwargs):
+    self.init(value, args, kwargs, is_cascade=True)
 
 
 cdef object build_conditional(
@@ -673,7 +672,7 @@ async def async_with(object v, object cv, tuple args, dict kwargs):
 
 
 def create_chain_link_exception(
-  v: Any, cv: Any, is_attr: bool, is_fattr: bool, args: tuple | None, kwargs: dict | None, idx: int,
+  v, cv, is_attr: bool, is_fattr: bool, args: tuple | None, kwargs: dict | None, idx: int,
   is_exc_raised_on_await: bool = False
 ) -> QuentException:
   """
@@ -681,7 +680,7 @@ def create_chain_link_exception(
   used in `evaluate_value`
   """
 
-  def get_object_name(o: Any, literal: bool) -> str:
+  def get_object_name(o, literal: bool) -> str:
     if literal:
       return str(o)
     try:
