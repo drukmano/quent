@@ -102,6 +102,12 @@ cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, tup
   if v is Null:
     return Null
 
+  if isinstance(v, Chain):
+    # TODO add `autorun_explicit` where if True then do not override this value here
+    #  this allows for more granular control over nested chains and autorun policies
+    #  (e.g. not wanting some nested chain to auto-run but also wanting to auto-run another nested chain)
+    v.config(autorun=False)
+
   elif is_attr:
     v = getattr(cv, v)
     if not is_fattr:

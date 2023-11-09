@@ -189,6 +189,41 @@ class MainTest(IsolatedAsyncioTestCase):
     await chain
     self.assertFalse(result[0])
 
+  async def test_nested_chains_ensure_future(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        result = [False]
+        this_task = asyncio.current_task()
+
+        def set_result(v):
+          time.sleep(0.1)
+          result[0] = v
+
+        def check_this_task(same_task: bool):
+          if same_task:
+            self.assertTrue(this_task == asyncio.current_task())
+          else:
+            self.assertFalse(this_task == asyncio.current_task())
+
+        # test that a nested chain is executed within the same task as the parent chain
+        chain = (
+          Chain(True).then(fn).then(
+            Chain().then(aempty).then(set_result).then(check_this_task, same_task=False).then(lambda: hash(asyncio.current_task()), ...)
+          ).then(lambda t: t == hash(asyncio.current_task()))
+          .ignore(check_this_task, same_task=False).run()
+        )
+        self.assertFalse(result[0])
+        self.assertTrue(await await_(chain))
+        self.assertTrue(result[0])
+
+        # test that a nested chain and the parent chain is executed within the same task as this
+        chain = Chain(False).then(fn).then(Chain().then(aempty).then(set_result).then(check_this_task, same_task=True)).then(check_this_task, same_task=True).config(autorun=False).run()
+        self.assertTrue(result[0])
+        await asyncio.sleep(0.2)
+        self.assertTrue(result[0])
+        await chain
+        self.assertFalse(result[0])
+
   async def test_with(self):
     @contextmanager
     def sync_ctx(v: int):
