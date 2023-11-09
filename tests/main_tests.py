@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import inspect
+import time
 from contextlib import contextmanager, asynccontextmanager
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
@@ -161,6 +162,32 @@ class MainTest(IsolatedAsyncioTestCase):
         coro = Chain(range(10)).foreach_do(f).run()
         self.assertTrue(inspect.isawaitable(coro))
         await coro
+
+  async def test_autorun(self):
+    result = [False]
+    this_task = asyncio.current_task()
+
+    def set_result(v):
+      time.sleep(0.1)
+      result[0] = v
+
+    def check_this_task(same_task: bool):
+      if same_task:
+        self.assertTrue(this_task == asyncio.current_task())
+      else:
+        self.assertFalse(this_task == asyncio.current_task())
+
+    Chain(True).then(aempty).then(set_result).then(check_this_task, same_task=False).run()
+    self.assertFalse(result[0])
+    await asyncio.sleep(0.2)
+    self.assertTrue(result[0])
+
+    chain = Chain(False).then(aempty).then(set_result).then(check_this_task, same_task=True).config(autorun=False).run()
+    self.assertTrue(result[0])
+    await asyncio.sleep(0.2)
+    self.assertTrue(result[0])
+    await chain
+    self.assertFalse(result[0])
 
   async def test_with(self):
     @contextmanager

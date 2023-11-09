@@ -161,7 +161,7 @@ cdef Chain from_list(object cls, tuple links):
 cdef class Chain:
   cdef:
     tuple root_link
-    bint is_cascade
+    bint is_cascade, autorun
     list links
     tuple on_except, on_finally, current_conditional, current_on_true
     str current_attr
@@ -181,6 +181,7 @@ cdef class Chain:
 
   cdef int init(self, object root_value, tuple args, dict kwargs, bint is_cascade) except -1:
     self.is_cascade = is_cascade
+    self.autorun = True
 
     # `links` is a list which contains tuples of the following structure:
     # (
@@ -252,9 +253,10 @@ cdef class Chain:
         is_void = False
         if isawaitable(rv):
           ignore_try = True
-          return ensure_future(
-            self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
-          )
+          result = self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
+          if self.autorun:
+            return ensure_future(result)
+          return result
 
       for idx, link in enumerate(links):
         # TODO optimize this line
@@ -270,9 +272,10 @@ cdef class Chain:
           result = evaluate_value(v, rv if is_with_root else cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             ignore_try = True
-            return ensure_future(
-              self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
-            )
+            result = self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
+            if self.autorun:
+              return ensure_future(result)
+            return result
           if not ignore_result and result is not Null:
             cv = result
 
@@ -392,6 +395,11 @@ cdef class Chain:
         'You cannot use \'.else_()\' without a preceding \'.if_()\' or \'.if_not()\''
       )
     self.finalize_conditional(on_false_v, false_args, false_kwargs)
+
+  def config(self, *, autorun=None) -> Chain:
+    if autorun is not None:
+      self.autorun = autorun
+    return self
 
   def run(self, value=Null, *args, **kwargs):
     return self._run(value, args, kwargs)
