@@ -177,9 +177,9 @@ cdef class Chain:
     :param args: arguments to pass to `v`
     :param kwargs: keyword-arguments to pass to `v`
     """
-    self.init(value, args, kwargs)
+    self.init(value, args, kwargs, is_cascade=False)
 
-  cdef int init(self, object root_value, args: tuple, kwargs: dict, bint is_cascade = False) except -1:
+  cdef int init(self, object root_value, tuple args, dict kwargs, bint is_cascade) except -1:
     self.is_cascade = is_cascade
 
     # `links` is a list which contains tuples of the following structure:
@@ -286,7 +286,8 @@ cdef class Chain:
         if isawaitable(result):
           ensure_future(result)
           warnings.warn(
-            'The \'except\' callback has returned a coroutine, but the chain is in synchronous mode.',
+            'The \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
+            'It was therefore scheduled for execution in a new Task.',
             category=RuntimeWarning
           )
       raise e from create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx)
@@ -297,7 +298,8 @@ cdef class Chain:
         if isawaitable(result):
           ensure_future(result)
           warnings.warn(
-            'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode.',
+            'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode. '
+            'It was therefore scheduled for execution in a new Task.',
             category=RuntimeWarning
           )
 
@@ -412,11 +414,11 @@ cdef class Chain:
     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
-  def attr(self, name: str) -> Chain:
+  def attr(self, name) -> Chain:
     self._then(name, is_attr=True)
     return self
 
-  def attr_fn(self, name: str, *args, **kwargs) -> Chain:
+  def attr_fn(self, name, *args, **kwargs) -> Chain:
     self._then(name, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
@@ -461,17 +463,17 @@ cdef class Chain:
     self._if(on_true, args, kwargs, not_=True)
     return self
 
-  def if_raise(self, exc: Exception) -> Chain:
+  def if_raise(self, exc) -> Chain:
     def if_raise(object cv): raise exc
     self._if(if_raise)
     return self
 
-  def else_raise(self, exc: Exception) -> Chain:
+  def else_raise(self, exc) -> Chain:
     def else_raise(object cv): raise exc
     self._else(else_raise)
     return self
 
-  def if_not_raise(self, exc: Exception) -> Chain:
+  def if_not_raise(self, exc) -> Chain:
     def if_not_raise(object cv): raise exc
     self._if(if_not_raise, None, None, not_=True)
     return self
@@ -523,7 +525,7 @@ cdef class Chain:
     self._then(or_)
     return self
 
-  def raise_(self, exc: Exception) -> Chain:
+  def raise_(self, exc) -> Chain:
     def raise_(object cv): raise exc
     self._then(raise_)
     return self
@@ -546,7 +548,11 @@ cdef class Chain:
     if self.current_on_true:
       on_true_v, true_args, true_kwargs, not_ = self.current_on_true
       self.current_on_true = None
-      self._then(build_conditional(conditional, is_custom, not_, on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs))
+      self._then(
+        build_conditional(
+          conditional, is_custom, not_, on_true_v, true_args, true_kwargs, on_false_v, false_args, false_kwargs
+        )
+      )
     else:
       self._then(conditional)
 
@@ -607,7 +613,7 @@ cdef class ChainAttr(Chain):
     self.current_attr = None
     self._then(attr, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
 
-  def __getattr__(self, attr: str) -> ChainAttr:
+  def __getattr__(self, attr) -> ChainAttr:
     self.on_attr(attr)
     return self
 
