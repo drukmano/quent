@@ -177,12 +177,12 @@ class MainTest(IsolatedAsyncioTestCase):
       else:
         self.assertFalse(this_task == asyncio.current_task())
 
-    Chain(True).then(aempty).then(set_result).then(check_this_task, same_task=False).run()
+    Chain(True).then(aempty).then(set_result).then(check_this_task, same_task=False).autorun(True).run()
     self.assertFalse(result[0])
     await asyncio.sleep(0.2)
     self.assertTrue(result[0])
 
-    chain = Chain(False).then(aempty).then(set_result).then(check_this_task, same_task=True).config(autorun=False).run()
+    chain = Chain(False).then(aempty).then(set_result).then(check_this_task, same_task=True).run()
     self.assertTrue(result[0])
     await asyncio.sleep(0.2)
     self.assertTrue(result[0])
@@ -210,14 +210,14 @@ class MainTest(IsolatedAsyncioTestCase):
           Chain(True).then(fn).then(
             Chain().then(aempty).then(set_result).then(check_this_task, same_task=False).then(lambda: hash(asyncio.current_task()), ...)
           ).then(lambda t: t == hash(asyncio.current_task()))
-          .ignore(check_this_task, same_task=False).run()
+          .ignore(check_this_task, same_task=False).autorun(True).run()
         )
         self.assertFalse(result[0])
         self.assertTrue(await await_(chain))
         self.assertTrue(result[0])
 
         # test that a nested chain and the parent chain is executed within the same task as this
-        chain = Chain(False).then(fn).then(Chain().then(aempty).then(set_result).then(check_this_task, same_task=True)).then(check_this_task, same_task=True).config(autorun=False).run()
+        chain = Chain(False).then(fn).then(Chain().then(aempty).then(set_result).then(check_this_task, same_task=True)).then(check_this_task, same_task=True).run()
         self.assertTrue(result[0])
         await asyncio.sleep(0.2)
         self.assertTrue(result[0])
@@ -258,6 +258,11 @@ class MainTest(IsolatedAsyncioTestCase):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
         parent_chain = chain = Chain(42).then(fn)
+        for _ in range(100):
+          chain.then(chain := Chain().then(fn))
+        self.assertEqual(await await_(parent_chain.run()), 42)
+
+        parent_chain = chain = Chain(42).autorun(True).then(fn)
         for _ in range(100):
           chain.then(chain := Chain().then(fn))
         self.assertEqual(await await_(parent_chain.run()), 42)
