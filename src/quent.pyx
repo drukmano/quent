@@ -278,7 +278,23 @@ cdef class Chain:
           result = evaluate_value(v, rv if is_with_root else cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
             ignore_try = True
+            # TODO prime example: await Apartment.query.all()[0] == <Apartment>
+            # TODO I don't think this makes sense - it goes against the Chain pattern.
+            #  if this case is desired, then the user can either modify the chain
+            #  or wrap this in another chain...
+            class _AsyncChainProxy:
+              def __init__(self, coro):
+                self.chain = Chain(coro).autorun(False)  # TODO self._autorun?
+              def __getitem__(self, item):
+                pass
+              def __getattr__(self, item):
+                pass
+              def __await__(self):
+                return self.chain.run().__await__()
             result = self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
+            # TODO how will AsyncProxy work with ensure future? the whole point
+            #  of using it is to allow users to work with an object and only await it once
+            #  without parentheses
             if self._autorun:
               return ensure_future(result)
             return result
@@ -594,8 +610,23 @@ cdef class Chain:
   #def __await__(self):
   #  return self._run(Null, None, None).__await__()
 
-  def __bool__(self):
+  def __bool__(self) -> bool:
     return True
+
+  def __len__(self) -> Chain:
+    # TODO makes sense? if so, override all possible magic methods that can be done on objects
+    #  and register them as chains
+    # TODO this is illegal - __len__ must return a [positive] integer
+    # await len(Chain().then()).run() doesn't make sense
+    self._then(len)
+    return self
+
+  def __getitem__(self, item) -> ChainAttr:
+    # TODO this also doesn't make sense and goes against the Chain pattern... maybe stick
+    #  with AsyncProxy only, since it is available after .run() is invoked.
+    # TODO if this makes Chain memory larger or creation slower then move to ChainAttr
+    #self.on_attr(attr)
+    return self
 
   def __repr__(self):
     cdef:
