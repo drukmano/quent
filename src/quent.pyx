@@ -456,6 +456,17 @@ cdef class Chain:
     self._then(name, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
+  def item(self, item) -> Chain:
+    # TODO update all ._then() usages to include is_item=False
+    #  maybe use the regular .then() albeit slower is much more readable and maintainable...
+    #  check the time differences
+    #  !! don't think it's possible..
+    self._then(
+      item, is_attr=False, is_fattr=False, is_item=True, is_with_root=False, ignore_result=False, args=None,
+      kwargs=None
+    )
+    return self
+
   def foreach(self, fn) -> Chain:
     self._then(foreach(fn, True))
     return self
@@ -621,13 +632,6 @@ cdef class Chain:
     self._then(len)
     return self
 
-  def __getitem__(self, item) -> ChainAttr:
-    # TODO this also doesn't make sense and goes against the Chain pattern... maybe stick
-    #  with AsyncProxy only, since it is available after .run() is invoked.
-    # TODO if this makes Chain memory larger or creation slower then move to ChainAttr
-    #self.on_attr(attr)
-    return self
-
   def __repr__(self):
     cdef:
       tuple root_link = self.root_link
@@ -664,6 +668,14 @@ cdef class ChainAttr(Chain):
 
   def __getattr__(self, attr) -> ChainAttr:
     self.on_attr(attr)
+    return self
+
+  def __getitem__(self, item) -> ChainAttr:
+    # TODO use self.item() here since we are already assuming speed is not important due to ChainAttr usage.
+    #  on finalize_attr() above as well.
+    self._then(
+      item, is_attr=False, is_fattr=False, is_item=True, is_with_root=False, ignore_result=False, args=None, kwargs=None
+    )
     return self
 
   def __call__(self, *args, **kwargs) -> ChainAttr:
