@@ -4,6 +4,7 @@
 
 #cimport cython
 import collections.abc
+import logging
 import types
 import warnings
 
@@ -167,7 +168,7 @@ cdef Chain from_list(object cls, tuple links):
 cdef class Chain:
   cdef:
     tuple root_link
-    bint is_cascade, _autorun
+    bint is_cascade, _autorun, raise_on_exception
     list links
     tuple on_except, on_finally, current_conditional, current_on_true
     str current_attr
@@ -188,6 +189,7 @@ cdef class Chain:
   cdef int init(self, object root_value, tuple args, dict kwargs, bint is_cascade) except -1:
     self.is_cascade = is_cascade
     self._autorun = False
+    self.raise_on_exception = True
 
     # `links` is a list which contains tuples of the following structure:
     # (
@@ -235,13 +237,13 @@ cdef class Chain:
 
     cdef:
       # current chain value, root value
-      object cv = Null, rv = Null, result
-      bint is_attr = False, is_fattr = False, is_with_root = False, ignore_result = False,
+      object cv = Null, rv = Null, result, exc, quent_exc
+      bint is_attr = False, is_fattr = False, is_with_root = False, ignore_result = False
       bint is_void = self.root_link is None, ignore_try = False, is_null = v is Null
+      bint raise_on_exception = self.raise_on_exception
       list links = self.links
       tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
       int idx = -1
-      Exception e
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
@@ -289,17 +291,24 @@ cdef class Chain:
         cv = rv
       return cv if cv is not Null else None
 
-    except Exception as e:
-      if not ignore_try and on_except is not None:
-        result = run_callback(on_except, rv)
-        if isawaitable(result):
-          ensure_future(result)
-          warnings.warn(
-            'The \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
-            'It was therefore scheduled for execution in a new Task.',
-            category=RuntimeWarning
-          )
-      raise e from create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx)
+    except Exception as exc:
+      try:
+        quent_exc = create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx)
+        if raise_on_exception:
+          raise exc from quent_exc
+        else:
+          # TODO in this case, how can we pass `exc` to on_except callback?
+          logging.exception(str(quent_exc))
+      finally:
+        if not ignore_try and on_except is not None:
+          result = run_callback(on_except, rv)
+          if isawaitable(result):
+            ensure_future(result)
+            warnings.warn(
+              'The \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
+              'It was therefore scheduled for execution in a new Task.',
+              category=RuntimeWarning
+            )
 
     finally:
       if not ignore_try and on_finally is not None:
@@ -319,10 +328,11 @@ cdef class Chain:
     # we pass the full current link data to be able to format an appropriate
     # exception message in case one is raised from awaiting `result`
     cdef:
+      object exc, quent_exc
       bint is_with_root = False, is_exc_raised_on_await = False
+      bint raise_on_exception = self.raise_on_exception
       tuple on_except = self.on_except, on_finally = self.on_finally
       list links = self.links
-      Exception e
 
     try:
       try:
@@ -359,18 +369,22 @@ cdef class Chain:
         cv = rv
       return cv if cv is not Null else None
 
-    except Exception as e:
-      # even though it seems that a coroutine that has raised an exception still
-      # returns True for `isawaitable(result)`, I don't want to use this method to check
-      # whether an exception was raised from awaiting `result` as I couldn't find if
-      # this is an intended behavior or not.
-      if on_except is not None:
-        result = run_callback(on_except, rv)
-        if isawaitable(result):
-          await result
-      raise e from create_chain_link_exception(
-        v, cv, is_attr, is_fattr, args, kwargs, idx, is_exc_raised_on_await
-      )
+    except Exception as exc:
+      try:
+        quent_exc = create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx, is_exc_raised_on_await)
+        if raise_on_exception:
+          raise exc from quent_exc
+        else:
+          logging.exception(str(quent_exc))
+      finally:
+        # even though it seems that a coroutine that has raised an exception still
+        # returns True for `isawaitable(result)`, I don't want to use this method to check
+        # whether an exception was raised from awaiting `result` as I couldn't find if
+        # this is an intended behavior or not.
+        if on_except is not None:
+          result = run_callback(on_except, rv)
+          if isawaitable(result):
+            await result
 
     finally:
       if on_finally is not None:
@@ -378,10 +392,11 @@ cdef class Chain:
         if isawaitable(result):
           await result
 
-  cdef int _except(self, object fn_or_attr, tuple args, dict kwargs):
+  cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
     if self.on_except is not None:
       raise QuentException('You can only register one \'except\' callback.')
     self.on_except = fn_or_attr, args, kwargs
+    self.raise_on_exception = raise_
 
   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
     if self.on_finally is not None:
@@ -463,6 +478,10 @@ cdef class Chain:
 
   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
     self._except(fn_or_attr, args, kwargs)
+    return self
+
+  def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:
+    self._except(fn_or_attr, args, kwargs, raise_=False)
     return self
 
   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
