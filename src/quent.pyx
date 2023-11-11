@@ -419,16 +419,16 @@ cdef class Chain:
     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def root(self, value=Null, *args, **kwargs) -> Chain:
-    self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
-    return self
-
-  def ignore(self, value, *args, **kwargs) -> Chain:
+  def do(self, value, *args, **kwargs) -> Chain:
     # register a value to be evaluated but will not propagate its result forwards.
     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
-  def root_ignore(self, value, *args, **kwargs) -> Chain:
+  def root(self, value=Null, *args, **kwargs) -> Chain:
+    self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+    return self
+
+  def root_do(self, value, *args, **kwargs) -> Chain:
     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
     return self
 

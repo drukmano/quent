@@ -44,8 +44,8 @@ class MegaTests(IsolatedAsyncioTestCase):
             .then(fn)
             .then(0)
             .root(lambda v: v+1)
-            .ignore(lambda v: 10)
-            .ignore(
+            .do(lambda v: 10)
+            .do(
               Cascade()
               .then(fn)
               .then(Chain().if_(None).else_(throw))
@@ -62,7 +62,7 @@ class MegaTests(IsolatedAsyncioTestCase):
               .then(Chain().not_in([1, 3]).if_not(throw))
               .then(Chain().in_([1, 3]).if_(throw))
             )
-            .ignore(
+            .do(
               Cascade()
               .then(Chain(A()).attr('a1').root().attr_fn('b1').attr('a1'))
               .then(ChainAttr(A()).a1.root().b1().a1.root().a1.run)
@@ -74,10 +74,10 @@ class MegaTests(IsolatedAsyncioTestCase):
               .then(Chain(Chain).then(bool))
               , ...
             )
-            .ignore(Chain().neq(2).if_(True).else_(lambda v: 1))
-            .ignore(Chain().neq(2).if_(True).else_(lambda: 1, ...))
+            .do(Chain().neq(2).if_(True).else_(lambda v: 1))
+            .do(Chain().neq(2).if_(True).else_(lambda: 1, ...))
             .eq(2).if_not(throw)
-            .ignore(Chain(fn).then(1).run, ...)
+            .do(Chain(fn).then(1).run, ...)
             .then(throw_if_1, True)
             .except_(exc_fin_check.on_except)
             .finally_(exc_fin_check.on_finally)

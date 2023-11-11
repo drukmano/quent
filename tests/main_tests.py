@@ -45,11 +45,11 @@ class MainTest(IsolatedAsyncioTestCase):
   async def test_void(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
-        self.assertTrue(await await_(Chain(10).then(fn).ignore(lambda v: v/10).eq(10).run()))
+        self.assertTrue(await await_(Chain(10).then(fn).do(lambda v: v/10).eq(10).run()))
         self.assertTrue(await await_(Chain(10).then(fn).then(lambda v: v/10).eq(1).run()))
-        self.assertTrue(await await_(Chain(10).ignore(fn, 100).eq(10).run()))
+        self.assertTrue(await await_(Chain(10).do(fn, 100).eq(10).run()))
         self.assertTrue(await await_(Chain(10).then(fn, 100).eq(100).run()))
-        self.assertEqual(await await_(Chain(10).then(fn, 100).root_ignore(lambda v: v/10).run()), 100)
+        self.assertEqual(await await_(Chain(10).then(fn, 100).root_do(lambda v: v/10).run()), 100)
 
   async def test_empty_root(self):
     for fn in [empty, aempty]:
@@ -210,7 +210,7 @@ class MainTest(IsolatedAsyncioTestCase):
           Chain(True).then(fn).then(
             Chain().then(aempty).then(set_result).then(check_this_task, same_task=False).then(lambda: hash(asyncio.current_task()), ...)
           ).then(lambda t: t == hash(asyncio.current_task()))
-          .ignore(check_this_task, same_task=False).autorun(True).run()
+          .do(check_this_task, same_task=False).autorun(True).run()
         )
         self.assertFalse(result[0])
         self.assertTrue(await await_(chain))
