@@ -148,7 +148,7 @@ cdef class run:
     tuple args
     dict kwargs
 
-  def __init__(self, value=Null, *args, **kwargs):
+  def __init__(self, value=Null, /, *args, **kwargs):
     self.init(value, args, kwargs)
 
   cdef int init(self, object v, tuple args, dict kwargs) except -1:
@@ -178,7 +178,7 @@ cdef class Chain:
   def from_(cls, *args) -> Chain:
     return from_list(cls, args)
 
-  def __init__(self, value=Null, *args, **kwargs):
+  def __init__(self, value=Null, /, *args, **kwargs):
     """
     Create a new Chain
     :param v: the root value of the chain
@@ -427,24 +427,24 @@ cdef class Chain:
     self._autorun = bool(autorun)
     return self
 
-  def run(self, value=Null, *args, **kwargs):
+  def run(self, value=Null, /, *args, **kwargs):
     return self._run(value, args, kwargs)
 
   # cannot use cpdef with *args **kwargs.
-  def then(self, value, *args, **kwargs) -> Chain:
+  def then(self, value, /, *args, **kwargs) -> Chain:
     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def do(self, value, *args, **kwargs) -> Chain:
+  def do(self, value, /, *args, **kwargs) -> Chain:
     # register a value to be evaluated but will not propagate its result forwards.
     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
-  def root(self, value=Null, *args, **kwargs) -> Chain:
+  def root(self, value=Null, /, *args, **kwargs) -> Chain:
     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
-  def root_do(self, value, *args, **kwargs) -> Chain:
+  def root_do(self, value, /, *args, **kwargs) -> Chain:
     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
     return self
 
@@ -466,11 +466,11 @@ cdef class Chain:
     )
     return self
 
-  def with_(self, value=Null, *args, **kwargs) -> Chain:
+  def with_(self, value=Null, /, *args, **kwargs) -> Chain:
     self._then(with_(value, args, kwargs))
     return self
 
-  def with_do(self, value, *args, **kwargs) -> Chain:
+  def with_do(self, value, /, *args, **kwargs) -> Chain:
     self._then(
       with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
       kwargs=None
@@ -516,7 +516,7 @@ cdef class Chain:
     self._if(if_not_raise, None, None, not_=True)
     return self
 
-  def condition(self, value, *args, **kwargs) -> Chain:
+  def condition(self, value, /, *args, **kwargs) -> Chain:
     def condition(object cv):
       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
     self.set_conditional(condition, custom=True)
@@ -605,7 +605,7 @@ cdef class Chain:
     self._then(other)
     return self
 
-  def __call__(self, value=Null, *args, **kwargs):
+  def __call__(self, value=Null, /, *args, **kwargs):
     return self._run(value, args, kwargs)
 
   # while this may be nice to have, I fear that it will cause troubles as
@@ -634,7 +634,7 @@ cdef class Cascade(Chain):
   # TODO mark all cascade items as `ignore_result=True` to (marginally) increase performance.
 
   # noinspection PyMissingConstructor
-  def __init__(self, value=Null, *args, **kwargs):
+  def __init__(self, value=Null, /, *args, **kwargs):
     self.init(value, args, kwargs, is_cascade=True)
 
 
@@ -669,7 +669,7 @@ cdef class ChainAttr(Chain):
 # cannot have multiple inheritance in Cython.
 cdef class CascadeAttr(ChainAttr):
   # noinspection PyMissingConstructor
-  def __init__(self, value=Null, *args, **kwargs):
+  def __init__(self, value=Null, /, *args, **kwargs):
     self.init(value, args, kwargs, is_cascade=True)
 
 
