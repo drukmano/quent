@@ -456,6 +456,12 @@ cdef class Chain:
     self._then(name, is_attr=True, is_fattr=True, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
     return self
 
+  def iterate(self, fn=None):
+    return _Generator(self._run, fn, ignore_result=False)
+
+  def iterate_do(self, fn=None):
+    return _Generator(self._run, fn, ignore_result=True)
+
   def foreach(self, fn) -> Chain:
     self._then(foreach(fn, ignore_result=False))
     return self
@@ -739,6 +745,65 @@ cdef object run_callback(tuple callback_meta, object rv):
   return evaluate_value(
     v=fn_or_attr, cv=rv, is_attr=is_attr, is_fattr=is_attr, args=args, kwargs=kwargs
   )
+
+
+def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
+  cdef object el, result
+  for el in iterator_getter(*run_args):
+    if fn is None:
+      yield el
+    else:
+      result = fn(el)
+      # we ignore the case where `result` is awaitable - it's impossible to deal with.
+      yield el if ignore_result else result
+
+
+async def async_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
+  cdef object el, result, iterator
+  iterator = iterator_getter(*run_args)
+  if isawaitable(iterator):
+    iterator = await iterator
+  if hasattr(iterator, '__aiter__'):
+    async for el in iterator:
+      if fn is None:
+        result = el
+      else:
+        result = fn(el)
+      if isawaitable(result):
+        result = await result
+      yield el if ignore_result else result
+  else:
+    for el in iterator:
+      if fn is None:
+        result = el
+      else:
+        result = fn(el)
+      if isawaitable(result):
+        result = await result
+      yield el if ignore_result else result
+
+
+cdef class _Generator:
+  cdef object chain_run, fn
+  cdef bint ignore_result
+  cdef tuple run_args
+
+  def __init__(self, chain_run, fn, ignore_result):
+    self.chain_run = chain_run
+    self.fn = fn
+    self.ignore_result = ignore_result
+    self.run_args = (Null, (), {})
+
+  def __call__(self, value=Null, /, *args, **kwargs):
+    # this allows nesting of _Generator within another Chain
+    self.run_args = (value, args, kwargs)
+    return self
+
+  def __iter__(self):
+    return sync_generator(self.chain_run, self.run_args, self.fn, self.ignore_result)
+
+  def __aiter__(self):
+    return async_generator(self.chain_run, self.run_args, self.fn, self.ignore_result)
 
 
 cdef object foreach(object fn, bint ignore_result):
