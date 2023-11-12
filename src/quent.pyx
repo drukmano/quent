@@ -457,13 +457,11 @@ cdef class Chain:
     return self
 
   def foreach(self, fn) -> Chain:
-    self._then(foreach(fn, True))
+    self._then(foreach(fn, ignore_result=False))
     return self
 
   def foreach_do(self, fn) -> Chain:
-    self._then(
-      foreach(fn, False), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None, kwargs=None
-    )
+    self._then(foreach(fn, ignore_result=True))
     return self
 
   def with_(self, value=Null, /, *args, **kwargs) -> Chain:
@@ -743,59 +741,45 @@ cdef object run_callback(tuple callback_meta, object rv):
   )
 
 
-cdef object foreach(object fn, bint with_lst):
-  """ A helper method for `.foreach()` """
-  def foreach(object cv):
+cdef object foreach(object fn, bint ignore_result):
+  def _foreach(object cv):
     if hasattr(cv, '__aiter__'):
-      return async_gen_foreach(cv, fn, with_lst)
+      return async_gen_foreach(cv, fn, ignore_result)
     cdef list lst = []
     cdef object el, result
-    cv = iter(cv)
+    cv = cv.__iter__()
     for el in cv:
       result = fn(el)
       if isawaitable(result):
-        return async_foreach(cv, fn, result, lst, with_lst)
-      if with_lst:
-        lst.append(result)
-    if with_lst:
-      return lst
-  return foreach
+        return async_foreach(cv, fn, el, result, lst, ignore_result)
+      lst.append(el if ignore_result else result)
+    return lst
+  return _foreach
 
 
-async def async_foreach(object cv, object fn, object result, list lst, bint with_lst):
-  """ A helper method for `.foreach()` """
-  cdef object el
+async def async_foreach(object cv, object fn, object el, object result, list lst, bint ignore_result):
   result = await result
-  if with_lst:
-    lst.append(result)
+  lst.append(el if ignore_result else result)
   for el in cv:
     result = fn(el)
     if isawaitable(result):
       result = await result
-    if with_lst:
-      lst.append(result)
-  if with_lst:
-    return lst
+    lst.append(el if ignore_result else result)
+  return lst
 
 
-async def async_gen_foreach(object cv, object fn, bint with_lst):
-  """ A helper method for `.foreach()` """
-  cdef list lst
-  if with_lst:
-    lst = []
+async def async_gen_foreach(object cv, object fn, bint ignore_result):
+  cdef list lst = []
   cdef object el, result
-  async for el in cv:
+  async for el in cv.__aiter__():
     result = fn(el)
     if isawaitable(result):
       result = await result
-    if with_lst:
-      lst.append(result)
-  if with_lst:
-    return lst
+    lst.append(el if ignore_result else result)
+  return lst
 
 
 cdef object with_(object v, tuple args, dict kwargs):
-  """ A helper method for `.with_()` """
   async def with_async(object result, object cv):
     try:
       return await result
@@ -822,7 +806,6 @@ cdef object with_(object v, tuple args, dict kwargs):
 
 
 async def async_with(object v, object cv, tuple args, dict kwargs):
-  """ A helper method for `.with_()` """
   cdef object ctx, result
   async with cv as ctx:
     if v is Null:

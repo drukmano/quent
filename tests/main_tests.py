@@ -88,6 +88,10 @@ class MainTest(IsolatedAsyncioTestCase):
           nonlocal counter
           counter += i**2
           return i
+        def f_mod(i):
+          nonlocal counter
+          counter += i**2
+          return i**2
 
         counter = 0
         self.assertTrue(await await_(Chain(range(10)).foreach(lambda v: fn(f(v))).eq(list(range(10))).run()))
@@ -98,11 +102,11 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
         counter = 0
-        self.assertTrue(await await_(Chain(range(10)).foreach_do(lambda v: fn(f(v))).eq(range(10)).run()))
+        self.assertTrue(await await_(Chain(range(10)).foreach_do(lambda v: fn(f_mod(v))).eq(list(range(10))).run()))
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
         counter = 0
-        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach_do(lambda v: fn(f(v))).eq(range(10)).run()))
+        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach_do(lambda v: fn(f_mod(v))).eq(list(range(10))).run()))
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
   async def test_foreach_async_gen(self):
@@ -125,7 +129,7 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertEqual(num, 42)
 
         num = 0
-        self.assertTrue(await await_(Chain(gen).foreach_do(f).then(inspect.isasyncgen).run()))
+        self.assertTrue(await await_(Chain(gen).foreach_do(f).eq([42]).run()))
         self.assertEqual(num, 42)
 
         num = 0
@@ -136,6 +140,13 @@ class MainTest(IsolatedAsyncioTestCase):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
         def f(i):
+          nonlocal counter
+          counter += i**2
+          if 4 <= i <= 7:
+            return aempty(i)
+          return i
+
+        def f_mod(i):
           nonlocal counter
           counter += i**2
           if 4 <= i <= 7:
@@ -154,10 +165,10 @@ class MainTest(IsolatedAsyncioTestCase):
         await coro
 
         counter = 0
-        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach_do(f).eq(range(10)).run()))
+        self.assertTrue(await await_(Chain(range(10)).then(fn).foreach_do(f_mod).eq(list(range(10))).run()))
         self.assertEqual(counter, sum(i**2 for i in range(10)))
         counter = 0
-        self.assertTrue(await await_(Chain(range(10)).foreach_do(f).then(fn).eq(range(10)).run()))
+        self.assertTrue(await await_(Chain(range(10)).foreach_do(f_mod).then(fn).eq(list(range(10))).run()))
         self.assertEqual(counter, sum(i**2 for i in range(10)))
 
         coro = Chain(range(10)).foreach_do(f).run()
