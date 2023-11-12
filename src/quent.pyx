@@ -5,6 +5,7 @@
 #cimport cython
 import collections.abc
 import logging
+import sys
 import types
 import warnings
 
@@ -795,16 +796,28 @@ async def async_gen_foreach(object cv, object fn, bint with_lst):
 
 cdef object with_(object v, tuple args, dict kwargs):
   """ A helper method for `.with_()` """
+  async def with_async(object result, object cv):
+    try:
+      return await result
+    finally:
+      cv.__exit__(*sys.exc_info())
   def with_(object cv):
     if hasattr(cv, '__aenter__'):
       return async_with(v, cv, args, kwargs)
-    cdef object ctx
-    with cv as ctx:
+    cdef object ctx, result = None
+    try:
+      ctx = cv.__enter__()
       if v is Null:
-        return ctx
-      return evaluate_value(
-        v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
-      )
+        result = ctx
+      else:
+        result = evaluate_value(
+          v=v, cv=ctx, is_attr=False, is_fattr=False, args=args, kwargs=kwargs
+        )
+    finally:
+      if isawaitable(result):
+        return with_async(result, cv)
+      cv.__exit__(*sys.exc_info())
+      return result
   return with_
 
 

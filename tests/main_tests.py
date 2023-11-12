@@ -3,6 +3,7 @@ import contextlib
 import inspect
 import time
 from contextlib import contextmanager, asynccontextmanager
+from tests.flex_context import FlexContext
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from tests.try_except_tests import assertRaisesSync, assertRaisesAsync
@@ -225,6 +226,11 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertFalse(result[0])
 
   async def test_with(self):
+    # test that the with_(callback) callback is executed inside a sync context manager, even if callback is async
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertTrue(await await_(Chain(FlexContext, v=1).with_(Chain().then(fn).then(lambda ctx: ctx.get(v=0))).eq(1).run()))
+
     @contextmanager
     def sync_ctx(v: int):
       yield v**2
