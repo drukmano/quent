@@ -237,6 +237,19 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertFalse(result[0])
 
   async def test_with(self):
+    # TODO test a void cascade with conditionals and .with() - does it pass Null to conditionals?
+    #  -- correction - conditionals, with, foreach, raise, or_, (basically every chain-link that
+    #  we create instead of the user), are not working void cascade. make that happend, only in
+    #  those actions, we pass the previous value. then, adapt Alchemist.BaseModel
+    #  to use the void cascade to avoid those repetitive Ellipses and .then(None)
+    # TODO create an integrated_test which uses SQLAlchemy and SQLite to test
+    #  common uses (uses with transaction, foreach, query, etc.)
+    # TODO split quent.pyx
+    # TODO write a single test for each public function, and for each functionality, separately.
+    #  then make combined tests, etc.
+    # TODO support all python native syntax functionality in quent to glue all sync and async
+    #  a mini-language
+
     # test that the with_(callback) callback is executed inside a sync context manager, even if callback is async
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):

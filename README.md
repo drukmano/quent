@@ -21,6 +21,7 @@ pip install quent
   - [Comparisons](#comparisons)
   - [Iterators](#iterators)
   - [Contexts](#contexts)
+  - [Automatic Execution](#automatic-execution)
 - [API](#api)
   - [Core](#core)
   - [`except`, `finally`](#callbacks)
@@ -225,6 +226,10 @@ Chain(get_lock, id).with_(fetch_data, id)
 ```
 The full details of `.with_()` are explained
 [here](#with).
+
+### Automatic Execution
+By default, coroutines are automatically scheduled for execution via `ensure_future`. It is possible
+to disable this behavior by setting `.config(autorun=False)`.
 
 ## API
 #### Value Evaluation

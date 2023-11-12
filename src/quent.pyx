@@ -130,7 +130,7 @@ cdef object evaluate_value(object v, object cv, bint is_attr, bint is_fattr, tup
 
   elif not is_attr and callable(v):
     # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
-    return v() if cv is Null else v(cv)
+    return v() if cv is Null else (v(*cv) if isinstance(cv, tuple) else v(cv))
 
   else:
     return v
@@ -262,6 +262,7 @@ cdef class Chain:
         is_void = False
         if isawaitable(rv):
           ignore_try = True
+          # TODO pass as keyword arguments for clarity
           result = self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
           if self._autorun:
             return ensure_future(result)
@@ -462,6 +463,14 @@ cdef class Chain:
   def iterate_do(self, fn=None):
     return _Generator(self._run, fn, ignore_result=True)
 
+  def while_(self, __v, *args, **kwargs) -> Chain:
+    self._then(while_(__v, args, kwargs))
+    return self
+
+  def while_not(self, __v, *args, **kwargs) -> Chain:
+    self._then(while_(__v, args, kwargs, not_=True))
+    return self
+
   def foreach(self, fn) -> Chain:
     self._then(foreach(fn, ignore_result=False))
     return self
@@ -474,6 +483,12 @@ cdef class Chain:
     self._then(with_(value, args, kwargs))
     return self
 
+  def context(self) -> Chain:
+    # TODO with Chain(...).context():
+    #  implement _Context to support both __enter__ and __aenter__ like _Generator
+    #  async with context is better than with await context
+    pass
+
   def with_do(self, value, /, *args, **kwargs) -> Chain:
     self._then(
       with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
@@ -482,6 +497,9 @@ cdef class Chain:
     return self
 
   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
+    # TODO support multiple invocations to this function
+    #  once an exception is raised, check which type it is and
+    #  run the appropriate on_except callback
     self._except(fn_or_attr, args, kwargs)
     return self
 
@@ -495,6 +513,11 @@ cdef class Chain:
 
   def if_(self, on_true, *args, **kwargs) -> Chain:
     self._if(on_true, args, kwargs)
+    return self
+
+  def elif_(self, on_true, *args, **kwargs) -> Chain:
+    # TODO
+    self._elif(on_true, args, kwargs)
     return self
 
   def else_(self, on_false, *args, **kwargs) -> Chain:
