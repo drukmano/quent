@@ -1649,7 +1649,7 @@ struct __pyx_obj_5quent_ChainAttr {
  * # cannot have multiple inheritance in Cython.
  * cdef class CascadeAttr(ChainAttr):             # <<<<<<<<<<<<<<
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):
+ *   def __init__(self, __v=Null, *args, **kwargs):
  */
 struct __pyx_obj_5quent_CascadeAttr {
   struct __pyx_obj_5quent_ChainAttr __pyx_base;
@@ -1764,15 +1764,15 @@ struct __pyx_obj_5quent___pyx_scope_struct_3_if_not_raise {
 /* "quent.pyx":523
  *     return self
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def condition(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     def condition(object cv):
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  */
 struct __pyx_obj_5quent___pyx_scope_struct_4_condition {
   PyObject_HEAD
+  PyObject *__pyx_v__Chain__v;
   PyObject *__pyx_v_args;
   PyObject *__pyx_v_kwargs;
-  PyObject *__pyx_v_value;
 };
 
 
@@ -2212,7 +2212,7 @@ static struct __pyx_vtabstruct_5quent_ChainAttr *__pyx_vtabptr_5quent_ChainAttr;
  * # cannot have multiple inheritance in Cython.
  * cdef class CascadeAttr(ChainAttr):             # <<<<<<<<<<<<<<
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):
+ *   def __init__(self, __v=Null, *args, **kwargs):
  */
 
 struct __pyx_vtabstruct_5quent_CascadeAttr {
@@ -3403,6 +3403,7 @@ static const char __pyx_k_pickle[] = "pickle";
 static const char __pyx_k_reduce[] = "__reduce__";
 static const char __pyx_k_result[] = "result";
 static const char __pyx_k_return[] = "return";
+static const char __pyx_k_run__v[] = "_run__v";
 static const char __pyx_k_update[] = "update";
 static const char __pyx_k_Cascade[] = "Cascade";
 static const char __pyx_k_asyncio[] = "asyncio";
@@ -3418,6 +3419,7 @@ static const char __pyx_k_is_void[] = "is_void";
 static const char __pyx_k_literal[] = "literal";
 static const char __pyx_k_logging[] = "logging";
 static const char __pyx_k_on_true[] = "on_true";
+static const char __pyx_k_Chain__v[] = "_Chain__v";
 static const char __pyx_k_KeyError[] = "KeyError";
 static const char __pyx_k_category[] = "category";
 static const char __pyx_k_exc_info[] = "exc_info";
@@ -3445,6 +3447,7 @@ static const char __pyx_k_isenabled[] = "isenabled";
 static const char __pyx_k_pyx_state[] = "__pyx_state";
 static const char __pyx_k_reduce_ex[] = "__reduce_ex__";
 static const char __pyx_k_run_async[] = "_run_async";
+static const char __pyx_k_Cascade__v[] = "_Cascade__v";
 static const char __pyx_k_async_with[] = "async_with";
 static const char __pyx_k_else_raise[] = "else_raise";
 static const char __pyx_k_fn_or_attr[] = "fn_or_attr";
@@ -3459,6 +3462,7 @@ static const char __pyx_k_ImportError[] = "ImportError";
 static const char __pyx_k_PickleError[] = "PickleError";
 static const char __pyx_k_cfunc_to_py[] = "cfunc.to_py";
 static const char __pyx_k_collections[] = "collections";
+static const char __pyx_k_Generator__v[] = "_Generator__v";
 static const char __pyx_k_append_await[] = "append_await";
 static const char __pyx_k_if_not_raise[] = "if_not_raise";
 static const char __pyx_k_initializing[] = "_initializing";
@@ -3478,6 +3482,7 @@ static const char __pyx_k_or__locals_or[] = "or_.<locals>.or_";
 static const char __pyx_k_reduce_cython[] = "__reduce_cython__";
 static const char __pyx_k_src_quent_pyx[] = "src/quent.pyx";
 static const char __pyx_k_AttributeError[] = "AttributeError";
+static const char __pyx_k_CascadeAttr__v[] = "_CascadeAttr__v";
 static const char __pyx_k_QuentException[] = "QuentException";
 static const char __pyx_k_RuntimeWarning[] = "RuntimeWarning";
 static const char __pyx_k_sync_generator[] = "sync_generator";
@@ -3550,7 +3555,7 @@ static PyObject *__pyx_pf_5quent_5_Null_2__reduce_cython__(struct __pyx_obj_5que
 static PyObject *__pyx_pf_5quent_5_Null_4__setstate_cython__(struct __pyx_obj_5quent__Null *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
 static PyObject *__pyx_pf_5quent_14QuentException___reduce_cython__(struct __pyx_obj_5quent_QuentException *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_14QuentException_2__setstate_cython__(struct __pyx_obj_5quent_QuentException *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
-static int __pyx_pf_5quent_3run___init__(struct __pyx_obj_5quent_run *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static int __pyx_pf_5quent_3run___init__(struct __pyx_obj_5quent_run *__pyx_v_self, PyObject *__pyx_v__run__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_3run_10root_value___get__(struct __pyx_obj_5quent_run *__pyx_v_self); /* proto */
 static int __pyx_pf_5quent_3run_10root_value_2__set__(struct __pyx_obj_5quent_run *__pyx_v_self, PyObject *__pyx_v_value); /* proto */
 static int __pyx_pf_5quent_3run_10root_value_4__del__(struct __pyx_obj_5quent_run *__pyx_v_self); /* proto */
@@ -3563,23 +3568,23 @@ static int __pyx_pf_5quent_3run_6kwargs_4__del__(struct __pyx_obj_5quent_run *__
 static PyObject *__pyx_pf_5quent_3run_2__reduce_cython__(struct __pyx_obj_5quent_run *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_3run_4__setstate_cython__(struct __pyx_obj_5quent_run *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_from_(PyTypeObject *__pyx_v_cls, PyObject *__pyx_v_args); /* proto */
-static int __pyx_pf_5quent_5Chain_2__init__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static int __pyx_pf_5quent_5Chain_2__init__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_4_run_async(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_result, PyObject *__pyx_v_rv, int __pyx_v_idx, int __pyx_v_is_void, PyObject *__pyx_v_v, PyObject *__pyx_v_cv, int __pyx_v_is_attr, int __pyx_v_is_fattr, int __pyx_v_ignore_result, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_7config(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_autorun); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_9autorun(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_autorun); /* proto */
-static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_21attr(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_name); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_23attr_fn(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_name, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_25iterate(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_27iterate_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_29foreach(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_31foreach_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_37except_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_39except_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_41finally_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
@@ -3593,7 +3598,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_51else_raise(struct
 static PyObject *__pyx_pf_5quent_5Chain_12if_not_raise_if_not_raise(PyObject *__pyx_self, CYTHON_UNUSED PyObject *__pyx_v_cv); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_53if_not_raise(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_exc); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_9condition_condition(PyObject *__pyx_self, PyObject *__pyx_v_cv); /* proto */
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_4not__not_(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_cv); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_57not_(struct __pyx_obj_5quent_Chain *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_2eq_equals(PyObject *__pyx_self, PyObject *__pyx_v_cv); /* proto */
@@ -3613,19 +3618,19 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_71or_(struct __pyx_
 static PyObject *__pyx_pf_5quent_5Chain_6raise__raise_(PyObject *__pyx_self, CYTHON_UNUSED PyObject *__pyx_v_cv); /* proto */
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_73raise_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_exc); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_75__or__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_other); /* proto */
-static PyObject *__pyx_pf_5quent_5Chain_77__call__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static PyObject *__pyx_pf_5quent_5Chain_77__call__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static int __pyx_pf_5quent_5Chain_79__bool__(CYTHON_UNUSED struct __pyx_obj_5quent_Chain *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_81__repr__(struct __pyx_obj_5quent_Chain *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_83__reduce_cython__(struct __pyx_obj_5quent_Chain *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_5Chain_85__setstate_cython__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
-static int __pyx_pf_5quent_7Cascade___init__(struct __pyx_obj_5quent_Cascade *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static int __pyx_pf_5quent_7Cascade___init__(struct __pyx_obj_5quent_Cascade *__pyx_v_self, PyObject *__pyx_v__Cascade__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_7Cascade_2__reduce_cython__(struct __pyx_obj_5quent_Cascade *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_7Cascade_4__setstate_cython__(struct __pyx_obj_5quent_Cascade *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
 static PyObject *__pyx_pf_5quent_9ChainAttr___getattr__(struct __pyx_obj_5quent_ChainAttr *__pyx_v_self, PyObject *__pyx_v_attr); /* proto */
 static PyObject *__pyx_pf_5quent_9ChainAttr_2__call__(struct __pyx_obj_5quent_ChainAttr *__pyx_v_self, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_9ChainAttr_4__reduce_cython__(struct __pyx_obj_5quent_ChainAttr *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_9ChainAttr_6__setstate_cython__(struct __pyx_obj_5quent_ChainAttr *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
-static int __pyx_pf_5quent_11CascadeAttr___init__(struct __pyx_obj_5quent_CascadeAttr *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static int __pyx_pf_5quent_11CascadeAttr___init__(struct __pyx_obj_5quent_CascadeAttr *__pyx_v_self, PyObject *__pyx_v__CascadeAttr__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_11CascadeAttr_2__reduce_cython__(struct __pyx_obj_5quent_CascadeAttr *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_11CascadeAttr_4__setstate_cython__(struct __pyx_obj_5quent_CascadeAttr *__pyx_v_self, PyObject *__pyx_v___pyx_state); /* proto */
 static PyObject *__pyx_pf_5quent_17build_conditional_if_else_async(PyObject *__pyx_self, PyObject *__pyx_v_r, PyObject *__pyx_v_cv); /* proto */
@@ -3634,7 +3639,7 @@ static PyObject *__pyx_pf_5quent_17build_conditional_5_if_else(PyObject *__pyx_s
 static PyObject *__pyx_pf_5quent_sync_generator(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_iterator_getter, PyObject *__pyx_v_run_args, PyObject *__pyx_v_fn, int __pyx_v_ignore_result); /* proto */
 static PyObject *__pyx_pf_5quent_3async_generator(CYTHON_UNUSED PyObject *__pyx_self, PyObject *__pyx_v_iterator_getter, PyObject *__pyx_v_run_args, PyObject *__pyx_v_fn, int __pyx_v_ignore_result); /* proto */
 static int __pyx_pf_5quent_10_Generator___init__(struct __pyx_obj_5quent__Generator *__pyx_v_self, PyObject *__pyx_v_chain_run, PyObject *__pyx_v_fn, PyObject *__pyx_v_ignore_result); /* proto */
-static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent__Generator *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
+static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent__Generator *__pyx_v_self, PyObject *__pyx_v__Generator__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto */
 static PyObject *__pyx_pf_5quent_10_Generator_4__iter__(struct __pyx_obj_5quent__Generator *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_10_Generator_6__aiter__(struct __pyx_obj_5quent__Generator *__pyx_v_self); /* proto */
 static PyObject *__pyx_pf_5quent_10_Generator_8__reduce_cython__(struct __pyx_obj_5quent__Generator *__pyx_v_self); /* proto */
@@ -3803,11 +3808,15 @@ typedef struct {
   PyObject *__pyx_kp_u_Cannot_use_attributes_without_a;
   PyObject *__pyx_n_s_Cascade;
   PyObject *__pyx_n_s_CascadeAttr;
+  PyObject *__pyx_n_s_CascadeAttr__v;
+  PyObject *__pyx_n_s_Cascade__v;
   PyObject *__pyx_n_s_Chain;
   PyObject *__pyx_n_s_ChainAttr;
   PyObject *__pyx_n_s_Chain__run_async;
+  PyObject *__pyx_n_s_Chain__v;
   PyObject *__pyx_n_s_CoroutineType;
   PyObject *__pyx_n_s_Generator;
+  PyObject *__pyx_n_s_Generator__v;
   PyObject *__pyx_n_s_ImportError;
   PyObject *__pyx_kp_s_Incompatible_checksums_0x_x_vs_0;
   PyObject *__pyx_kp_s_Incompatible_checksums_0x_x_vs_0_2;
@@ -3996,6 +4005,7 @@ typedef struct {
   PyObject *__pyx_n_s_return;
   PyObject *__pyx_n_s_root_value;
   PyObject *__pyx_n_s_run;
+  PyObject *__pyx_n_s_run__v;
   PyObject *__pyx_n_s_run_args;
   PyObject *__pyx_n_s_run_async;
   PyObject *__pyx_n_s_rv;
@@ -4241,11 +4251,15 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_kp_u_Cannot_use_attributes_without_a);
   Py_CLEAR(clear_module_state->__pyx_n_s_Cascade);
   Py_CLEAR(clear_module_state->__pyx_n_s_CascadeAttr);
+  Py_CLEAR(clear_module_state->__pyx_n_s_CascadeAttr__v);
+  Py_CLEAR(clear_module_state->__pyx_n_s_Cascade__v);
   Py_CLEAR(clear_module_state->__pyx_n_s_Chain);
   Py_CLEAR(clear_module_state->__pyx_n_s_ChainAttr);
   Py_CLEAR(clear_module_state->__pyx_n_s_Chain__run_async);
+  Py_CLEAR(clear_module_state->__pyx_n_s_Chain__v);
   Py_CLEAR(clear_module_state->__pyx_n_s_CoroutineType);
   Py_CLEAR(clear_module_state->__pyx_n_s_Generator);
+  Py_CLEAR(clear_module_state->__pyx_n_s_Generator__v);
   Py_CLEAR(clear_module_state->__pyx_n_s_ImportError);
   Py_CLEAR(clear_module_state->__pyx_kp_s_Incompatible_checksums_0x_x_vs_0);
   Py_CLEAR(clear_module_state->__pyx_kp_s_Incompatible_checksums_0x_x_vs_0_2);
@@ -4434,6 +4448,7 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_n_s_return);
   Py_CLEAR(clear_module_state->__pyx_n_s_root_value);
   Py_CLEAR(clear_module_state->__pyx_n_s_run);
+  Py_CLEAR(clear_module_state->__pyx_n_s_run__v);
   Py_CLEAR(clear_module_state->__pyx_n_s_run_args);
   Py_CLEAR(clear_module_state->__pyx_n_s_run_async);
   Py_CLEAR(clear_module_state->__pyx_n_s_rv);
@@ -4657,11 +4672,15 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_kp_u_Cannot_use_attributes_without_a);
   Py_VISIT(traverse_module_state->__pyx_n_s_Cascade);
   Py_VISIT(traverse_module_state->__pyx_n_s_CascadeAttr);
+  Py_VISIT(traverse_module_state->__pyx_n_s_CascadeAttr__v);
+  Py_VISIT(traverse_module_state->__pyx_n_s_Cascade__v);
   Py_VISIT(traverse_module_state->__pyx_n_s_Chain);
   Py_VISIT(traverse_module_state->__pyx_n_s_ChainAttr);
   Py_VISIT(traverse_module_state->__pyx_n_s_Chain__run_async);
+  Py_VISIT(traverse_module_state->__pyx_n_s_Chain__v);
   Py_VISIT(traverse_module_state->__pyx_n_s_CoroutineType);
   Py_VISIT(traverse_module_state->__pyx_n_s_Generator);
+  Py_VISIT(traverse_module_state->__pyx_n_s_Generator__v);
   Py_VISIT(traverse_module_state->__pyx_n_s_ImportError);
   Py_VISIT(traverse_module_state->__pyx_kp_s_Incompatible_checksums_0x_x_vs_0);
   Py_VISIT(traverse_module_state->__pyx_kp_s_Incompatible_checksums_0x_x_vs_0_2);
@@ -4850,6 +4869,7 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_n_s_return);
   Py_VISIT(traverse_module_state->__pyx_n_s_root_value);
   Py_VISIT(traverse_module_state->__pyx_n_s_run);
+  Py_VISIT(traverse_module_state->__pyx_n_s_run__v);
   Py_VISIT(traverse_module_state->__pyx_n_s_run_args);
   Py_VISIT(traverse_module_state->__pyx_n_s_run_async);
   Py_VISIT(traverse_module_state->__pyx_n_s_rv);
@@ -5083,11 +5103,15 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #define __pyx_kp_u_Cannot_use_attributes_without_a __pyx_mstate_global->__pyx_kp_u_Cannot_use_attributes_without_a
 #define __pyx_n_s_Cascade __pyx_mstate_global->__pyx_n_s_Cascade
 #define __pyx_n_s_CascadeAttr __pyx_mstate_global->__pyx_n_s_CascadeAttr
+#define __pyx_n_s_CascadeAttr__v __pyx_mstate_global->__pyx_n_s_CascadeAttr__v
+#define __pyx_n_s_Cascade__v __pyx_mstate_global->__pyx_n_s_Cascade__v
 #define __pyx_n_s_Chain __pyx_mstate_global->__pyx_n_s_Chain
 #define __pyx_n_s_ChainAttr __pyx_mstate_global->__pyx_n_s_ChainAttr
 #define __pyx_n_s_Chain__run_async __pyx_mstate_global->__pyx_n_s_Chain__run_async
+#define __pyx_n_s_Chain__v __pyx_mstate_global->__pyx_n_s_Chain__v
 #define __pyx_n_s_CoroutineType __pyx_mstate_global->__pyx_n_s_CoroutineType
 #define __pyx_n_s_Generator __pyx_mstate_global->__pyx_n_s_Generator
+#define __pyx_n_s_Generator__v __pyx_mstate_global->__pyx_n_s_Generator__v
 #define __pyx_n_s_ImportError __pyx_mstate_global->__pyx_n_s_ImportError
 #define __pyx_kp_s_Incompatible_checksums_0x_x_vs_0 __pyx_mstate_global->__pyx_kp_s_Incompatible_checksums_0x_x_vs_0
 #define __pyx_kp_s_Incompatible_checksums_0x_x_vs_0_2 __pyx_mstate_global->__pyx_kp_s_Incompatible_checksums_0x_x_vs_0_2
@@ -5276,6 +5300,7 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #define __pyx_n_s_return __pyx_mstate_global->__pyx_n_s_return
 #define __pyx_n_s_root_value __pyx_mstate_global->__pyx_n_s_root_value
 #define __pyx_n_s_run __pyx_mstate_global->__pyx_n_s_run
+#define __pyx_n_s_run__v __pyx_mstate_global->__pyx_n_s_run__v
 #define __pyx_n_s_run_args __pyx_mstate_global->__pyx_n_s_run_args
 #define __pyx_n_s_run_async __pyx_mstate_global->__pyx_n_s_run_async
 #define __pyx_n_s_rv __pyx_mstate_global->__pyx_n_s_rv
@@ -7790,15 +7815,15 @@ static PyObject *__pyx_f_5quent_evaluate_value(PyObject *__pyx_v_v, PyObject *__
 /* "quent.pyx":151
  *     dict kwargs
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs)
  * 
  */
 
 /* Python wrapper */
 static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds); /*proto*/
 static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__run__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -7827,7 +7852,7 @@ static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__py
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_run__v,0};
     values[0] = __Pyx_Arg_NewRef_VARARGS(__pyx_k__5);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -7838,10 +7863,18 @@ static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__py
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_VARARGS(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_VARARGS(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_run__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_VARARGS(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 151, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 151, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 151, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -7851,7 +7884,7 @@ static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__py
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__run__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -7868,7 +7901,7 @@ static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__py
   __Pyx_RefNannyFinishContext();
   return -1;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_3run___init__(((struct __pyx_obj_5quent_run *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_3run___init__(((struct __pyx_obj_5quent_run *)__pyx_v_self), __pyx_v__run__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -7883,7 +7916,7 @@ static int __pyx_pw_5quent_3run_1__init__(PyObject *__pyx_v_self, PyObject *__py
   return __pyx_r;
 }
 
-static int __pyx_pf_5quent_3run___init__(struct __pyx_obj_5quent_run *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static int __pyx_pf_5quent_3run___init__(struct __pyx_obj_5quent_run *__pyx_v_self, PyObject *__pyx_v__run__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   int __pyx_r;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -7894,18 +7927,18 @@ static int __pyx_pf_5quent_3run___init__(struct __pyx_obj_5quent_run *__pyx_v_se
 
   /* "quent.pyx":152
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):
- *     self.init(value, args, kwargs)             # <<<<<<<<<<<<<<
+ *   def __init__(self, __v=Null, *args, **kwargs):
+ *     self.init(__v, args, kwargs)             # <<<<<<<<<<<<<<
  * 
  *   cdef int init(self, object v, tuple args, dict kwargs) except -1:
  */
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_run *)__pyx_v_self->__pyx_vtab)->init(__pyx_v_self, __pyx_v_value, __pyx_v_args, __pyx_v_kwargs); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 152, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_run *)__pyx_v_self->__pyx_vtab)->init(__pyx_v_self, __pyx_v__run__v, __pyx_v_args, __pyx_v_kwargs); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 152, __pyx_L1_error)
 
   /* "quent.pyx":151
  *     dict kwargs
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs)
  * 
  */
 
@@ -7921,7 +7954,7 @@ static int __pyx_pf_5quent_3run___init__(struct __pyx_obj_5quent_run *__pyx_v_se
 }
 
 /* "quent.pyx":154
- *     self.init(value, args, kwargs)
+ *     self.init(__v, args, kwargs)
  * 
  *   cdef int init(self, object v, tuple args, dict kwargs) except -1:             # <<<<<<<<<<<<<<
  *     self.root_value = v
@@ -7973,7 +8006,7 @@ static int __pyx_f_5quent_3run_init(struct __pyx_obj_5quent_run *__pyx_v_self, P
   __pyx_v_self->kwargs = __pyx_v_kwargs;
 
   /* "quent.pyx":154
- *     self.init(value, args, kwargs)
+ *     self.init(__v, args, kwargs)
  * 
  *   cdef int init(self, object v, tuple args, dict kwargs) except -1:             # <<<<<<<<<<<<<<
  *     self.root_value = v
@@ -8206,7 +8239,7 @@ static int __pyx_pf_5quent_3run_4args_4__del__(struct __pyx_obj_5quent_run *__py
  *     tuple args
  *     dict kwargs             # <<<<<<<<<<<<<<
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):
+ *   def __init__(self, __v=Null, *args, **kwargs):
  */
 
 /* Python wrapper */
@@ -8943,7 +8976,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_from_(PyTypeObject 
  *   def from_(cls, *args) -> Chain:
  *     return from_list(cls, args)             # <<<<<<<<<<<<<<
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):
+ *   def __init__(self, __v=Null, *args, **kwargs):
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __pyx_t_1 = ((PyObject *)__pyx_f_5quent_from_list(((PyObject *)__pyx_v_cls), __pyx_v_args)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 179, __pyx_L1_error)
@@ -8974,7 +9007,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_from_(PyTypeObject 
 /* "quent.pyx":181
  *     return from_list(cls, args)
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
  *     """
  *     Create a new Chain
  */
@@ -8986,7 +9019,7 @@ PyDoc_STRVAR(__pyx_doc_5quent_5Chain_2__init__, "\n    Create a new Chain\n    :
 struct wrapperbase __pyx_wrapperbase_5quent_5Chain_2__init__;
 #endif
 static int __pyx_pw_5quent_5Chain_3__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -9015,7 +9048,7 @@ static int __pyx_pw_5quent_5Chain_3__init__(PyObject *__pyx_v_self, PyObject *__
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     values[0] = __Pyx_Arg_NewRef_VARARGS(__pyx_k__6);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -9026,10 +9059,18 @@ static int __pyx_pw_5quent_5Chain_3__init__(PyObject *__pyx_v_self, PyObject *__
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_VARARGS(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_VARARGS(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_VARARGS(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 181, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 181, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 181, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -9039,7 +9080,7 @@ static int __pyx_pw_5quent_5Chain_3__init__(PyObject *__pyx_v_self, PyObject *__
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -9056,7 +9097,7 @@ static int __pyx_pw_5quent_5Chain_3__init__(PyObject *__pyx_v_self, PyObject *__
   __Pyx_RefNannyFinishContext();
   return -1;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_2__init__(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_2__init__(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -9071,7 +9112,7 @@ static int __pyx_pw_5quent_5Chain_3__init__(PyObject *__pyx_v_self, PyObject *__
   return __pyx_r;
 }
 
-static int __pyx_pf_5quent_5Chain_2__init__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static int __pyx_pf_5quent_5Chain_2__init__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   int __pyx_r;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -9083,16 +9124,16 @@ static int __pyx_pf_5quent_5Chain_2__init__(struct __pyx_obj_5quent_Chain *__pyx
   /* "quent.pyx":188
  *     :param kwargs: keyword-arguments to pass to `v`
  *     """
- *     self.init(value, args, kwargs, is_cascade=False)             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=False)             # <<<<<<<<<<<<<<
  * 
  *   cdef int init(self, object root_value, tuple args, dict kwargs, bint is_cascade) except -1:
  */
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->init(__pyx_v_self, __pyx_v_value, __pyx_v_args, __pyx_v_kwargs, 0); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 188, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->init(__pyx_v_self, __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs, 0); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 188, __pyx_L1_error)
 
   /* "quent.pyx":181
  *     return from_list(cls, args)
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
  *     """
  *     Create a new Chain
  */
@@ -9109,7 +9150,7 @@ static int __pyx_pf_5quent_5Chain_2__init__(struct __pyx_obj_5quent_Chain *__pyx
 }
 
 /* "quent.pyx":190
- *     self.init(value, args, kwargs, is_cascade=False)
+ *     self.init(__v, args, kwargs, is_cascade=False)
  * 
  *   cdef int init(self, object root_value, tuple args, dict kwargs, bint is_cascade) except -1:             # <<<<<<<<<<<<<<
  *     self.is_cascade = is_cascade
@@ -9306,7 +9347,7 @@ static int __pyx_f_5quent_5Chain_init(struct __pyx_obj_5quent_Chain *__pyx_v_sel
   __pyx_v_self->current_attr = ((PyObject*)Py_None);
 
   /* "quent.pyx":190
- *     self.init(value, args, kwargs, is_cascade=False)
+ *     self.init(__v, args, kwargs, is_cascade=False)
  * 
  *   cdef int init(self, object root_value, tuple args, dict kwargs, bint is_cascade) except -1:             # <<<<<<<<<<<<<<
  *     self.is_cascade = is_cascade
@@ -14329,7 +14370,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_9autorun(struct __p
  *     self._autorun = bool(autorun)
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def run(self, value=Null, /, *args, **kwargs):
+ *   def run(self, __v=Null, *args, **kwargs):
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -14357,8 +14398,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_9autorun(struct __p
 /* "quent.pyx":430
  *     return self
  * 
- *   def run(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     return self._run(value, args, kwargs)
+ *   def run(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     return self._run(__v, args, kwargs)
  * 
  */
 
@@ -14370,7 +14411,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_11run, "Chain.run(self, value=Null, /, *args, **kwargs)");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_11run, "Chain.run(self, __v=Null, *args, **kwargs)");
 static PyObject *__pyx_pw_5quent_5Chain_12run(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -14378,7 +14419,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -14411,7 +14452,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     values[0] = __Pyx_Arg_NewRef_FASTCALL(__pyx_k__15);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -14422,10 +14463,18 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_FASTCALL(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 430, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "run") < 0)) __PYX_ERR(0, 430, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "run") < 0)) __PYX_ERR(0, 430, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -14435,7 +14484,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -14452,7 +14501,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_11run(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_11run(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -14467,7 +14516,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -14478,13 +14527,13 @@ static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__p
 
   /* "quent.pyx":431
  * 
- *   def run(self, value=Null, /, *args, **kwargs):
- *     return self._run(value, args, kwargs)             # <<<<<<<<<<<<<<
+ *   def run(self, __v=Null, *args, **kwargs):
+ *     return self._run(__v, args, kwargs)             # <<<<<<<<<<<<<<
  * 
  *   # cannot use cpdef with *args **kwargs.
  */
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_run(__pyx_v_self, __pyx_v_value, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 431, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_run(__pyx_v_self, __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 431, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -14493,8 +14542,8 @@ static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__p
   /* "quent.pyx":430
  *     return self
  * 
- *   def run(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     return self._run(value, args, kwargs)
+ *   def run(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     return self._run(__v, args, kwargs)
  * 
  */
 
@@ -14512,8 +14561,8 @@ static PyObject *__pyx_pf_5quent_5Chain_11run(struct __pyx_obj_5quent_Chain *__p
 /* "quent.pyx":434
  * 
  *   # cannot use cpdef with *args **kwargs.
- *   def then(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
+ *   def then(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
  *     return self
  */
 
@@ -14525,7 +14574,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_13then, "Chain.then(self, value, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_13then, "Chain.then(self, __v, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_14then(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -14533,7 +14582,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -14566,27 +14615,36 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
       switch (__pyx_nargs) {
         default:
         case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
-        break;
-        case  0: goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v)) != 0)) {
+          (void)__Pyx_Arg_NewRef_FASTCALL(values[0]);
+          kw_args--;
+        }
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 434, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "then") < 0)) __PYX_ERR(0, 434, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "then") < 0)) __PYX_ERR(0, 434, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs < 1)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
@@ -14605,7 +14663,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_13then(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_13then(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -14620,7 +14678,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -14632,8 +14690,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx
 
   /* "quent.pyx":435
  *   # cannot use cpdef with *args **kwargs.
- *   def then(self, value, /, *args, **kwargs) -> Chain:
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
+ *   def then(self, __v, *args, **kwargs) -> Chain:
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
@@ -14644,14 +14702,14 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx
   __pyx_t_2.ignore_result = 0;
   __pyx_t_2.args = __pyx_v_args;
   __pyx_t_2.kwargs = __pyx_v_kwargs;
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v_value, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 435, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v__Chain__v, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 435, __pyx_L1_error)
 
   /* "quent.pyx":436
- *   def then(self, value, /, *args, **kwargs) -> Chain:
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
+ *   def then(self, __v, *args, **kwargs) -> Chain:
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def do(self, value, /, *args, **kwargs) -> Chain:
+ *   def do(self, __v, *args, **kwargs) -> Chain:
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -14661,8 +14719,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx
   /* "quent.pyx":434
  * 
  *   # cannot use cpdef with *args **kwargs.
- *   def then(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
+ *   def then(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
  *     return self
  */
 
@@ -14679,9 +14737,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_13then(struct __pyx
 /* "quent.pyx":438
  *     return self
  * 
- *   def do(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def do(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     # register a value to be evaluated but will not propagate its result forwards.
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
  */
 
 /* Python wrapper */
@@ -14692,7 +14750,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_15do, "Chain.do(self, value, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_15do, "Chain.do(self, __v, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_16do(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -14700,7 +14758,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -14733,27 +14791,36 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
       switch (__pyx_nargs) {
         default:
         case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
-        break;
-        case  0: goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v)) != 0)) {
+          (void)__Pyx_Arg_NewRef_FASTCALL(values[0]);
+          kw_args--;
+        }
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 438, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "do") < 0)) __PYX_ERR(0, 438, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "do") < 0)) __PYX_ERR(0, 438, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs < 1)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
@@ -14772,7 +14839,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_15do(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_15do(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -14787,7 +14854,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -14798,9 +14865,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_o
   __Pyx_RefNannySetupContext("do", 0);
 
   /* "quent.pyx":440
- *   def do(self, value, /, *args, **kwargs) -> Chain:
+ *   def do(self, __v, *args, **kwargs) -> Chain:
  *     # register a value to be evaluated but will not propagate its result forwards.
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
@@ -14811,14 +14878,14 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_o
   __pyx_t_2.ignore_result = 1;
   __pyx_t_2.args = __pyx_v_args;
   __pyx_t_2.kwargs = __pyx_v_kwargs;
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v_value, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 440, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v__Chain__v, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 440, __pyx_L1_error)
 
   /* "quent.pyx":441
  *     # register a value to be evaluated but will not propagate its result forwards.
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def root(self, value=Null, /, *args, **kwargs) -> Chain:
+ *   def root(self, __v=Null, *args, **kwargs) -> Chain:
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -14828,9 +14895,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_o
   /* "quent.pyx":438
  *     return self
  * 
- *   def do(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def do(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     # register a value to be evaluated but will not propagate its result forwards.
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=args, kwargs=kwargs)
  */
 
   /* function exit code */
@@ -14846,8 +14913,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_15do(struct __pyx_o
 /* "quent.pyx":443
  *     return self
  * 
- *   def root(self, value=Null, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+ *   def root(self, __v=Null, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
  *     return self
  */
 
@@ -14859,7 +14926,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_17root, "Chain.root(self, value=Null, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_17root, "Chain.root(self, __v=Null, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_18root(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -14867,7 +14934,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -14900,7 +14967,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     values[0] = __Pyx_Arg_NewRef_FASTCALL(__pyx_k__16);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -14911,10 +14978,18 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_FASTCALL(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 443, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "root") < 0)) __PYX_ERR(0, 443, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "root") < 0)) __PYX_ERR(0, 443, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -14924,7 +14999,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -14941,7 +15016,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_17root(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_17root(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -14956,7 +15031,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -14968,8 +15043,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx
 
   /* "quent.pyx":444
  * 
- *   def root(self, value=Null, /, *args, **kwargs) -> Chain:
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
+ *   def root(self, __v=Null, *args, **kwargs) -> Chain:
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
@@ -14980,14 +15055,14 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx
   __pyx_t_2.ignore_result = 0;
   __pyx_t_2.args = __pyx_v_args;
   __pyx_t_2.kwargs = __pyx_v_kwargs;
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v_value, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 444, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v__Chain__v, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 444, __pyx_L1_error)
 
   /* "quent.pyx":445
- *   def root(self, value=Null, /, *args, **kwargs) -> Chain:
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+ *   def root(self, __v=Null, *args, **kwargs) -> Chain:
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def root_do(self, value, /, *args, **kwargs) -> Chain:
+ *   def root_do(self, __v, *args, **kwargs) -> Chain:
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -14997,8 +15072,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx
   /* "quent.pyx":443
  *     return self
  * 
- *   def root(self, value=Null, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+ *   def root(self, __v=Null, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
  *     return self
  */
 
@@ -15015,8 +15090,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_17root(struct __pyx
 /* "quent.pyx":447
  *     return self
  * 
- *   def root_do(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
+ *   def root_do(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
  *     return self
  */
 
@@ -15028,7 +15103,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_19root_do, "Chain.root_do(self, value, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_19root_do, "Chain.root_do(self, __v, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_20root_do(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -15036,7 +15111,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -15069,27 +15144,36 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
       switch (__pyx_nargs) {
         default:
         case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
-        break;
-        case  0: goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v)) != 0)) {
+          (void)__Pyx_Arg_NewRef_FASTCALL(values[0]);
+          kw_args--;
+        }
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 447, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "root_do") < 0)) __PYX_ERR(0, 447, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "root_do") < 0)) __PYX_ERR(0, 447, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs < 1)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
@@ -15108,7 +15192,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_19root_do(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_19root_do(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -15123,7 +15207,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -15135,8 +15219,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __
 
   /* "quent.pyx":448
  * 
- *   def root_do(self, value, /, *args, **kwargs) -> Chain:
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
+ *   def root_do(self, __v, *args, **kwargs) -> Chain:
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
@@ -15147,11 +15231,11 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __
   __pyx_t_2.ignore_result = 1;
   __pyx_t_2.args = __pyx_v_args;
   __pyx_t_2.kwargs = __pyx_v_kwargs;
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v_value, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 448, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_v__Chain__v, &__pyx_t_2); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 448, __pyx_L1_error)
 
   /* "quent.pyx":449
- *   def root_do(self, value, /, *args, **kwargs) -> Chain:
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
+ *   def root_do(self, __v, *args, **kwargs) -> Chain:
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
  *   def attr(self, name) -> Chain:
@@ -15164,8 +15248,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_19root_do(struct __
   /* "quent.pyx":447
  *     return self
  * 
- *   def root_do(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
+ *   def root_do(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=True, args=args, kwargs=kwargs)
  *     return self
  */
 
@@ -16158,7 +16242,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_31foreach_do(struct
  *     self._then(foreach(fn, ignore_result=True))
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def with_(self, value=Null, /, *args, **kwargs) -> Chain:
+ *   def with_(self, __v=Null, *args, **kwargs) -> Chain:
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -16187,8 +16271,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_31foreach_do(struct
 /* "quent.pyx":473
  *     return self
  * 
- *   def with_(self, value=Null, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(with_(value, args, kwargs))
+ *   def with_(self, __v=Null, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(with_(__v, args, kwargs))
  *     return self
  */
 
@@ -16200,7 +16284,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_33with_, "Chain.with_(self, value=Null, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_33with_, "Chain.with_(self, __v=Null, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_34with_(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -16208,7 +16292,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -16241,7 +16325,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     values[0] = __Pyx_Arg_NewRef_FASTCALL(__pyx_k__17);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -16252,10 +16336,18 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_FASTCALL(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 473, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "with_") < 0)) __PYX_ERR(0, 473, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "with_") < 0)) __PYX_ERR(0, 473, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -16265,7 +16357,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -16282,7 +16374,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_33with_(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_33with_(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -16297,7 +16389,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -16309,22 +16401,22 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __py
 
   /* "quent.pyx":474
  * 
- *   def with_(self, value=Null, /, *args, **kwargs) -> Chain:
- *     self._then(with_(value, args, kwargs))             # <<<<<<<<<<<<<<
+ *   def with_(self, __v=Null, *args, **kwargs) -> Chain:
+ *     self._then(with_(__v, args, kwargs))             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
-  __pyx_t_1 = __pyx_f_5quent_with_(__pyx_v_value, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 474, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_5quent_with_(__pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_t_2 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_then(__pyx_v_self, __pyx_t_1, NULL); if (unlikely(__pyx_t_2 == ((int)-1))) __PYX_ERR(0, 474, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
 
   /* "quent.pyx":475
- *   def with_(self, value=Null, /, *args, **kwargs) -> Chain:
- *     self._then(with_(value, args, kwargs))
+ *   def with_(self, __v=Null, *args, **kwargs) -> Chain:
+ *     self._then(with_(__v, args, kwargs))
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def with_do(self, value, /, *args, **kwargs) -> Chain:
+ *   def with_do(self, __v, *args, **kwargs) -> Chain:
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -16334,8 +16426,8 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __py
   /* "quent.pyx":473
  *     return self
  * 
- *   def with_(self, value=Null, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(with_(value, args, kwargs))
+ *   def with_(self, __v=Null, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(with_(__v, args, kwargs))
  *     return self
  */
 
@@ -16353,9 +16445,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_33with_(struct __py
 /* "quent.pyx":477
  *     return self
  * 
- *   def with_do(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def with_do(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     self._then(
- *       with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
+ *       with_(__v, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
  */
 
 /* Python wrapper */
@@ -16366,7 +16458,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_35with_do, "Chain.with_do(self, value, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_35with_do, "Chain.with_do(self, __v, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_36with_do(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -16374,7 +16466,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -16407,27 +16499,36 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
       switch (__pyx_nargs) {
         default:
         case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
-        break;
-        case  0: goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v)) != 0)) {
+          (void)__Pyx_Arg_NewRef_FASTCALL(values[0]);
+          kw_args--;
+        }
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 477, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "with_do") < 0)) __PYX_ERR(0, 477, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "with_do") < 0)) __PYX_ERR(0, 477, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs < 1)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
@@ -16446,7 +16547,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_35with_do(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_35with_do(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -16461,7 +16562,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   return __pyx_r;
 }
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -16473,20 +16574,20 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __
   __Pyx_RefNannySetupContext("with_do", 0);
 
   /* "quent.pyx":479
- *   def with_do(self, value, /, *args, **kwargs) -> Chain:
+ *   def with_do(self, __v, *args, **kwargs) -> Chain:
  *     self._then(
- *       with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,             # <<<<<<<<<<<<<<
+ *       with_(__v, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,             # <<<<<<<<<<<<<<
  *       kwargs=None
  *     )
  */
-  __pyx_t_1 = __pyx_f_5quent_with_(__pyx_v_value, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 479, __pyx_L1_error)
+  __pyx_t_1 = __pyx_f_5quent_with_(__pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 479, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
 
   /* "quent.pyx":478
  * 
- *   def with_do(self, value, /, *args, **kwargs) -> Chain:
+ *   def with_do(self, __v, *args, **kwargs) -> Chain:
  *     self._then(             # <<<<<<<<<<<<<<
- *       with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
+ *       with_(__v, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
  *       kwargs=None
  */
   __pyx_t_3.__pyx_n = 6;
@@ -16514,9 +16615,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __
   /* "quent.pyx":477
  *     return self
  * 
- *   def with_do(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def with_do(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     self._then(
- *       with_(value, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
+ *       with_(__v, args, kwargs), is_attr=False, is_fattr=False, is_with_root=False, ignore_result=True, args=None,
  */
 
   /* function exit code */
@@ -18479,7 +18580,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_53if_not_raise(stru
  *     self._if(if_not_raise, None, None, not_=True)
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:
+ *   def condition(self, __v, *args, **kwargs) -> Chain:
  */
   __Pyx_XDECREF((PyObject *)__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -18510,9 +18611,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_53if_not_raise(stru
 /* "quent.pyx":523
  *     return self
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def condition(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     def condition(object cv):
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  */
 
 /* Python wrapper */
@@ -18523,7 +18624,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ); /*proto*/
-PyDoc_STRVAR(__pyx_doc_5quent_5Chain_55condition, "Chain.condition(self, value, /, *args, **kwargs) -> Chain");
+PyDoc_STRVAR(__pyx_doc_5quent_5Chain_55condition, "Chain.condition(self, __v, *args, **kwargs) -> Chain");
 static struct __pyx_obj_5quent_Chain *__pyx_pw_5quent_5Chain_56condition(PyObject *__pyx_v_self, 
 #if CYTHON_METH_FASTCALL
 PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
@@ -18531,7 +18632,7 @@ PyObject *const *__pyx_args, Py_ssize_t __pyx_nargs, PyObject *__pyx_kwds
 PyObject *__pyx_args, PyObject *__pyx_kwds
 #endif
 ) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   #if !CYTHON_METH_FASTCALL
@@ -18564,27 +18665,36 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
       switch (__pyx_nargs) {
         default:
         case  1: values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
-        break;
-        case  0: goto __pyx_L5_argtuple_error;
+        CYTHON_FALLTHROUGH;
+        case  0: break;
       }
       kw_args = __Pyx_NumKwargs_FASTCALL(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (likely((values[0] = __Pyx_GetKwValue_FASTCALL(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v)) != 0)) {
+          (void)__Pyx_Arg_NewRef_FASTCALL(values[0]);
+          kw_args--;
+        }
+        else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 523, __pyx_L3_error)
+        else goto __pyx_L5_argtuple_error;
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "condition") < 0)) __PYX_ERR(0, 523, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "condition") < 0)) __PYX_ERR(0, 523, __pyx_L3_error)
       }
     } else if (unlikely(__pyx_nargs < 1)) {
       goto __pyx_L5_argtuple_error;
     } else {
       values[0] = __Pyx_Arg_FASTCALL(__pyx_args, 0);
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   __pyx_L5_argtuple_error:;
@@ -18603,7 +18713,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_55condition(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_55condition(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -18620,9 +18730,9 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 
 /* "quent.pyx":524
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:
+ *   def condition(self, __v, *args, **kwargs) -> Chain:
  *     def condition(object cv):             # <<<<<<<<<<<<<<
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  *     self.set_conditional(condition, custom=True)
  */
 
@@ -18739,15 +18849,15 @@ static PyObject *__pyx_pf_5quent_5Chain_9condition_condition(PyObject *__pyx_sel
   __pyx_cur_scope = __pyx_outer_scope;
 
   /* "quent.pyx":525
- *   def condition(self, value, /, *args, **kwargs) -> Chain:
+ *   def condition(self, __v, *args, **kwargs) -> Chain:
  *     def condition(object cv):
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)             # <<<<<<<<<<<<<<
  *     self.set_conditional(condition, custom=True)
  *     return self
  */
   __Pyx_XDECREF(__pyx_r);
-  if (unlikely(!__pyx_cur_scope->__pyx_v_value)) { __Pyx_RaiseClosureNameError("value"); __PYX_ERR(0, 525, __pyx_L1_error) }
-  __pyx_t_1 = __pyx_cur_scope->__pyx_v_value;
+  if (unlikely(!__pyx_cur_scope->__pyx_v__Chain__v)) { __Pyx_RaiseClosureNameError("_Chain__v"); __PYX_ERR(0, 525, __pyx_L1_error) }
+  __pyx_t_1 = __pyx_cur_scope->__pyx_v__Chain__v;
   __Pyx_INCREF(__pyx_t_1);
   if (unlikely(!__pyx_cur_scope->__pyx_v_args)) { __Pyx_RaiseClosureNameError("args"); __PYX_ERR(0, 525, __pyx_L1_error) }
   __pyx_t_2 = __pyx_cur_scope->__pyx_v_args;
@@ -18766,9 +18876,9 @@ static PyObject *__pyx_pf_5quent_5Chain_9condition_condition(PyObject *__pyx_sel
 
   /* "quent.pyx":524
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:
+ *   def condition(self, __v, *args, **kwargs) -> Chain:
  *     def condition(object cv):             # <<<<<<<<<<<<<<
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  *     self.set_conditional(condition, custom=True)
  */
 
@@ -18789,12 +18899,12 @@ static PyObject *__pyx_pf_5quent_5Chain_9condition_condition(PyObject *__pyx_sel
 /* "quent.pyx":523
  *     return self
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def condition(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     def condition(object cv):
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  */
 
-static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent___pyx_scope_struct_4_condition *__pyx_cur_scope;
   PyObject *__pyx_v_condition = 0;
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
@@ -18814,9 +18924,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct 
   } else {
     __Pyx_GOTREF((PyObject *)__pyx_cur_scope);
   }
-  __pyx_cur_scope->__pyx_v_value = __pyx_v_value;
-  __Pyx_INCREF(__pyx_cur_scope->__pyx_v_value);
-  __Pyx_GIVEREF(__pyx_cur_scope->__pyx_v_value);
+  __pyx_cur_scope->__pyx_v__Chain__v = __pyx_v__Chain__v;
+  __Pyx_INCREF(__pyx_cur_scope->__pyx_v__Chain__v);
+  __Pyx_GIVEREF(__pyx_cur_scope->__pyx_v__Chain__v);
   __pyx_cur_scope->__pyx_v_args = __pyx_v_args;
   __Pyx_INCREF(__pyx_cur_scope->__pyx_v_args);
   __Pyx_GIVEREF(__pyx_cur_scope->__pyx_v_args);
@@ -18826,9 +18936,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct 
 
   /* "quent.pyx":524
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:
+ *   def condition(self, __v, *args, **kwargs) -> Chain:
  *     def condition(object cv):             # <<<<<<<<<<<<<<
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  *     self.set_conditional(condition, custom=True)
  */
   __pyx_t_1 = __Pyx_CyFunction_New(&__pyx_mdef_5quent_5Chain_9condition_1condition, 0, __pyx_n_s_condition_locals_condition, ((PyObject*)__pyx_cur_scope), __pyx_n_s_quent, __pyx_d, ((PyObject *)__pyx_codeobj__22)); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 524, __pyx_L1_error)
@@ -18838,7 +18948,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct 
 
   /* "quent.pyx":526
  *     def condition(object cv):
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  *     self.set_conditional(condition, custom=True)             # <<<<<<<<<<<<<<
  *     return self
  * 
@@ -18848,7 +18958,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct 
   __pyx_t_2 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->set_conditional(__pyx_v_self, __pyx_v_condition, &__pyx_t_3); if (unlikely(__pyx_t_2 == ((int)-1))) __PYX_ERR(0, 526, __pyx_L1_error)
 
   /* "quent.pyx":527
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  *     self.set_conditional(condition, custom=True)
  *     return self             # <<<<<<<<<<<<<<
  * 
@@ -18862,9 +18972,9 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_55condition(struct 
   /* "quent.pyx":523
  *     return self
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *   def condition(self, __v, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
  *     def condition(object cv):
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  */
 
   /* function exit code */
@@ -22311,7 +22421,7 @@ static PyObject *__pyx_pf_5quent_5Chain_75__or__(struct __pyx_obj_5quent_Chain *
  *     self._then(other)
  *     return self             # <<<<<<<<<<<<<<
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):
+ *   def __call__(self, __v=Null, *args, **kwargs):
  */
   __Pyx_XDECREF(__pyx_r);
   __Pyx_INCREF((PyObject *)__pyx_v_self);
@@ -22343,15 +22453,15 @@ static PyObject *__pyx_pf_5quent_5Chain_75__or__(struct __pyx_obj_5quent_Chain *
 /* "quent.pyx":612
  *     return self
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     return self._run(value, args, kwargs)
+ *   def __call__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     return self._run(__v, args, kwargs)
  * 
  */
 
 /* Python wrapper */
 static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds); /*proto*/
 static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Chain__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -22380,7 +22490,7 @@ static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObj
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Chain__v,0};
     values[0] = __Pyx_Arg_NewRef_VARARGS(__pyx_k__33);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -22391,10 +22501,18 @@ static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObj
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_VARARGS(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_VARARGS(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Chain__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_VARARGS(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 612, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "__call__") < 0)) __PYX_ERR(0, 612, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "__call__") < 0)) __PYX_ERR(0, 612, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -22404,7 +22522,7 @@ static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObj
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Chain__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -22421,7 +22539,7 @@ static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObj
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_5Chain_77__call__(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_5Chain_77__call__(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -22436,7 +22554,7 @@ static PyObject *__pyx_pw_5quent_5Chain_78__call__(PyObject *__pyx_v_self, PyObj
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_5quent_5Chain_77__call__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static PyObject *__pyx_pf_5quent_5Chain_77__call__(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v__Chain__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -22447,13 +22565,13 @@ static PyObject *__pyx_pf_5quent_5Chain_77__call__(struct __pyx_obj_5quent_Chain
 
   /* "quent.pyx":613
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):
- *     return self._run(value, args, kwargs)             # <<<<<<<<<<<<<<
+ *   def __call__(self, __v=Null, *args, **kwargs):
+ *     return self._run(__v, args, kwargs)             # <<<<<<<<<<<<<<
  * 
  *   # while this may be nice to have, I fear that it will cause troubles as
  */
   __Pyx_XDECREF(__pyx_r);
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_run(__pyx_v_self, __pyx_v_value, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 613, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_run(__pyx_v_self, __pyx_v__Chain__v, __pyx_v_args, __pyx_v_kwargs); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 613, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_r = __pyx_t_1;
   __pyx_t_1 = 0;
@@ -22462,8 +22580,8 @@ static PyObject *__pyx_pf_5quent_5Chain_77__call__(struct __pyx_obj_5quent_Chain
   /* "quent.pyx":612
  *     return self
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     return self._run(value, args, kwargs)
+ *   def __call__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     return self._run(__v, args, kwargs)
  * 
  */
 
@@ -23271,15 +23389,15 @@ static PyObject *__pyx_pf_5quent_5Chain_85__setstate_cython__(struct __pyx_obj_5
 /* "quent.pyx":641
  * 
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs, is_cascade=True)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=True)
  * 
  */
 
 /* Python wrapper */
 static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds); /*proto*/
 static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Cascade__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -23308,7 +23426,7 @@ static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Cascade__v,0};
     values[0] = __Pyx_Arg_NewRef_VARARGS(__pyx_k__39);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -23319,10 +23437,18 @@ static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_VARARGS(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_VARARGS(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Cascade__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_VARARGS(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 641, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 641, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 641, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -23332,7 +23458,7 @@ static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Cascade__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -23349,7 +23475,7 @@ static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *
   __Pyx_RefNannyFinishContext();
   return -1;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_7Cascade___init__(((struct __pyx_obj_5quent_Cascade *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_7Cascade___init__(((struct __pyx_obj_5quent_Cascade *)__pyx_v_self), __pyx_v__Cascade__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -23364,7 +23490,7 @@ static int __pyx_pw_5quent_7Cascade_1__init__(PyObject *__pyx_v_self, PyObject *
   return __pyx_r;
 }
 
-static int __pyx_pf_5quent_7Cascade___init__(struct __pyx_obj_5quent_Cascade *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static int __pyx_pf_5quent_7Cascade___init__(struct __pyx_obj_5quent_Cascade *__pyx_v_self, PyObject *__pyx_v__Cascade__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   int __pyx_r;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -23375,18 +23501,18 @@ static int __pyx_pf_5quent_7Cascade___init__(struct __pyx_obj_5quent_Cascade *__
 
   /* "quent.pyx":642
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):
- *     self.init(value, args, kwargs, is_cascade=True)             # <<<<<<<<<<<<<<
+ *   def __init__(self, __v=Null, *args, **kwargs):
+ *     self.init(__v, args, kwargs, is_cascade=True)             # <<<<<<<<<<<<<<
  * 
  * 
  */
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Cascade *)__pyx_v_self->__pyx_base.__pyx_vtab)->__pyx_base.init(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs, 1); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 642, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_Cascade *)__pyx_v_self->__pyx_base.__pyx_vtab)->__pyx_base.init(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__Cascade__v, __pyx_v_args, __pyx_v_kwargs, 1); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 642, __pyx_L1_error)
 
   /* "quent.pyx":641
  * 
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs, is_cascade=True)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=True)
  * 
  */
 
@@ -24790,15 +24916,15 @@ static PyObject *__pyx_pf_5quent_9ChainAttr_6__setstate_cython__(struct __pyx_ob
 /* "quent.pyx":676
  * cdef class CascadeAttr(ChainAttr):
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs, is_cascade=True)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=True)
  * 
  */
 
 /* Python wrapper */
 static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds); /*proto*/
 static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__CascadeAttr__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -24827,7 +24953,7 @@ static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObj
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_CascadeAttr__v,0};
     values[0] = __Pyx_Arg_NewRef_VARARGS(__pyx_k__40);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -24838,10 +24964,18 @@ static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObj
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_VARARGS(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_VARARGS(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_CascadeAttr__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_VARARGS(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 676, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 676, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "__init__") < 0)) __PYX_ERR(0, 676, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -24851,7 +24985,7 @@ static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObj
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__CascadeAttr__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -24868,7 +25002,7 @@ static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObj
   __Pyx_RefNannyFinishContext();
   return -1;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_11CascadeAttr___init__(((struct __pyx_obj_5quent_CascadeAttr *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_11CascadeAttr___init__(((struct __pyx_obj_5quent_CascadeAttr *)__pyx_v_self), __pyx_v__CascadeAttr__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -24883,7 +25017,7 @@ static int __pyx_pw_5quent_11CascadeAttr_1__init__(PyObject *__pyx_v_self, PyObj
   return __pyx_r;
 }
 
-static int __pyx_pf_5quent_11CascadeAttr___init__(struct __pyx_obj_5quent_CascadeAttr *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static int __pyx_pf_5quent_11CascadeAttr___init__(struct __pyx_obj_5quent_CascadeAttr *__pyx_v_self, PyObject *__pyx_v__CascadeAttr__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   int __pyx_r;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -24894,18 +25028,18 @@ static int __pyx_pf_5quent_11CascadeAttr___init__(struct __pyx_obj_5quent_Cascad
 
   /* "quent.pyx":677
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):
- *     self.init(value, args, kwargs, is_cascade=True)             # <<<<<<<<<<<<<<
+ *   def __init__(self, __v=Null, *args, **kwargs):
+ *     self.init(__v, args, kwargs, is_cascade=True)             # <<<<<<<<<<<<<<
  * 
  * 
  */
-  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_CascadeAttr *)__pyx_v_self->__pyx_base.__pyx_base.__pyx_vtab)->__pyx_base.__pyx_base.init(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs, 1); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 677, __pyx_L1_error)
+  __pyx_t_1 = ((struct __pyx_vtabstruct_5quent_CascadeAttr *)__pyx_v_self->__pyx_base.__pyx_base.__pyx_vtab)->__pyx_base.__pyx_base.init(((struct __pyx_obj_5quent_Chain *)__pyx_v_self), __pyx_v__CascadeAttr__v, __pyx_v_args, __pyx_v_kwargs, 1); if (unlikely(__pyx_t_1 == ((int)-1))) __PYX_ERR(0, 677, __pyx_L1_error)
 
   /* "quent.pyx":676
  * cdef class CascadeAttr(ChainAttr):
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs, is_cascade=True)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=True)
  * 
  */
 
@@ -27914,7 +28048,7 @@ static int __pyx_pf_5quent_10_Generator___init__(struct __pyx_obj_5quent__Genera
  *     self.ignore_result = ignore_result
  *     self.run_args = (Null, (), {})             # <<<<<<<<<<<<<<
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):
+ *   def __call__(self, __v=Null, *args, **kwargs):
  */
   __pyx_t_2 = __Pyx_PyDict_NewPresized(0); if (unlikely(!__pyx_t_2)) __PYX_ERR(0, 795, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_2);
@@ -27959,15 +28093,15 @@ static int __pyx_pf_5quent_10_Generator___init__(struct __pyx_obj_5quent__Genera
 /* "quent.pyx":797
  *     self.run_args = (Null, (), {})
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *   def __call__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
  *     # this allows nesting of _Generator within another Chain
- *     self.run_args = (value, args, kwargs)
+ *     self.run_args = (__v, args, kwargs)
  */
 
 /* Python wrapper */
 static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds); /*proto*/
 static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, PyObject *__pyx_args, PyObject *__pyx_kwds) {
-  PyObject *__pyx_v_value = 0;
+  PyObject *__pyx_v__Generator__v = 0;
   PyObject *__pyx_v_args = 0;
   PyObject *__pyx_v_kwargs = 0;
   CYTHON_UNUSED Py_ssize_t __pyx_nargs;
@@ -27996,7 +28130,7 @@ static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, 
   }
   __Pyx_GOTREF(__pyx_v_args);
   {
-    PyObject **__pyx_pyargnames[] = {0};
+    PyObject **__pyx_pyargnames[] = {&__pyx_n_s_Generator__v,0};
     values[0] = __Pyx_Arg_NewRef_VARARGS(__pyx_k__48);
     if (__pyx_kwds) {
       Py_ssize_t kw_args;
@@ -28007,10 +28141,18 @@ static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, 
         case  0: break;
       }
       kw_args = __Pyx_NumKwargs_VARARGS(__pyx_kwds);
+      switch (__pyx_nargs) {
+        case  0:
+        if (kw_args > 0) {
+          PyObject* value = __Pyx_GetKwValue_VARARGS(__pyx_kwds, __pyx_kwvalues, __pyx_n_s_Generator__v);
+          if (value) { values[0] = __Pyx_Arg_NewRef_VARARGS(value); kw_args--; }
+          else if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 797, __pyx_L3_error)
+        }
+      }
       if (unlikely(kw_args > 0)) {
-        const Py_ssize_t kwd_pos_args = (unlikely(__pyx_nargs < 1)) ? 0 : __pyx_nargs - 1;
-        const Py_ssize_t used_pos_args = (kwd_pos_args < 0) ? kwd_pos_args : 0;
-        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values, used_pos_args, "__call__") < 0)) __PYX_ERR(0, 797, __pyx_L3_error)
+        const Py_ssize_t kwd_pos_args = __pyx_nargs;
+        const Py_ssize_t used_pos_args = (kwd_pos_args < 1) ? kwd_pos_args : 1;
+        if (unlikely(__Pyx_ParseOptionalKeywords(__pyx_kwds, __pyx_kwvalues, __pyx_pyargnames, __pyx_v_kwargs, values + 0, used_pos_args, "__call__") < 0)) __PYX_ERR(0, 797, __pyx_L3_error)
       }
     } else {
       switch (__pyx_nargs) {
@@ -28020,7 +28162,7 @@ static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, 
         case  0: break;
       }
     }
-    __pyx_v_value = values[0];
+    __pyx_v__Generator__v = values[0];
   }
   goto __pyx_L4_argument_unpacking_done;
   goto __pyx_L3_error;
@@ -28037,7 +28179,7 @@ static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, 
   __Pyx_RefNannyFinishContext();
   return NULL;
   __pyx_L4_argument_unpacking_done:;
-  __pyx_r = __pyx_pf_5quent_10_Generator_2__call__(((struct __pyx_obj_5quent__Generator *)__pyx_v_self), __pyx_v_value, __pyx_v_args, __pyx_v_kwargs);
+  __pyx_r = __pyx_pf_5quent_10_Generator_2__call__(((struct __pyx_obj_5quent__Generator *)__pyx_v_self), __pyx_v__Generator__v, __pyx_v_args, __pyx_v_kwargs);
 
   /* function exit code */
   __Pyx_DECREF(__pyx_v_args);
@@ -28052,7 +28194,7 @@ static PyObject *__pyx_pw_5quent_10_Generator_3__call__(PyObject *__pyx_v_self, 
   return __pyx_r;
 }
 
-static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent__Generator *__pyx_v_self, PyObject *__pyx_v_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent__Generator *__pyx_v_self, PyObject *__pyx_v__Generator__v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   PyObject *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
   PyObject *__pyx_t_1 = NULL;
@@ -28062,17 +28204,17 @@ static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent_
   __Pyx_RefNannySetupContext("__call__", 0);
 
   /* "quent.pyx":799
- *   def __call__(self, value=Null, /, *args, **kwargs):
+ *   def __call__(self, __v=Null, *args, **kwargs):
  *     # this allows nesting of _Generator within another Chain
- *     self.run_args = (value, args, kwargs)             # <<<<<<<<<<<<<<
+ *     self.run_args = (__v, args, kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
   __pyx_t_1 = PyTuple_New(3); if (unlikely(!__pyx_t_1)) __PYX_ERR(0, 799, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
-  __Pyx_INCREF(__pyx_v_value);
-  __Pyx_GIVEREF(__pyx_v_value);
-  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_1, 0, __pyx_v_value)) __PYX_ERR(0, 799, __pyx_L1_error);
+  __Pyx_INCREF(__pyx_v__Generator__v);
+  __Pyx_GIVEREF(__pyx_v__Generator__v);
+  if (__Pyx_PyTuple_SET_ITEM(__pyx_t_1, 0, __pyx_v__Generator__v)) __PYX_ERR(0, 799, __pyx_L1_error);
   __Pyx_INCREF(__pyx_v_args);
   __Pyx_GIVEREF(__pyx_v_args);
   if (__Pyx_PyTuple_SET_ITEM(__pyx_t_1, 1, __pyx_v_args)) __PYX_ERR(0, 799, __pyx_L1_error);
@@ -28087,7 +28229,7 @@ static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent_
 
   /* "quent.pyx":800
  *     # this allows nesting of _Generator within another Chain
- *     self.run_args = (value, args, kwargs)
+ *     self.run_args = (__v, args, kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
  *   def __iter__(self):
@@ -28100,9 +28242,9 @@ static PyObject *__pyx_pf_5quent_10_Generator_2__call__(struct __pyx_obj_5quent_
   /* "quent.pyx":797
  *     self.run_args = (Null, (), {})
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *   def __call__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
  *     # this allows nesting of _Generator within another Chain
- *     self.run_args = (value, args, kwargs)
+ *     self.run_args = (__v, args, kwargs)
  */
 
   /* function exit code */
@@ -38904,7 +39046,7 @@ static struct PyGetSetDef __pyx_getsets_5quent_run[] = {
 #if CYTHON_USE_TYPE_SPECS
 static PyType_Slot __pyx_type_5quent_run_slots[] = {
   {Py_tp_dealloc, (void *)__pyx_tp_dealloc_5quent_run},
-  {Py_tp_doc, (void *)PyDoc_STR("run(value=Null, *args, /, **kwargs)\n\n    A replacement for `Chain.run()` when using pipe syntax\n\n      Chain(f1).then(f2).run() == Chain(f1) | f2 | run()\n      Chain().then(f2).run(f1) == Chain() | f2 | run(f1)\n  ")},
+  {Py_tp_doc, (void *)PyDoc_STR("run(__v=Null, *args, **kwargs)\n\n    A replacement for `Chain.run()` when using pipe syntax\n\n      Chain(f1).then(f2).run() == Chain(f1) | f2 | run()\n      Chain().then(f2).run(f1) == Chain() | f2 | run(f1)\n  ")},
   {Py_tp_traverse, (void *)__pyx_tp_traverse_5quent_run},
   {Py_tp_clear, (void *)__pyx_tp_clear_5quent_run},
   {Py_tp_methods, (void *)__pyx_methods_5quent_run},
@@ -38953,7 +39095,7 @@ static PyTypeObject __pyx_type_5quent_run = {
   0, /*tp_setattro*/
   0, /*tp_as_buffer*/
   Py_TPFLAGS_DEFAULT|Py_TPFLAGS_HAVE_VERSION_TAG|Py_TPFLAGS_CHECKTYPES|Py_TPFLAGS_HAVE_NEWBUFFER|Py_TPFLAGS_BASETYPE|Py_TPFLAGS_HAVE_GC, /*tp_flags*/
-  PyDoc_STR("run(value=Null, *args, /, **kwargs)\n\n    A replacement for `Chain.run()` when using pipe syntax\n\n      Chain(f1).then(f2).run() == Chain(f1) | f2 | run()\n      Chain().then(f2).run(f1) == Chain() | f2 | run(f1)\n  "), /*tp_doc*/
+  PyDoc_STR("run(__v=Null, *args, **kwargs)\n\n    A replacement for `Chain.run()` when using pipe syntax\n\n      Chain(f1).then(f2).run() == Chain(f1) | f2 | run()\n      Chain().then(f2).run(f1) == Chain() | f2 | run(f1)\n  "), /*tp_doc*/
   __pyx_tp_traverse_5quent_run, /*tp_traverse*/
   __pyx_tp_clear_5quent_run, /*tp_clear*/
   0, /*tp_richcompare*/
@@ -39194,7 +39336,7 @@ static PyType_Slot __pyx_type_5quent_Chain_slots[] = {
   {Py_nb_bool, (void *)__pyx_pw_5quent_5Chain_80__bool__},
   {Py_nb_or, (void *)__pyx_nb_or_5quent_Chain},
   {Py_tp_call, (void *)__pyx_pw_5quent_5Chain_78__call__},
-  {Py_tp_doc, (void *)PyDoc_STR("Chain(value=Null, *args, /, **kwargs)")},
+  {Py_tp_doc, (void *)PyDoc_STR("Chain(__v=Null, *args, **kwargs)")},
   {Py_tp_traverse, (void *)__pyx_tp_traverse_5quent_Chain},
   {Py_tp_clear, (void *)__pyx_tp_clear_5quent_Chain},
   {Py_tp_methods, (void *)__pyx_methods_5quent_Chain},
@@ -39304,7 +39446,7 @@ static PyTypeObject __pyx_type_5quent_Chain = {
   0, /*tp_setattro*/
   0, /*tp_as_buffer*/
   Py_TPFLAGS_DEFAULT|Py_TPFLAGS_HAVE_VERSION_TAG|Py_TPFLAGS_CHECKTYPES|Py_TPFLAGS_HAVE_NEWBUFFER|Py_TPFLAGS_BASETYPE|Py_TPFLAGS_HAVE_GC, /*tp_flags*/
-  PyDoc_STR("Chain(value=Null, *args, /, **kwargs)"), /*tp_doc*/
+  PyDoc_STR("Chain(__v=Null, *args, **kwargs)"), /*tp_doc*/
   __pyx_tp_traverse_5quent_Chain, /*tp_traverse*/
   __pyx_tp_clear_5quent_Chain, /*tp_clear*/
   0, /*tp_richcompare*/
@@ -39372,7 +39514,7 @@ static PyMethodDef __pyx_methods_5quent_Cascade[] = {
 };
 #if CYTHON_USE_TYPE_SPECS
 static PyType_Slot __pyx_type_5quent_Cascade_slots[] = {
-  {Py_tp_doc, (void *)PyDoc_STR("Cascade(value=Null, *args, /, **kwargs)")},
+  {Py_tp_doc, (void *)PyDoc_STR("Cascade(__v=Null, *args, **kwargs)")},
   {Py_tp_traverse, (void *)__pyx_tp_traverse_5quent_Chain},
   {Py_tp_clear, (void *)__pyx_tp_clear_5quent_Chain},
   {Py_tp_methods, (void *)__pyx_methods_5quent_Cascade},
@@ -39428,7 +39570,7 @@ static PyTypeObject __pyx_type_5quent_Cascade = {
   0, /*tp_setattro*/
   0, /*tp_as_buffer*/
   Py_TPFLAGS_DEFAULT|Py_TPFLAGS_HAVE_VERSION_TAG|Py_TPFLAGS_CHECKTYPES|Py_TPFLAGS_HAVE_NEWBUFFER|Py_TPFLAGS_BASETYPE|Py_TPFLAGS_HAVE_GC, /*tp_flags*/
-  PyDoc_STR("Cascade(value=Null, *args, /, **kwargs)"), /*tp_doc*/
+  PyDoc_STR("Cascade(__v=Null, *args, **kwargs)"), /*tp_doc*/
   __pyx_tp_traverse_5quent_Chain, /*tp_traverse*/
   __pyx_tp_clear_5quent_Chain, /*tp_clear*/
   0, /*tp_richcompare*/
@@ -39630,7 +39772,7 @@ static PyMethodDef __pyx_methods_5quent_CascadeAttr[] = {
 };
 #if CYTHON_USE_TYPE_SPECS
 static PyType_Slot __pyx_type_5quent_CascadeAttr_slots[] = {
-  {Py_tp_doc, (void *)PyDoc_STR("CascadeAttr(value=Null, *args, /, **kwargs)")},
+  {Py_tp_doc, (void *)PyDoc_STR("CascadeAttr(__v=Null, *args, **kwargs)")},
   {Py_tp_traverse, (void *)__pyx_tp_traverse_5quent_Chain},
   {Py_tp_clear, (void *)__pyx_tp_clear_5quent_Chain},
   {Py_tp_methods, (void *)__pyx_methods_5quent_CascadeAttr},
@@ -39686,7 +39828,7 @@ static PyTypeObject __pyx_type_5quent_CascadeAttr = {
   0, /*tp_setattro*/
   0, /*tp_as_buffer*/
   Py_TPFLAGS_DEFAULT|Py_TPFLAGS_HAVE_VERSION_TAG|Py_TPFLAGS_CHECKTYPES|Py_TPFLAGS_HAVE_NEWBUFFER|Py_TPFLAGS_BASETYPE|Py_TPFLAGS_HAVE_GC, /*tp_flags*/
-  PyDoc_STR("CascadeAttr(value=Null, *args, /, **kwargs)"), /*tp_doc*/
+  PyDoc_STR("CascadeAttr(__v=Null, *args, **kwargs)"), /*tp_doc*/
   __pyx_tp_traverse_5quent_Chain, /*tp_traverse*/
   __pyx_tp_clear_5quent_Chain, /*tp_clear*/
   0, /*tp_richcompare*/
@@ -40730,9 +40872,9 @@ static void __pyx_tp_dealloc_5quent___pyx_scope_struct_4_condition(PyObject *o) 
   }
   #endif
   PyObject_GC_UnTrack(o);
+  Py_CLEAR(p->__pyx_v__Chain__v);
   Py_CLEAR(p->__pyx_v_args);
   Py_CLEAR(p->__pyx_v_kwargs);
-  Py_CLEAR(p->__pyx_v_value);
   #if CYTHON_COMPILING_IN_CPYTHON
   if (((int)(__pyx_freecount_5quent___pyx_scope_struct_4_condition < 8) & (int)(Py_TYPE(o)->tp_basicsize == sizeof(struct __pyx_obj_5quent___pyx_scope_struct_4_condition)))) {
     __pyx_freelist_5quent___pyx_scope_struct_4_condition[__pyx_freecount_5quent___pyx_scope_struct_4_condition++] = ((struct __pyx_obj_5quent___pyx_scope_struct_4_condition *)o);
@@ -40753,14 +40895,14 @@ static void __pyx_tp_dealloc_5quent___pyx_scope_struct_4_condition(PyObject *o) 
 static int __pyx_tp_traverse_5quent___pyx_scope_struct_4_condition(PyObject *o, visitproc v, void *a) {
   int e;
   struct __pyx_obj_5quent___pyx_scope_struct_4_condition *p = (struct __pyx_obj_5quent___pyx_scope_struct_4_condition *)o;
+  if (p->__pyx_v__Chain__v) {
+    e = (*v)(p->__pyx_v__Chain__v, a); if (e) return e;
+  }
   if (p->__pyx_v_args) {
     e = (*v)(p->__pyx_v_args, a); if (e) return e;
   }
   if (p->__pyx_v_kwargs) {
     e = (*v)(p->__pyx_v_kwargs, a); if (e) return e;
-  }
-  if (p->__pyx_v_value) {
-    e = (*v)(p->__pyx_v_value, a); if (e) return e;
   }
   return 0;
 }
@@ -40768,14 +40910,14 @@ static int __pyx_tp_traverse_5quent___pyx_scope_struct_4_condition(PyObject *o, 
 static int __pyx_tp_clear_5quent___pyx_scope_struct_4_condition(PyObject *o) {
   PyObject* tmp;
   struct __pyx_obj_5quent___pyx_scope_struct_4_condition *p = (struct __pyx_obj_5quent___pyx_scope_struct_4_condition *)o;
+  tmp = ((PyObject*)p->__pyx_v__Chain__v);
+  p->__pyx_v__Chain__v = Py_None; Py_INCREF(Py_None);
+  Py_XDECREF(tmp);
   tmp = ((PyObject*)p->__pyx_v_args);
   p->__pyx_v_args = ((PyObject*)Py_None); Py_INCREF(Py_None);
   Py_XDECREF(tmp);
   tmp = ((PyObject*)p->__pyx_v_kwargs);
   p->__pyx_v_kwargs = ((PyObject*)Py_None); Py_INCREF(Py_None);
-  Py_XDECREF(tmp);
-  tmp = ((PyObject*)p->__pyx_v_value);
-  p->__pyx_v_value = Py_None; Py_INCREF(Py_None);
   Py_XDECREF(tmp);
   return 0;
 }
@@ -44955,11 +45097,15 @@ static int __Pyx_CreateStringTabAndInitStrings(void) {
     {&__pyx_kp_u_Cannot_use_attributes_without_a, __pyx_k_Cannot_use_attributes_without_a, sizeof(__pyx_k_Cannot_use_attributes_without_a), 0, 1, 0, 0},
     {&__pyx_n_s_Cascade, __pyx_k_Cascade, sizeof(__pyx_k_Cascade), 0, 0, 1, 1},
     {&__pyx_n_s_CascadeAttr, __pyx_k_CascadeAttr, sizeof(__pyx_k_CascadeAttr), 0, 0, 1, 1},
+    {&__pyx_n_s_CascadeAttr__v, __pyx_k_CascadeAttr__v, sizeof(__pyx_k_CascadeAttr__v), 0, 0, 1, 1},
+    {&__pyx_n_s_Cascade__v, __pyx_k_Cascade__v, sizeof(__pyx_k_Cascade__v), 0, 0, 1, 1},
     {&__pyx_n_s_Chain, __pyx_k_Chain, sizeof(__pyx_k_Chain), 0, 0, 1, 1},
     {&__pyx_n_s_ChainAttr, __pyx_k_ChainAttr, sizeof(__pyx_k_ChainAttr), 0, 0, 1, 1},
     {&__pyx_n_s_Chain__run_async, __pyx_k_Chain__run_async, sizeof(__pyx_k_Chain__run_async), 0, 0, 1, 1},
+    {&__pyx_n_s_Chain__v, __pyx_k_Chain__v, sizeof(__pyx_k_Chain__v), 0, 0, 1, 1},
     {&__pyx_n_s_CoroutineType, __pyx_k_CoroutineType, sizeof(__pyx_k_CoroutineType), 0, 0, 1, 1},
     {&__pyx_n_s_Generator, __pyx_k_Generator, sizeof(__pyx_k_Generator), 0, 0, 1, 1},
+    {&__pyx_n_s_Generator__v, __pyx_k_Generator__v, sizeof(__pyx_k_Generator__v), 0, 0, 1, 1},
     {&__pyx_n_s_ImportError, __pyx_k_ImportError, sizeof(__pyx_k_ImportError), 0, 0, 1, 1},
     {&__pyx_kp_s_Incompatible_checksums_0x_x_vs_0, __pyx_k_Incompatible_checksums_0x_x_vs_0, sizeof(__pyx_k_Incompatible_checksums_0x_x_vs_0), 0, 0, 1, 0},
     {&__pyx_kp_s_Incompatible_checksums_0x_x_vs_0_2, __pyx_k_Incompatible_checksums_0x_x_vs_0_2, sizeof(__pyx_k_Incompatible_checksums_0x_x_vs_0_2), 0, 0, 1, 0},
@@ -45148,6 +45294,7 @@ static int __Pyx_CreateStringTabAndInitStrings(void) {
     {&__pyx_n_s_return, __pyx_k_return, sizeof(__pyx_k_return), 0, 0, 1, 1},
     {&__pyx_n_s_root_value, __pyx_k_root_value, sizeof(__pyx_k_root_value), 0, 0, 1, 1},
     {&__pyx_n_s_run, __pyx_k_run, sizeof(__pyx_k_run), 0, 0, 1, 1},
+    {&__pyx_n_s_run__v, __pyx_k_run__v, sizeof(__pyx_k_run__v), 0, 0, 1, 1},
     {&__pyx_n_s_run_args, __pyx_k_run_args, sizeof(__pyx_k_run_args), 0, 0, 1, 1},
     {&__pyx_n_s_run_async, __pyx_k_run_async, sizeof(__pyx_k_run_async), 0, 0, 1, 1},
     {&__pyx_n_s_rv, __pyx_k_rv, sizeof(__pyx_k_rv), 0, 0, 1, 1},
@@ -45335,9 +45482,9 @@ static CYTHON_SMALL_CODE int __Pyx_InitCachedConstants(void) {
 
   /* "quent.pyx":524
  * 
- *   def condition(self, value, /, *args, **kwargs) -> Chain:
+ *   def condition(self, __v, *args, **kwargs) -> Chain:
  *     def condition(object cv):             # <<<<<<<<<<<<<<
- *       return evaluate_value(v=value, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
+ *       return evaluate_value(v=__v, cv=cv, is_attr=False, is_fattr=False, args=args, kwargs=kwargs)
  *     self.set_conditional(condition, custom=True)
  */
   __pyx_codeobj__22 = (PyObject*)__Pyx_PyCode_New(1, 0, 0, 1, 0, CO_OPTIMIZED|CO_NEWLOCALS, __pyx_empty_bytes, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_tuple__18, __pyx_empty_tuple, __pyx_empty_tuple, __pyx_kp_s_src_quent_pyx, __pyx_n_s_condition, 524, __pyx_empty_bytes); if (unlikely(!__pyx_codeobj__22)) __PYX_ERR(0, 524, __pyx_L1_error)
@@ -47164,8 +47311,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":151
  *     dict kwargs
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs)
  * 
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47191,7 +47338,7 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":181
  *     return from_list(cls, args)
  * 
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
  *     """
  *     Create a new Chain
  */
@@ -47202,8 +47349,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":430
  *     return self
  * 
- *   def run(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     return self._run(value, args, kwargs)
+ *   def run(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     return self._run(__v, args, kwargs)
  * 
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47213,8 +47360,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":443
  *     return self
  * 
- *   def root(self, value=Null, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(value, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
+ *   def root(self, __v=Null, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(__v, is_attr=False, is_fattr=False, is_with_root=True, ignore_result=False, args=args, kwargs=kwargs)
  *     return self
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47224,8 +47371,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":473
  *     return self
  * 
- *   def with_(self, value=Null, /, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._then(with_(value, args, kwargs))
+ *   def with_(self, __v=Null, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
+ *     self._then(with_(__v, args, kwargs))
  *     return self
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47246,8 +47393,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":612
  *     return self
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     return self._run(value, args, kwargs)
+ *   def __call__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     return self._run(__v, args, kwargs)
  * 
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47257,8 +47404,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":641
  * 
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs, is_cascade=True)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=True)
  * 
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47268,8 +47415,8 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":676
  * cdef class CascadeAttr(ChainAttr):
  *   # noinspection PyMissingConstructor
- *   def __init__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
- *     self.init(value, args, kwargs, is_cascade=True)
+ *   def __init__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *     self.init(__v, args, kwargs, is_cascade=True)
  * 
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
@@ -47303,9 +47450,9 @@ if (!__Pyx_RefNanny) {
   /* "quent.pyx":797
  *     self.run_args = (Null, (), {})
  * 
- *   def __call__(self, value=Null, /, *args, **kwargs):             # <<<<<<<<<<<<<<
+ *   def __call__(self, __v=Null, *args, **kwargs):             # <<<<<<<<<<<<<<
  *     # this allows nesting of _Generator within another Chain
- *     self.run_args = (value, args, kwargs)
+ *     self.run_args = (__v, args, kwargs)
  */
   __Pyx_INCREF((PyObject *)__pyx_v_5quent_Null);
   __pyx_k__48 = ((PyObject *)__pyx_v_5quent_Null);
