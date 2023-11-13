@@ -1469,7 +1469,7 @@ struct __pyx_obj_5quent___pyx_scope_struct_25_genexpr;
 struct __pyx_obj___pyx_scope_struct____Pyx_CFunc_int__lParenobject__rParenexcept__2D1_to_py_4task;
 struct __pyx_obj___pyx_scope_struct____Pyx_CFunc_1005d5__object__lParenChain__comma_object__comma_tuple__comma_dict__rParen__etc_to_py_4self_1v_4args_6kwargs;
 struct __pyx_opt_args_5quent_5Chain__then;
-struct __pyx_opt_args_5quent_5Chain__except;
+struct __pyx_opt_args_5quent_5Chain_set_except;
 struct __pyx_opt_args_5quent_5Chain__if;
 struct __pyx_opt_args_5quent_5Chain__else;
 struct __pyx_opt_args_5quent_5Chain_finalize_conditional;
@@ -1495,11 +1495,11 @@ struct __pyx_opt_args_5quent_5Chain__then {
 /* "quent.pyx":396
  *           await result
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):             # <<<<<<<<<<<<<<
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):             # <<<<<<<<<<<<<<
  *     if self.on_except is not None:
  *       raise QuentException('You can only register one \'except\' callback.')
  */
-struct __pyx_opt_args_5quent_5Chain__except {
+struct __pyx_opt_args_5quent_5Chain_set_except {
   int __pyx_n;
   int raise_;
 };
@@ -2166,8 +2166,8 @@ struct __pyx_vtabstruct_5quent_Chain {
   int (*init)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *, int);
   int (*_then)(struct __pyx_obj_5quent_Chain *, PyObject *, struct __pyx_opt_args_5quent_5Chain__then *__pyx_optional_args);
   PyObject *(*_run)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *);
-  int (*_except)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *, struct __pyx_opt_args_5quent_5Chain__except *__pyx_optional_args);
-  int (*_finally)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *);
+  int (*set_except)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *, struct __pyx_opt_args_5quent_5Chain_set_except *__pyx_optional_args);
+  int (*set_finally)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *);
   int (*_if)(struct __pyx_obj_5quent_Chain *, PyObject *, struct __pyx_opt_args_5quent_5Chain__if *__pyx_optional_args);
   int (*_else)(struct __pyx_obj_5quent_Chain *, PyObject *, struct __pyx_opt_args_5quent_5Chain__else *__pyx_optional_args);
   int (*finalize_attr)(struct __pyx_obj_5quent_Chain *);
@@ -3259,8 +3259,8 @@ static int __pyx_f_5quent_3run_init(struct __pyx_obj_5quent_run *__pyx_v_self, P
 static int __pyx_f_5quent_5Chain_init(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_root_value, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs, int __pyx_v_is_cascade); /* proto*/
 static int __pyx_f_5quent_5Chain__then(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_v, struct __pyx_opt_args_5quent_5Chain__then *__pyx_optional_args); /* proto*/
 static PyObject *__pyx_f_5quent_5Chain__run(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_v, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto*/
-static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs, struct __pyx_opt_args_5quent_5Chain__except *__pyx_optional_args); /* proto*/
-static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto*/
+static int __pyx_f_5quent_5Chain_set_except(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs, struct __pyx_opt_args_5quent_5Chain_set_except *__pyx_optional_args); /* proto*/
+static int __pyx_f_5quent_5Chain_set_finally(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs); /* proto*/
 static int __pyx_f_5quent_5Chain__if(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_on_true_v, struct __pyx_opt_args_5quent_5Chain__if *__pyx_optional_args); /* proto*/
 static int __pyx_f_5quent_5Chain__else(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_on_false_v, struct __pyx_opt_args_5quent_5Chain__else *__pyx_optional_args); /* proto*/
 static int __pyx_f_5quent_5Chain_finalize_attr(struct __pyx_obj_5quent_Chain *__pyx_v_self); /* proto*/
@@ -13234,7 +13234,7 @@ static PyObject *__pyx_gb_5quent_5Chain_6generator(__pyx_CoroutineObject *__pyx_
  *         if isawaitable(result):
  *           await result             # <<<<<<<<<<<<<<
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  */
           __pyx_r = __Pyx_Coroutine_Yield_From(__pyx_generator, __pyx_cur_scope->__pyx_v_result);
           __Pyx_XGOTREF(__pyx_r);
@@ -13330,7 +13330,7 @@ static PyObject *__pyx_gb_5quent_5Chain_6generator(__pyx_CoroutineObject *__pyx_
  *         if isawaitable(result):
  *           await result             # <<<<<<<<<<<<<<
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  */
             __pyx_r = __Pyx_Coroutine_Yield_From(__pyx_generator, __pyx_cur_scope->__pyx_v_result);
             __Pyx_XGOTREF(__pyx_r);
@@ -13476,7 +13476,7 @@ static PyObject *__pyx_gb_5quent_5Chain_6generator(__pyx_CoroutineObject *__pyx_
  *         if isawaitable(result):
  *           await result             # <<<<<<<<<<<<<<
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  */
           __pyx_r = __Pyx_Coroutine_Yield_From(__pyx_generator, __pyx_cur_scope->__pyx_v_result);
           __Pyx_XGOTREF(__pyx_r);
@@ -13606,12 +13606,12 @@ static PyObject *__pyx_gb_5quent_5Chain_6generator(__pyx_CoroutineObject *__pyx_
 /* "quent.pyx":396
  *           await result
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):             # <<<<<<<<<<<<<<
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):             # <<<<<<<<<<<<<<
  *     if self.on_except is not None:
  *       raise QuentException('You can only register one \'except\' callback.')
  */
 
-static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs, struct __pyx_opt_args_5quent_5Chain__except *__pyx_optional_args) {
+static int __pyx_f_5quent_5Chain_set_except(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs, struct __pyx_opt_args_5quent_5Chain_set_except *__pyx_optional_args) {
   int __pyx_v_raise_ = ((int)1);
   int __pyx_r;
   __Pyx_RefNannyDeclarations
@@ -13620,7 +13620,7 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("_except", 0);
+  __Pyx_RefNannySetupContext("set_except", 0);
   if (__pyx_optional_args) {
     if (__pyx_optional_args->__pyx_n > 0) {
       __pyx_v_raise_ = __pyx_optional_args->raise_;
@@ -13629,7 +13629,7 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
 
   /* "quent.pyx":397
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  *     if self.on_except is not None:             # <<<<<<<<<<<<<<
  *       raise QuentException('You can only register one \'except\' callback.')
  *     self.on_except = fn_or_attr, args, kwargs
@@ -13638,7 +13638,7 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
   if (unlikely(__pyx_t_1)) {
 
     /* "quent.pyx":398
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  *     if self.on_except is not None:
  *       raise QuentException('You can only register one \'except\' callback.')             # <<<<<<<<<<<<<<
  *     self.on_except = fn_or_attr, args, kwargs
@@ -13652,7 +13652,7 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
 
     /* "quent.pyx":397
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  *     if self.on_except is not None:             # <<<<<<<<<<<<<<
  *       raise QuentException('You can only register one \'except\' callback.')
  *     self.on_except = fn_or_attr, args, kwargs
@@ -13688,14 +13688,14 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
  *     self.on_except = fn_or_attr, args, kwargs
  *     self.raise_on_exception = raise_             # <<<<<<<<<<<<<<
  * 
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
  */
   __pyx_v_self->raise_on_exception = __pyx_v_raise_;
 
   /* "quent.pyx":396
  *           await result
  * 
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):             # <<<<<<<<<<<<<<
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):             # <<<<<<<<<<<<<<
  *     if self.on_except is not None:
  *       raise QuentException('You can only register one \'except\' callback.')
  */
@@ -13705,7 +13705,7 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
   goto __pyx_L0;
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_2);
-  __Pyx_AddTraceback("quent.Chain._except", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_AddTraceback("quent.Chain.set_except", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = 0;
   __pyx_L0:;
   __Pyx_RefNannyFinishContext();
@@ -13715,12 +13715,12 @@ static int __pyx_f_5quent_5Chain__except(struct __pyx_obj_5quent_Chain *__pyx_v_
 /* "quent.pyx":402
  *     self.raise_on_exception = raise_
  * 
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):             # <<<<<<<<<<<<<<
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):             # <<<<<<<<<<<<<<
  *     if self.on_finally is not None:
  *       raise QuentException('You can only register one \'finally\' callback.')
  */
 
-static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
+static int __pyx_f_5quent_5Chain_set_finally(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   int __pyx_r;
   __Pyx_RefNannyDeclarations
   int __pyx_t_1;
@@ -13728,11 +13728,11 @@ static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
-  __Pyx_RefNannySetupContext("_finally", 0);
+  __Pyx_RefNannySetupContext("set_finally", 0);
 
   /* "quent.pyx":403
  * 
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
  *     if self.on_finally is not None:             # <<<<<<<<<<<<<<
  *       raise QuentException('You can only register one \'finally\' callback.')
  *     self.on_finally = fn_or_attr, args, kwargs
@@ -13741,7 +13741,7 @@ static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v
   if (unlikely(__pyx_t_1)) {
 
     /* "quent.pyx":404
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
  *     if self.on_finally is not None:
  *       raise QuentException('You can only register one \'finally\' callback.')             # <<<<<<<<<<<<<<
  *     self.on_finally = fn_or_attr, args, kwargs
@@ -13755,7 +13755,7 @@ static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v
 
     /* "quent.pyx":403
  * 
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
  *     if self.on_finally is not None:             # <<<<<<<<<<<<<<
  *       raise QuentException('You can only register one \'finally\' callback.')
  *     self.on_finally = fn_or_attr, args, kwargs
@@ -13789,7 +13789,7 @@ static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v
   /* "quent.pyx":402
  *     self.raise_on_exception = raise_
  * 
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):             # <<<<<<<<<<<<<<
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):             # <<<<<<<<<<<<<<
  *     if self.on_finally is not None:
  *       raise QuentException('You can only register one \'finally\' callback.')
  */
@@ -13799,7 +13799,7 @@ static int __pyx_f_5quent_5Chain__finally(struct __pyx_obj_5quent_Chain *__pyx_v
   goto __pyx_L0;
   __pyx_L1_error:;
   __Pyx_XDECREF(__pyx_t_2);
-  __Pyx_AddTraceback("quent.Chain._finally", __pyx_clineno, __pyx_lineno, __pyx_filename);
+  __Pyx_AddTraceback("quent.Chain.set_finally", __pyx_clineno, __pyx_lineno, __pyx_filename);
   __pyx_r = 0;
   __pyx_L0:;
   __Pyx_RefNannyFinishContext();
@@ -16534,7 +16534,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_35with_do(struct __
  *     return self
  * 
  *   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._except(fn_or_attr, args, kwargs)
+ *     self.set_except(fn_or_attr, args, kwargs)
  *     return self
  */
 
@@ -16661,15 +16661,15 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_37except_(struct __
   /* "quent.pyx":485
  * 
  *   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
- *     self._except(fn_or_attr, args, kwargs)             # <<<<<<<<<<<<<<
+ *     self.set_except(fn_or_attr, args, kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
-  ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_except(__pyx_v_self, __pyx_v_fn_or_attr, __pyx_v_args, __pyx_v_kwargs, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 485, __pyx_L1_error)
+  ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->set_except(__pyx_v_self, __pyx_v_fn_or_attr, __pyx_v_args, __pyx_v_kwargs, NULL); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 485, __pyx_L1_error)
 
   /* "quent.pyx":486
  *   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
- *     self._except(fn_or_attr, args, kwargs)
+ *     self.set_except(fn_or_attr, args, kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
  *   def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:
@@ -16683,7 +16683,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_37except_(struct __
  *     return self
  * 
  *   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._except(fn_or_attr, args, kwargs)
+ *     self.set_except(fn_or_attr, args, kwargs)
  *     return self
  */
 
@@ -16701,7 +16701,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_37except_(struct __
  *     return self
  * 
  *   def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._except(fn_or_attr, args, kwargs, raise_=False)
+ *     self.set_except(fn_or_attr, args, kwargs, raise_=False)
  *     return self
  */
 
@@ -16820,7 +16820,7 @@ PyObject *__pyx_args, PyObject *__pyx_kwds
 static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_39except_do(struct __pyx_obj_5quent_Chain *__pyx_v_self, PyObject *__pyx_v_fn_or_attr, PyObject *__pyx_v_args, PyObject *__pyx_v_kwargs) {
   struct __pyx_obj_5quent_Chain *__pyx_r = NULL;
   __Pyx_RefNannyDeclarations
-  struct __pyx_opt_args_5quent_5Chain__except __pyx_t_1;
+  struct __pyx_opt_args_5quent_5Chain_set_except __pyx_t_1;
   int __pyx_lineno = 0;
   const char *__pyx_filename = NULL;
   int __pyx_clineno = 0;
@@ -16829,17 +16829,17 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_39except_do(struct 
   /* "quent.pyx":489
  * 
  *   def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:
- *     self._except(fn_or_attr, args, kwargs, raise_=False)             # <<<<<<<<<<<<<<
+ *     self.set_except(fn_or_attr, args, kwargs, raise_=False)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
   __pyx_t_1.__pyx_n = 1;
   __pyx_t_1.raise_ = 0;
-  ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_except(__pyx_v_self, __pyx_v_fn_or_attr, __pyx_v_args, __pyx_v_kwargs, &__pyx_t_1); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 489, __pyx_L1_error)
+  ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->set_except(__pyx_v_self, __pyx_v_fn_or_attr, __pyx_v_args, __pyx_v_kwargs, &__pyx_t_1); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 489, __pyx_L1_error)
 
   /* "quent.pyx":490
  *   def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:
- *     self._except(fn_or_attr, args, kwargs, raise_=False)
+ *     self.set_except(fn_or_attr, args, kwargs, raise_=False)
  *     return self             # <<<<<<<<<<<<<<
  * 
  *   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
@@ -16853,7 +16853,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_39except_do(struct 
  *     return self
  * 
  *   def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._except(fn_or_attr, args, kwargs, raise_=False)
+ *     self.set_except(fn_or_attr, args, kwargs, raise_=False)
  *     return self
  */
 
@@ -16871,7 +16871,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_39except_do(struct 
  *     return self
  * 
  *   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._finally(fn_or_attr, args, kwargs)
+ *     self.set_finally(fn_or_attr, args, kwargs)
  *     return self
  */
 
@@ -16998,15 +16998,15 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_41finally_(struct _
   /* "quent.pyx":493
  * 
  *   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
- *     self._finally(fn_or_attr, args, kwargs)             # <<<<<<<<<<<<<<
+ *     self.set_finally(fn_or_attr, args, kwargs)             # <<<<<<<<<<<<<<
  *     return self
  * 
  */
-  ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->_finally(__pyx_v_self, __pyx_v_fn_or_attr, __pyx_v_args, __pyx_v_kwargs); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 493, __pyx_L1_error)
+  ((struct __pyx_vtabstruct_5quent_Chain *)__pyx_v_self->__pyx_vtab)->set_finally(__pyx_v_self, __pyx_v_fn_or_attr, __pyx_v_args, __pyx_v_kwargs); if (unlikely(PyErr_Occurred())) __PYX_ERR(0, 493, __pyx_L1_error)
 
   /* "quent.pyx":494
  *   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
- *     self._finally(fn_or_attr, args, kwargs)
+ *     self.set_finally(fn_or_attr, args, kwargs)
  *     return self             # <<<<<<<<<<<<<<
  * 
  *   def if_(self, on_true, *args, **kwargs) -> Chain:
@@ -17020,7 +17020,7 @@ static struct __pyx_obj_5quent_Chain *__pyx_pf_5quent_5Chain_41finally_(struct _
  *     return self
  * 
  *   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:             # <<<<<<<<<<<<<<
- *     self._finally(fn_or_attr, args, kwargs)
+ *     self.set_finally(fn_or_attr, args, kwargs)
  *     return self
  */
 
@@ -45271,7 +45271,7 @@ static CYTHON_SMALL_CODE int __Pyx_InitCachedConstants(void) {
   __Pyx_GIVEREF(__pyx_tuple__11);
 
   /* "quent.pyx":398
- *   cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+ *   cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
  *     if self.on_except is not None:
  *       raise QuentException('You can only register one \'except\' callback.')             # <<<<<<<<<<<<<<
  *     self.on_except = fn_or_attr, args, kwargs
@@ -45282,7 +45282,7 @@ static CYTHON_SMALL_CODE int __Pyx_InitCachedConstants(void) {
   __Pyx_GIVEREF(__pyx_tuple__12);
 
   /* "quent.pyx":404
- *   cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
+ *   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
  *     if self.on_finally is not None:
  *       raise QuentException('You can only register one \'finally\' callback.')             # <<<<<<<<<<<<<<
  *     self.on_finally = fn_or_attr, args, kwargs
@@ -45828,8 +45828,8 @@ static int __Pyx_modinit_type_init_code(void) {
   __pyx_vtable_5quent_Chain.init = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *, int))__pyx_f_5quent_5Chain_init;
   __pyx_vtable_5quent_Chain._then = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, struct __pyx_opt_args_5quent_5Chain__then *__pyx_optional_args))__pyx_f_5quent_5Chain__then;
   __pyx_vtable_5quent_Chain._run = (PyObject *(*)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *))__pyx_f_5quent_5Chain__run;
-  __pyx_vtable_5quent_Chain._except = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *, struct __pyx_opt_args_5quent_5Chain__except *__pyx_optional_args))__pyx_f_5quent_5Chain__except;
-  __pyx_vtable_5quent_Chain._finally = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *))__pyx_f_5quent_5Chain__finally;
+  __pyx_vtable_5quent_Chain.set_except = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *, struct __pyx_opt_args_5quent_5Chain_set_except *__pyx_optional_args))__pyx_f_5quent_5Chain_set_except;
+  __pyx_vtable_5quent_Chain.set_finally = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, PyObject *, PyObject *))__pyx_f_5quent_5Chain_set_finally;
   __pyx_vtable_5quent_Chain._if = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, struct __pyx_opt_args_5quent_5Chain__if *__pyx_optional_args))__pyx_f_5quent_5Chain__if;
   __pyx_vtable_5quent_Chain._else = (int (*)(struct __pyx_obj_5quent_Chain *, PyObject *, struct __pyx_opt_args_5quent_5Chain__else *__pyx_optional_args))__pyx_f_5quent_5Chain__else;
   __pyx_vtable_5quent_Chain.finalize_attr = (int (*)(struct __pyx_obj_5quent_Chain *))__pyx_f_5quent_5Chain_finalize_attr;
