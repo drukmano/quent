@@ -317,6 +317,9 @@ cdef class Chain:
               'It was therefore scheduled for execution in a new Task.',
               category=RuntimeWarning
             )
+        except Exception:
+          if not raise_on_exception:
+            raise exc from quent_exc
         finally:
           if raise_on_exception:
             raise exc from quent_exc
@@ -399,6 +402,9 @@ cdef class Chain:
           result = run_callback(on_except, rv)
           if isawaitable(result):
             await result
+        except Exception:
+          if not raise_on_exception:
+            raise exc from quent_exc
         finally:
           if raise_on_exception:
             raise exc from quent_exc
