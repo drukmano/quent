@@ -430,6 +430,9 @@ cdef class Chain:
   def run(self, __v=Null, *args, **kwargs):
     return self._run(__v, args, kwargs)
 
+  def freeze(self) -> FrozenChain:
+    return FrozenChain(self._run)
+
   # cannot use cpdef with *args **kwargs.
   def then(self, __v, *args, **kwargs) -> Chain:
     self._then(__v, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False, args=args, kwargs=kwargs)
@@ -457,10 +460,10 @@ cdef class Chain:
     return self
 
   def iterate(self, fn=None):
-    return _Generator(self._run, fn, ignore_result=False)
+    return _Generator(self._run, fn, _ignore_result=False)
 
   def iterate_do(self, fn=None):
-    return _Generator(self._run, fn, ignore_result=True)
+    return _Generator(self._run, fn, _ignore_result=True)
 
   def foreach(self, fn) -> Chain:
     self._then(foreach(fn, ignore_result=False))
@@ -677,6 +680,19 @@ cdef class CascadeAttr(ChainAttr):
     self.init(__v, args, kwargs, is_cascade=True)
 
 
+cdef class FrozenChain:
+  cdef object _chain_run
+
+  def __init__(self, _chain_run):
+    self._chain_run = _chain_run
+
+  def run(self, __v=Null, *args, **kwargs):
+    return self._chain_run(__v, args, kwargs)
+
+  def __call__(self, __v=Null, *args, **kwargs):
+    return self._chain_run(__v, args, kwargs)
+
+
 cdef object build_conditional(
   object conditional, bint is_custom, bint not_, object on_true_v, tuple true_args, dict true_kwargs, object on_false_v,
   tuple false_args, dict false_kwargs
@@ -784,26 +800,26 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
 
 
 cdef class _Generator:
-  cdef object chain_run, fn
-  cdef bint ignore_result
-  cdef tuple run_args
+  cdef object _chain_run, _fn
+  cdef bint _ignore_result
+  cdef tuple _run_args
 
-  def __init__(self, chain_run, fn, ignore_result):
-    self.chain_run = chain_run
-    self.fn = fn
-    self.ignore_result = ignore_result
-    self.run_args = (Null, (), {})
+  def __init__(self, _chain_run, _fn, _ignore_result):
+    self._chain_run = _chain_run
+    self._fn = _fn
+    self._ignore_result = _ignore_result
+    self._run_args = (Null, (), {})
 
   def __call__(self, __v=Null, *args, **kwargs):
     # this allows nesting of _Generator within another Chain
-    self.run_args = (__v, args, kwargs)
+    self._run_args = (__v, args, kwargs)
     return self
 
   def __iter__(self):
-    return sync_generator(self.chain_run, self.run_args, self.fn, self.ignore_result)
+    return sync_generator(self._chain_run, self._run_args, self._fn, self._ignore_result)
 
   def __aiter__(self):
-    return async_generator(self.chain_run, self.run_args, self.fn, self.ignore_result)
+    return async_generator(self._chain_run, self._run_args, self._fn, self._ignore_result)
 
 
 cdef object foreach(object fn, bint ignore_result):
