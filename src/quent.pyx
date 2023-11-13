@@ -393,13 +393,13 @@ cdef class Chain:
         if isawaitable(result):
           await result
 
-  cdef int _except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+  cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
     if self.on_except is not None:
       raise QuentException('You can only register one \'except\' callback.')
     self.on_except = fn_or_attr, args, kwargs
     self.raise_on_exception = raise_
 
-  cdef int _finally(self, object fn_or_attr, tuple args, dict kwargs):
+  cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
     if self.on_finally is not None:
       raise QuentException('You can only register one \'finally\' callback.')
     self.on_finally = fn_or_attr, args, kwargs
@@ -482,15 +482,15 @@ cdef class Chain:
     return self
 
   def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
-    self._except(fn_or_attr, args, kwargs)
+    self.set_except(fn_or_attr, args, kwargs)
     return self
 
   def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:
-    self._except(fn_or_attr, args, kwargs, raise_=False)
+    self.set_except(fn_or_attr, args, kwargs, raise_=False)
     return self
 
   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
-    self._finally(fn_or_attr, args, kwargs)
+    self.set_finally(fn_or_attr, args, kwargs)
     return self
 
   def if_(self, on_true, *args, **kwargs) -> Chain:
