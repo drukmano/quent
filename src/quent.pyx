@@ -240,11 +240,15 @@ cdef class Chain:
       # current chain value, root value
       object cv = Null, rv = Null, result, exc, quent_exc
       bint is_attr = False, is_fattr = False, is_with_root = False, ignore_result = False
-      bint is_void = self.root_link is None, ignore_try = False, is_null = v is Null
+      bint is_void = self.root_link is None, ignore_finally = False, is_null = v is Null
       bint raise_on_exception = self.raise_on_exception
       list links = self.links
       tuple link, on_except = self.on_except, on_finally = self.on_finally, root_link = self.root_link
+      tuple exceptions = (Exception, )
       int idx = -1
+
+    if on_except is not None:
+      exceptions = tuple(on_except[3] or []) or (Exception, )
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
@@ -261,8 +265,8 @@ cdef class Chain:
         )
         is_void = False
         if isawaitable(rv):
-          ignore_try = True
-          result = self._run_async(rv, Null, idx, is_void, v, Null, False, False, False, args, kwargs)
+          ignore_finally = True
+          result = self._run_async(rv, Null, idx, is_void, exceptions, v, Null, False, False, False, args, kwargs)
           if self._autorun:
             return ensure_future(result)
           return result
@@ -280,8 +284,8 @@ cdef class Chain:
         if v is not Null:
           result = evaluate_value(v, rv if is_with_root else cv, is_attr, is_fattr, args, kwargs)
           if isawaitable(result):
-            ignore_try = True
-            result = self._run_async(result, rv, idx, is_void, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
+            ignore_finally = True
+            result = self._run_async(result, rv, idx, is_void, exceptions, v, cv, is_attr, is_fattr, ignore_result, args, kwargs)
             if self._autorun:
               return ensure_future(result)
             return result
@@ -293,15 +297,18 @@ cdef class Chain:
       return cv if cv is not Null else None
 
     except Exception as exc:
+      quent_exc = QuentException
       try:
         quent_exc = create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx)
-        if raise_on_exception:
-          raise exc from quent_exc
-        else:
+        if not raise_on_exception:
           # TODO in this case, how can we pass `exc` to on_except callback?
           logging.exception(str(quent_exc))
       finally:
-        if not ignore_try and on_except is not None:
+        try:
+          if on_except is not None:
+            raise exc
+        except exceptions:
+          on_except = tuple(list(on_except)[:3])
           result = run_callback(on_except, rv)
           if isawaitable(result):
             ensure_future(result)
@@ -310,9 +317,12 @@ cdef class Chain:
               'It was therefore scheduled for execution in a new Task.',
               category=RuntimeWarning
             )
+        finally:
+          if raise_on_exception:
+            raise exc from quent_exc
 
     finally:
-      if not ignore_try and on_finally is not None:
+      if not ignore_finally and on_finally is not None:
         result = run_callback(on_finally, rv)
         if isawaitable(result):
           ensure_future(result)
@@ -323,7 +333,7 @@ cdef class Chain:
           )
 
   async def _run_async(
-    self, object result, object rv, int idx, bint is_void,
+    self, object result, object rv, int idx, bint is_void, tuple exceptions,
     object v, object cv, bint is_attr, bint is_fattr, bint ignore_result, tuple args, dict kwargs
   ):
     # we pass the full current link data to be able to format an appropriate
@@ -371,21 +381,27 @@ cdef class Chain:
       return cv if cv is not Null else None
 
     except Exception as exc:
+      quent_exc = QuentException
       try:
         quent_exc = create_chain_link_exception(v, cv, is_attr, is_fattr, args, kwargs, idx, is_exc_raised_on_await)
-        if raise_on_exception:
-          raise exc from quent_exc
-        else:
+        if not raise_on_exception:
           logging.exception(str(quent_exc))
       finally:
         # even though it seems that a coroutine that has raised an exception still
         # returns True for `isawaitable(result)`, I don't want to use this method to check
         # whether an exception was raised from awaiting `result` as I couldn't find if
         # this is an intended behavior or not.
-        if on_except is not None:
+        try:
+          if on_except is not None:
+            raise exc
+        except exceptions:
+          on_except = tuple(list(on_except)[:3])
           result = run_callback(on_except, rv)
           if isawaitable(result):
             await result
+        finally:
+          if raise_on_exception:
+            raise exc from quent_exc
 
     finally:
       if on_finally is not None:
@@ -393,10 +409,10 @@ cdef class Chain:
         if isawaitable(result):
           await result
 
-  cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, bint raise_ = True):
+  cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, object exceptions, bint raise_ = True):
     if self.on_except is not None:
       raise QuentException('You can only register one \'except\' callback.')
-    self.on_except = fn_or_attr, args, kwargs
+    self.on_except = fn_or_attr, args, kwargs, exceptions
     self.raise_on_exception = raise_
 
   cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
@@ -484,12 +500,12 @@ cdef class Chain:
     )
     return self
 
-  def except_(self, fn_or_attr, *args, **kwargs) -> Chain:
-    self.set_except(fn_or_attr, args, kwargs)
+  def except_(self, fn_or_attr, *args, exceptions=None, **kwargs) -> Chain:
+    self.set_except(fn_or_attr, args, kwargs, exceptions)
     return self
 
-  def except_do(self, fn_or_attr, *args, **kwargs) -> Chain:
-    self.set_except(fn_or_attr, args, kwargs, raise_=False)
+  def except_do(self, fn_or_attr, *args, exceptions=None, **kwargs) -> Chain:
+    self.set_except(fn_or_attr, args, kwargs, exceptions, raise_=False)
     return self
 
   def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
