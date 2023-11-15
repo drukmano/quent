@@ -4,6 +4,7 @@
 
 #cimport cython
 import collections.abc
+import functools
 import logging
 import sys
 import types
@@ -177,6 +178,18 @@ cdef class Chain:
   @classmethod
   def from_(cls, *args) -> Chain:
     return from_list(cls, args)
+
+  def _populate_chain(self, root_link, is_cascade, _autorun, raise_on_exception, links, on_except, on_finally) -> Chain:
+    # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
+    #  those)
+    self.root_link = root_link
+    self.is_cascade = is_cascade
+    self._autorun = _autorun
+    self.raise_on_exception = raise_on_exception
+    self.links = links.copy()
+    self.on_except = on_except
+    self.on_finally = on_finally
+    return self
 
   def __init__(self, __v=Null, *args, **kwargs):
     """
@@ -449,11 +462,25 @@ cdef class Chain:
     self._autorun = bool(autorun)
     return self
 
-  def run(self, __v=Null, *args, **kwargs):
-    return self._run(__v, args, kwargs)
+  def clone(self) -> Chain:
+    return self.__class__()._populate_chain(
+      self.root_link, self.is_cascade, self._autorun, self.raise_on_exception, self.links, self.on_except,
+      self.on_finally
+    )
 
   def freeze(self) -> FrozenChain:
+    if self.current_attr is not None:
+      self.finalize_attr()
+    if self.current_conditional is not None:
+      self.finalize_conditional()
     return FrozenChain(self._run)
+
+  @property
+  def decorator(self):
+    return self.freeze().decorator
+
+  def run(self, __v=Null, *args, **kwargs):
+    return self._run(__v, args, kwargs)
 
   # cannot use cpdef with *args **kwargs.
   def then(self, __v, *args, **kwargs) -> Chain:
@@ -704,6 +731,16 @@ cdef class CascadeAttr(ChainAttr):
 
 cdef class FrozenChain:
   cdef object _chain_run
+
+  @property
+  def decorator(self):
+    _chain_run = self._chain_run
+    def _decorator(fn):
+      @functools.wraps(fn)
+      def wrapper(*args, **kwargs):
+        return _chain_run(fn, args, kwargs)
+      return wrapper
+    return _decorator
 
   def __init__(self, _chain_run):
     self._chain_run = _chain_run
