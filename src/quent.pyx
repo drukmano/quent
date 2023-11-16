@@ -109,7 +109,7 @@ cdef class Chain:
         is_void = False
         if isawaitable(rv):
           ignore_finally = True
-          result = self._run_async(root_link, result=rv, rv=Null, cv=Null, idx=idx)
+          result = self._run_async(root_link, result=rv, rv=Null, cv=Null, idx=idx, is_void=is_void)
           if self._autorun:
             return ensure_future(result)
           return result
@@ -127,7 +127,7 @@ cdef class Chain:
           result = evaluate_value(link, cv=rv if link.is_with_root else cv)
           if isawaitable(result):
             ignore_finally = True
-            result = self._run_async(link, result=result, rv=rv, cv=cv, idx=idx)
+            result = self._run_async(link, result=result, rv=rv, cv=cv, idx=idx, is_void=is_void)
             if self._autorun:
               return ensure_future(result)
             return result
@@ -152,10 +152,9 @@ cdef class Chain:
             category=RuntimeWarning
           )
 
-  async def _run_async(self, Link link, object result, object rv, object cv, int idx):
+  async def _run_async(self, Link link, object result, object rv, object cv, int idx, bint is_void):
     cdef:
       object exc
-      bint is_void = self.root_link is None
       list links = self.links
 
     try:
