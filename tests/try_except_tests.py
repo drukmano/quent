@@ -57,7 +57,9 @@ class TryExceptTest(IsolatedAsyncioTestCase):
   async def test_raise_on_await(self):
     class A:
       def __await__(self):
-        raise Exception
+        async def f():
+          raise Exception
+        return f().__await__()
 
     for fn, efc_cls in get_empty_and_cls():
       with self.subTest(fn=fn):
