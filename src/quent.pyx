@@ -5,7 +5,6 @@
 cimport cython
 import collections.abc
 import functools
-import logging
 import sys
 import types
 import warnings
@@ -36,24 +35,23 @@ cdef class QuentException(Exception):
 cdef class Chain:
   cdef:
     Link root_link, on_finally
-    list links
-    bint is_cascade, _autorun, raise_on_exception
-    tuple on_except, current_conditional, on_true
+    list links, except_links
+    bint is_cascade, _autorun
+    tuple current_conditional, on_true
     str current_attr
 
   @classmethod
   def from_(cls, *args) -> Chain:
     return from_list(cls, args)
 
-  def _populate_chain(self, root_link, is_cascade, _autorun, raise_on_exception, links, on_except, on_finally) -> Chain:
+  def _populate_chain(self, root_link, is_cascade, _autorun, links, except_links, on_finally) -> Chain:
     # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
     #  those)
     self.root_link = root_link
     self.is_cascade = is_cascade
     self._autorun = _autorun
-    self.raise_on_exception = raise_on_exception
     self.links = links.copy()
-    self.on_except = on_except
+    self.except_links = except_links.copy()
     self.on_finally = on_finally
     return self
 
@@ -69,15 +67,14 @@ cdef class Chain:
   cdef int init(self, object rv, tuple args, dict kwargs, bint is_cascade) except -1:
     self.is_cascade = is_cascade
     self._autorun = False
-    self.raise_on_exception = True
     self.links = []
     if rv is not Null:
       self.root_link = Link(rv, args=args, kwargs=kwargs)
     else:
       self.root_link = None
 
+    self.except_links = []
     self.on_true = None
-    self.on_except = None
     self.on_finally = None
     self.current_conditional = None
     self.current_attr = None
@@ -92,15 +89,11 @@ cdef class Chain:
     self.finalize()
     cdef:
       # current chain value, root value
-      object cv = Null, rv = Null, result, exc, quent_exc
+      object cv = Null, rv = Null, result, exc
       bint is_void = self.root_link is None, ignore_finally = False, is_null = v is Null
       list links = self.links
-      tuple exceptions = (Exception, )
       int idx = -1
       Link root_link = self.root_link, link
-
-    if self.on_except is not None:
-      exceptions = tuple(self.on_except[1] or []) or (Exception, )
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
@@ -146,30 +139,7 @@ cdef class Chain:
       return cv if cv is not Null else None
 
     except Exception as exc:
-      quent_exc = QuentException
-      try:
-        quent_exc = create_chain_link_exception(link, cv, idx)
-        if not self.raise_on_exception:
-          logging.exception(str(quent_exc))
-      finally:
-        try:
-          if self.on_except is not None:
-            raise exc
-        except exceptions:
-          result = evaluate_value(self.on_except[0], cv=rv)
-          if isawaitable(result):
-            ensure_future(result)
-            warnings.warn(
-              'The \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
-              'It was therefore scheduled for execution in a new Task.',
-              category=RuntimeWarning
-            )
-        except Exception:
-          if not self.raise_on_exception:
-            raise exc from quent_exc
-        finally:
-          if self.raise_on_exception:
-            raise exc from quent_exc
+      _handle_exception(exc, self.except_links, link, rv, cv, idx)
 
     finally:
       if not ignore_finally and self.on_finally is not None:
@@ -184,21 +154,12 @@ cdef class Chain:
 
   async def _run_async(self, Link link, object result, object rv, object cv, int idx):
     cdef:
-      object exc, quent_exc
+      object exc
       bint is_void = self.root_link is None
-      bint is_exc_raised_on_await = False
       list links = self.links
-      tuple exceptions = (Exception, )
-
-    if self.on_except is not None:
-      exceptions = tuple(self.on_except[1] or []) or (Exception, )
 
     try:
-      try:
-        result = await result
-      except:
-        is_exc_raised_on_await = True
-        raise
+      result = await result
       if not link.ignore_result and result is not Null:
         cv = result
       # update the root value only if this is not a void chain, since otherwise
@@ -216,11 +177,7 @@ cdef class Chain:
         if link.v is not Null:
           result = evaluate_value(link, cv=rv if link.is_with_root else cv)
           if isawaitable(result):
-            try:
-              result = await result
-            except:
-              is_exc_raised_on_await = True
-              raise
+            result = await result
           if not link.ignore_result and result is not Null:
             cv = result
 
@@ -229,58 +186,13 @@ cdef class Chain:
       return cv if cv is not Null else None
 
     except Exception as exc:
-      quent_exc = QuentException
-      try:
-        quent_exc = create_chain_link_exception(link, cv, idx, is_exc_raised_on_await)
-        if not self.raise_on_exception:
-          logging.exception(str(quent_exc))
-      finally:
-        # even though it seems that a coroutine that has raised an exception still
-        # returns True for `isawaitable(result)`, I don't want to use this method to check
-        # whether an exception was raised from awaiting `result` as I couldn't find if
-        # this is an intended behavior or not.
-        try:
-          if self.on_except is not None:
-            raise exc
-        except exceptions:
-          result = evaluate_value(self.on_except[0], cv=rv)
-          if isawaitable(result):
-            await result
-        except Exception:
-          if not self.raise_on_exception:
-            raise exc from quent_exc
-        finally:
-          if self.raise_on_exception:
-            raise exc from quent_exc
+      await _handle_exception(exc, self.except_links, link, rv, cv, idx, async_=True)
 
     finally:
       if self.on_finally is not None:
         result = evaluate_value(self.on_finally, cv=rv)
         if isawaitable(result):
           await result
-
-  cdef int set_except(self, object fn_or_attr, tuple args, dict kwargs, object exceptions, bint raise_ = True):
-    if self.on_except is not None:
-      raise QuentException('You can only register one \'except\' callback.')
-    self.on_except = (Link(fn_or_attr, args=args, kwargs=kwargs, is_fattr=isinstance(fn_or_attr, str)), exceptions)
-    self.raise_on_exception = raise_
-
-  cdef int set_finally(self, object fn_or_attr, tuple args, dict kwargs):
-    if self.on_finally is not None:
-      raise QuentException('You can only register one \'finally\' callback.')
-    self.on_finally = Link(fn_or_attr, args=args, kwargs=kwargs, is_fattr=isinstance(fn_or_attr, str))
-
-  cdef int _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False) except -1:
-    if self.current_conditional is None:
-      self.current_conditional = (bool, False)
-    self.on_true = (Link(on_true, args=args, kwargs=kwargs), not_)
-
-  cdef int _else(self, object on_false, tuple args = None, dict kwargs = None) except -1:
-    if self.on_true is None:
-      raise QuentException(
-        'You cannot use \'.else_()\' without a preceding \'.if_()\' or \'.if_not()\''
-      )
-    self.finalize_conditional(on_false, args, kwargs)
 
   def config(self, *, autorun=None) -> Chain:
     if autorun is not None:
@@ -292,9 +204,9 @@ cdef class Chain:
     return self
 
   def clone(self) -> Chain:
+    self.finalize()
     return self.__class__()._populate_chain(
-      self.root_link, self.is_cascade, self._autorun, self.raise_on_exception, self.links, self.on_except,
-      self.on_finally
+      self.root_link, self.is_cascade, self._autorun, self.links, self.except_links, self.on_finally
     )
 
   def freeze(self) -> FrozenChain:
@@ -332,6 +244,16 @@ cdef class Chain:
     self._then(Link(__v, args=args, kwargs=kwargs, is_fattr=True))
     return self
 
+  def except_(self, __v, *args, exceptions=None, raise_=True, **kwargs) -> Chain:
+    self.except_links.append((Link(__v, args=args, kwargs=kwargs), exceptions, raise_))
+    return self
+
+  def finally_(self, __v, *args, **kwargs) -> Chain:
+    if self.on_finally is not None:
+      raise QuentException('You can only register one \'finally\' callback.')
+    self.on_finally = Link(__v, args=args, kwargs=kwargs)
+    return self
+
   def iterate(self, fn=None):
     return _Generator(self._run, fn, _ignore_result=False)
 
@@ -352,18 +274,6 @@ cdef class Chain:
 
   def with_do(self, __v, *args, **kwargs) -> Chain:
     self._then(with_(Link(__v, args=args, kwargs=kwargs), ignore_result=True))
-    return self
-
-  def except_(self, fn_or_attr, *args, exceptions=None, **kwargs) -> Chain:
-    self.set_except(fn_or_attr, args, kwargs, exceptions)
-    return self
-
-  def except_do(self, fn_or_attr, *args, exceptions=None, **kwargs) -> Chain:
-    self.set_except(fn_or_attr, args, kwargs, exceptions, raise_=False)
-    return self
-
-  def finally_(self, fn_or_attr, *args, **kwargs) -> Chain:
-    self.set_finally(fn_or_attr, args, kwargs)
     return self
 
   def if_(self, on_true, *args, **kwargs) -> Chain:
@@ -445,6 +355,18 @@ cdef class Chain:
     def raise_(object cv): raise exc
     self._then(Link(raise_, eval_code=EVAL_CALLABLE))
     return self
+
+  cdef int _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False) except -1:
+    if self.current_conditional is None:
+      self.current_conditional = (bool, False)
+    self.on_true = (Link(on_true, args=args, kwargs=kwargs), not_)
+
+  cdef int _else(self, object on_false, tuple args = None, dict kwargs = None) except -1:
+    if self.on_true is None:
+      raise QuentException(
+        'You cannot use \'.else_()\' without a preceding \'.if_()\' or \'.if_not()\''
+      )
+    self.finalize_conditional(on_false, args, kwargs)
 
   cdef int set_conditional(self, object conditional, bint custom = False) except -1:
     self.finalize()
@@ -889,6 +811,85 @@ cdef bint isawaitable(object obj):
 
 
 ### MISC. ###
+cdef object _handle_exception(
+  object exc, list except_links, Link link, object rv, object cv, int idx, bint async_ = False
+):
+  cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions, e, result
+  cdef bint reraise = True, raise_, exc_match
+  if exc.__cause__ is not None:
+    if quent_exc.__cause__ is None:
+      quent_exc.__cause__ = exc.__cause__
+    else:
+      quent_exc.__cause__.__cause__ = exc.__cause__
+  exc.__cause__ = quent_exc
+  if async_:
+    return _handle_exception_async(exc, except_links, rv, quent_exc)
+  try:
+    for link, exceptions, raise_ in except_links:
+      if exceptions is None:
+        exc_match = True
+      else:
+        if not isinstance(exceptions, collections.abc.Iterable):
+          exceptions = (exceptions,)
+        else:
+          exceptions = tuple(exceptions)
+        exc_match = False
+        try:
+          raise exc
+        except exceptions:
+          exc_match = True
+        except Exception:
+          pass
+      if exc_match:
+        reraise = raise_
+        result = evaluate_value(link, cv=rv)
+        if isawaitable(result):
+          ensure_future(result)
+          warnings.warn(
+            'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
+            'It was therefore scheduled for execution in a new Task.',
+            category=RuntimeWarning
+          )
+  except Exception as e:
+    e.__cause__ = exc
+    raise e
+  finally:
+    if reraise:
+      raise exc
+
+
+async def _handle_exception_async(object exc, list except_links, object rv, object quent_exc):
+  cdef bint reraise = True, raise_, exc_match
+  cdef object exceptions, e, link, result
+  try:
+    for link, exceptions, raise_ in except_links:
+      if exceptions is None:
+        exc_match = True
+      else:
+        if not isinstance(exceptions, collections.abc.Iterable):
+          exceptions = (exceptions,)
+        else:
+          exceptions = tuple(exceptions)
+        exc_match = False
+        try:
+          raise exc
+        except exceptions:
+          exc_match = True
+        except Exception:
+          pass
+      if exc_match:
+        reraise = raise_
+        result = evaluate_value(link, cv=rv)
+        if isawaitable(result):
+          await result
+  except Exception as e:
+    e.__cause__ = exc
+    raise e
+  finally:
+    if reraise:
+      raise exc
+
+
 cdef class run:
   """
     A replacement for `Chain.run()` when using pipe syntax
@@ -916,17 +917,7 @@ cdef Chain from_list(object cls, tuple links):
   return seq
 
 
-cdef object run_callback(Link link, object rv):
-  """
-  A helper method to run the callbacks of on-except/on-finally
-  :param callback_meta: A tuple of the form `(fn_or_attr, args, kwargs)`.
-  :param rv: the root value of the Chain.
-  :return: the result of the callback.
-  """
-  return evaluate_value(link, cv=rv)
-
-
-def create_chain_link_exception(link, cv, idx: int, is_exc_raised_on_await: bool = False) -> QuentException:
+def create_chain_link_exception(Link link, object cv, int idx):
   """
   Create a string representation of the evaluation of 'v' based on the same rules
   used in `evaluate_value`
@@ -939,11 +930,6 @@ def create_chain_link_exception(link, cv, idx: int, is_exc_raised_on_await: bool
       return o.__name__
     except AttributeError:
       return type(o).__name__
-
-  def append_await(s: str) -> str:
-    if is_exc_raised_on_await:
-      s = f'await {s}'
-    return s
 
   def format_exception_details(literal: bool):
     v, args, kwargs, is_fattr = link.v, link.args, link.kwargs, link.is_fattr
@@ -983,20 +969,24 @@ def create_chain_link_exception(link, cv, idx: int, is_exc_raised_on_await: bool
       return str(v), str(v)
 
   try:
-    object_str, readable_str = format_exception_details(literal=False)
-  except AttributeError as e:
-    # this should not happen, but just in case.
-    object_str, readable_str = format_exception_details(literal=True)
+    try:
+      object_str, readable_str = format_exception_details(literal=False)
+    except AttributeError as e:
+      # this should not happen, but just in case.
+      object_str, readable_str = format_exception_details(literal=True)
 
-  if idx == -1:
-    s = 'The chain root link has raised an exception:'
-  else:
-    s = 'A chain link has raised an exception:'
-    s += f'\n\tLink position (not including the root link): {idx}'
-  if is_exc_raised_on_await:
-    s += '\n\tThe exception was raised as the result of awaiting a coroutine'
-  return QuentException(
-    s
-    + f'\n\t{object_str}'
-    + f'\n\t`{append_await(readable_str)}`'
-  )
+    if idx == -1:
+      s = 'The chain root link has raised an exception:'
+    else:
+      s = 'A chain link has raised an exception:'
+      s += f'\n\tLink position (not including the root link): {idx}'
+    return QuentException(
+      s
+      + f'\n\t{object_str}'
+      + f'\n\t`{readable_str}`'
+    )
+
+  except Exception as e:
+    exc = QuentException('Unable to format exception details.')
+    exc.__cause__ = e
+    return exc
