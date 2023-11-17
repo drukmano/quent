@@ -7,7 +7,7 @@ from tests.flex_context import FlexContext
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from tests.try_except_tests import assertRaisesSync, assertRaisesAsync
-from src.quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
+from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
 
 
 class MainTest(IsolatedAsyncioTestCase):

@@ -44,6 +44,9 @@ __*
 *--
 *.icloud
 !__init__.py
+!__init__.pyx
+!__init__.pxd
+!__init__.c
 
 # Files that might appear on external disks
 .Spotlight-V100

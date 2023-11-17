@@ -1,7 +1,7 @@
 from tests.try_except_tests import get_empty_and_cls
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import empty, aempty, await_, DummySync, DummyAsync
-from src.quent import Chain, ChainAttr, Cascade, CascadeAttr, run
+from quent import Chain, ChainAttr, Cascade, CascadeAttr, run
 
 
 class Exc1(Exception):

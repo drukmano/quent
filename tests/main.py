@@ -1,6 +1,6 @@
 import pyximport; pyximport.install()
-from src.quent import Chain, Cascade
 from scripts.time_func import time_func
+from quent import Chain, Cascade
 from tests.utils import throw_if
 
 

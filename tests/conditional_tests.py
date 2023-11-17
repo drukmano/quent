@@ -1,7 +1,7 @@
 from unittest import TestCase, IsolatedAsyncioTestCase
 from try_except_tests import get_empty_and_cls
 from tests.utils import throw_if, empty, aempty, await_, DummySync, DummyAsync
-from src.quent import Chain, ChainAttr, Cascade, CascadeAttr
+from quent import Chain, ChainAttr, Cascade, CascadeAttr
 
 
 class ConditionalTests(IsolatedAsyncioTestCase):

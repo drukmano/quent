@@ -1,7 +1,7 @@
 import pyximport; pyximport.install()
 import asyncio
 from scripts.time_func import async_time_func
-from src.quent import Chain
+from quent.quent import Chain
 
 
 async def f1():

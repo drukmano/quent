@@ -2,7 +2,7 @@ import asyncio
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from tests.try_except_tests import get_empty_and_cls
-from src.quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException
+from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException
 
 
 class A_sync:
