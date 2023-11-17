@@ -1,3 +1,6 @@
+rm quent/*.cpython*
+rm quent/*.c
+rm quent/*.html
 rm quent/*/*.cpython*
 rm quent/*/*.c
 rm quent/*/*.html

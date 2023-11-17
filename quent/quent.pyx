@@ -7,20 +7,16 @@ from quent.custom cimport _Generator, foreach, with_, build_conditional
 
 
 cdef class Chain:
+  cdef:
+    Link root_link, on_finally
+    list links, except_links
+    bint is_cascade, _autorun
+    tuple current_conditional, on_true
+    str current_attr
+
   @classmethod
   def from_(cls, *args) -> Chain:
     return from_list(cls, args)
-
-  def _populate_chain(self, root_link, is_cascade, _autorun, links, except_links, on_finally) -> Chain:
-    # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
-    #  those)
-    self.root_link = root_link
-    self.is_cascade = is_cascade
-    self._autorun = _autorun
-    self.links = links.copy()
-    self.except_links = except_links.copy()
-    self.on_finally = on_finally
-    return self
 
   def __init__(self, __v=Null, *args, **kwargs):
     """
@@ -76,7 +72,7 @@ cdef class Chain:
         is_void = False
         if isawaitable(rv):
           ignore_finally = True
-          result = self._run_async(root_link, result=rv, rv=Null, cv=Null, idx=idx, is_void=is_void)
+          result = self.run_async(root_link, result=rv, rv=Null, cv=Null, idx=idx, is_void=is_void)
           if self._autorun:
             return ensure_future(result)
           return result
@@ -94,7 +90,7 @@ cdef class Chain:
           result = evaluate_value(link, cv=rv if link.is_with_root else cv)
           if isawaitable(result):
             ignore_finally = True
-            result = self._run_async(link, result=result, rv=rv, cv=cv, idx=idx, is_void=is_void)
+            result = self.run_async(link, result=result, rv=rv, cv=cv, idx=idx, is_void=is_void)
             if self._autorun:
               return ensure_future(result)
             return result
@@ -128,51 +124,54 @@ cdef class Chain:
             category=RuntimeWarning
           )
 
-  async def _run_async(self, Link link, object result, object rv, object cv, int idx, bint is_void):
-    cdef:
-      object exc
-      list links = self.links
-      bint reraise
+  cdef object run_async(self, Link link, object result, object rv, object cv, int idx, bint is_void):
+    # we do this to prevent Chain._run_async from being accessible from Python code.
+    async def _run_async(Chain self, Link link, object result, object rv, object cv, int idx, bint is_void):
+      cdef:
+        object exc
+        list links = self.links
+        bint reraise
 
-    try:
-      result = await result
-      if not link.ignore_result and result is not Null:
-        cv = result
-      # update the root value only if this is not a void chain, since otherwise
-      # if this is a void chain, `rv` should always be `Null`.
-      if not is_void and rv is Null:
-        rv = cv
+      try:
+        result = await result
+        if not link.ignore_result and result is not Null:
+          cv = result
+        # update the root value only if this is not a void chain, since otherwise
+        # if this is a void chain, `rv` should always be `Null`.
+        if not is_void and rv is Null:
+          rv = cv
 
-      for idx in range(idx+1, len(links)):
-        link = links[idx]
-        if link.is_attr and is_void:
-          raise QuentException('Cannot use attributes without a root value.')
+        for idx in range(idx+1, len(links)):
+          link = links[idx]
+          if link.is_attr and is_void:
+            raise QuentException('Cannot use attributes without a root value.')
 
-        if link.is_with_root and not link.ignore_result:
+          if link.is_with_root and not link.ignore_result:
+            cv = rv
+          if link.v is not Null:
+            result = evaluate_value(link, cv=rv if link.is_with_root else cv)
+            if isawaitable(result):
+              result = await result
+            if not link.ignore_result and result is not Null:
+              cv = result
+
+        if self.is_cascade:
           cv = rv
-        if link.v is not Null:
-          result = evaluate_value(link, cv=rv if link.is_with_root else cv)
-          if isawaitable(result):
-            result = await result
-          if not link.ignore_result and result is not Null:
-            cv = result
+        return cv if cv is not Null else None
 
-      if self.is_cascade:
-        cv = rv
-      return cv if cv is not Null else None
-
-    except Exception as exc:
-      result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
-      if isawaitable(result):
-        await result
-      if reraise:
-        raise exc
-
-    finally:
-      if self.on_finally is not None:
-        result = evaluate_value(self.on_finally, cv=rv)
+      except Exception as exc:
+        result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
         if isawaitable(result):
           await result
+        if reraise:
+          raise exc
+
+      finally:
+        if self.on_finally is not None:
+          result = evaluate_value(self.on_finally, cv=rv)
+          if isawaitable(result):
+            await result
+    return _run_async(self, link, result, rv, cv, idx, is_void)
 
   def config(self, *, autorun=None) -> Chain:
     if autorun is not None:
@@ -196,7 +195,7 @@ cdef class Chain:
   def decorator(self):
     return self.freeze().decorator()
 
-  def run(self, __v=Null, *args, **kwargs):
+  def run(self, object __v=Null, *args, **kwargs):
     return self._run(__v, args, kwargs)
 
   def then(self, __v, *args, **kwargs) -> Chain:
@@ -376,6 +375,19 @@ cdef class Chain:
     else:
       self._then(Link(conditional, eval_code=EVAL_CALLABLE))
 
+  cdef object _populate_chain(
+    self, Link root_link, bint is_cascade, bint _autorun, list links, list except_links, Link on_finally
+  ):
+    # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
+    #  those)
+    self.root_link = root_link
+    self.is_cascade = is_cascade
+    self._autorun = _autorun
+    self.links = links.copy()
+    self.except_links = except_links.copy()
+    self.on_finally = on_finally
+    return self
+
   def __or__(self, other) -> Chain:
     if isinstance(other, run):
       return self._run(other.root_value, other.args, other.kwargs)
@@ -442,6 +454,11 @@ cdef class CascadeAttr(ChainAttr):
 
 
 cdef class run:
+  cdef public:
+    object root_value
+    tuple args
+    dict kwargs
+
   """
     A replacement for `Chain.run()` when using pipe syntax
 

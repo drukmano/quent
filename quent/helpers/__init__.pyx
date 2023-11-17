@@ -2,7 +2,7 @@ import types
 import collections.abc
 from asyncio import ensure_future as _ensure_future
 
-from quent.quent cimport Cascade
+from quent.quent import Cascade
 from quent.classes cimport Link
 from quent.evaluate cimport evaluate_value
 
@@ -56,7 +56,7 @@ cdef bint isawaitable(object obj):
 cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx):
   cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions
   cdef bint reraise = True, raise_, exc_match
-  cdef Cascade chain = Cascade()
+  cdef object chain = Cascade()
   if exc.__cause__ is not None:
     if quent_exc.__cause__ is None:
       quent_exc.__cause__ = exc.__cause__

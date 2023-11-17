@@ -1,5 +1,5 @@
 # TODO cimport Chain (need .pxd)
-from quent.quent cimport Chain
+from quent.quent import Chain
 from quent.helpers cimport Null
 from quent.classes cimport Link
 
