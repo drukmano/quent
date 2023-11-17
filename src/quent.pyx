@@ -90,7 +90,7 @@ cdef class Chain:
     cdef:
       # current chain value, root value
       object cv = Null, rv = Null, result, exc
-      bint is_void = self.root_link is None, ignore_finally = False, is_null = v is Null
+      bint is_void = self.root_link is None, ignore_finally = False, is_null = v is Null, reraise
       list links = self.links
       int idx = -1
       Link root_link = self.root_link, link
@@ -139,7 +139,16 @@ cdef class Chain:
       return cv if cv is not Null else None
 
     except Exception as exc:
-      _handle_exception(exc, self.except_links, link, rv, cv, idx)
+      result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
+      if isawaitable(result):
+        ensure_future(result)
+        warnings.warn(
+          'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
+          'It was therefore scheduled for execution in a new Task.',
+          category=RuntimeWarning
+        )
+      if reraise:
+        raise exc
 
     finally:
       if not ignore_finally and self.on_finally is not None:
@@ -156,6 +165,7 @@ cdef class Chain:
     cdef:
       object exc
       list links = self.links
+      bint reraise
 
     try:
       result = await result
@@ -185,7 +195,11 @@ cdef class Chain:
       return cv if cv is not Null else None
 
     except Exception as exc:
-      await _handle_exception(exc, self.except_links, link, rv, cv, idx, async_=True)
+      result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
+      if isawaitable(result):
+        await result
+      if reraise:
+        raise exc
 
     finally:
       if self.on_finally is not None:
@@ -810,83 +824,35 @@ cdef bint isawaitable(object obj):
 
 
 ### MISC. ###
-cdef object _handle_exception(
-  object exc, list except_links, Link link, object rv, object cv, int idx, bint async_ = False
-):
-  cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions, e, result
+cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx):
+  cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions
   cdef bint reraise = True, raise_, exc_match
+  cdef Cascade chain = Cascade()
   if exc.__cause__ is not None:
     if quent_exc.__cause__ is None:
       quent_exc.__cause__ = exc.__cause__
     else:
       quent_exc.__cause__.__cause__ = exc.__cause__
   exc.__cause__ = quent_exc
-  if async_:
-    return _handle_exception_async(exc, except_links, rv, quent_exc)
-  try:
-    for link, exceptions, raise_ in except_links:
-      if exceptions is None:
-        exc_match = True
+  for link, exceptions, raise_ in except_links:
+    if exceptions is None:
+      exc_match = True
+    else:
+      if not isinstance(exceptions, collections.abc.Iterable):
+        exceptions = (exceptions,)
       else:
-        if not isinstance(exceptions, collections.abc.Iterable):
-          exceptions = (exceptions,)
-        else:
-          exceptions = tuple(exceptions)
-        exc_match = False
-        try:
-          raise exc
-        except exceptions:
-          exc_match = True
-        except Exception:
-          pass
-      if exc_match:
-        reraise = raise_
-        result = evaluate_value(link, cv=rv)
-        if isawaitable(result):
-          ensure_future(result)
-          warnings.warn(
-            'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
-            'It was therefore scheduled for execution in a new Task.',
-            category=RuntimeWarning
-          )
-  except Exception as e:
-    e.__cause__ = exc
-    raise e
-  finally:
-    if reraise:
-      raise exc
-
-
-async def _handle_exception_async(object exc, list except_links, object rv, object quent_exc):
-  cdef bint reraise = True, raise_, exc_match
-  cdef object exceptions, e, link, result
-  try:
-    for link, exceptions, raise_ in except_links:
-      if exceptions is None:
+        exceptions = tuple(exceptions)
+      exc_match = False
+      try:
+        raise exc
+      except exceptions:
         exc_match = True
-      else:
-        if not isinstance(exceptions, collections.abc.Iterable):
-          exceptions = (exceptions,)
-        else:
-          exceptions = tuple(exceptions)
-        exc_match = False
-        try:
-          raise exc
-        except exceptions:
-          exc_match = True
-        except Exception:
-          pass
-      if exc_match:
-        reraise = raise_
-        result = evaluate_value(link, cv=rv)
-        if isawaitable(result):
-          await result
-  except Exception as e:
-    e.__cause__ = exc
-    raise e
-  finally:
-    if reraise:
-      raise exc
+      except Exception:
+        pass
+    if exc_match:
+      reraise = raise_
+      chain.then(evaluate_value, link, cv=rv)
+  return chain.run(), reraise
 
 
 cdef class run:
