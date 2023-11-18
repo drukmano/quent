@@ -1,4 +1,4 @@
-coverage run -m unittest discover -s tests -p '*.py'
+coverage run -m unittest discover -s tests -p '*_tests.py'
 coverage report -m
 coverage html
 RED=$'\e[0;31m'

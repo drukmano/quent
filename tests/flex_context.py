@@ -200,3 +200,11 @@ class FlexContext:
         return fn(*args, **kwargs)
 
     return threading.Thread(target=wrapper, args=(cls.get_context(),), kwargs=kwargs, **kwargs_)
+
+
+class AsyncFlexContext(FlexContext):
+  async def __aenter__(self):
+    return self.__enter__()
+
+  async def __aexit__(self, exc_type, exc_val, exc_tb):
+    return self.__exit__(exc_type, exc_val, exc_tb)
