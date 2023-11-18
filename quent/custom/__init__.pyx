@@ -23,12 +23,12 @@ cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link 
     if not_:
       r = not r
     if r:
-      return evaluate_value(on_true, cv=cv)
+      return evaluate_value(on_true, cv)
     elif on_false is not None:
-      return evaluate_value(on_false, cv=cv)
+      return evaluate_value(on_false, cv)
     return cv
 
-  return Link(if_else, eval_code=EVAL_CALLABLE)
+  return Link(if_else)
 
 
 def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
@@ -99,7 +99,7 @@ cdef Link foreach(object fn, bint ignore_result):
         return async_foreach(cv, fn, el, result, lst, ignore_result)
       lst.append(el if ignore_result else result)
     return lst
-  return Link(_foreach, eval_code=EVAL_CALLABLE)
+  return Link(_foreach)
 
 
 async def async_foreach(object cv, object fn, object el, object result, list lst, bint ignore_result):
@@ -139,20 +139,20 @@ cdef Link with_(Link link, bint ignore_result):
       cv.__exit__(*sys.exc_info())
   def with_(object cv):
     if hasattr(cv, '__aenter__'):
-      return async_with(link, cv=cv)
+      return async_with(link, cv)
     cdef object ctx, result = None
     try:
       ctx = cv.__enter__()
       if link.v is Null:
         result = ctx
       else:
-        result = evaluate_value(link, cv=ctx)
+        result = evaluate_value(link, ctx)
     finally:
       if isawaitable(result):
         return with_async(result, cv)
       cv.__exit__(*sys.exc_info())
       return result
-  return Link(with_, ignore_result=ignore_result, eval_code=EVAL_CALLABLE)
+  return Link(with_, ignore_result=ignore_result)
 
 
 async def async_with(Link link, object cv):
@@ -160,7 +160,7 @@ async def async_with(Link link, object cv):
   async with cv as ctx:
     if link.v is Null:
       return ctx
-    result = evaluate_value(link, cv=ctx)
+    result = evaluate_value(link, ctx)
     if isawaitable(result):
       return await result
     return result

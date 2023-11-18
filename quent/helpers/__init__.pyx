@@ -80,7 +80,7 @@ cdef object _handle_exception(object exc, list except_links, Link link, object r
         pass
     if exc_match:
       reraise = raise_
-      chain.then(evaluate_value, link, cv=rv)
+      chain.then(evaluate_value, link, rv)
   return chain.run(), reraise
 
 
