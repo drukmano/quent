@@ -105,12 +105,19 @@ cdef Link foreach(object fn, bint ignore_result):
 async def async_foreach(object cv, object fn, object el, object result, list lst, bint ignore_result):
   result = await result
   lst.append(el if ignore_result else result)
-  for el in cv:
-    result = fn(el)
-    if isawaitable(result):
-      result = await result
-    lst.append(el if ignore_result else result)
-  return lst
+  # here we manually call __next__ instead of a for-loop to
+  # prevent a call to cv.__iter__() which, depending on the iterator, may
+  # produce a new iterator object, instead of continuing where we left
+  # off at the sync-foreach version above.
+  while True:
+    try:
+      el = cv.__next__()
+      result = fn(el)
+      if isawaitable(result):
+        result = await result
+      lst.append(el if ignore_result else result)
+    except StopIteration:
+      return lst
 
 
 async def async_gen_foreach(object cv, object fn, bint ignore_result):
