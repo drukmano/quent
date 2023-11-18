@@ -56,7 +56,7 @@ cdef class Chain:
       bint is_void = self.root_link is None, ignore_finally = False, is_null = v is Null, reraise
       list links = self.links
       int idx = -1
-      Link root_link = self.root_link, link
+      Link root_link = self.root_link, link = self.root_link
 
     if not is_void and not is_null:
       raise QuentException('Cannot override the root value of a Chain.')
@@ -67,7 +67,7 @@ cdef class Chain:
       # this condition is False only for a void Cascade.
       if not (is_void and is_null):
         if root_link is None:
-          root_link = Link(v, args=args, kwargs=kwargs)
+          root_link = link = Link(v, args=args, kwargs=kwargs)
         rv = cv = evaluate_value(root_link, cv=Null)
         is_void = False
         if isawaitable(rv):
