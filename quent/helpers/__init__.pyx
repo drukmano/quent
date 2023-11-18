@@ -3,8 +3,8 @@ import collections.abc
 from asyncio import ensure_future as _ensure_future
 
 from quent.quent import Cascade
-from quent.classes cimport Link
-from quent.evaluate cimport evaluate_value
+from quent.link cimport Link, evaluate_value
+
 
 cdef set task_registry = set()
 

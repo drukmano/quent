@@ -1,6 +1,6 @@
 cdef object _ensure_future
 
-from quent.classes cimport Link
+from quent.link cimport Link
 
 cdef class _Null:
   pass

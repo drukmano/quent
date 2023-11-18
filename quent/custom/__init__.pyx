@@ -1,8 +1,7 @@
 import sys
 
 from quent.helpers cimport Null, isawaitable
-from quent.classes cimport Link
-from quent.evaluate cimport EVAL_CALLABLE, evaluate_value
+from quent.link cimport Link, EVAL_CALLABLE, evaluate_value
 
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):

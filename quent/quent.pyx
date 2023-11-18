@@ -1,9 +1,9 @@
+import functools
 import warnings
 
 from quent.helpers cimport isawaitable, Null, QuentException, _handle_exception, ensure_future
-from quent.classes cimport Link, _FrozenChain
-from quent.evaluate cimport EVAL_CALLABLE, EVAL_ATTR, evaluate_value
 from quent.custom cimport _Generator, foreach, with_, build_conditional
+from quent.link cimport Link, EVAL_CALLABLE, EVAL_ATTR, evaluate_value, get_eval_code, EVAL_UNKNOWN
 
 
 cdef class Chain:
@@ -184,7 +184,7 @@ cdef class Chain:
 
   def clone(self) -> Chain:
     self.finalize()
-    return self.__class__()._populate_chain(
+    return self.__class__()._clone(
       self.root_link, self.is_cascade, self._autorun, self.links, self.except_links, self.on_finally
     )
 
@@ -375,9 +375,9 @@ cdef class Chain:
     else:
       self._then(Link(conditional, eval_code=EVAL_CALLABLE))
 
-  cdef object _populate_chain(
+  def _clone(
     self, Link root_link, bint is_cascade, bint _autorun, list links, list except_links, Link on_finally
-  ):
+  ) -> Chain:
     # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
     #  those)
     self.root_link = root_link
@@ -451,6 +451,28 @@ cdef class CascadeAttr(ChainAttr):
   # noinspection PyMissingConstructor
   def __init__(self, __v=Null, *args, **kwargs):
     self.init(__v, args, kwargs, is_cascade=True)
+
+
+cdef class _FrozenChain:
+  cdef object _chain_run
+
+  def decorator(self):
+    cdef object _chain_run = self._chain_run
+    def _decorator(fn):
+      @functools.wraps(fn)
+      def wrapper(*args, **kwargs):
+        return _chain_run(fn, args, kwargs)
+      return wrapper
+    return _decorator
+
+  def __init__(self, _chain_run):
+    self._chain_run = _chain_run
+
+  def run(self, __v=Null, *args, **kwargs):
+    return self._chain_run(__v, args, kwargs)
+
+  def __call__(self, __v=Null, *args, **kwargs):
+    return self._chain_run(__v, args, kwargs)
 
 
 cdef class run:
