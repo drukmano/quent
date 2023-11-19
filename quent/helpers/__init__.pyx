@@ -85,6 +85,9 @@ cdef object _handle_exception(object exc, list except_links, Link link, object r
 
 
 cdef object create_chain_link_exception(Link link, object cv, int idx):
+  # TODO rewrite this, format the entire chain links
+  #  each link in a line, show where the exception occurred
+  #  along with the result of the previous chains, and any necessary information
   """
   Create a string representation of the evaluation of 'v' based on the same rules
   used in `evaluate_value`

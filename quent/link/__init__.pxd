@@ -5,9 +5,6 @@ cdef class Link:
   cdef bint is_attr, is_fattr, is_with_root, ignore_result
   cdef int eval_code
 
-cdef class _FrozenChain:
-  cdef object _chain_run
-
 cdef:
   int EVAL_UNKNOWN
   int EVAL_NULL

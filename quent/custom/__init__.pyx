@@ -89,20 +89,20 @@ cdef class _Generator:
 cdef Link foreach(object fn, bint ignore_result):
   def _foreach(object cv):
     if hasattr(cv, '__aiter__'):
-      return async_gen_foreach(cv, fn, ignore_result)
+      return async_foreach(cv, fn, ignore_result)
     cdef list lst = []
     cdef object el, result
     cv = cv.__iter__()
     for el in cv:
       result = fn(el)
       if isawaitable(result):
-        return async_foreach(cv, fn, el, result, lst, ignore_result)
+        return foreach_async(cv, fn, el, result, lst, ignore_result)
       lst.append(el if ignore_result else result)
     return lst
   return Link(_foreach)
 
 
-async def async_foreach(object cv, object fn, object el, object result, list lst, bint ignore_result):
+async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result):
   result = await result
   lst.append(el if ignore_result else result)
   # here we manually call __next__ instead of a for-loop to
@@ -120,7 +120,7 @@ async def async_foreach(object cv, object fn, object el, object result, list lst
       return lst
 
 
-async def async_gen_foreach(object cv, object fn, bint ignore_result):
+async def async_foreach(object cv, object fn, bint ignore_result):
   cdef list lst = []
   cdef object el, result
   async for el in cv.__aiter__():
@@ -132,11 +132,6 @@ async def async_gen_foreach(object cv, object fn, bint ignore_result):
 
 
 cdef Link with_(Link link, bint ignore_result):
-  async def with_async(object result, object cv):
-    try:
-      return await result
-    finally:
-      cv.__exit__(*sys.exc_info())
   def with_(object cv):
     if hasattr(cv, '__aenter__'):
       return async_with(link, cv)
@@ -153,6 +148,13 @@ cdef Link with_(Link link, bint ignore_result):
       cv.__exit__(*sys.exc_info())
       return result
   return Link(with_, ignore_result=ignore_result)
+
+
+async def with_async(object result, object cv):
+  try:
+    return await result
+  finally:
+    cv.__exit__(*sys.exc_info())
 
 
 async def async_with(Link link, object cv):

@@ -34,26 +34,6 @@ cdef class Link:
       self.eval_code = eval_code
 
 
-cdef class _FrozenChain:
-  def decorator(self):
-    cdef object _chain_run = self._chain_run
-    def _decorator(fn):
-      @functools.wraps(fn)
-      def wrapper(*args, **kwargs):
-        return _chain_run(fn, args, kwargs)
-      return wrapper
-    return _decorator
-
-  def __init__(self, _chain_run):
-    self._chain_run = _chain_run
-
-  def run(self, __v=Null, *args, **kwargs):
-    return self._chain_run(__v, args, kwargs)
-
-  def __call__(self, __v=Null, *args, **kwargs):
-    return self._chain_run(__v, args, kwargs)
-
-
 cdef:
   int EVAL_UNKNOWN = 0
   int EVAL_NULL = 1001
