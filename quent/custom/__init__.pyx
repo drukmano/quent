@@ -136,17 +136,20 @@ cdef Link with_(Link link, bint ignore_result):
     if hasattr(cv, '__aenter__'):
       return async_with(link, cv)
     cdef object ctx, result = None
+    cdef bint is_result_awaitable = False
     try:
       ctx = cv.__enter__()
       if link.v is Null:
         result = ctx
       else:
         result = evaluate_value(link, ctx)
-    finally:
-      if isawaitable(result):
+      is_result_awaitable = isawaitable(result)
+      if is_result_awaitable:
         return with_async(result, cv)
-      cv.__exit__(*sys.exc_info())
       return result
+    finally:
+      if not is_result_awaitable:
+        cv.__exit__(*sys.exc_info())
   return Link(with_, ignore_result=ignore_result)
 
 

@@ -132,6 +132,15 @@ class ExcFinallyTests(MyExcTestCase):
         self.assertTrue(efc.ran_exc)
         self.assertTrue(efc2.ran_exc)
 
+  async def test_except_in_with(self):
+    for fn, efc_cls, ctx in self.with_fn_efc():
+      with ctx:
+        efc = efc_cls()
+        try:
+          await await_(Chain(fn).then(FlexContext, v=1).with_(raise_).except_(efc.on_except).run())
+        except Exception: pass
+        self.assertTrue(efc.ran_exc)
+
   async def test_raise_on_await(self):
     class A:
       def __await__(self):
