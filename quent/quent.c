@@ -1436,7 +1436,6 @@ static const char *__pyx_f[] = {
 
 /*--- Type declarations ---*/
 struct __pyx_obj_5quent_4link_Link;
-struct __pyx_obj_5quent_4link__FrozenChain;
 struct __pyx_obj_5quent_7helpers__Null;
 struct __pyx_obj_5quent_7helpers_QuentException;
 struct __pyx_obj_5quent_6custom__Generator;
@@ -1503,12 +1502,6 @@ struct __pyx_obj_5quent_4link_Link {
   int is_with_root;
   int ignore_result;
   int eval_code;
-};
-
-
-struct __pyx_obj_5quent_4link__FrozenChain {
-  PyObject_HEAD
-  PyObject *_chain_run;
 };
 
 
@@ -3030,7 +3023,6 @@ typedef struct {
   #if CYTHON_USE_MODULE_STATE
   #endif
   PyTypeObject *__pyx_ptype_5quent_4link_Link;
-  PyTypeObject *__pyx_ptype_5quent_4link__FrozenChain;
   #if CYTHON_USE_MODULE_STATE
   #endif
   PyTypeObject *__pyx_ptype_5quent_7helpers__Null;
@@ -3348,7 +3340,6 @@ static int __pyx_m_clear(PyObject *m) {
   Py_CLEAR(clear_module_state->__pyx_FusedFunctionType);
   #endif
   Py_CLEAR(clear_module_state->__pyx_ptype_5quent_4link_Link);
-  Py_CLEAR(clear_module_state->__pyx_ptype_5quent_4link__FrozenChain);
   Py_CLEAR(clear_module_state->__pyx_ptype_5quent_7helpers__Null);
   Py_CLEAR(clear_module_state->__pyx_ptype_5quent_7helpers_QuentException);
   Py_CLEAR(clear_module_state->__pyx_ptype_5quent_6custom__Generator);
@@ -3638,7 +3629,6 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
   Py_VISIT(traverse_module_state->__pyx_FusedFunctionType);
   #endif
   Py_VISIT(traverse_module_state->__pyx_ptype_5quent_4link_Link);
-  Py_VISIT(traverse_module_state->__pyx_ptype_5quent_4link__FrozenChain);
   Py_VISIT(traverse_module_state->__pyx_ptype_5quent_7helpers__Null);
   Py_VISIT(traverse_module_state->__pyx_ptype_5quent_7helpers_QuentException);
   Py_VISIT(traverse_module_state->__pyx_ptype_5quent_6custom__Generator);
@@ -3938,7 +3928,6 @@ static int __pyx_m_traverse(PyObject *m, visitproc visit, void *arg) {
 #if CYTHON_USE_MODULE_STATE
 #endif
 #define __pyx_ptype_5quent_4link_Link __pyx_mstate_global->__pyx_ptype_5quent_4link_Link
-#define __pyx_ptype_5quent_4link__FrozenChain __pyx_mstate_global->__pyx_ptype_5quent_4link__FrozenChain
 #if CYTHON_USE_MODULE_STATE
 #endif
 #define __pyx_ptype_5quent_7helpers__Null __pyx_mstate_global->__pyx_ptype_5quent_7helpers__Null
@@ -26252,7 +26241,6 @@ static int __Pyx_modinit_type_import_code(void) {
   __pyx_t_1 = PyImport_ImportModule("quent.link"); if (unlikely(!__pyx_t_1)) __PYX_ERR(3, 1, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
   __pyx_ptype_5quent_4link_Link = __Pyx_ImportType_3_0_2(__pyx_t_1, "quent.link", "Link", sizeof(struct __pyx_obj_5quent_4link_Link), __PYX_GET_STRUCT_ALIGNMENT_3_0_2(struct __pyx_obj_5quent_4link_Link),__Pyx_ImportType_CheckSize_Warn_3_0_2); if (!__pyx_ptype_5quent_4link_Link) __PYX_ERR(3, 1, __pyx_L1_error)
-  __pyx_ptype_5quent_4link__FrozenChain = __Pyx_ImportType_3_0_2(__pyx_t_1, "quent.link", "_FrozenChain", sizeof(struct __pyx_obj_5quent_4link__FrozenChain), __PYX_GET_STRUCT_ALIGNMENT_3_0_2(struct __pyx_obj_5quent_4link__FrozenChain),__Pyx_ImportType_CheckSize_Warn_3_0_2); if (!__pyx_ptype_5quent_4link__FrozenChain) __PYX_ERR(3, 8, __pyx_L1_error)
   __Pyx_DECREF(__pyx_t_1); __pyx_t_1 = 0;
   __pyx_t_1 = PyImport_ImportModule("quent.helpers"); if (unlikely(!__pyx_t_1)) __PYX_ERR(2, 5, __pyx_L1_error)
   __Pyx_GOTREF(__pyx_t_1);
