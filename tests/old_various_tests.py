@@ -106,7 +106,7 @@ class MainTest(IsolatedAsyncioTestCase):
   async def test_empty_root(self):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
-        self.assertTrue(await await_(Chain().then(1).then(fn).root().then(lambda v: v+10).eq(10).run(0)))
+        self.assertTrue(await await_(Chain().then(1).then(fn).root(lambda r: r).then(lambda v: v+10).eq(10).run(0)))
 
   async def test_root_value_async(self):
     self.assertTrue(await Chain(aempty, 5).eq(5).run())
@@ -128,7 +128,7 @@ class MainTest(IsolatedAsyncioTestCase):
     self.assertRaises(QuentException, Chain(1).then(empty).run, 1)
 
   async def test_misc_1(self):
-    self.assertIsNone(Cascade().root().run())
+    self.assertIsNone(Cascade().root(lambda: None).run())
     self.assertIsNone(Cascade().then(lambda: 5).then(lambda: 6).run())
     self.assertIn('3 links', str(Chain(5).then(lambda v: v).eq(5).if_not(10).in_([10]).if_(True).else_(False).not_()))
 
@@ -308,17 +308,17 @@ class MainTest(IsolatedAsyncioTestCase):
       for fn in [empty, aempty]:
         with self.subTest(ctx=ctx, fn=fn):
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).neq(100).run()))
-          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_().eq(100).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(lambda c: c).eq(100).run()))
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_(lambda v: v/10).eq(10).run()))
           self.assertTrue(await await_(Chain(ctx, 10).with_(fn).eq(100).run()))
-          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_().eq(100).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_(lambda c: c).eq(100).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_(lambda v: v/10).eq(10).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_(fn).eq(100).run()))
 
-          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(100).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(lambda v: 100).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(ctx, 10).then(fn).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(ctx, 10).with_do(fn).then(lambda v: isinstance(v, cls)).run()))
-          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(100).then(lambda v: isinstance(v, cls)).run()))
+          self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(lambda v: 100).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(lambda v: v/10).then(lambda v: isinstance(v, cls)).run()))
           self.assertTrue(await await_(Chain(None).then(fn).then(ctx, 10).with_do(fn).then(lambda v: isinstance(v, cls)).run()))
 
@@ -749,8 +749,8 @@ class MegaTests(IsolatedAsyncioTestCase):
             )
             .do(
               Cascade()
-              .then(Chain(A()).attr('a1').root().attr_fn('b1').attr('a1'))
-              .then(ChainAttr(A()).a1.root().b1().a1.root().a1.run)
+              .then(Chain(A()).attr('a1').root(Chain().attr_fn('b1').attr('a1')))
+              .then(ChainAttr(A()).a1.root(ChainAttr().b1().a1.root(ChainAttr().a1)).run)
               .then(CascadeAttr(A()).a1.a1.a1.a1.b1().a1.a1.run)
               .then(lambda: 10)
               .then(lambda v: Chain() | 5 | run(v), 1)

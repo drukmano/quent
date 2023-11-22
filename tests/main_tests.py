@@ -158,10 +158,10 @@ class SingleTest(MyTestCase):
           for obj in [(obj_,), (lambda v=None: obj_,), (lambda: obj_, ...)]:
             with self.subTest(obj=obj):
               await self.assertIsObj(Chain(*obj).do(fn, None).run())
-              await self.assertIsObj(Chain(*obj).do(fn, None).do(object()).then(fn).run())
-              await self.assertIsObj(Chain(*obj).do(object()).then(fn).run())
-              await self.assertIsObj(Chain(*obj).then(fn).do(object()).run())
-              await self.assertIsNotObj(Chain(object()).then(fn).do(*obj).then(fn).run())
+              await self.assertIsObj(Chain(*obj).do(fn, None).do(lambda: object(), ...).then(fn).run())
+              await self.assertIsObj(Chain(*obj).do(lambda: object(), ...).then(fn).run())
+              await self.assertIsObj(Chain(*obj).then(fn).do(lambda: object(), ...).run())
+              await self.assertIsNotObj(Chain(object()).then(fn).do(lambda v: obj_).then(fn).run())
 
   async def test_root(self):
     obj_ = object()
@@ -418,7 +418,7 @@ class SingleTest(MyTestCase):
                 )
                 await self.assertEqual(
                   Chain(flx_ctx(v=1)).then(fn)
-                  .with_()
+                  .with_(lambda flx: flx)
                   .with_(Chain().then(fn1).then(lambda flx: flx.get(v=0)))
                   .run(), 1
                 )
