@@ -1,10 +1,6 @@
 cimport cython
-import functools
+from quent.helpers cimport Null, QuentException
 
-from quent.helpers cimport Null
-
-cdef object Chain
-from quent.quent import Chain
 
 cdef object _PipeCls
 try:
@@ -16,62 +12,52 @@ except ImportError:
 @cython.freelist(256)
 cdef class Link:
   def __init__(
-    self, v, args=None, kwargs=None, is_attr=False, is_fattr=False, is_with_root=False, ignore_result=False,
-    eval_code=EVAL_UNKNOWN
+    self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, bint is_with_root = False,
+    bint ignore_result = False, bint is_attr = False, bint is_fattr = False, int eval_code=EVAL_UNKNOWN
   ):
     if _PipeCls is not None and isinstance(v, _PipeCls):
       v = v.function
     self.v = v
     self.args = args
     self.kwargs = kwargs
-    self.is_attr = is_attr or is_fattr
-    self.is_fattr = is_fattr
     self.is_with_root = is_with_root
     self.ignore_result = ignore_result
+    self.is_attr = is_attr or is_fattr
+    self.is_fattr = is_fattr
     if eval_code == EVAL_UNKNOWN:
       self.eval_code = get_eval_code(self)
     else:
       self.eval_code = eval_code
+    if not allow_literal and self.eval_code == EVAL_LITERAL:
+      raise QuentException('Non-callable objects cannot be used with this method.')
 
 
 cdef:
   int EVAL_UNKNOWN = 0
-  int EVAL_NULL = 1001
-  int EVAL_CUSTOM_ARGS = 1002
-  int EVAL_NO_ARGS = 1003
-  int EVAL_CALLABLE = 1004
-  int EVAL_LITERAL = 1005
-  int EVAL_ATTR = 1006
+  int EVAL_CUSTOM_ARGS = 1001
+  int EVAL_NO_ARGS = 1002
+  int EVAL_CALLABLE = 1003
+  int EVAL_LITERAL = 1004
+  int EVAL_ATTR = 1005
 
 
 cdef int get_eval_code(Link link) except -1:
-  cdef object v = link.v
-  if v is Null:
-    return EVAL_NULL
-
-  if isinstance(v, Chain):
-    # TODO add `autorun_explicit` where if True then do not override this value here
-    #  this allows for more granular control over nested chains and autorun policies
-    #  (e.g. not wanting some nested chain to auto-run but also wanting to auto-run another nested chain)
-    v.autorun(False)
-
-  elif link.is_attr:
-    if not link.is_fattr:
-      return EVAL_ATTR
-
-  # Ellipsis as the first argument indicates a void method.
-  if link.args and link.args[0] is ...:
-    return EVAL_NO_ARGS
-
-  # if either are specified, we assume `v` is a function.
-  elif link.args or link.kwargs:
+  if bool(link.args):
+    if link.args[0] is ...:
+      return EVAL_NO_ARGS
     return EVAL_CUSTOM_ARGS
+
+  elif bool(link.kwargs):
+    return EVAL_CUSTOM_ARGS
+
+  elif callable(link.v):
+    return EVAL_CALLABLE
 
   elif link.is_fattr:
     return EVAL_NO_ARGS
 
-  elif not link.is_attr and callable(v):
-    return EVAL_CALLABLE
+  elif link.is_attr:
+    return EVAL_ATTR
 
   else:
     return EVAL_LITERAL
@@ -80,32 +66,27 @@ cdef int get_eval_code(Link link) except -1:
 cdef object evaluate_value(Link link, object cv):
   cdef object v = link.v
   cdef int eval_code = link.eval_code
+
   if eval_code == EVAL_UNKNOWN:
     link.eval_code = eval_code = get_eval_code(link)
-
-  if eval_code == EVAL_NULL:
-    return Null
-
-  elif link.is_attr:
-    v = getattr(cv, v)
-    if not link.is_fattr:
-      return v
-
-  if eval_code == EVAL_NO_ARGS:
-    return v()
-
-  elif eval_code == EVAL_CUSTOM_ARGS:
-    # it is dangerous if one of those will be `None`, but it shouldn't be possible
-    # as we only specify both or none.
-    return v(*link.args, **link.kwargs)
-
-  # taken care of at `get_eval_code`
-  #elif link.is_fattr:
-  #  return v()
 
   elif eval_code == EVAL_CALLABLE:
     # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
     return v() if cv is Null else v(cv)
+
+  elif link.is_attr:
+    v = getattr(cv, v)
+
+  if eval_code == EVAL_CUSTOM_ARGS:
+    # it is dangerous if one of those will be `None`, but it shouldn't be possible
+    # as we only specify both or none.
+    return v(*link.args, **link.kwargs)
+
+  elif eval_code == EVAL_NO_ARGS:
+    return v()
+
+  elif eval_code == EVAL_ATTR:
+    return v
 
   else:
     return v

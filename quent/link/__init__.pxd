@@ -7,7 +7,6 @@ cdef class Link:
 
 cdef:
   int EVAL_UNKNOWN
-  int EVAL_NULL
   int EVAL_CUSTOM_ARGS
   int EVAL_NO_ARGS
   int EVAL_CALLABLE

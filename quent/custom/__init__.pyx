@@ -1,7 +1,7 @@
 import sys
 
 from quent.helpers cimport Null, isawaitable
-from quent.link cimport Link, EVAL_CALLABLE, evaluate_value
+from quent.link cimport Link, evaluate_value
 
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):
@@ -135,14 +135,11 @@ cdef Link with_(Link link, bint ignore_result):
   def with_(object cv):
     if hasattr(cv, '__aenter__'):
       return async_with(link, cv)
-    cdef object ctx, result = None
+    cdef object ctx, result
     cdef bint is_result_awaitable = False
     try:
       ctx = cv.__enter__()
-      if link.v is Null:
-        result = ctx
-      else:
-        result = evaluate_value(link, ctx)
+      result = evaluate_value(link, ctx)
       is_result_awaitable = isawaitable(result)
       if is_result_awaitable:
         return with_async(result, cv)

@@ -2,6 +2,7 @@ cdef object _ensure_future
 
 from quent.link cimport Link
 
+
 cdef class _Null:
   pass
 
