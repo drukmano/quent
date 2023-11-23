@@ -2,30 +2,30 @@ from typing import Callable, Any, Iterator, AsyncIterator, TypeVar, ParamSpec, S
 
 
 P = ParamSpec('P')
-#Self = TypeVar('Self', bound='Chain')
 
-AnyValue = TypeVar('AnyValue')
+
 RootValue = TypeVar('RootValue')
 CurrentValue = TypeVar('CurrentValue')
 NextValue = TypeVar('NextValue')
 IgnoredValue = TypeVar('IgnoredValue')
-Item = TypeVar('Item')
-NewItem = TypeVar('NewItem')
+
+CurrentItem = TypeVar('CurrentItem')
+NextItem = TypeVar('NextItem')
 IgnoredItem = TypeVar('IgnoredItem')
+
 Context = TypeVar('Context')
 AnyOrCoroutine = TypeVar('AnyOrCoroutine')
 
 RootLink = RootValue | Callable[[P], RootValue]
 
-LinkFunc = Callable[[CurrentValue | P], NextValue]
-LinkAnyValue = AnyValue | Callable[[CurrentValue | P], NextValue]
+LinkNextValue = NextValue | Callable[[CurrentValue | P], NextValue]
 LinkVoidFunc = Callable[[CurrentValue | P], IgnoredValue]
 
 LinkRootFunc = Callable[[RootValue | P], NextValue]
 LinkRootVoidFunc = Callable[[RootValue | P], IgnoredValue]
 
-LinkIterFunc = Callable[[Item], NewItem]
-LinkIterVoidFunc = Callable[[Item], IgnoredItem]
+LinkIterFunc = Callable[[CurrentItem], NextItem]
+LinkIterVoidFunc = Callable[[CurrentItem], IgnoredItem]
 
 LinkWithFunc = Callable[[Context], NextValue]
 LinkWithVoidFunc = Callable[[Context], IgnoredValue]
@@ -46,7 +46,7 @@ class Chain:
 
   def run(self, v: RootLink = None, *args: P.args, **kwargs: P.kwargs) -> AnyOrCoroutine: ...
 
-  def then(self, v: LinkAnyValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
+  def then(self, v: LinkNextValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
   def do(self, fn: LinkVoidFunc, *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
@@ -77,11 +77,11 @@ class Chain:
 
   def with_do(self, fn: LinkWithVoidFunc, *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
-  def if_(self, v: LinkAnyValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
+  def if_(self, v: LinkNextValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
-  def else_(self, v: LinkAnyValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
+  def else_(self, v: LinkNextValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
-  def if_not(self, v: LinkAnyValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
+  def if_not(self, v: LinkNextValue, *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
   def if_raise(self, exc: BaseException) -> Self: ...
 
@@ -109,7 +109,7 @@ class Chain:
 
   def raise_(self, exc: BaseException) -> Self: ...
 
-  def __or__(self, other: AnyValue | Callable[[CurrentValue], NextValue]) -> Self: ...
+  def __or__(self, other: NextValue | Callable[[CurrentValue], NextValue]) -> Self: ...
 
   def __call__(self, v: RootLink = None, *args: P.args, **kwargs: P.kwargs) -> AnyOrCoroutine: ...
 
