@@ -39,7 +39,10 @@ def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignor
     else:
       result = fn(el)
       # we ignore the case where `result` is awaitable - it's impossible to deal with.
-      yield el if ignore_result else result
+      if ignore_result:
+        yield el
+      else:
+        yield result
 
 
 async def async_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
@@ -55,7 +58,10 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
         result = fn(el)
       if isawaitable(result):
         result = await result
-      yield el if ignore_result else result
+      if ignore_result:
+        yield el
+      else:
+        yield result
   else:
     for el in iterator:
       if fn is None:
@@ -64,7 +70,10 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
         result = fn(el)
       if isawaitable(result):
         result = await result
-      yield el if ignore_result else result
+      if ignore_result:
+        yield el
+      else:
+        yield result
 
 
 cdef class _Generator:
@@ -97,14 +106,20 @@ cdef Link foreach(object fn, bint ignore_result):
       result = fn(el)
       if isawaitable(result):
         return foreach_async(cv, fn, el, result, lst, ignore_result)
-      lst.append(el if ignore_result else result)
+      if ignore_result:
+        lst.append(el)
+      else:
+        lst.append(result)
     return lst
   return Link(_foreach)
 
 
 async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result):
   result = await result
-  lst.append(el if ignore_result else result)
+  if ignore_result:
+    lst.append(el)
+  else:
+    lst.append(result)
   # here we manually call __next__ instead of a for-loop to
   # prevent a call to cv.__iter__() which, depending on the iterator, may
   # produce a new iterator object, instead of continuing where we left
@@ -115,7 +130,10 @@ async def foreach_async(object cv, object fn, object el, object result, list lst
       result = fn(el)
       if isawaitable(result):
         result = await result
-      lst.append(el if ignore_result else result)
+      if ignore_result:
+        lst.append(el)
+      else:
+        lst.append(result)
     except StopIteration:
       return lst
 
@@ -127,7 +145,10 @@ async def async_foreach(object cv, object fn, bint ignore_result):
     result = fn(el)
     if isawaitable(result):
       result = await result
-    lst.append(el if ignore_result else result)
+    if ignore_result:
+      lst.append(el)
+    else:
+      lst.append(result)
   return lst
 
 

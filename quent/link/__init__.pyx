@@ -22,11 +22,25 @@ cdef class Link:
     self.kwargs = kwargs
     self.is_with_root = is_with_root
     self.ignore_result = ignore_result
-    self.is_attr = is_attr or is_fattr
+    self.is_attr = is_attr
     self.is_fattr = is_fattr
-    self.eval_code = get_eval_code(self)
-    if not allow_literal and self.eval_code == EVAL_LITERAL:
-      raise QuentException('Non-callable objects cannot be used with this method.')
+    if bool(args):
+      if args[0] is ...:
+        self.eval_code = EVAL_NO_ARGS
+      else:
+        self.eval_code = EVAL_CUSTOM_ARGS
+    elif bool(kwargs):
+      self.eval_code =  EVAL_CUSTOM_ARGS
+    elif callable(v):
+      self.eval_code =  EVAL_CALLABLE
+    elif is_fattr:
+      self.eval_code = EVAL_NO_ARGS
+    elif is_attr:
+      self.eval_code = EVAL_ATTR
+    else:
+      if not allow_literal:
+        raise QuentException('Non-callable objects cannot be used with this method.')
+      self.eval_code = EVAL_LITERAL
 
 
 cdef:
@@ -37,49 +51,29 @@ cdef:
   int EVAL_ATTR = 1005
 
 
-cdef int get_eval_code(Link link) except -1:
-  if bool(link.args):
-    if link.args[0] is ...:
-      return EVAL_NO_ARGS
-    return EVAL_CUSTOM_ARGS
-
-  elif bool(link.kwargs):
-    return EVAL_CUSTOM_ARGS
-
-  elif callable(link.v):
-    return EVAL_CALLABLE
-
-  elif link.is_fattr:
-    return EVAL_NO_ARGS
-
-  elif link.is_attr:
-    return EVAL_ATTR
-
-  else:
-    return EVAL_LITERAL
-
-
 cdef object evaluate_value(Link link, object cv):
-  cdef object v = link.v
-  cdef int eval_code = link.eval_code
-
-  if eval_code == EVAL_CALLABLE:
+  cdef object v
+  if link.eval_code == EVAL_CALLABLE:
     # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
-    return v() if cv is Null else v(cv)
+    if cv is Null:
+      return link.v()
+    else:
+      return link.v(cv)
 
   elif link.is_attr:
-    v = getattr(cv, v)
-
-  if eval_code == EVAL_CUSTOM_ARGS:
-    # it is dangerous if one of those will be `None`, but it shouldn't be possible
-    # as we only specify both or none.
-    return v(*link.args, **link.kwargs)
-
-  elif eval_code == EVAL_NO_ARGS:
-    return v()
-
-  elif eval_code == EVAL_ATTR:
+    v = getattr(cv, link.v)
+    if link.eval_code == EVAL_NO_ARGS:
+      return v()
+    elif link.eval_code == EVAL_CUSTOM_ARGS:
+      return v(*link.args, **link.kwargs)
     return v
 
   else:
-    return v
+    if link.eval_code == EVAL_CUSTOM_ARGS:
+      # it is dangerous if one of those will be `None`, but it shouldn't be possible
+      # as we only specify both or none.
+      return link.v(*link.args, **link.kwargs)
+    elif link.eval_code == EVAL_NO_ARGS:
+      return link.v()
+    else:
+      return link.v

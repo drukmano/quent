@@ -12,7 +12,7 @@ cdef class Chain:
   cdef:
     Link root_link, on_finally
     list links, except_links
-    bint is_cascade, _autorun
+    bint is_cascade, _autorun, uses_attr
     tuple current_conditional, on_true
     str current_attr
 
@@ -28,6 +28,7 @@ cdef class Chain:
   cdef int init(self, object rv, tuple args, dict kwargs, bint is_cascade) except -1:
     self.is_cascade = is_cascade
     self._autorun = False
+    self.uses_attr = False
     self.links = []
     if rv is not Null:
       self.root_link = Link(rv, args, kwargs, True)
@@ -44,54 +45,66 @@ cdef class Chain:
     self.finalize()
     if self.is_cascade:
       link.is_with_root = True
+    if link.is_attr or link.is_fattr:
+      self.uses_attr = True
     self.links.append(link)
 
   cdef object _run(self, object v, tuple args, dict kwargs):
     self.finalize()
     cdef:
-      Link root_link = self.root_link, link = root_link
-      list links = self.links
-      object cv = Null, rv = Null, result, exc
-      bint is_void = root_link is None, ignore_finally = False, is_null = v is Null, reraise
+      Link link = self.root_link
+      object pv = Null, cv = Null, rv = Null, result = None, exc = None
+      bint has_root_value = link is not None, is_root_value_override = v is not Null
+      bint reraise, ignore_finally = False
       int idx = -1
+    cdef object v_, cv_
+    cdef int eval_code
 
-    if not is_void and not is_null:
-      raise QuentException('Cannot override the root value of a Chain.')
-    elif is_void and is_null and not self.is_cascade:
-      raise QuentException('Cannot run a Chain without a root value. Use Cascade for that.')
+    if is_root_value_override:
+      if has_root_value:
+        raise QuentException('Cannot override the root value of a Chain.')
+    elif not has_root_value:
+      if not self.is_cascade:
+        raise QuentException('Cannot run a Chain without a root value. Use Cascade for that.')
+      elif self.uses_attr:
+        raise QuentException('Cannot use attributes without a root value.')
 
     try:
-      # this condition is False only for a void Cascade.
-      if not (is_void and is_null):
-        if root_link is None:
-          root_link = link = Link(v, args, kwargs, True)
-          is_void = False
-        rv = cv = evaluate_value(root_link, Null)
+      if is_root_value_override:
+        link = Link(v, args, kwargs, True)
+        has_root_value = True
+      if has_root_value:
+        rv = evaluate_value(link, Null)
         if isawaitable(rv):
           ignore_finally = True
-          result = self._run_async(root_link, result=rv, rv=Null, cv=Null, idx=idx, is_void=is_void)
+          result = self._run_async(link, cv=rv, rv=Null, pv=Null, idx=idx, has_root_value=has_root_value)
           if self._autorun:
             return ensure_future(result)
           return result
+        cv = rv
 
-      for link in links:
+      for link in self.links:
         idx += 1
-        if link.is_attr and is_void:
-          raise QuentException('Cannot use attributes without a root value.')
-
-        result = evaluate_value(link, rv if link.is_with_root else cv)
-        if isawaitable(result):
+        if link.ignore_result:
+          pv = cv
+        if link.is_with_root:
+          cv = evaluate_value(link, rv)
+        else:
+          cv = evaluate_value(link, cv)
+        if isawaitable(cv):
           ignore_finally = True
-          result = self._run_async(link, result=result, rv=rv, cv=cv, idx=idx, is_void=is_void)
+          result = self._run_async(link, cv=cv, rv=rv, pv=pv, idx=idx, has_root_value=has_root_value)
           if self._autorun:
             return ensure_future(result)
           return result
-        if not link.ignore_result: # TODO remove; and result is not Null:
-          cv = result
+        if link.ignore_result:
+          cv = pv
 
       if self.is_cascade:
         cv = rv
-      return cv if cv is not Null else None
+      if cv is Null:
+        return None
+      return cv
 
     except Exception as exc:
       result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
@@ -116,35 +129,39 @@ cdef class Chain:
             category=RuntimeWarning
           )
 
-  async def _run_async(self, Link link, object result, object rv, object cv, int idx, bint is_void):
+  async def _run_async(self, Link link, object cv, object rv, object pv, int idx, bint has_root_value):
     cdef:
-      object exc
       list links = self.links
+      object exc, result
       bint reraise
 
     try:
-      result = await result
-      if not link.ignore_result and result is not Null:
-        cv = result
+      cv = await cv
+      if link.ignore_result:
+        cv = pv
       # update the root value only if this is not a void chain, since otherwise
       # if this is a void chain, `rv` should always be `Null`.
-      if not is_void and rv is Null:
+      if has_root_value and rv is Null:
         rv = cv
 
       for idx in range(idx+1, len(links)):
         link = links[idx]
-        if link.is_attr and is_void:
-          raise QuentException('Cannot use attributes without a root value.')
-
-        result = evaluate_value(link, rv if link.is_with_root else cv)
-        if isawaitable(result):
-          result = await result
-        if not link.ignore_result: # TODO remove; and result is not Null:
-          cv = result
+        if link.ignore_result:
+          pv = cv
+        if link.is_with_root:
+          cv = evaluate_value(link, rv)
+        else:
+          cv = evaluate_value(link, cv)
+        if isawaitable(cv):
+          cv = await cv
+        if link.ignore_result:
+          cv = pv
 
       if self.is_cascade:
         cv = rv
-      return cv if cv is not Null else None
+      if cv is Null:
+        return None
+      return cv
 
     except Exception as exc:
       result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
@@ -206,7 +223,7 @@ cdef class Chain:
     return self
 
   def attr_fn(self, str __name, *args, **kwargs):
-    self._then(Link(__name, args, kwargs, is_fattr=True))
+    self._then(Link(__name, args, kwargs, is_attr=True, is_fattr=True))
     return self
 
   def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
@@ -343,6 +360,7 @@ cdef class Chain:
     cdef str attr
     if self.current_conditional is not None:
       self.finalize_conditional()
+    # TODO separate this into a overriding function in ChainAttr / CascadeAttr
     elif self.current_attr is not None:
       attr = self.current_attr
       self.current_attr = None
@@ -431,7 +449,7 @@ cdef class ChainAttr(Chain):
       return self.run(*args, **kwargs)
     else:
       self.current_attr = None
-      self._then(Link(attr, args, kwargs, is_fattr=True))
+      self._then(Link(attr, args, kwargs, is_attr=True, is_fattr=True))
       return self
 
 

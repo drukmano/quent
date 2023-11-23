@@ -8,6 +8,13 @@ from quent.link cimport Link, evaluate_value
 
 cdef set task_registry = set()
 
+# a modified version of `asyncio.iscoroutine`.
+cdef:
+  # `abc.Awaitable` might catch most if not all awaitable objects, but checking
+  # for `types.CoroutineType` is about x2 faster and also catches most coroutines.
+  tuple _AWAITABLE_TYPES = (types.CoroutineType, collections.abc.Awaitable)
+  set _isawaitable_typecache = set()
+  set _nonawaitable_typecache = {int, str, bool, float, set, tuple, dict, list, None}
 
 cdef class _Null:
   def __repr__(self):
@@ -18,39 +25,6 @@ cdef _Null Null = _Null()
 
 cdef class QuentException(Exception):
   pass
-
-
-# a modified version of `asyncio.iscoroutine`.
-cdef:
-  # `abc.Awaitable` might catch most if not all awaitable objects, but checking
-  # for `types.CoroutineType` is about x2 faster and also catches most coroutines.
-  tuple _AWAITABLE_TYPES = (types.CoroutineType, collections.abc.Awaitable)
-  set _isawaitable_typecache = set()  # TODO = _AWAITABLE_TYPES ?
-  # TODO add more primitives
-  set _nonawaitable_typecache = {int, str, bool, float, set, tuple, dict, list}
-  int _isawaitable_cache_count = 0
-  int _nonawaitable_cache_count = len(_nonawaitable_typecache)
-
-cdef bint isawaitable(object obj):
-  global _isawaitable_cache_count, _nonawaitable_cache_count
-
-  cdef type obj_t = type(obj)
-  if obj_t in _nonawaitable_typecache:
-    return False
-  elif obj_t in _isawaitable_typecache:
-    return True
-
-  if isinstance(obj, _AWAITABLE_TYPES):
-    if _isawaitable_cache_count < 1000:
-      _isawaitable_cache_count += 1
-      _isawaitable_typecache.add(obj_t)
-    return True
-
-  else:
-    if _nonawaitable_cache_count < 1000:
-      _nonawaitable_cache_count += 1
-      _nonawaitable_typecache.add(obj_t)
-    return False
 
 
 cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx):

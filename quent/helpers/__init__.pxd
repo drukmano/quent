@@ -10,7 +10,26 @@ cdef class QuentException(Exception):
 
 cdef _Null Null
 
-cdef bint isawaitable(object obj)
+cdef:
+  # `abc.Awaitable` might catch most if not all awaitable objects, but checking
+  # for `types.CoroutineType` is about x2 faster and also catches most coroutines.
+  tuple _AWAITABLE_TYPES
+  set _isawaitable_typecache
+  set _nonawaitable_typecache
+
+cdef inline bint isawaitable(object obj):
+  if type(obj) in _nonawaitable_typecache:
+    return False
+  elif type(obj) in _isawaitable_typecache:
+    return True
+  if isinstance(obj, _AWAITABLE_TYPES):
+    if len(_isawaitable_typecache) < 1000:
+      _isawaitable_typecache.add(type(obj))
+    return True
+  else:
+    if len(_nonawaitable_typecache) < 1000:
+      _nonawaitable_typecache.add(type(obj))
+    return False
 
 # this holds a strong reference to all tasks that we create
 # see: https://stackoverflow.com/a/75941086
