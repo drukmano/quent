@@ -299,13 +299,13 @@ cdef class Chain:
     self._autorun = bool(autorun)
     return self
 
-  def clone(self):
-    self.finalize()
-    # TODO a proper clone requires cloning all Links as well...
-    return self.__class__()._clone(
-      self.root_link, self.first_link, self.current_link, self.is_cascade, self._autorun, self.except_links,
-      self.on_finally_link
-    )
+  #def clone(self):
+  #  self.finalize()
+  #  # TODO a proper clone requires cloning all Links as well
+  #  return self.__class__()._clone(
+  #    self.root_link, self.first_link, self.current_link, self.is_cascade, self._autorun, self.except_links,
+  #    self.on_finally_link
+  #  )
 
   def freeze(self):
     self.finalize()
@@ -498,20 +498,20 @@ cdef class Chain:
     else:
       self._then(Link.__new__(Link, conditional))
 
-  def _clone(
-    self, Link root_link, Link first_link, Link current_link, bint is_cascade, bint _autorun, list except_links,
-    Link on_finally_link
-  ):
-    # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
-    #  those)
-    self.root_link = root_link
-    self.first_link = first_link
-    self.current_link = current_link
-    self.is_cascade = is_cascade
-    self._autorun = _autorun
-    self.except_links = None if except_links is None else except_links.copy()
-    self.on_finally_link = on_finally_link
-    return self
+  #def _clone(
+  #  self, Link root_link, Link first_link, Link current_link, bint is_cascade, bint _autorun, list except_links,
+  #  Link on_finally_link
+  #):
+  #  # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
+  #  #  those)
+  #  self.root_link = root_link
+  #  self.first_link = first_link
+  #  self.current_link = current_link
+  #  self.is_cascade = is_cascade
+  #  self._autorun = _autorun
+  #  self.except_links = None if except_links is None else except_links.copy()
+  #  self.on_finally_link = on_finally_link
+  #  return self
 
   def __or__(self, other):
     if isinstance(other, run):
@@ -536,6 +536,7 @@ cdef class Chain:
       Link root_link = self.root_link
       object s = f'<{self.__class__.__name__}'
 
+    # TODO format the chain with proper chain actions, function names, and arguments
     if root_link is not None:
       s += f'({root_link.v}, {root_link.args}, {root_link.kwargs})'
     else:

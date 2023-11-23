@@ -142,15 +142,12 @@ class ExcFinallyTests(MyExcTestCase):
         self.assertTrue(efc.ran_exc)
 
   async def test_raise_on_await(self):
-    class A:
-      def __await__(self):
-        async def f():
-          raise Exception
-        return f().__await__()
+    async def f():
+      raise Exception
 
     for fn, efc_cls, ctx in self.with_fn_efc():
       with ctx:
-        for fn1, fn2 in [(fn, A), (A, fn)]:
+        for fn1, fn2 in [(fn, f), (f, fn)]:
           with self.subTest(fn1=fn1, fn2=fn2):
             efc = efc_cls()
             try:

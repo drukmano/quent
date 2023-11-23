@@ -305,15 +305,15 @@ class SingleTest(MyTestCase):
     with FlexContext(obj=obj):
       for fn, ctx in self.with_fn():
         with ctx:
-          chain = Chain(obj).then(fn)
-          chain2 = chain.clone().then(object())
-          await self.assertIsObj(chain.run())
-          await self.assertIsNotObj(chain2.run())
+          #chain = Chain(obj).then(fn)
+          #chain2 = chain.clone().then(object())
+          #await self.assertIsObj(chain.run())
+          #await self.assertIsNotObj(chain2.run())
 
-          chain = Chain(fn).then(obj)
-          chain2 = chain.clone().then(object())
-          await self.assertIsObj(chain.run())
-          await self.assertIsNotObj(chain2.run())
+          #chain = Chain(fn).then(obj)
+          #chain2 = chain.clone().then(object())
+          #await self.assertIsObj(chain.run())
+          #await self.assertIsNotObj(chain2.run())
 
           chain = Chain(obj).then(fn).freeze()
           await self.assertIsObj(chain.run())
