@@ -1,11 +1,13 @@
 import functools
 import warnings
+cimport cython
 
 from quent.helpers cimport isawaitable, Null, QuentException, _handle_exception, ensure_future
 from quent.custom cimport _Generator, foreach, with_, build_conditional
 from quent.link cimport Link, evaluate_value
 
 
+@cython.freelist(8)
 cdef class Chain:
   cdef:
     Link root_link, on_finally
@@ -32,7 +34,7 @@ cdef class Chain:
     else:
       self.root_link = None
 
-    self.except_links = []
+    self.except_links = None
     self.on_true = None
     self.on_finally = None
     self.current_conditional = None
@@ -208,6 +210,8 @@ cdef class Chain:
     return self
 
   def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
+    if self.except_links is None:
+      self.except_links = []
     self.except_links.append((Link(__fn, args, kwargs), exceptions, raise_))
     return self
 
@@ -336,12 +340,13 @@ cdef class Chain:
     self.current_conditional = (conditional, custom)
 
   cdef int finalize(self) except -1:
-    cdef str attr = self.current_attr
-    if attr is not None:
-      self.current_attr = None
-      self._then(Link(attr, is_attr=True))
+    cdef str attr
     if self.current_conditional is not None:
       self.finalize_conditional()
+    elif self.current_attr is not None:
+      attr = self.current_attr
+      self.current_attr = None
+      self._then(Link(attr, is_attr=True))
 
   cdef int finalize_conditional(self, object on_false = Null, tuple args = None, dict kwargs = None) except -1:
     cdef:
@@ -368,7 +373,7 @@ cdef class Chain:
     self.is_cascade = is_cascade
     self._autorun = _autorun
     self.links = links.copy()
-    self.except_links = except_links.copy()
+    self.except_links = None if except_links is None else except_links.copy()
     self.on_finally = on_finally
     return self
 

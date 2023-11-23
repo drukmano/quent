@@ -9,11 +9,11 @@ except ImportError:
   _PipeCls = None
 
 
-@cython.freelist(256)
+@cython.freelist(32)
 cdef class Link:
   def __init__(
     self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, bint is_with_root = False,
-    bint ignore_result = False, bint is_attr = False, bint is_fattr = False, int eval_code=EVAL_UNKNOWN
+    bint ignore_result = False, bint is_attr = False, bint is_fattr = False
   ):
     if _PipeCls is not None and isinstance(v, _PipeCls):
       v = v.function
@@ -24,16 +24,12 @@ cdef class Link:
     self.ignore_result = ignore_result
     self.is_attr = is_attr or is_fattr
     self.is_fattr = is_fattr
-    if eval_code == EVAL_UNKNOWN:
-      self.eval_code = get_eval_code(self)
-    else:
-      self.eval_code = eval_code
+    self.eval_code = get_eval_code(self)
     if not allow_literal and self.eval_code == EVAL_LITERAL:
       raise QuentException('Non-callable objects cannot be used with this method.')
 
 
 cdef:
-  int EVAL_UNKNOWN = 0
   int EVAL_CUSTOM_ARGS = 1001
   int EVAL_NO_ARGS = 1002
   int EVAL_CALLABLE = 1003
@@ -67,10 +63,7 @@ cdef object evaluate_value(Link link, object cv):
   cdef object v = link.v
   cdef int eval_code = link.eval_code
 
-  if eval_code == EVAL_UNKNOWN:
-    link.eval_code = eval_code = get_eval_code(link)
-
-  elif eval_code == EVAL_CALLABLE:
+  if eval_code == EVAL_CALLABLE:
     # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
     return v() if cv is Null else v(cv)
 

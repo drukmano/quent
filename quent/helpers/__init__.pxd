@@ -2,7 +2,6 @@ cdef object _ensure_future
 
 from quent.link cimport Link
 
-
 cdef class _Null:
   pass
 
@@ -18,7 +17,6 @@ cdef bint isawaitable(object obj)
 # "... the asyncio loop avoids creating hard references (just weak) to the tasks,
 # and when it is under heavy load, it may just "drop" tasks that are not referenced somewhere else."
 cdef set task_registry
-
 
 cdef inline int remove_task(object task) except -1:
   # this may occur when asyncio.ensure_future() is called on a Task -

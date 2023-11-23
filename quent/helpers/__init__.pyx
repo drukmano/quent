@@ -56,13 +56,16 @@ cdef bint isawaitable(object obj):
 cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx):
   cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions
   cdef bint reraise = True, raise_, exc_match
-  cdef object chain = Cascade()
+  cdef object chain
   if exc.__cause__ is not None:
     if quent_exc.__cause__ is None:
       quent_exc.__cause__ = exc.__cause__
     else:
       quent_exc.__cause__.__cause__ = exc.__cause__
   exc.__cause__ = quent_exc
+  if except_links is None:
+    return None, reraise
+  chain = Cascade()
   for link, exceptions, raise_ in except_links:
     if exceptions is None:
       exc_match = True
