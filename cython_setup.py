@@ -16,6 +16,9 @@ if __name__ == '__main__':
     'language_level': 3,
     'embedsignature': True,
     'annotation_typing': False,
+    'always_allow_keywords': False,
+    'infer_types': False,
+    'iterable_coroutine': False,
   }
   if is_tests:
     compiler_directives.update({
