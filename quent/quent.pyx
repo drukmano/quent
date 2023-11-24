@@ -121,7 +121,7 @@ cdef class Chain:
     self._autorun = False
     self.uses_attr = False
     if rv is not Null:
-      self.root_link = Link(rv, args, kwargs, True)
+      self.root_link = Link.__new__(Link, rv, args, kwargs, True)
     else:
       self.root_link = None
     self.first_link = None
@@ -173,7 +173,7 @@ cdef class Chain:
 
     try:
       if is_root_value_override:
-        link = Link(v, args, kwargs, True)
+        link = Link.__new__(Link, v, args, kwargs, True)
         link.next_link = self.first_link
         has_root_value = True
       if has_root_value:
@@ -318,40 +318,40 @@ cdef class Chain:
     return self._run(__v, args, kwargs)
 
   def then(self, object __v, *args, **kwargs):
-    self._then(Link(__v, args, kwargs, True))
+    self._then(Link.__new__(Link, __v, args, kwargs, True))
     return self
 
   def do(self, object __fn, *args, **kwargs):
     # register a value to be evaluated but will not propagate its result forwards.
-    self._then(Link(__fn, args, kwargs, ignore_result=True))
+    self._then(Link.__new__(Link, __fn, args, kwargs, ignore_result=True))
     return self
 
   def root(self, object __fn, *args, **kwargs):
-    self._then(Link(__fn, args, kwargs, is_with_root=True))
+    self._then(Link.__new__(Link, __fn, args, kwargs, is_with_root=True))
     return self
 
   def root_do(self, object __fn, *args, **kwargs):
-    self._then(Link(__fn, args, kwargs, is_with_root=True, ignore_result=True))
+    self._then(Link.__new__(Link, __fn, args, kwargs, is_with_root=True, ignore_result=True))
     return self
 
   def attr(self, str name):
-    self._then(Link(name, is_attr=True))
+    self._then(Link.__new__(Link, name, is_attr=True))
     return self
 
   def attr_fn(self, str __name, *args, **kwargs):
-    self._then(Link(__name, args, kwargs, is_attr=True, is_fattr=True))
+    self._then(Link.__new__(Link, __name, args, kwargs, is_attr=True, is_fattr=True))
     return self
 
   def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
     if self.except_links is None:
       self.except_links = []
-    self.except_links.append((Link(__fn, args, kwargs), exceptions, raise_))
+    self.except_links.append((Link.__new__(Link, __fn, args, kwargs), exceptions, raise_))
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
     if self.on_finally_link is not None:
       raise QuentException('You can only register one \'finally\' callback.')
-    self.on_finally_link = Link(__fn, args, kwargs)
+    self.on_finally_link = Link.__new__(Link, __fn, args, kwargs)
     return self
 
   def iterate(self, object fn = None):
@@ -369,11 +369,11 @@ cdef class Chain:
     return self
 
   def with_(self, object __fn, *args, **kwargs):
-    self._then(with_(Link(__fn, args, kwargs), ignore_result=False))
+    self._then(with_(Link.__new__(Link, __fn, args, kwargs), ignore_result=False))
     return self
 
   def with_do(self, object __fn, *args, **kwargs):
-    self._then(with_(Link(__fn, args, kwargs), ignore_result=True))
+    self._then(with_(Link.__new__(Link, __fn, args, kwargs), ignore_result=True))
     return self
 
   def if_(self, object __v, *args, **kwargs):
@@ -404,7 +404,7 @@ cdef class Chain:
     return self
 
   def condition(self, object __fn, *args, **kwargs):
-    cdef Link link = Link(__fn, args, kwargs)
+    cdef Link link = Link.__new__(Link, __fn, args, kwargs)
     def condition(object cv):
       return evaluate_value(link, cv)
     self.set_conditional(condition, custom=True)
@@ -448,18 +448,18 @@ cdef class Chain:
 
   def or_(self, object value):
     def or_(object cv): return cv or value
-    self._then(Link(or_))
+    self._then(Link.__new__(Link, or_))
     return self
 
   def raise_(self, object exc):
     def raise_(object cv): raise exc
-    self._then(Link(raise_))
+    self._then(Link.__new__(Link, raise_))
     return self
 
   cdef void _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False):
     if self.current_conditional is None:
       self.current_conditional = (bool, False)
-    self.on_true = (Link(on_true, args, kwargs, True), not_)
+    self.on_true = (Link.__new__(Link, on_true, args, kwargs, True), not_)
 
   cdef void _else(self, object on_false, tuple args = None, dict kwargs = None):
     if self.on_true is None:
@@ -480,7 +480,7 @@ cdef class Chain:
     elif self.current_attr is not None:
       attr = self.current_attr
       self.current_attr = None
-      self._then(Link(attr, is_attr=True))
+      self._then(Link.__new__(Link, attr, is_attr=True))
 
   cdef void finalize_conditional(self, object on_false = Null, tuple args = None, dict kwargs = None):
     cdef:
@@ -492,11 +492,11 @@ cdef class Chain:
     if self.on_true:
       on_true_link, not_ = self.on_true
       if on_false is not Null:
-        on_false_link = Link(on_false, args, kwargs, True)
+        on_false_link = Link.__new__(Link, on_false, args, kwargs, True)
       self.on_true = None
       self._then(build_conditional(conditional, is_custom, not_, on_true_link, on_false_link))
     else:
-      self._then(Link(conditional))
+      self._then(Link.__new__(Link, conditional))
 
   def _clone(
     self, Link root_link, Link first_link, Link current_link, bint is_cascade, bint _autorun, list except_links,
@@ -516,7 +516,7 @@ cdef class Chain:
   def __or__(self, other):
     if isinstance(other, run):
       return self._run(other.root_value, other.args, other.kwargs)
-    self._then(Link(other, None, None, True))
+    self._then(Link.__new__(Link, other, None, None, True))
     return self
 
   def __call__(self, object __v = Null, *args, **kwargs):
@@ -567,7 +567,7 @@ cdef class ChainAttr(Chain):
       return self.run(*args, **kwargs)
     else:
       self.current_attr = None
-      self._then(Link(attr, args, kwargs, is_attr=True, is_fattr=True))
+      self._then(Link.__new__(Link, attr, args, kwargs, is_attr=True, is_fattr=True))
       return self
 
 

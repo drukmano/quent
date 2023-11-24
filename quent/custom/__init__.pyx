@@ -26,7 +26,7 @@ cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link 
       return evaluate_value(on_false, cv)
     return cv
 
-  return Link(if_else)
+  return Link.__new__(Link, if_else)
 
 
 def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
@@ -109,7 +109,7 @@ cdef Link foreach(object fn, bint ignore_result):
       else:
         lst.append(result)
     return lst
-  return Link(_foreach)
+  return Link.__new__(Link, _foreach)
 
 
 async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result):
@@ -166,7 +166,7 @@ cdef Link with_(Link link, bint ignore_result):
     finally:
       if not is_result_awaitable:
         cv.__exit__(*sys.exc_info())
-  return Link(with_, ignore_result=ignore_result)
+  return Link.__new__(Link, with_, ignore_result=ignore_result)
 
 
 async def with_async(object result, object cv):
