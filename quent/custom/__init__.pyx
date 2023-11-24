@@ -1,13 +1,13 @@
 import sys
 
-from quent.helpers cimport Null, isawaitable
+from quent.helpers cimport Null, iscoro
 from quent.link cimport Link, evaluate_value
 
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):
   async def if_else_async(object r, object cv):
     r = _if_else(await r, cv)
-    if isawaitable(r):
+    if iscoro(r):
       r = await r
     return r
 
@@ -15,7 +15,7 @@ cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link 
     # more elegant, but slower. we suffer so others won't.
     #return Chain(conditional, cv).then(lambda r: _if_else(r, cv)).run()
     cdef object r = conditional(cv)
-    if is_custom and isawaitable(r):
+    if is_custom and iscoro(r):
       return if_else_async(r, cv)
     return _if_else(r, cv)
 
@@ -48,7 +48,7 @@ def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignor
 async def async_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
   cdef object el, result, iterator
   iterator = iterator_getter(*run_args)
-  if isawaitable(iterator):
+  if iscoro(iterator):
     iterator = await iterator
   if hasattr(iterator, '__aiter__'):
     async for el in iterator:
@@ -56,7 +56,7 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
         result = el
       else:
         result = fn(el)
-      if isawaitable(result):
+      if iscoro(result):
         result = await result
       if ignore_result:
         yield el
@@ -68,7 +68,7 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
         result = el
       else:
         result = fn(el)
-      if isawaitable(result):
+      if iscoro(result):
         result = await result
       if ignore_result:
         yield el
@@ -104,7 +104,7 @@ cdef Link foreach(object fn, bint ignore_result):
     cv = cv.__iter__()
     for el in cv:
       result = fn(el)
-      if isawaitable(result):
+      if iscoro(result):
         return foreach_async(cv, fn, el, result, lst, ignore_result)
       if ignore_result:
         lst.append(el)
@@ -128,7 +128,7 @@ async def foreach_async(object cv, object fn, object el, object result, list lst
     try:
       el = cv.__next__()
       result = fn(el)
-      if isawaitable(result):
+      if iscoro(result):
         result = await result
       if ignore_result:
         lst.append(el)
@@ -143,7 +143,7 @@ async def async_foreach(object cv, object fn, bint ignore_result):
   cdef object el, result
   async for el in cv.__aiter__():
     result = fn(el)
-    if isawaitable(result):
+    if iscoro(result):
       result = await result
     if ignore_result:
       lst.append(el)
@@ -161,7 +161,7 @@ cdef Link with_(Link link, bint ignore_result):
     try:
       ctx = cv.__enter__()
       result = evaluate_value(link, ctx)
-      is_result_awaitable = isawaitable(result)
+      is_result_awaitable = iscoro(result)
       if is_result_awaitable:
         return with_async(result, cv)
       return result
@@ -184,6 +184,6 @@ async def async_with(Link link, object cv):
     if link.v is Null:
       return ctx
     result = evaluate_value(link, ctx)
-    if isawaitable(result):
+    if iscoro(result):
       return await result
     return result

@@ -2,7 +2,7 @@ import functools
 import warnings
 cimport cython
 
-from quent.helpers cimport isawaitable, Null, QuentException, _handle_exception, ensure_future
+from quent.helpers cimport iscoro, Null, QuentException, _handle_exception, ensure_future
 from quent.custom cimport _Generator, foreach, with_, build_conditional
 from quent.link cimport Link, evaluate_value
 
@@ -75,7 +75,7 @@ cdef class Chain:
         has_root_value = True
       if has_root_value:
         rv = evaluate_value(link, Null)
-        if isawaitable(rv):
+        if iscoro(rv):
           ignore_finally = True
           result = self._run_async(link, cv=rv, rv=Null, pv=Null, idx=idx, has_root_value=has_root_value)
           if self._autorun:
@@ -91,7 +91,7 @@ cdef class Chain:
           cv = evaluate_value(link, rv)
         else:
           cv = evaluate_value(link, cv)
-        if isawaitable(cv):
+        if iscoro(cv):
           ignore_finally = True
           result = self._run_async(link, cv=cv, rv=rv, pv=pv, idx=idx, has_root_value=has_root_value)
           if self._autorun:
@@ -108,7 +108,7 @@ cdef class Chain:
 
     except Exception as exc:
       result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
-      if isawaitable(result):
+      if iscoro(result):
         ensure_future(result)
         warnings.warn(
           'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
@@ -121,7 +121,7 @@ cdef class Chain:
     finally:
       if not ignore_finally and self.on_finally is not None:
         result = evaluate_value(self.on_finally, rv)
-        if isawaitable(result):
+        if iscoro(result):
           ensure_future(result)
           warnings.warn(
             'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode. '
@@ -152,7 +152,7 @@ cdef class Chain:
           cv = evaluate_value(link, rv)
         else:
           cv = evaluate_value(link, cv)
-        if isawaitable(cv):
+        if iscoro(cv):
           cv = await cv
         if link.ignore_result:
           cv = pv
@@ -165,7 +165,7 @@ cdef class Chain:
 
     except Exception as exc:
       result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
-      if isawaitable(result):
+      if iscoro(result):
         await result
       if reraise:
         raise exc
@@ -173,7 +173,7 @@ cdef class Chain:
     finally:
       if self.on_finally is not None:
         result = evaluate_value(self.on_finally, rv)
-        if isawaitable(result):
+        if iscoro(result):
           await result
 
   def config(self, *, object autorun = None):

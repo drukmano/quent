@@ -1,5 +1,3 @@
-cdef object _ensure_future
-
 from quent.link cimport Link
 
 cdef class _Null:
@@ -11,48 +9,17 @@ cdef class QuentException(Exception):
 cdef _Null Null
 
 cdef:
-  # `abc.Awaitable` might catch most if not all awaitable objects, but checking
-  # for `types.CoroutineType` is about x2 faster and also catches most coroutines.
-  tuple _AWAITABLE_TYPES
-  set _isawaitable_typecache
-  set _nonawaitable_typecache
+  type _PyCoroType
+  type _CyCoroType
 
-cdef inline bint isawaitable(object obj):
-  if type(obj) in _nonawaitable_typecache:
-    return False
-  elif type(obj) in _isawaitable_typecache:
-    return True
-  if isinstance(obj, _AWAITABLE_TYPES):
-    if len(_isawaitable_typecache) < 1000:
-      _isawaitable_typecache.add(type(obj))
-    return True
-  else:
-    if len(_nonawaitable_typecache) < 1000:
-      _nonawaitable_typecache.add(type(obj))
-    return False
+cdef inline bint iscoro(object obj):
+  return type(obj) is _PyCoroType or type(obj) is _CyCoroType
 
-# this holds a strong reference to all tasks that we create
-# see: https://stackoverflow.com/a/75941086
-# "... the asyncio loop avoids creating hard references (just weak) to the tasks,
-# and when it is under heavy load, it may just "drop" tasks that are not referenced somewhere else."
 cdef set task_registry
 
-cdef inline int remove_task(object task) except -1:
-  # this may occur when asyncio.ensure_future() is called on a Task -
-  # it returns the same Task as-is. and even though we are not registering
-  # the callback if the task is already in `task_registry`, a race condition is possible.
-  if task in task_registry:
-    try:
-      task_registry.remove(task)
-    except KeyError:
-      pass
+cdef int remove_task(object task)
 
-cdef inline object ensure_future(object coro):
-  cdef object task = _ensure_future(coro)
-  if task not in task_registry:
-    task_registry.add(task)
-    task.add_done_callback(remove_task)
-  return task
+cdef object ensure_future(object coro)
 
 cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx)
 
