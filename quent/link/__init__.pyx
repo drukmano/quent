@@ -24,6 +24,7 @@ cdef class Link:
     self.ignore_result = ignore_result
     self.is_attr = is_attr
     self.is_fattr = is_fattr
+    self.next_link = None
     if bool(args):
       if args[0] is ...:
         self.eval_code = EVAL_NO_ARGS

@@ -17,7 +17,7 @@ cdef inline bint iscoro(object obj):
 
 cdef set task_registry
 
-cdef int remove_task(object task)
+cdef void remove_task(object task)
 
 cdef object ensure_future(object coro)
 

@@ -35,7 +35,7 @@ cdef:
 cdef set task_registry = set()
 
 
-cdef int remove_task(object task) except -1:
+cdef void remove_task(object task):
   # this may occur when asyncio.ensure_future() is called on a Task -
   # it returns the same Task as-is. and even though we are not registering
   # the callback if the task is already in `task_registry`, a race condition is possible.

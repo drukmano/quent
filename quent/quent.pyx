@@ -10,8 +10,8 @@ from quent.link cimport Link, evaluate_value
 @cython.freelist(8)
 cdef class Chain:
   cdef:
-    Link root_link, on_finally
-    list links, except_links
+    Link root_link, first_link, current_link, on_finally_link
+    list except_links
     bint is_cascade, _autorun, uses_attr
     tuple current_conditional, on_true
     str current_attr
@@ -25,29 +25,40 @@ cdef class Chain:
     """
     self.init(__v, args, kwargs, False)
 
-  cdef int init(self, object rv, tuple args, dict kwargs, bint is_cascade) except -1:
+  cdef void init(self, object rv, tuple args, dict kwargs, bint is_cascade):
     self.is_cascade = is_cascade
     self._autorun = False
     self.uses_attr = False
-    self.links = []
     if rv is not Null:
       self.root_link = Link(rv, args, kwargs, True)
     else:
       self.root_link = None
+    self.first_link = None
+    self.current_link = None
 
     self.except_links = None
     self.on_true = None
-    self.on_finally = None
+    self.on_finally_link = None
     self.current_conditional = None
     self.current_attr = None
 
-  cdef int _then(self, Link link) except -1:
+  cdef void _then(self, Link link):
     self.finalize()
     if self.is_cascade:
       link.is_with_root = True
     if link.is_attr or link.is_fattr:
       self.uses_attr = True
-    self.links.append(link)
+
+    if self.current_link is not None:
+      self.current_link.next_link = link
+      self.current_link = link
+    elif self.first_link is not None:
+      self.first_link.next_link = link
+      self.current_link = link
+    else:
+      self.first_link = link
+      if self.root_link is not None and self.root_link.next_link is None:
+        self.root_link.next_link = link
 
   cdef object _run(self, object v, tuple args, dict kwargs):
     self.finalize()
@@ -72,6 +83,7 @@ cdef class Chain:
     try:
       if is_root_value_override:
         link = Link(v, args, kwargs, True)
+        link.next_link = self.first_link
         has_root_value = True
       if has_root_value:
         rv = evaluate_value(link, Null)
@@ -82,23 +94,30 @@ cdef class Chain:
             return ensure_future(result)
           return result
         cv = rv
+        link = link.next_link
+      else:
+        link = self.first_link
 
-      for link in self.links:
-        idx += 1
-        if link.ignore_result:
-          pv = cv
-        if link.is_with_root:
-          cv = evaluate_value(link, rv)
-        else:
-          cv = evaluate_value(link, cv)
-        if iscoro(cv):
-          ignore_finally = True
-          result = self._run_async(link, cv=cv, rv=rv, pv=pv, idx=idx, has_root_value=has_root_value)
-          if self._autorun:
-            return ensure_future(result)
-          return result
-        if link.ignore_result:
-          cv = pv
+      if link is not None:
+        while True:
+          idx += 1
+          if link.ignore_result:
+            pv = cv
+          if link.is_with_root:
+            cv = evaluate_value(link, rv)
+          else:
+            cv = evaluate_value(link, cv)
+          if iscoro(cv):
+            ignore_finally = True
+            result = self._run_async(link, cv=cv, rv=rv, pv=pv, idx=idx, has_root_value=has_root_value)
+            if self._autorun:
+              return ensure_future(result)
+            return result
+          if link.ignore_result:
+            cv = pv
+          if link.next_link is None:
+            break
+          link = link.next_link
 
       if self.is_cascade:
         cv = rv
@@ -119,8 +138,8 @@ cdef class Chain:
         raise exc
 
     finally:
-      if not ignore_finally and self.on_finally is not None:
-        result = evaluate_value(self.on_finally, rv)
+      if not ignore_finally and self.on_finally_link is not None:
+        result = evaluate_value(self.on_finally_link, rv)
         if iscoro(result):
           ensure_future(result)
           warnings.warn(
@@ -131,7 +150,6 @@ cdef class Chain:
 
   async def _run_async(self, Link link, object cv, object rv, object pv, int idx, bint has_root_value):
     cdef:
-      list links = self.links
       object exc, result
       bint reraise
 
@@ -144,18 +162,23 @@ cdef class Chain:
       if has_root_value and rv is Null:
         rv = cv
 
-      for idx in range(idx+1, len(links)):
-        link = links[idx]
-        if link.ignore_result:
-          pv = cv
-        if link.is_with_root:
-          cv = evaluate_value(link, rv)
-        else:
-          cv = evaluate_value(link, cv)
-        if iscoro(cv):
-          cv = await cv
-        if link.ignore_result:
-          cv = pv
+      link = link.next_link
+      if link is not None:
+        while True:
+          idx += 1
+          if link.ignore_result:
+            pv = cv
+          if link.is_with_root:
+            cv = evaluate_value(link, rv)
+          else:
+            cv = evaluate_value(link, cv)
+          if iscoro(cv):
+            cv = await cv
+          if link.ignore_result:
+            cv = pv
+          if link.next_link is None:
+            break
+          link = link.next_link
 
       if self.is_cascade:
         cv = rv
@@ -171,8 +194,8 @@ cdef class Chain:
         raise exc
 
     finally:
-      if self.on_finally is not None:
-        result = evaluate_value(self.on_finally, rv)
+      if self.on_finally_link is not None:
+        result = evaluate_value(self.on_finally_link, rv)
         if iscoro(result):
           await result
 
@@ -187,8 +210,10 @@ cdef class Chain:
 
   def clone(self):
     self.finalize()
+    # TODO a proper clone requires cloning all Links as well...
     return self.__class__()._clone(
-      self.root_link, self.is_cascade, self._autorun, self.links, self.except_links, self.on_finally
+      self.root_link, self.first_link, self.current_link, self.is_cascade, self._autorun, self.except_links,
+      self.on_finally_link
     )
 
   def freeze(self):
@@ -233,9 +258,9 @@ cdef class Chain:
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
-    if self.on_finally is not None:
+    if self.on_finally_link is not None:
       raise QuentException('You can only register one \'finally\' callback.')
-    self.on_finally = Link(__fn, args, kwargs)
+    self.on_finally_link = Link(__fn, args, kwargs)
     return self
 
   def iterate(self, object fn = None):
@@ -340,23 +365,23 @@ cdef class Chain:
     self._then(Link(raise_))
     return self
 
-  cdef int _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False) except -1:
+  cdef void _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False):
     if self.current_conditional is None:
       self.current_conditional = (bool, False)
     self.on_true = (Link(on_true, args, kwargs, True), not_)
 
-  cdef int _else(self, object on_false, tuple args = None, dict kwargs = None) except -1:
+  cdef void _else(self, object on_false, tuple args = None, dict kwargs = None):
     if self.on_true is None:
       raise QuentException(
         'You cannot use \'.else_()\' without a preceding \'.if_()\' or \'.if_not()\''
       )
     self.finalize_conditional(on_false, args, kwargs)
 
-  cdef int set_conditional(self, object conditional, bint custom = False) except -1:
+  cdef void set_conditional(self, object conditional, bint custom = False):
     self.finalize()
     self.current_conditional = (conditional, custom)
 
-  cdef int finalize(self) except -1:
+  cdef void finalize(self):
     cdef str attr
     if self.current_conditional is not None:
       self.finalize_conditional()
@@ -366,7 +391,7 @@ cdef class Chain:
       self.current_attr = None
       self._then(Link(attr, is_attr=True))
 
-  cdef int finalize_conditional(self, object on_false = Null, tuple args = None, dict kwargs = None) except -1:
+  cdef void finalize_conditional(self, object on_false = Null, tuple args = None, dict kwargs = None):
     cdef:
       object conditional
       Link on_true_link, on_false_link = None
@@ -383,16 +408,18 @@ cdef class Chain:
       self._then(Link(conditional))
 
   def _clone(
-    self, Link root_link, bint is_cascade, bint _autorun, list links, list except_links, Link on_finally
+    self, Link root_link, Link first_link, Link current_link, bint is_cascade, bint _autorun, list except_links,
+    Link on_finally_link
   ):
     # TODO find how to iterate the class attributes (like __slots__ / __dict__, but Cython classes does not implement
     #  those)
     self.root_link = root_link
+    self.first_link = first_link
+    self.current_link = current_link
     self.is_cascade = is_cascade
     self._autorun = _autorun
-    self.links = links.copy()
     self.except_links = None if except_links is None else except_links.copy()
-    self.on_finally = on_finally
+    self.on_finally_link = on_finally_link
     return self
 
   def __or__(self, other):
@@ -422,7 +449,7 @@ cdef class Chain:
       s += f'({root_link.v}, {root_link.args}, {root_link.kwargs})'
     else:
       s += '()'
-    s += f'({len(self.links)} links)>'
+    #s += f'({len(self.links)} links)>'
     return s
 
 
