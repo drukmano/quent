@@ -1,21 +1,112 @@
+import types
 import functools
 import warnings
 cimport cython
+#from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
 
-from quent.helpers cimport iscoro, Null, QuentException, _handle_exception, ensure_future
+from quent.helpers cimport _handle_exception, ensure_future
 from quent.custom cimport _Generator, foreach, with_, build_conditional
-from quent.link cimport Link, evaluate_value
+
+
+cdef object _PipeCls
+try:
+  from pipe import Pipe as _PipeCls
+except ImportError:
+  _PipeCls = None
+
+cdef class _Null:
+  def __repr__(self):
+    return '<Null>'
+
+cdef _Null Null = _Null()
+
+cdef class QuentException(Exception):
+  pass
+
+# same impl. of types.CoroutineType but for Cython coroutines.
+async def _py_coro(): pass
+cdef object _cy_coro(): return _py_coro()
+cdef object _coro = _cy_coro()
+cdef type _c_coro_type = type(_coro)
+_coro.close()  # Prevent ResourceWarning
+
+cdef:
+  type _PyCoroType = types.CoroutineType
+  type _CyCoroType = _c_coro_type
+
+cdef:
+  int EVAL_CUSTOM_ARGS = 1001
+  int EVAL_NO_ARGS = 1002
+  int EVAL_CALLABLE = 1003
+  int EVAL_LITERAL = 1004
+  int EVAL_ATTR = 1005
+
+
+@cython.freelist(32)
+cdef class Link:
+  def __cinit__(
+    self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, bint is_with_root = False,
+    bint ignore_result = False, bint is_attr = False, bint is_fattr = False
+  ):
+    if _PipeCls is not None and isinstance(v, _PipeCls):
+      v = v.function
+    self.v = v
+    self.args = args
+    self.kwargs = kwargs
+    self.is_with_root = is_with_root
+    self.ignore_result = ignore_result
+    self.is_attr = is_attr
+    self.is_fattr = is_fattr
+    self.next_link = None
+    if bool(args):
+      if args[0] is ...:
+        self.eval_code = EVAL_NO_ARGS
+      else:
+        self.eval_code = EVAL_CUSTOM_ARGS
+    elif bool(kwargs):
+      self.eval_code =  EVAL_CUSTOM_ARGS
+    elif callable(v):
+      self.eval_code =  EVAL_CALLABLE
+    elif is_fattr:
+      self.eval_code = EVAL_NO_ARGS
+    elif is_attr:
+      self.eval_code = EVAL_ATTR
+    else:
+      if not allow_literal:
+        raise QuentException('Non-callable objects cannot be used with this method.')
+      self.eval_code = EVAL_LITERAL
+
+
+cdef object evaluate_value(Link link, object cv):
+  cdef object v
+  if link.eval_code == EVAL_CALLABLE:
+    # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
+    if cv is Null:
+      return link.v()
+    else:
+      return link.v(cv)
+
+  elif link.is_attr:
+    v = getattr(cv, link.v)
+    if link.eval_code == EVAL_NO_ARGS:
+      return v()
+    elif link.eval_code == EVAL_CUSTOM_ARGS:
+      return v(*link.args, **link.kwargs)
+    return v
+
+  else:
+    if link.eval_code == EVAL_CUSTOM_ARGS:
+      # it is dangerous if one of those will be `None`, but it shouldn't be possible
+      # as we only specify both or none.
+      return link.v(*link.args, **link.kwargs)
+    elif link.eval_code == EVAL_NO_ARGS:
+      return link.v()
+    else:
+      return link.v
 
 
 @cython.freelist(8)
 cdef class Chain:
-  cdef:
-    Link root_link, first_link, current_link, on_finally_link
-    list except_links
-    bint is_cascade, _autorun, uses_attr
-    tuple current_conditional, on_true
-    str current_attr
-
   def __init__(self, object __v = Null, *args, **kwargs):
     """
     Create a new Chain
@@ -488,8 +579,6 @@ cdef class CascadeAttr(ChainAttr):
 
 
 cdef class _FrozenChain:
-  cdef object _chain_run
-
   def decorator(self):
     cdef object _chain_run = self._chain_run
     def _decorator(fn):
@@ -510,11 +599,6 @@ cdef class _FrozenChain:
 
 
 cdef class run:
-  cdef public:
-    object root_value
-    tuple args
-    dict kwargs
-
   """
     A replacement for `Chain.run()` when using pipe syntax
 

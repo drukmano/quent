@@ -1,4 +1,4 @@
-from quent.link cimport Link
+from quent.quent cimport Link
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false)
 

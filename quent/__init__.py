@@ -1,5 +1,4 @@
-from .quent import Chain, Cascade, ChainAttr, CascadeAttr, run
-from .helpers import QuentException
+from .quent import Chain, Cascade, ChainAttr, CascadeAttr, run, QuentException
 
 
 __all__ = [

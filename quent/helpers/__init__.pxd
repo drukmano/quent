@@ -1,19 +1,4 @@
-from quent.link cimport Link
-
-cdef class _Null:
-  pass
-
-cdef class QuentException(Exception):
-  pass
-
-cdef _Null Null
-
-cdef:
-  type _PyCoroType
-  type _CyCoroType
-
-cdef inline bint iscoro(object obj):
-  return type(obj) is _PyCoroType or type(obj) is _CyCoroType
+from quent.quent cimport Link
 
 cdef set task_registry
 

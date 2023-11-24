@@ -1,7 +1,5 @@
 import sys
-
-from quent.helpers cimport Null, iscoro
-from quent.link cimport Link, evaluate_value
+from quent.quent cimport Link, evaluate_value, Null, iscoro
 
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):

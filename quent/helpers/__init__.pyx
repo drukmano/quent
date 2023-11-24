@@ -1,32 +1,8 @@
-import types
 import collections.abc
 from asyncio import ensure_future as _ensure_future
 
-from quent.quent import Cascade
-from quent.link cimport Link, evaluate_value
+from quent.quent cimport Cascade, Link, evaluate_value, Null, QuentException
 
-
-cdef class _Null:
-  def __repr__(self):
-    return '<Null>'
-
-cdef _Null Null = _Null()
-
-
-cdef class QuentException(Exception):
-  pass
-
-
-# same impl. of types.CoroutineType but for Cython coroutines.
-async def _py_coro(): pass
-cdef object _cy_coro(): return _py_coro()
-cdef object _coro = _cy_coro()
-cdef type _c_coro_type = type(_coro)
-_coro.close()  # Prevent ResourceWarning
-
-cdef:
-  type _PyCoroType = types.CoroutineType
-  type _CyCoroType = _c_coro_type
 
 # this holds a strong reference to all tasks that we create
 # see: https://stackoverflow.com/a/75941086
