@@ -118,10 +118,10 @@ cdef object create_chain_link_exception(Link link, object cv, int idx):
 
   try:
     try:
-      object_str, readable_str = format_exception_details(literal=False)
+      object_str, readable_str = format_exception_details(False)
     except AttributeError as e:
       # this should not happen, but just in case.
-      object_str, readable_str = format_exception_details(literal=True)
+      object_str, readable_str = format_exception_details(True)
 
     if idx == -1:
       s = 'The chain root link has raised an exception:'

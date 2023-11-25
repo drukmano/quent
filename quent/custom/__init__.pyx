@@ -179,8 +179,6 @@ async def with_async(object result, object cv):
 async def async_with(Link link, object cv):
   cdef object ctx, result
   async with cv as ctx:
-    if link.v is Null:
-      return ctx
     result = evaluate_value(link, ctx)
     if iscoro(result):
       return await result
