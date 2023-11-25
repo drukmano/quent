@@ -22,7 +22,7 @@ if __name__ == '__main__':
     ext_modules=build_extensions('.c'),
     packages=find_packages(include=['quent*']),  # ['quent', 'quent.helpers']
     #include_dirs=['quent'],
-    package_data={
-      'quent': ['py.typed'],
-    },
+    #package_data={
+    #  'quent': ['py.typed'],
+    #},
   )
