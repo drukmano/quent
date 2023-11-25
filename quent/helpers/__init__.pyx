@@ -1,7 +1,7 @@
 import collections.abc
 from asyncio import ensure_future as _ensure_future
 
-from quent.quent cimport Cascade, Link, evaluate_value, Null, QuentException
+from quent.quent cimport Chain, Cascade, Link, evaluate_value, Null, QuentException
 
 
 # this holds a strong reference to all tasks that we create
@@ -32,7 +32,7 @@ cdef object ensure_future(object coro):
 
 cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx):
   cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions
-  cdef bint reraise = True, raise_, exc_match
+  cdef bint raise_, return_, exc_match
   cdef object chain
   if exc.__cause__ is not None:
     if quent_exc.__cause__ is None:
@@ -41,27 +41,25 @@ cdef object _handle_exception(object exc, list except_links, Link link, object r
       quent_exc.__cause__.__cause__ = exc.__cause__
   exc.__cause__ = quent_exc
   if except_links is None:
-    return None, reraise
-  chain = Cascade()
-  for link, exceptions, raise_ in except_links:
+    return None, True, False
+  for link, exceptions, raise_, return_ in except_links:
     if exceptions is None:
       exc_match = True
     else:
+      exc_match = False
       if not isinstance(exceptions, collections.abc.Iterable):
         exceptions = (exceptions,)
       else:
         exceptions = tuple(exceptions)
-      exc_match = False
       try:
         raise exc
       except exceptions:
         exc_match = True
-      except Exception:
+      except type(exc):
         pass
     if exc_match:
-      reraise = raise_
-      chain.then(evaluate_value, link, rv)
-  return chain.run(), reraise
+      return evaluate_value(link, rv), raise_, return_
+  return None, True, False
 
 
 cdef object create_chain_link_exception(Link link, object cv, int idx):

@@ -17,6 +17,7 @@ class ExceptFinallyCheckSync:
 
   def on_except(self, v=None, *, register=True):
     self.ran_exc = register
+    return v
 
   def on_finally(self, v=None, *, register=True):
     self.ran_finally = register
@@ -29,6 +30,7 @@ class ExceptFinallyCheckAsync:
 
   async def on_except(self, v=None, *, register=True):
     self.ran_exc = register
+    return v
 
   async def on_finally(self, v=None, *, register=True):
     self.ran_finally = register
@@ -130,7 +132,7 @@ class ExcFinallyTests(MyExcTestCase):
           )
         except Exception: pass
         self.assertTrue(efc.ran_exc)
-        self.assertTrue(efc2.ran_exc)
+        self.assertFalse(efc2.ran_exc)
 
   async def test_except_in_with(self):
     for fn, efc_cls, ctx in self.with_fn_efc():
@@ -140,6 +142,24 @@ class ExcFinallyTests(MyExcTestCase):
           await await_(Chain(fn).then(FlexContext, v=1).with_(raise_).except_(efc.on_except).run())
         except Exception: pass
         self.assertTrue(efc.ran_exc)
+
+  async def test_except_return(self):
+    obj = object()
+    for fn, efc_cls, ctx in self.with_fn_efc():
+      with ctx:
+        efc = efc_cls()
+        self.assertIs(await await_(Chain(fn).then(raise_).except_(efc.on_except, obj, return_=True).run()), obj)
+        self.assertTrue(efc.ran_exc)
+
+        efc = efc_cls()
+        efc2 = efc_cls()
+        self.assertIs(await await_(
+          Chain(fn).then(raise_, Exc2)
+          .except_(efc.on_except, object(), exceptions=Exc1, return_=True)
+          .except_(efc2.on_except, obj, exceptions=Exc2, return_=True)
+          .run()), obj)
+        self.assertFalse(efc.ran_exc)
+        self.assertTrue(efc2.ran_exc)
 
   async def test_raise_on_await(self):
     async def f():

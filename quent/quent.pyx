@@ -157,7 +157,7 @@ cdef class Chain:
       Link link = self.root_link
       object pv = Null, cv = Null, rv = Null, result = None, exc = None
       bint has_root_value = link is not None, is_root_value_override = v is not Null
-      bint reraise, ignore_finally = False
+      bint reraise, return_except_result, ignore_finally = False
       int idx = -1
     cdef object v_, cv_
     cdef int eval_code
@@ -215,14 +215,19 @@ cdef class Chain:
       return cv
 
     except Exception as exc:
-      result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
+      result, reraise, return_except_result = _handle_exception(exc, self.except_links, link, rv, cv, idx)
       if iscoro(result):
-        ensure_future(result)
+        result = ensure_future(result)
         warnings.warn(
           'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
           'It was therefore scheduled for execution in a new Task.',
           category=RuntimeWarning
         )
+        # we cannot check if result is Null here.
+        if return_except_result:
+          return result
+      elif return_except_result and result is not Null:
+        return result
       if reraise:
         raise exc
 
@@ -240,7 +245,7 @@ cdef class Chain:
   async def _run_async(self, Link link, object cv, object rv, object pv, int idx, bint has_root_value):
     cdef:
       object exc, result
-      bint reraise
+      bint reraise, return_except_result
 
     try:
       cv = await cv
@@ -276,9 +281,11 @@ cdef class Chain:
       return cv
 
     except Exception as exc:
-      result, reraise = _handle_exception(exc, self.except_links, link, rv, cv, idx)
+      result, reraise, return_except_result = _handle_exception(exc, self.except_links, link, rv, cv, idx)
       if iscoro(result):
-        await result
+        result = await result
+      if return_except_result and result is not Null:
+        return result
       if reraise:
         raise exc
 
@@ -340,10 +347,10 @@ cdef class Chain:
     self._then(Link.__new__(Link, __name, args, kwargs, is_attr=True, is_fattr=True))
     return self
 
-  def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
+  def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, bint return_ = False, **kwargs):
     if self.except_links is None:
       self.except_links = []
-    self.except_links.append((Link.__new__(Link, __fn, args, kwargs), exceptions, raise_))
+    self.except_links.append((Link.__new__(Link, __fn, args, kwargs), exceptions, raise_, return_))
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
