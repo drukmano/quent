@@ -78,6 +78,15 @@ class SingleTest(MyTestCase):
       efc.on_except()
     await self.assertTrue(efc.ran_exc)
 
+    # non function value
+    efc = ExceptFinallyCheckSync()
+    Chain(None).then(True).run()
+    try:
+      Chain(None).do(True).run()
+    except QuentException:
+      efc.on_except()
+    await self.assertTrue(efc.ran_exc)
+
     # [sync] attr on void cascade
     efc = ExceptFinallyCheckSync()
     try:
