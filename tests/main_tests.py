@@ -70,14 +70,6 @@ class AsyncIterator:
 
 class SingleTest(MyTestCase):
   async def test_quent_exceptions(self):
-    # void chain
-    efc = ExceptFinallyCheckSync()
-    try:
-      Chain().run()
-    except QuentException:
-      efc.on_except()
-    await self.assertTrue(efc.ran_exc)
-
     # override root value
     efc = ExceptFinallyCheckSync()
     try:
@@ -126,6 +118,9 @@ class SingleTest(MyTestCase):
     with FlexContext(obj=obj_):
       for fn, ctx in self.with_fn():
         with ctx:
+          await self.assertIsNone((Chain().run()))
+          await self.assertIsObj((Chain().then(fn, obj_).run()))
+
           await self.assertIsObj(Chain(fn, obj_).run())
           await self.assertIsObj(Chain().run(fn, obj_))
           await self.assertIsObj(Chain(fn, obj_)())
@@ -133,11 +128,14 @@ class SingleTest(MyTestCase):
 
           for obj in [(obj_,), (lambda v=None: obj_,), (lambda: obj_, ...)]:
             with self.subTest(obj=obj):
+              await self.assertIsObj(Chain().then(*obj).run())
               await self.assertIsObj(Chain(*obj).run())
               await self.assertIsObj(Chain().run(*obj))
 
               for obj1, obj2 in [(obj, (fn,)), ((fn,), obj)]:
                 with self.subTest(obj1=obj1, obj2=obj2):
+                  await self.assertIsObj(Chain().then(*obj1).then(*obj2).run())
+
                   await self.assertIsObj(Chain(*obj1).then(*obj2).run())
                   await self.assertIsObj(Chain().then(*obj2).run(*obj1))
 

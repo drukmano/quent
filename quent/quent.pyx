@@ -81,7 +81,6 @@ cdef class Link:
 cdef object evaluate_value(Link link, object cv):
   cdef object v
   if link.eval_code == EVAL_CALLABLE:
-    # `cv is Null` is for safety; in most cases, it simply means that `v` is the root value.
     if cv is Null:
       return link.v()
     else:
@@ -167,9 +166,7 @@ cdef class Chain:
       if has_root_value:
         raise QuentException('Cannot override the root value of a Chain.')
     elif not has_root_value:
-      if not self.is_cascade:
-        raise QuentException('Cannot run a Chain without a root value. Use Cascade for that.')
-      elif self.uses_attr:
+      if self.uses_attr:
         raise QuentException('Cannot use attributes without a root value.')
 
     try:

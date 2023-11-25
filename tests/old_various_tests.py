@@ -113,9 +113,9 @@ class MainTest(IsolatedAsyncioTestCase):
     self.assertTrue(await Chain().eq(5).run(aempty, 5))
 
   async def test_run_without_root(self):
-    self.assertRaises(QuentException, Chain().then(empty).run)
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
+        self.assertEqual(await await_(Chain().then(fn, 1).run()), 1)
         self.assertIsNone(await await_(Cascade().then(fn).run()))
         self.assertIsNone(await await_(Cascade().then(fn, 1).run()))
 
