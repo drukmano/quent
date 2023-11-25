@@ -19,6 +19,7 @@ cdef class _Null:
     return '<Null>'
 
 cdef _Null Null = _Null()
+PyNull = Null
 
 cdef class QuentException(Exception):
   pass
@@ -455,6 +456,10 @@ cdef class Chain:
     def raise_(object cv): raise exc
     self._then(Link.__new__(Link, raise_))
     return self
+
+  @classmethod
+  def null(cls):
+    return Null
 
   cdef void _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False):
     if self.current_conditional is None:

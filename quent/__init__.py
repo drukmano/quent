@@ -1,14 +1,12 @@
-from typing import TypeVar, Generic, Union, Awaitable
+from typing import TypeVar, Awaitable
 from .quent import Chain, Cascade, ChainAttr, CascadeAttr, run, QuentException
+from .quent import PyNull as Null
 
 
 T = TypeVar('T')
-
-
-class ResultOrAwaitable(Generic[T]):
-  pass
+ResultOrAwaitable = T | Awaitable[T]
 
 
 __all__ = [
-  'Chain', 'Cascade', 'ChainAttr', 'CascadeAttr', 'QuentException', 'run', 'ResultOrAwaitable'
+  'Chain', 'Cascade', 'ChainAttr', 'CascadeAttr', 'QuentException', 'run', 'ResultOrAwaitable', 'Null'
 ]
