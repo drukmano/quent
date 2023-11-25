@@ -1,4 +1,4 @@
-from typing import Callable, Any, Iterator, AsyncIterator, TypeVar, ParamSpec, Self, Type
+from typing import Callable, Any, Iterator, AsyncIterator, TypeVar, ParamSpec, Self, Type, Optional
 from quent import ResultOrAwaitable, Null
 
 
@@ -61,6 +61,8 @@ class Chain:
 
   def finally_(self, fn: Link[RootValue, IgnoredValue], *args: P.args, **kwargs: P.kwargs) -> Self: ...
 
+  def while_true(self, fn: Link[CurrentValue, None], *args: P.args, **kwargs: P.kwargs) -> Self: ...
+
   def iterate(self, fn: Link[CurrentItem, NextItem] = None) -> Iterator | AsyncIterator: ...
 
   def iterate_do(self, fn: Link[CurrentItem, IgnoredItem] = None) -> Iterator | AsyncIterator: ...
@@ -107,6 +109,15 @@ class Chain:
 
   @classmethod
   def null(cls) -> Null: ...
+
+  @classmethod
+  def return_(cls, value: Optional[NextValue] = None): ...
+
+  @classmethod
+  def break_(cls): ...
+
+  @classmethod
+  def continue_(cls): ...
 
   def __or__(self, other: NextValue | Callable[[CurrentValue], NextValue]) -> Self: ...
 

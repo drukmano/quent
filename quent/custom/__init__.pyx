@@ -29,6 +29,57 @@ cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link 
   return Link.__new__(Link, if_else)
 
 
+cdef Link while_true(object fn, tuple args, dict kwargs):
+  cdef Link link = Link.__new__(Link, fn, args, kwargs)
+  def _while_true(object cv = Null):
+    cdef object result, exc
+    try:
+      while True:
+        try:
+          result = evaluate_value(link, cv)
+        except _Continue:
+          continue
+        if iscoro(result):
+          return while_true_async(cv, link, result)
+    except _Break:
+      return cv
+    except _Return as exc:
+      if not bool(exc.args):
+        return cv
+      result = exc.args[0]
+      if result is Null:
+        return cv
+      return result
+  return Link.__new__(Link, _while_true)
+
+
+async def while_true_async(object cv, Link link, object result):
+  cdef object exc
+  try:
+    while True:
+      # TODO add a test which runs a function that returns a coroutine, and then
+      #  return a regular function that throws a coroutine. very unlikely case, but.
+      #  this tests the case where `await result` runs successfully (no continue) and then
+      #  `evaluate_value()` throws continue.
+      try:
+        if result is Null:
+          result = evaluate_value(link, cv)
+        if iscoro(result):
+          await result
+        result = evaluate_value(link, cv)
+      except _Continue:
+        result = Null
+  except _Break:
+    return cv
+  except _Return as exc:
+    if not bool(exc.args):
+      return cv
+    result = exc.args[0]
+    if result is Null:
+      return cv
+    return result
+
+
 def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
   cdef object el, result
   for el in iterator_getter(*run_args):

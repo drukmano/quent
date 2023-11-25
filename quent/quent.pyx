@@ -5,7 +5,9 @@ cimport cython
 #from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
 
 from quent.helpers cimport _handle_exception, ensure_future
-from quent.custom cimport _Generator, foreach, with_, build_conditional
+from quent.custom cimport (
+  _Generator, foreach, with_, build_conditional, while_true, _Return, _Break, _Continue, _InternalQuentException
+)
 
 
 cdef object _PipeCls
@@ -20,9 +22,6 @@ cdef class _Null:
 
 cdef _Null Null = _Null()
 PyNull = Null
-
-cdef class QuentException(Exception):
-  pass
 
 # same impl. of types.CoroutineType but for Cython coroutines.
 async def _py_coro(): pass
@@ -214,6 +213,9 @@ cdef class Chain:
         return None
       return cv
 
+    except _InternalQuentException:
+      raise  # passthrough
+
     except Exception as exc:
       result, reraise, return_except_result = _handle_exception(exc, self.except_links, link, rv, cv, idx)
       if iscoro(result):
@@ -279,6 +281,9 @@ cdef class Chain:
       if cv is Null:
         return None
       return cv
+
+    except _InternalQuentException:
+      raise  # passthrough
 
     except Exception as exc:
       result, reraise, return_except_result = _handle_exception(exc, self.except_links, link, rv, cv, idx)
@@ -357,6 +362,10 @@ cdef class Chain:
     if self.on_finally_link is not None:
       raise QuentException('You can only register one \'finally\' callback.')
     self.on_finally_link = Link.__new__(Link, __fn, args, kwargs)
+    return self
+
+  def while_true(self, object __fn, *args, **kwargs):
+    self._then(while_true(__fn, args, kwargs))
     return self
 
   def iterate(self, object fn = None):
@@ -464,6 +473,18 @@ cdef class Chain:
   @classmethod
   def null(cls):
     return Null
+
+  @classmethod
+  def return_(cls, object value = Null):
+    raise _Return(value)
+
+  @classmethod
+  def break_(cls):
+    raise _Break
+
+  @classmethod
+  def continue_(cls):
+    raise _Continue
 
   cdef void _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False):
     if self.current_conditional is None:

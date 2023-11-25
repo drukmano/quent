@@ -326,6 +326,73 @@ class SingleTest(MyTestCase):
             return v*2
           await self.assertEqual(f1(2), 16)
 
+  async def test_while(self):
+    class A:
+      def __init__(self):
+        self.i = 0
+    obj = object()
+    for fn, ctx in self.with_fn():
+      with ctx:
+        # test break
+        def f0():
+          Chain.break_()
+          raise Exception
+        await self.assertIs(Chain(obj).then(fn).while_true(f0, ...).run(), obj)
+        await self.assertEqual(Chain().then(fn, 1).while_true(Chain().then(fn).then(f0, ...)).run(), 1)
+
+        # test continue
+        def f0():
+          a.i += 1
+          if a.i == 10:
+            Chain.return_()
+            raise Exception
+          Chain.continue_()
+          raise Exception
+
+        a = A()
+        await self.assertIs(Chain(obj).then(fn).while_true(f0, ...).run(), obj)
+        a = A()
+        await self.assertIs(Chain(obj).then(fn).while_true(Chain().then(fn).then(f0, ...)).run(), obj)
+
+        # test return with different values
+        for incr in [1, 3, 7]:
+          with self.subTest(incr=incr):
+            def f1(v=0):
+              a.i += incr
+              if a.i == 10:
+                Chain.continue_()
+                a.i = 500
+              if a.i >= 500:
+                raise Exception
+              if a.i == 100:
+                Chain.return_(1+v)
+              elif a.i == 102:
+                Chain.return_(3+v)
+              elif a.i == 105:
+                Chain.return_(7+v)
+              elif a.i > 50:
+                return fn()  # test a change to async mid-loop.
+
+            async def f2(v=0):
+              r = f1(v)
+              if inspect.isawaitable(r):
+                return await r
+              return r
+
+            for loop_fn in [f1, f2]:
+              with self.subTest(loop_fn=loop_fn):
+                a = A()
+                await self.assertEqual(Chain().while_true(loop_fn).run(), incr)
+
+                a = A()
+                await self.assertEqual(Chain().while_true(Chain().then(fn, 0).then(loop_fn)).run(), incr)
+
+                a = A()
+                await self.assertEqual(Chain(None).while_true(loop_fn, ...).run(), incr)
+
+                a = A()
+                await self.assertEqual(Chain(5).while_true(loop_fn).run(), incr+5)
+
   async def test_iterate(self):
     A, B = SyncIterator, AsyncIterator
     rb = [i*2 for i in range(10)]
