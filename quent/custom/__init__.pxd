@@ -1,16 +1,21 @@
-from quent.quent cimport Link
+from quent.quent cimport Link, Null
+
 
 cdef class _InternalQuentException(Exception):
   pass
 
-cdef class _Return(_InternalQuentException):
+cdef class _InternalQuentException_Custom(_InternalQuentException):
+  cdef object _v
+  cdef tuple args
+  cdef dict kwargs
+
+cdef class _Return(_InternalQuentException_Custom):
   pass
 
-cdef class _Break(_InternalQuentException):
+cdef class _Break(_InternalQuentException_Custom):
   pass
 
-cdef class _Continue(_InternalQuentException):
-  pass
+cdef object handle_break_exc(_Break exc, object nv)
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false)
 

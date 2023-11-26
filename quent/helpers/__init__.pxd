@@ -1,4 +1,7 @@
 from quent.quent cimport Link
+from quent.custom cimport _Return
+
+cdef object handle_return_exc(_Return exc, bint propagate)
 
 cdef set task_registry
 

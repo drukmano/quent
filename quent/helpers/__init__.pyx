@@ -2,6 +2,15 @@ import collections.abc
 from asyncio import ensure_future as _ensure_future
 
 from quent.quent cimport Chain, Cascade, Link, evaluate_value, Null, QuentException
+from quent.custom cimport _Return
+
+
+cdef object handle_return_exc(_Return exc, bint propagate):
+  if propagate:
+    raise exc
+  if exc._v is Null:
+    return None
+  return evaluate_value(Link.__new__(Link, exc._v, exc.args, exc.kwargs, True), Null)
 
 
 # this holds a strong reference to all tasks that we create

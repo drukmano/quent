@@ -1,5 +1,18 @@
 import sys
-from quent.quent cimport Link, evaluate_value, Null, iscoro
+from quent.quent cimport Link, evaluate_value, Null, iscoro, QuentException
+
+
+cdef class _InternalQuentException_Custom(_InternalQuentException):
+  def __init__(self, object __v, tuple args, dict kwargs):
+    self._v = __v
+    self.args = args
+    self.kwargs = kwargs
+
+
+cdef object handle_break_exc(_Break exc, object nv):
+  if exc._v is Null:
+    return nv
+  return evaluate_value(Link.__new__(Link, exc._v, exc.args, exc.kwargs, True), Null)
 
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):
@@ -35,21 +48,11 @@ cdef Link while_true(object fn, tuple args, dict kwargs):
     cdef object result, exc
     try:
       while True:
-        try:
-          result = evaluate_value(link, cv)
-        except _Continue:
-          continue
+        result = evaluate_value(link, cv)
         if iscoro(result):
           return while_true_async(cv, link, result)
-    except _Break:
-      return cv
-    except _Return as exc:
-      if not bool(exc.args):
-        return cv
-      result = exc.args[0]
-      if result is Null:
-        return cv
-      return result
+    except _Break as exc:
+      return handle_break_exc(exc, cv)
   return Link.__new__(Link, _while_true)
 
 
@@ -57,84 +60,81 @@ async def while_true_async(object cv, Link link, object result):
   cdef object exc
   try:
     while True:
-      # TODO add a test which runs a function that returns a coroutine, and then
-      #  return a regular function that throws a coroutine. very unlikely case, but.
-      #  this tests the case where `await result` runs successfully (no continue) and then
-      #  `evaluate_value()` throws continue.
-      try:
-        if result is Null:
-          result = evaluate_value(link, cv)
-        if iscoro(result):
-          await result
-        result = evaluate_value(link, cv)
-      except _Continue:
-        result = Null
-  except _Break:
-    return cv
-  except _Return as exc:
-    if not bool(exc.args):
-      return cv
-    result = exc.args[0]
-    if result is Null:
-      return cv
+      if iscoro(result):
+        await result
+      result = evaluate_value(link, cv)
+  except _Break as exc:
+    result = handle_break_exc(exc, cv)
+    if iscoro(result):
+      return await result
     return result
 
 
 def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
-  cdef object el, result
-  for el in iterator_getter(*run_args):
-    if fn is None:
-      yield el
-    else:
-      result = fn(el)
-      # we ignore the case where `result` is awaitable - it's impossible to deal with.
-      if ignore_result:
+  cdef object el, result, exc
+  try:
+    for el in iterator_getter(*run_args):
+      if fn is None:
         yield el
       else:
-        yield result
+        result = fn(el)
+        # we ignore the case where `result` is awaitable - it's impossible to deal with.
+        if ignore_result:
+          yield el
+        else:
+          yield result
+  except _Break as exc:
+    return
+  except _Return:
+    raise QuentException('Using `.return_()` inside an iterator is not allowed.')
 
 
 async def async_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
-  cdef object el, result, iterator
+  cdef object el, result, iterator, exc
   iterator = iterator_getter(*run_args)
   if iscoro(iterator):
     iterator = await iterator
-  if hasattr(iterator, '__aiter__'):
-    async for el in iterator:
-      if fn is None:
-        result = el
-      else:
-        result = fn(el)
-      if iscoro(result):
-        result = await result
-      if ignore_result:
-        yield el
-      else:
-        yield result
-  else:
-    for el in iterator:
-      if fn is None:
-        result = el
-      else:
-        result = fn(el)
-      if iscoro(result):
-        result = await result
-      if ignore_result:
-        yield el
-      else:
-        yield result
+  try:
+    if hasattr(iterator, '__aiter__'):
+      async for el in iterator:
+        if fn is None:
+          result = el
+        else:
+          result = fn(el)
+          if iscoro(result):
+            result = await result
+        if ignore_result:
+          yield el
+        else:
+          yield result
+    else:
+      for el in iterator:
+        if fn is None:
+          result = el
+        else:
+          result = fn(el)
+          if iscoro(result):
+            result = await result
+        if ignore_result:
+          yield el
+        else:
+          yield result
+  except _Break as exc:
+    return
+  except _Return:
+    raise QuentException('Using `.return_()` inside an iterator is not allowed.')
 
 
 cdef class _Generator:
-  def __init__(self, _chain_run, _fn, _ignore_result):
+  def __init__(self, object _chain_run, object _fn, bint _ignore_result):
     self._chain_run = _chain_run
     self._fn = _fn
     self._ignore_result = _ignore_result
-    self._run_args = (Null, (), {})
+    self._run_args = (Null, (), {}, False)
 
-  def __call__(self, __v=Null, *args, **kwargs):
+  def __call__(self, object __v = Null, *args, **kwargs):
     # this allows nesting of _Generator within another Chain
-    self._run_args = (__v, args, kwargs)
+    self._run_args = (__v, args, kwargs, False)
     return self
 
   def __iter__(self):
@@ -149,33 +149,53 @@ cdef Link foreach(object fn, bint ignore_result):
     if hasattr(cv, '__aiter__'):
       return async_foreach(cv, fn, ignore_result)
     cdef list lst = []
-    cdef object el, result
+    cdef object el, result, exc
     cv = cv.__iter__()
-    for el in cv:
-      result = fn(el)
-      if iscoro(result):
-        return foreach_async(cv, fn, el, result, lst, ignore_result)
-      if ignore_result:
-        lst.append(el)
-      else:
-        lst.append(result)
-    return lst
+    try:
+      for el in cv:
+        result = fn(el)
+        if iscoro(result):
+          return foreach_async(cv, fn, el, result, lst, ignore_result)
+        if ignore_result:
+          lst.append(el)
+        else:
+          lst.append(result)
+      return lst
+    except _Break as exc:
+      return handle_break_exc(exc, lst)
   return Link.__new__(Link, _foreach)
 
 
 async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result):
-  result = await result
-  if ignore_result:
-    lst.append(el)
-  else:
-    lst.append(result)
+  cdef object exc
   # here we manually call __next__ instead of a for-loop to
   # prevent a call to cv.__iter__() which, depending on the iterator, may
   # produce a new iterator object, instead of continuing where we left
   # off at the sync-foreach version above.
-  while True:
-    try:
+  try:
+    while True:
+      if iscoro(result):
+        result = await result
+      if ignore_result:
+        lst.append(el)
+      else:
+        lst.append(result)
       el = cv.__next__()
+      result = fn(el)
+  except StopIteration:
+    return lst
+  except _Break as exc:
+    result = handle_break_exc(exc, lst)
+    if iscoro(result):
+      return await result
+    return result
+
+
+async def async_foreach(object cv, object fn, bint ignore_result):
+  cdef list lst = []
+  cdef object el, result, exc
+  try:
+    async for el in cv.__aiter__():
       result = fn(el)
       if iscoro(result):
         result = await result
@@ -183,22 +203,12 @@ async def foreach_async(object cv, object fn, object el, object result, list lst
         lst.append(el)
       else:
         lst.append(result)
-    except StopIteration:
-      return lst
-
-
-async def async_foreach(object cv, object fn, bint ignore_result):
-  cdef list lst = []
-  cdef object el, result
-  async for el in cv.__aiter__():
-    result = fn(el)
+    return lst
+  except _Break as exc:
+    result = handle_break_exc(exc, lst)
     if iscoro(result):
-      result = await result
-    if ignore_result:
-      lst.append(el)
-    else:
-      lst.append(result)
-  return lst
+      return await result
+    return result
 
 
 cdef Link with_(Link link, bint ignore_result):

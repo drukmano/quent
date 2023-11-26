@@ -4,9 +4,9 @@ import warnings
 cimport cython
 #from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
 
-from quent.helpers cimport _handle_exception, ensure_future
+from quent.helpers cimport _handle_exception, ensure_future, handle_return_exc
 from quent.custom cimport (
-  _Generator, foreach, with_, build_conditional, while_true, _Return, _Break, _Continue, _InternalQuentException
+  _Generator, foreach, with_, build_conditional, while_true, _Return, _Break, _InternalQuentException
 )
 
 
@@ -48,8 +48,18 @@ cdef class Link:
     self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, bint is_with_root = False,
     bint ignore_result = False, bint is_attr = False, bint is_fattr = False
   ):
-    if _PipeCls is not None and isinstance(v, _PipeCls):
-      v = v.function
+    # TODO if we ever add `is_nested` support for _FrozenChain, _Generator, we can
+    #  create `class _Quent` which they (and Chain) inherit from and just check
+    #  `isinstance(v, _Quent)`; _Quent class will also have _Quent.chain property
+    #  so we could mark `_Quent.chain.is_nested = True`.
+    if isinstance(v, Chain):
+      self.is_chain = True
+      (<Chain>v).is_nested = True
+      v = (<Chain>v)._run_nested
+    else:
+      self.is_chain = False
+      if _PipeCls is not None and isinstance(v, _PipeCls):
+        v = v.function
     self.v = v
     self.args = args
     self.kwargs = kwargs
@@ -79,21 +89,27 @@ cdef class Link:
 
 cdef object evaluate_value(Link link, object cv):
   cdef object v
-  if link.eval_code == EVAL_CALLABLE:
+
+  if link.is_chain:
+    if link.eval_code == EVAL_CALLABLE:
+      return link.v(cv, None, None)
+    elif link.eval_code == EVAL_CUSTOM_ARGS:
+      return link.v((link.args or (Null,))[0], tuple(link.args[1:]), link.kwargs)
+    elif link.eval_code == EVAL_NO_ARGS:
+      return link.v(Null, None, None)
+    else:
+      raise QuentException(
+        'Invalid evaluation code found for a nested chain.'
+        'If you see this error then something has terribly gone wrong.'
+      )
+
+  elif link.eval_code == EVAL_CALLABLE:
     if cv is Null:
       return link.v()
     else:
       return link.v(cv)
 
-  elif link.is_attr:
-    v = getattr(cv, link.v)
-    if link.eval_code == EVAL_NO_ARGS:
-      return v()
-    elif link.eval_code == EVAL_CUSTOM_ARGS:
-      return v(*link.args, **link.kwargs)
-    return v
-
-  else:
+  elif not link.is_attr:
     if link.eval_code == EVAL_CUSTOM_ARGS:
       # it is dangerous if one of those will be `None`, but it shouldn't be possible
       # as we only specify both or none.
@@ -102,6 +118,15 @@ cdef object evaluate_value(Link link, object cv):
       return link.v()
     else:
       return link.v
+
+  else:
+    v = getattr(cv, link.v)
+    if link.eval_code == EVAL_NO_ARGS:
+      return v()
+    elif link.eval_code == EVAL_CUSTOM_ARGS:
+      return v(*link.args, **link.kwargs)
+    else:
+      return v
 
 
 @cython.freelist(8)
@@ -119,6 +144,7 @@ cdef class Chain:
     self.is_cascade = is_cascade
     self._autorun = False
     self.uses_attr = False
+    self.is_nested = False
     if rv is not Null:
       self.root_link = Link.__new__(Link, rv, args, kwargs, True)
     else:
@@ -150,7 +176,12 @@ cdef class Chain:
       if self.root_link is not None and self.root_link.next_link is None:
         self.root_link.next_link = link
 
-  cdef object _run(self, object v, tuple args, dict kwargs):
+  cdef object _run_nested(self, object v, tuple args, dict kwargs):
+    return self._run(v, args, kwargs, True)
+
+  cdef object _run(self, object v, tuple args, dict kwargs, bint invoked_by_parent_chain):
+    if not invoked_by_parent_chain and self.is_nested:
+      raise QuentException('You cannot directly run a nested chain.')
     self.finalize()
     cdef:
       Link link = self.root_link
@@ -213,8 +244,16 @@ cdef class Chain:
         return None
       return cv
 
-    except _InternalQuentException:
-      raise  # passthrough
+    #  TODO implement smart except handlers - an exception is handled only by the next matching exception
+    #   in the chain, if an exception handler was registered *before* the link that threw it, it
+    #   should not handle it.
+    except _Return as exc:
+      return handle_return_exc(exc, self.is_nested)
+
+    except _InternalQuentException as exc:
+      if not self.is_nested:
+        raise QuentException(f'{type(exc)} cannot be used in this context.')
+      raise
 
     except Exception as exc:
       result, reraise, return_except_result = _handle_exception(exc, self.except_links, link, rv, cv, idx)
@@ -282,8 +321,16 @@ cdef class Chain:
         return None
       return cv
 
-    except _InternalQuentException:
-      raise  # passthrough
+    except _Return as exc:
+      result = handle_return_exc(exc, self.is_nested)
+      if iscoro(result):
+        return await result
+      return result
+
+    except _InternalQuentException as exc:
+      if not self.is_nested:
+        raise QuentException(f'{type(exc)} cannot be used in this context.')
+      raise
 
     except Exception as exc:
       result, reraise, return_except_result = _handle_exception(exc, self.except_links, link, rv, cv, idx)
@@ -318,6 +365,8 @@ cdef class Chain:
   #  )
 
   def freeze(self):
+    # shallow freeze; does not actually prevent modification of the chain itself.
+    # we need `_FrozenChain(self.clone()._run)` for that.
     self.finalize()
     return _FrozenChain(self._run)
 
@@ -325,7 +374,7 @@ cdef class Chain:
     return self.freeze().decorator()
 
   def run(self, object __v = Null, *args, **kwargs):
-    return self._run(__v, args, kwargs)
+    return self._run(__v, args, kwargs, False)
 
   def then(self, object __v, *args, **kwargs):
     self._then(Link.__new__(Link, __v, args, kwargs, True))
@@ -475,16 +524,12 @@ cdef class Chain:
     return Null
 
   @classmethod
-  def return_(cls, object value = Null):
-    raise _Return(value)
+  def return_(cls, object __v = Null, *args, **kwargs):
+    raise _Return(__v, args, kwargs)
 
   @classmethod
-  def break_(cls):
-    raise _Break
-
-  @classmethod
-  def continue_(cls):
-    raise _Continue
+  def break_(cls, object __v = Null, *args, **kwargs):
+    raise _Break(__v, args, kwargs)
 
   cdef void _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False):
     if self.current_conditional is None:
@@ -545,12 +590,12 @@ cdef class Chain:
 
   def __or__(self, other):
     if isinstance(other, run):
-      return self._run(other.root_value, other.args, other.kwargs)
+      return self._run(other.root_value, other.args, other.kwargs, False)
     self._then(Link.__new__(Link, other, None, None, True))
     return self
 
   def __call__(self, object __v = Null, *args, **kwargs):
-    return self._run(__v, args, kwargs)
+    return self._run(__v, args, kwargs, False)
 
   # while this may be nice to have, I fear that it will cause troubles as
   # people might forget to call `.run()` when dealing with non-async code (or
@@ -615,7 +660,7 @@ cdef class _FrozenChain:
     def _decorator(fn):
       @functools.wraps(fn)
       def wrapper(*args, **kwargs):
-        return _chain_run(fn, args, kwargs)
+        return _chain_run(fn, args, kwargs, False)
       return wrapper
     return _decorator
 
@@ -623,10 +668,10 @@ cdef class _FrozenChain:
     self._chain_run = _chain_run
 
   def run(self, object __v = Null, *args, **kwargs):
-    return self._chain_run(__v, args, kwargs)
+    return self._chain_run(__v, args, kwargs, False)
 
   def __call__(self, object __v = Null, *args, **kwargs):
-    return self._chain_run(__v, args, kwargs)
+    return self._chain_run(__v, args, kwargs, False)
 
 
 cdef class run:

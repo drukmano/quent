@@ -194,6 +194,19 @@ class ExcFinallyTests(MyExcTestCase):
     self.assertTrue(efc.ran_exc)
     self.assertTrue(efc.ran_finally)
 
+    # but, we can also await it if we use return_=True
+    efc = ExceptFinallyCheckAsync()
+    try:
+      r = await await_(
+        Chain(raise_).then(aempty)
+        .except_(Chain(asyncio.sleep, 0.1).then(efc.on_except, 1), ..., return_=True)
+        .run()
+      )
+      self.assertEqual(r, 1)
+    except Exception:
+      self.assertTrue(False)
+    self.assertTrue(efc.ran_exc)
+
   async def test_finally(self):
     for fn, efc_cls, ctx in self.with_fn_efc():
       with ctx:
