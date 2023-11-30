@@ -55,7 +55,7 @@ class Exc3(Exc2):
 
 
 def raise_(e=TestExc):
-  if e is None:
+  if e is None or type(e) != type:
     e = TestExc
   raise e
 
@@ -167,18 +167,35 @@ class ExcFinallyTests(MyExcTestCase):
     for fn, efc_cls, ctx in self.with_fn_efc():
       with ctx:
         efc = efc_cls()
-        self.assertIs(await await_(Chain(fn).then(raise_).except_(efc.on_except, obj, return_=True).run()), obj)
+        self.assertIs(await await_(Chain(fn).then(raise_).except_(efc.on_except, obj, raise_=False).run()), obj)
         self.assertTrue(efc.ran_exc)
 
         efc = efc_cls()
         efc2 = efc_cls()
         self.assertIs(await await_(
           Chain(fn).then(raise_, Exc2)
-          .except_(efc.on_except, object(), exceptions=Exc1, return_=True)
-          .except_(efc2.on_except, obj, exceptions=Exc2, return_=True)
+          .except_(efc.on_except, object(), exceptions=Exc1, raise_=False)
+          .except_(efc2.on_except, obj, exceptions=Exc2, raise_=False)
           .run()), obj)
         self.assertFalse(efc.ran_exc)
         self.assertTrue(efc2.ran_exc)
+
+        # conditionally re-raise the exception from an exception handler
+        def f(v):
+          if v:
+            raise
+        try:
+          await await_(Chain(fn, True).then(raise_).except_(f, raise_=False).run())
+          self.assertTrue(False)
+        except TestExc:
+          pass
+        except Exception:
+          self.assertTrue(False)
+        #
+        try:
+          await await_(Chain(fn, False).then(raise_).except_(f, raise_=False).run())
+        except TestExc:
+          self.assertTrue(False)
 
   async def test_multi_except(self):
     obj = object()
@@ -207,7 +224,7 @@ class ExcFinallyTests(MyExcTestCase):
         self.assertFalse(efc4.ran_exc)
         self.assertTrue(efc5.ran_exc)
 
-        # with return_=True
+        # with no raise
         efc1 = efc_cls()
         efc2 = efc_cls()
         efc3 = efc_cls()
@@ -218,7 +235,7 @@ class ExcFinallyTests(MyExcTestCase):
             .except_(efc1.on_except)
             .raise_(Exc1())
             .except_(efc2.on_except, exceptions=Exc2)
-            .except_(efc3.on_except, obj, exceptions=TestExc, return_=True)
+            .except_(efc3.on_except, obj, exceptions=TestExc, raise_=False)
             .except_(efc4.on_except)
             .run()
           ), obj)
@@ -287,12 +304,12 @@ class ExcFinallyTests(MyExcTestCase):
     self.assertTrue(efc.ran_exc)
     self.assertTrue(efc.ran_finally)
 
-    # but, we can also await it if we use return_=True
+    # but, we can also await it if we use no raise
     efc = ExceptFinallyCheckAsync()
     try:
       r = await await_(
         Chain(raise_).then(aempty)
-        .except_(Chain(asyncio.sleep, 0.1).then(efc.on_except, 1), ..., return_=True)
+        .except_(Chain(asyncio.sleep, 0.1).then(efc.on_except, 1), ..., raise_=False)
         .run()
       )
       self.assertEqual(r, 1)

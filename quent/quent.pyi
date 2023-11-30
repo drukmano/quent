@@ -55,8 +55,7 @@ class Chain:
 
   def except_(
     self, fn: Link[RootValue, IgnoredValue], *args: P.args,
-    exceptions: list[Type[BaseException]] | Type[BaseException] = None, raise_: bool = True, return_: bool = False,
-    **kwargs: P.kwargs
+    exceptions: list[Type[BaseException]] | Type[BaseException] = None, raise_: bool = True, **kwargs: P.kwargs
   ) -> Self: ...
 
   def finally_(self, fn: Link[RootValue, IgnoredValue], *args: P.args, **kwargs: P.kwargs) -> Self: ...

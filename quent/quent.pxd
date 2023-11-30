@@ -29,7 +29,7 @@ cdef class Link:
   cdef int eval_code
 
 cdef class ExceptLink(Link):
-  cdef bint raise_, return_
+  cdef bint raise_
   cdef object exceptions
 
 cdef object evaluate_value(Link link, object cv)

@@ -89,15 +89,11 @@ cdef class Link:
 
 
 cdef class ExceptLink(Link):
-  def __init__(
-    self, object fn, tuple args = None, dict kwargs = None, object exceptions = None, bint raise_ = True,
-    bint return_ = False
-  ):
+  def __init__(self, object fn, tuple args = None, dict kwargs = None, object exceptions = None, bint raise_ = True):
     super().__init__(fn, args, kwargs)
     self.is_exception_handler = True
     self.exceptions = exceptions
     self.raise_ = raise_
-    self.return_ = return_
 
 
 cdef object evaluate_value(Link link, object cv):
@@ -280,13 +276,11 @@ cdef class Chain:
           'It was therefore scheduled for execution in a new Task.',
           category=RuntimeWarning
         )
-        # we cannot check if result is Null here.
-        if exc_link.return_:
-          return result
-      elif exc_link.return_ and result is not Null:
-        return result
       if exc_link.raise_:
         raise exc
+      if result is Null:
+        return None
+      return result
 
     finally:
       if not ignore_finally and self.on_finally_link is not None:
@@ -355,10 +349,11 @@ cdef class Chain:
       result = evaluate_value(exc_link, rv)
       if iscoro(result):
         result = await result
-      if exc_link.return_ and result is not Null:
-        return result
       if exc_link.raise_:
         raise exc
+      if result is Null:
+        return None
+      return result
 
     finally:
       if self.on_finally_link is not None:
@@ -420,8 +415,8 @@ cdef class Chain:
     self._then(Link(__name, args, kwargs, is_attr=True, is_fattr=True))
     return self
 
-  def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, bint return_ = False, **kwargs):
-    self._then(ExceptLink(__fn, args, kwargs, exceptions=exceptions, raise_=raise_, return_=return_))
+  def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
+    self._then(ExceptLink(__fn, args, kwargs, exceptions=exceptions, raise_=raise_))
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
