@@ -181,7 +181,7 @@ cdef class Chain:
       self.current_link = link
     else:
       self.first_link = link
-      if self.root_link is not None and self.root_link.next_link is None:
+      if self.root_link is not None:
         self.root_link.next_link = link
 
   cdef object _run_nested(self, object v, tuple args, dict kwargs):
@@ -198,8 +198,6 @@ cdef class Chain:
       bint has_root_value = link is not None, is_root_value_override = v is not Null
       bint ignore_finally = False
       int idx = -1
-    cdef object v_, cv_
-    cdef int eval_code
 
     if is_root_value_override:
       if has_root_value:
