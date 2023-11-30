@@ -1512,7 +1512,6 @@ struct __pyx_obj_5quent_5quent_Link {
 struct __pyx_obj_5quent_5quent_ExceptLink {
   struct __pyx_obj_5quent_5quent_Link __pyx_base;
   int raise_;
-  int return_;
   PyObject *exceptions;
 };
 
