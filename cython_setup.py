@@ -36,7 +36,8 @@ if __name__ == '__main__':
       build_extensions('.pyx', tests=is_tests),
       #include_path=['quent/', 'quent/helpers/'],
       compiler_directives=compiler_directives,
-      annotate=is_tests
+      annotate=is_tests,
+      #https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html#Cython.Compiler.Options.closure_freelist_size
     ),
     packages=find_packages(),
   )

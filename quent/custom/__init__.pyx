@@ -12,7 +12,7 @@ cdef class _InternalQuentException_Custom(_InternalQuentException):
 cdef object handle_break_exc(_Break exc, object nv):
   if exc._v is Null:
     return nv
-  return evaluate_value(Link.__new__(Link, exc._v, exc.args, exc.kwargs, True), Null)
+  return evaluate_value(Link(exc._v, exc.args, exc.kwargs, True), Null)
 
 
 cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):
@@ -39,11 +39,11 @@ cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link 
       return evaluate_value(on_false, cv)
     return cv
 
-  return Link.__new__(Link, if_else)
+  return Link(if_else)
 
 
 cdef Link while_true(object fn, tuple args, dict kwargs):
-  cdef Link link = Link.__new__(Link, fn, args, kwargs)
+  cdef Link link = Link(fn, args, kwargs)
   def _while_true(object cv = Null):
     cdef object result, exc
     try:
@@ -53,7 +53,7 @@ cdef Link while_true(object fn, tuple args, dict kwargs):
           return while_true_async(cv, link, result)
     except _Break as exc:
       return handle_break_exc(exc, cv)
-  return Link.__new__(Link, _while_true)
+  return Link(_while_true)
 
 
 async def while_true_async(object cv, Link link, object result):
@@ -163,7 +163,7 @@ cdef Link foreach(object fn, bint ignore_result):
       return lst
     except _Break as exc:
       return handle_break_exc(exc, lst)
-  return Link.__new__(Link, _foreach)
+  return Link(_foreach)
 
 
 async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result):
@@ -227,7 +227,7 @@ cdef Link with_(Link link, bint ignore_result):
     finally:
       if not is_result_awaitable:
         cv.__exit__(*sys.exc_info())
-  return Link.__new__(Link, with_, ignore_result=ignore_result)
+  return Link(with_, ignore_result=ignore_result)
 
 
 async def with_async(object result, object cv):

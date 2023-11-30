@@ -4,19 +4,14 @@ import inspect
 from typing import *
 import time
 from contextlib import contextmanager, asynccontextmanager
-from tests.except_tests import ExceptFinallyCheckSync, raise_, ExceptFinallyCheckAsync
+from tests.except_tests import ExceptFinallyCheckSync, raise_, ExceptFinallyCheckAsync, TestExc, Exc1, Exc2, Exc3
 from tests.flex_context import FlexContext, AsyncFlexContext
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_
 from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
 
 
-class Exc1(Exception):
-  pass
-
-
-class Exc2(Exception):
-  pass
+# TODO split the tests - each functionality to separate file.
 
 
 class MyTestCase(IsolatedAsyncioTestCase):
@@ -418,7 +413,7 @@ class SingleTest(MyTestCase):
         # test break
         def f0():
           Chain.break_()
-          raise Exception
+          raise TestExc
         await self.assertIs(Chain(obj).then(fn).while_true(f0, ...).run(), obj)
         await self.assertEqual(Chain().then(fn, 1).while_true(Chain().then(fn).then(f0, ...)).run(), 1)
 
@@ -438,7 +433,7 @@ class SingleTest(MyTestCase):
                   incr_arg_ = (Chain(*incr_arg).then(lambda v_: v_+v),)
                 a.i += incr
                 if a.i >= 500:
-                  raise Exception
+                  raise TestExc
                 if a.i == 100:
                   Chain.break_(*incr_arg_)
                 elif a.i == 102:

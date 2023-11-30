@@ -8,6 +8,7 @@ import time
 from contextlib import contextmanager, asynccontextmanager
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import throw_if, empty, aempty, await_, DummySync, DummyAsync
+from tests.except_tests import TestExc
 from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import empty, aempty, await_, DummySync, DummyAsync
@@ -70,8 +71,8 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertEqual(await await_(Chain(1).then(fn).run()), 1)
         self.assertEqual(await await_(Chain(1).then(2).then(fn).run()), 2)
         self.assertEqual(await await_(Chain(1).then(fn).then(2).run()), 2)
-        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(1).then(throw_if).run())))
-        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(1).then(fn).then(throw_if).run())))
+        self.assertTrue(await assertRaisesAsync(TestExc, lambda: await_(Chain(1).then(throw_if).run())))
+        self.assertTrue(await assertRaisesAsync(TestExc, lambda: await_(Chain(1).then(fn).then(throw_if).run())))
         self.assertEqual(await await_(Chain(0).then(throw_if).then(fn).then(1).run()), 1)
         self.assertEqual(await await_(Chain(0).then(fn).then(throw_if).then(1).run()), 1)
 
@@ -83,8 +84,8 @@ class MainTest(IsolatedAsyncioTestCase):
         self.assertEqual(await await_(Chain(fn).then(2).run()), 2)
         self.assertEqual(await await_(Chain(fn).then(1).then(fn).run()), 1)
         self.assertEqual(await await_(Chain(fn).then(fn).then(1).run()), 1)
-        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
-        self.assertTrue(await assertRaisesAsync(Exception, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
+        self.assertTrue(await assertRaisesAsync(TestExc, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
+        self.assertTrue(await assertRaisesAsync(TestExc, lambda: await_(Chain(fn).then(1).then(throw_if).run())))
         self.assertEqual(await await_(Chain(fn).then(throw_if).then(fn).then(1).run()), 1)
         self.assertEqual(await await_(Chain(fn).then(fn).then(throw_if).then(1).run()), 1)
 
@@ -344,9 +345,6 @@ class MainTest(IsolatedAsyncioTestCase):
 
 
 class ConditionalTests(IsolatedAsyncioTestCase):
-  # TODO add tests to test the return value of all possible exception formats
-  # TODO improve naming
-
   async def yield_conditional(self, root_value, conditional_attr, truthy_value, falsy_value):
     for fn in [empty, aempty]:
       with self.subTest(fn=fn):
@@ -440,7 +438,7 @@ class ConditionalTests(IsolatedAsyncioTestCase):
         self.assertTrue(await await_(Chain(lambda: 1).then(fn).then(Chain().then(lambda v: v+5)).eq(6).run()))
 
   async def test_raise_if(self):
-    class Exc(Exception): pass
+    class Exc(TestExc): pass
     for fn, efc_cls in get_empty_and_cls():
       with self.subTest(fn=fn):
         exc_fin_check = efc_cls()
@@ -457,9 +455,9 @@ class ConditionalTests(IsolatedAsyncioTestCase):
 
         exc_fin_check = efc_cls()
         try:
-          await await_(Chain(1).then(fn).neq(1).if_raise(Exc(1)).else_raise(Exception(1)).except_(exc_fin_check.on_except).run())
+          await await_(Chain(1).then(fn).neq(1).if_raise(Exc(1)).else_raise(TestExc(1)).except_(exc_fin_check.on_except).run())
         except Exc: self.assertTrue(False)
-        except Exception: pass
+        except TestExc: pass
         self.assertTrue(exc_fin_check.ran_exc)
 
         self.assertTrue(await await_(Chain(1).then(fn).neq(1).if_raise(Exc(1)).eq(1).run()))
@@ -473,20 +471,20 @@ class ConditionalTests(IsolatedAsyncioTestCase):
 class TryExceptTest(IsolatedAsyncioTestCase):
   async def test_raise_on_await(self):
     async def f():
-      raise Exception
+      raise TestExc
 
     for fn, efc_cls in get_empty_and_cls():
       with self.subTest(fn=fn):
         exc_fin_check = efc_cls()
         try:
           await await_(Chain(f).then(fn).except_(exc_fin_check.on_except).run())
-        except Exception: pass
+        except TestExc: pass
         self.assertTrue(exc_fin_check.ran_exc)
 
         exc_fin_check = efc_cls()
         try:
           await await_(Chain(fn).then(f, ...).except_(exc_fin_check.on_except).run())
-        except Exception: pass
+        except TestExc: pass
         self.assertTrue(exc_fin_check.ran_exc)
 
   async def test_try_except_1(self):
@@ -519,7 +517,7 @@ class TryExceptTest(IsolatedAsyncioTestCase):
         exc_fin_check = efc_cls()
         try:
           await await_(Chain(True).then(fn).then(throw_if).except_(exc_fin_check.on_except).finally_(exc_fin_check.on_finally).run())
-        except Exception: pass
+        except TestExc: pass
         self.assertTrue(exc_fin_check.ran_exc)
         self.assertTrue(exc_fin_check.ran_finally)
 
@@ -529,7 +527,7 @@ class TryExceptTest(IsolatedAsyncioTestCase):
         exc_fin_check = efc_cls()
         try:
           await await_(Chain(True).then(fn).then(throw_if).except_(exc_fin_check.on_except, ...).finally_(exc_fin_check.on_finally, ...).run())
-        except Exception: pass
+        except TestExc: pass
         self.assertTrue(exc_fin_check.ran_exc)
         self.assertTrue(exc_fin_check.ran_finally)
 
@@ -539,7 +537,7 @@ class TryExceptTest(IsolatedAsyncioTestCase):
         exc_fin_check = efc_cls()
         try:
           await await_(Chain(True).then(fn).then(throw_if).except_(exc_fin_check.on_except, register=False).finally_(exc_fin_check.on_finally, register=False).run())
-        except Exception: pass
+        except TestExc: pass
         self.assertFalse(exc_fin_check.ran_exc)
         self.assertFalse(exc_fin_check.ran_finally)
 
@@ -555,7 +553,7 @@ class TryExceptTest(IsolatedAsyncioTestCase):
         .finally_(Chain(asyncio.sleep, 0.1).then(exc_fin_check.on_finally), ...)
         .run()
       )
-    except Exception: pass
+    except TestExc: pass
     self.assertFalse(exc_fin_check.ran_exc)
     self.assertFalse(exc_fin_check.ran_finally)
     await asyncio.sleep(0.3)  # allow for the tasks to finish
@@ -697,13 +695,13 @@ class AttributesTest(IsolatedAsyncioTestCase):
 
 class MegaTests(IsolatedAsyncioTestCase):
   async def test_mega_chain(self):
-    class Exc1(Exception):
+    class Exc1(TestExc):
       pass
     def throw():
-      raise Exception
+      raise TestExc
     def throw_if(v):
       if v:
-        raise Exception
+        raise TestExc
       return v
     def throw_if_1(v):
       if v:

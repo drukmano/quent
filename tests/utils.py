@@ -1,9 +1,13 @@
 import inspect
 
 
+class TestExc(Exception):
+  pass
+
+
 def throw_if(v):
   if v:
-    raise Exception
+    raise TestExc
   return v
 
 

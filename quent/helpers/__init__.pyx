@@ -1,7 +1,7 @@
 import collections.abc
 from asyncio import ensure_future as _ensure_future
 
-from quent.quent cimport Chain, Cascade, Link, evaluate_value, Null, QuentException
+from quent.quent cimport Chain, Cascade, Link, evaluate_value, Null, QuentException, ExceptLink
 from quent.custom cimport _Return
 
 
@@ -10,7 +10,7 @@ cdef object handle_return_exc(_Return exc, bint propagate):
     raise exc
   if exc._v is Null:
     return None
-  return evaluate_value(Link.__new__(Link, exc._v, exc.args, exc.kwargs, True), Null)
+  return evaluate_value(Link(exc._v, exc.args, exc.kwargs, True), Null)
 
 
 # this holds a strong reference to all tasks that we create
@@ -39,23 +39,25 @@ cdef object ensure_future(object coro):
   return task
 
 
-cdef object _handle_exception(object exc, list except_links, Link link, object rv, object cv, int idx):
+cdef ExceptLink _handle_exception(object exc, Link link, object cv, int idx):
+  cdef ExceptLink exc_link
   cdef object quent_exc = create_chain_link_exception(link, cv, idx), exceptions
-  cdef bint raise_, return_, exc_match
-  cdef object chain
+
   if exc.__cause__ is not None:
     if quent_exc.__cause__ is None:
       quent_exc.__cause__ = exc.__cause__
     else:
       quent_exc.__cause__.__cause__ = exc.__cause__
   exc.__cause__ = quent_exc
-  if except_links is None:
-    return None, True, False
-  for link, exceptions, raise_, return_ in except_links:
-    if exceptions is None:
-      exc_match = True
-    else:
-      exc_match = False
+
+  while link is not None:
+    if not link.is_exception_handler:
+      link = link.next_link
+      continue
+    exc_link = link
+    link = link.next_link
+    if exc_link.exceptions is not None:
+      exceptions = exc_link.exceptions
       if not isinstance(exceptions, collections.abc.Iterable):
         exceptions = (exceptions,)
       else:
@@ -63,12 +65,11 @@ cdef object _handle_exception(object exc, list except_links, Link link, object r
       try:
         raise exc
       except exceptions:
-        exc_match = True
+        return exc_link
       except type(exc):
-        pass
-    if exc_match:
-      return evaluate_value(link, rv), raise_, return_
-  return None, True, False
+        continue
+    return exc_link
+  return None
 
 
 cdef object create_chain_link_exception(Link link, object cv, int idx):

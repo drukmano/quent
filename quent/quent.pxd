@@ -25,8 +25,12 @@ cdef class Link:
   cdef Link next_link
   cdef tuple args
   cdef dict kwargs
-  cdef bint is_attr, is_fattr, is_with_root, ignore_result, is_chain
+  cdef bint is_attr, is_fattr, is_with_root, ignore_result, is_chain, is_exception_handler
   cdef int eval_code
+
+cdef class ExceptLink(Link):
+  cdef bint raise_, return_
+  cdef object exceptions
 
 cdef object evaluate_value(Link link, object cv)
 
@@ -34,7 +38,6 @@ cdef class Chain:
   cdef:
     Link root_link, first_link, on_finally_link
     Link current_link
-    list except_links
     bint is_cascade, _autorun, uses_attr, is_nested
     tuple current_conditional, on_true
     str current_attr
