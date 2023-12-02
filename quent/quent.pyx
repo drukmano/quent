@@ -69,13 +69,22 @@ cdef class Link:
     self.is_fattr = is_fattr
     self.is_exception_handler = False
     self.next_link = None
-    if bool(args):
+    if args:
       if args[0] is ...:
         self.eval_code = EVAL_NO_ARGS
       else:
+        if kwargs is None:
+          self.kwargs = {}
         self.eval_code = EVAL_CUSTOM_ARGS
-    elif bool(kwargs):
-      self.eval_code =  EVAL_CUSTOM_ARGS
+    elif kwargs:
+      if self.is_chain:
+        # A Chain cannot be run with custom keyword arguments but without
+        # at least one positional argument.
+        self.eval_code = EVAL_NO_ARGS
+      else:
+        if args is None:
+          self.args = ()
+        self.eval_code =  EVAL_CUSTOM_ARGS
     elif callable(v):
       self.eval_code =  EVAL_CALLABLE
     elif is_fattr:
@@ -91,6 +100,7 @@ cdef class Link:
 cdef class ExceptLink(Link):
   def __init__(self, object fn, tuple args = None, dict kwargs = None, object exceptions = None, bint raise_ = True):
     super().__init__(fn, args, kwargs)
+    self.ignore_result = True
     self.is_exception_handler = True
     self.exceptions = exceptions
     self.raise_ = raise_
@@ -103,13 +113,16 @@ cdef object evaluate_value(Link link, object cv):
     if link.eval_code == EVAL_CALLABLE:
       return link.v(cv, None, None)
     elif link.eval_code == EVAL_CUSTOM_ARGS:
-      return link.v((link.args or (Null,))[0], tuple(link.args[1:]), link.kwargs)
+      if not link.args or link.kwargs is None:
+        # This is for extra safety to avoid segfault.
+        return link.v(Null, None, None)
+      return link.v(link.args[0], link.args[1:], link.kwargs)
     elif link.eval_code == EVAL_NO_ARGS:
       return link.v(Null, None, None)
     else:
       raise QuentException(
         'Invalid evaluation code found for a nested chain.'
-        'If you see this error then something has terribly gone wrong.'
+        'If you see this error then something has gone terribly wrong.'
       )
 
   elif link.eval_code == EVAL_CALLABLE:
@@ -120,8 +133,9 @@ cdef object evaluate_value(Link link, object cv):
 
   elif not link.is_attr:
     if link.eval_code == EVAL_CUSTOM_ARGS:
-      # it is dangerous if one of those will be `None`, but it shouldn't be possible
-      # as we only specify both or none.
+      if link.args is None or link.kwargs is None:
+        # This is for extra safety to avoid segfault.
+        return link.v()
       return link.v(*link.args, **link.kwargs)
     elif link.eval_code == EVAL_NO_ARGS:
       return link.v()
@@ -133,6 +147,9 @@ cdef object evaluate_value(Link link, object cv):
     if link.eval_code == EVAL_NO_ARGS:
       return v()
     elif link.eval_code == EVAL_CUSTOM_ARGS:
+      if link.args is None or link.kwargs is None:
+        # This is for extra safety to avoid segfault.
+        return link.v()
       return v(*link.args, **link.kwargs)
     else:
       return v
@@ -225,15 +242,12 @@ cdef class Chain:
         link = self.first_link
 
       while link is not None:
-        # NOTE this statement + the extra `is_exception_handler` property hurts performance
-        # a bit; the only way to mitigate that is to store the exception links separately
-        # and with some sort of index to indicate which links each exception handler handles.
-        if link.is_exception_handler:
-          link = link.next_link
-          continue
-        idx += 1
         if link.ignore_result:
+          if link.is_exception_handler:
+            link = link.next_link
+            continue
           pv = cv
+        idx += 1
         if link.is_with_root:
           cv = evaluate_value(link, rv)
         else:
@@ -307,12 +321,12 @@ cdef class Chain:
 
       link = link.next_link
       while link is not None:
-        if link.is_exception_handler:
-          link = link.next_link
-          continue
-        idx += 1
         if link.ignore_result:
+          if link.is_exception_handler:
+            link = link.next_link
+            continue
           pv = cv
+        idx += 1
         if link.is_with_root:
           cv = evaluate_value(link, rv)
         else:

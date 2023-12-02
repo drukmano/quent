@@ -154,7 +154,7 @@ class SingleTest(MyTestCase):
       await efc.on_except()
     await self.assertTrue(efc.ran_exc)
 
-    # running a nested chain directly
+    # directly running a nested chain
     efc = ExceptFinallyCheckSync()
     try:
       c = Chain().then(None)
