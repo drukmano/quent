@@ -543,6 +543,11 @@ cdef class Chain:
     self._then(Link(raise_))
     return self
 
+  def sleep(self, float delay):
+    def sleep(object cv): return asyncio.sleep(delay) if asyncio._get_running_loop() else time.sleep(delay)
+    self._then(Link(sleep, ignore_result=True))
+    return self
+
   @classmethod
   def null(cls):
     return Null
