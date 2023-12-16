@@ -1,10 +1,18 @@
+import sys
+import asyncio
+import inspect
+import time
 import types
 import functools
 import warnings
 cimport cython
 #from cpython.ref cimport PyObject, Py_INCREF, Py_DECREF
 
-from quent.helpers cimport _handle_exception, ensure_future, handle_return_exc
+from quent._internal import __QUENT_INTERNAL__
+from quent.helpers cimport (
+  _handle_exception, ensure_future, handle_return_exc, remove_self_frames_from_traceback, stringify_chain,
+  modify_traceback
+)
 from quent.custom cimport (
   _Generator, foreach, with_, build_conditional, while_true, _Return, _Break, _InternalQuentException
 )
@@ -42,11 +50,29 @@ cdef:
   int EVAL_ATTR = 1005
 
 
+async def _await_run(result, chain=None, link=None):
+  try:
+    return await result
+  except BaseException as exc:
+    if chain is not None and link is not None:
+      modify_traceback(exc, chain, link)
+    raise remove_self_frames_from_traceback()
+
+
+async def _await_modify_traceback(result, chain, link):
+  try:
+    return await result
+  except BaseException as exc:
+    modify_traceback(exc, chain, link)
+    raise remove_self_frames_from_traceback()
+
+
 @cython.freelist(32)
 cdef class Link:
   def __init__(
-    self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, bint is_with_root = False,
-    bint ignore_result = False, bint is_attr = False, bint is_fattr = False
+    self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, str fn_name = None,
+    bint is_with_root = False, bint ignore_result = False, bint is_attr = False, bint is_fattr = False,
+    object ogv = None,
   ):
     # TODO if we ever add `is_nested` support for _FrozenChain, _Generator, we can
     #  create `class _Quent` which they (and Chain) inherit from and just check
@@ -55,7 +81,6 @@ cdef class Link:
     if isinstance(v, Chain):
       self.is_chain = True
       (<Chain>v).is_nested = True
-      v = (<Chain>v)._run_nested
     else:
       self.is_chain = False
       if _PipeCls is not None and isinstance(v, _PipeCls):
@@ -67,6 +92,11 @@ cdef class Link:
     self.ignore_result = ignore_result
     self.is_attr = is_attr
     self.is_fattr = is_fattr
+    self.ogv = ogv
+    self.fn_name = fn_name
+    self.result = Null
+    self.temp_args = None
+
     self.is_exception_handler = False
     self.next_link = None
     if args:
@@ -104,21 +134,24 @@ cdef class ExceptLink(Link):
     self.is_exception_handler = True
     self.exceptions = exceptions
     self.raise_ = raise_
+    self.fn_name = 'except_'
 
 
 cdef object evaluate_value(Link link, object cv):
   cdef object v
 
   if link.is_chain:
+    # we deliberately did not set `link.v = <Chain>v` in `Link.__init__` since
+    # it adds an ugly, unreadable stack frame in case of an exception.
     if link.eval_code == EVAL_CALLABLE:
-      return link.v(cv, None, None)
+      return (<Chain>link.v)._run(cv, None, None, True)
     elif link.eval_code == EVAL_CUSTOM_ARGS:
       if not link.args or link.kwargs is None:
         # This is for extra safety to avoid segfault.
-        return link.v(Null, None, None)
-      return link.v(link.args[0], link.args[1:], link.kwargs)
+        return (<Chain>link.v)._run(Null, None, None, True)
+      return (<Chain>link.v)._run(link.args[0], link.args[1:], link.kwargs, True)
     elif link.eval_code == EVAL_NO_ARGS:
-      return link.v(Null, None, None)
+      return (<Chain>link.v)._run(Null, None, None, True)
     else:
       raise QuentException(
         'Invalid evaluation code found for a nested chain.'
@@ -177,6 +210,7 @@ cdef class Chain:
       self.root_link = None
     self.first_link = None
     self.current_link = None
+    self.temp_root_link = None
 
     self.on_true = None
     self.on_finally_link = None
@@ -201,9 +235,6 @@ cdef class Chain:
       if self.root_link is not None:
         self.root_link.next_link = link
 
-  cdef object _run_nested(self, object v, tuple args, dict kwargs):
-    return self._run(v, args, kwargs, True)
-
   cdef object _run(self, object v, tuple args, dict kwargs, bint invoked_by_parent_chain):
     if not invoked_by_parent_chain and self.is_nested:
       raise QuentException('You cannot directly run a nested chain.')
@@ -214,7 +245,9 @@ cdef class Chain:
       object pv = Null, cv = Null, rv = Null, result = None, exc = None
       bint has_root_value = link is not None, is_root_value_override = v is not Null
       bint ignore_finally = False
-      int idx = -1
+
+    if self.temp_root_link is not None:
+      self.temp_root_link = None
 
     if is_root_value_override:
       if has_root_value:
@@ -225,18 +258,20 @@ cdef class Chain:
 
     try:
       if is_root_value_override:
-        link = Link(v, args, kwargs, True)
+        self.temp_root_link = Link(v, args, kwargs, True)
+        link = self.temp_root_link
         link.next_link = self.first_link
         has_root_value = True
       if has_root_value:
         rv = evaluate_value(link, Null)
         if iscoro(rv):
           ignore_finally = True
-          result = self._run_async(link, cv=rv, rv=Null, pv=Null, idx=idx, has_root_value=has_root_value)
+          result = self._run_async(link, cv=rv, rv=Null, pv=Null, has_root_value=has_root_value)
           if self._autorun:
             return ensure_future(result)
           return result
         cv = rv
+        link.result = rv
         link = link.next_link
       else:
         link = self.first_link
@@ -247,17 +282,17 @@ cdef class Chain:
             link = link.next_link
             continue
           pv = cv
-        idx += 1
         if link.is_with_root:
           cv = evaluate_value(link, rv)
         else:
           cv = evaluate_value(link, cv)
         if iscoro(cv):
           ignore_finally = True
-          result = self._run_async(link, cv=cv, rv=rv, pv=pv, idx=idx, has_root_value=has_root_value)
+          result = self._run_async(link, cv=cv, rv=rv, pv=pv, has_root_value=has_root_value)
           if self._autorun:
             return ensure_future(result)
           return result
+        link.result = cv
         if link.ignore_result:
           cv = pv
         link = link.next_link
@@ -269,20 +304,28 @@ cdef class Chain:
       return cv
 
     except _Return as exc:
+      # TODO we can probably improve performance (quite a bit) when using .break_() and .return_()
+      #  by not throwing an exception and then catching it but just return a value _Break / _Return (like Null)
       return handle_return_exc(exc, self.is_nested)
 
-    except _InternalQuentException as exc:
-      if not self.is_nested:
-        raise QuentException(f'{type(exc)} cannot be used in this context.')
-      raise
-
-    except Exception as exc:
-      exc_link = _handle_exception(exc, link, cv, idx)
+    except BaseException as exc:
+      if issubclass(type(exc), _InternalQuentException):
+        if self.is_nested:
+          raise
+        try:
+          raise QuentException(f'{type(exc)} cannot be used in this context.')
+        except QuentException as exc_:
+          exc = exc_
+      exc_link = _handle_exception(exc, self, link)
       if exc_link is None:
         raise exc
-      result = evaluate_value(exc_link, rv)
+      try:
+        result = evaluate_value(exc_link, rv)
+      except BaseException as exc_:
+        modify_traceback(exc_, self, exc_link)
+        raise exc_ from exc
       if iscoro(result):
-        result = ensure_future(result)
+        result = ensure_future(_await_modify_traceback(result, self, exc_link))
         warnings.warn(
           'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
           'It was therefore scheduled for execution in a new Task.',
@@ -296,22 +339,27 @@ cdef class Chain:
 
     finally:
       if not ignore_finally and self.on_finally_link is not None:
-        result = evaluate_value(self.on_finally_link, rv)
+        try:
+          result = evaluate_value(self.on_finally_link, rv)
+        except BaseException as exc_:
+          modify_traceback(exc_, self, self.on_finally_link)
+          raise exc_
         if iscoro(result):
-          ensure_future(result)
+          ensure_future(_await_modify_traceback(result, self, self.on_finally_link))
           warnings.warn(
             'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode. '
             'It was therefore scheduled for execution in a new Task.',
             category=RuntimeWarning
           )
 
-  async def _run_async(self, Link link, object cv, object rv, object pv, int idx, bint has_root_value):
+  async def _run_async(self, Link link, object cv, object rv, object pv, bint has_root_value):
     cdef:
       ExceptLink exc_link
       object exc, result
 
     try:
       cv = await cv
+      link.result = cv
       if link.ignore_result:
         cv = pv
       # update the root value only if this is not a void chain, since otherwise
@@ -326,13 +374,13 @@ cdef class Chain:
             link = link.next_link
             continue
           pv = cv
-        idx += 1
         if link.is_with_root:
           cv = evaluate_value(link, rv)
         else:
           cv = evaluate_value(link, cv)
         if iscoro(cv):
           cv = await cv
+        link.result = cv
         if link.ignore_result:
           cv = pv
         link = link.next_link
@@ -349,18 +397,24 @@ cdef class Chain:
         return await result
       return result
 
-    except _InternalQuentException as exc:
-      if not self.is_nested:
-        raise QuentException(f'{type(exc)} cannot be used in this context.')
-      raise
-
-    except Exception as exc:
-      exc_link = _handle_exception(exc, link, cv, idx)
+    except BaseException as exc:
+      if issubclass(type(exc), _InternalQuentException):
+        if self.is_nested:
+          raise
+        try:
+          raise QuentException(f'{type(exc)} cannot be used in this context.')
+        except QuentException as exc_:
+          exc = exc_
+      exc_link = _handle_exception(exc, self, link)
       if exc_link is None:
         raise exc
-      result = evaluate_value(exc_link, rv)
-      if iscoro(result):
-        result = await result
+      try:
+        result = evaluate_value(exc_link, rv)
+        if iscoro(result):
+          result = await result
+      except BaseException as exc_:
+        modify_traceback(exc_, self, exc_link)
+        raise exc_ from exc
       if exc_link.raise_:
         raise exc
       if result is Null:
@@ -369,13 +423,20 @@ cdef class Chain:
 
     finally:
       if self.on_finally_link is not None:
-        result = evaluate_value(self.on_finally_link, rv)
-        if iscoro(result):
-          await result
+        try:
+          result = evaluate_value(self.on_finally_link, rv)
+          if iscoro(result):
+            await result
+        except BaseException as exc_:
+          modify_traceback(exc_, self, self.on_finally_link)
+          raise exc_
 
-  def config(self, *, object autorun = None):
+  def config(self, *, object autorun = None, object debug = None):
     if autorun is not None:
       self._autorun = bool(autorun)
+    # TODO
+    #if debug is not None:
+    #  self._debug = bool(debug)
     return self
 
   def autorun(self, bint autorun = True):
@@ -400,31 +461,37 @@ cdef class Chain:
     return self.freeze().decorator()
 
   def run(self, object __v = Null, *args, **kwargs):
-    return self._run(__v, args, kwargs, False)
+    try:
+      result = self._run(__v, args, kwargs, False)
+      if iscoro(result):
+        return _await_run(result)
+      return result
+    except BaseException:
+      raise remove_self_frames_from_traceback()
 
   def then(self, object __v, *args, **kwargs):
-    self._then(Link(__v, args, kwargs, True))
+    self._then(Link(__v, args, kwargs, True, 'then'))
     return self
 
   def do(self, object __fn, *args, **kwargs):
     # register a value to be evaluated but will not propagate its result forwards.
-    self._then(Link(__fn, args, kwargs, ignore_result=True))
+    self._then(Link(__fn, args, kwargs, fn_name='do', ignore_result=True))
     return self
 
   def root(self, object __fn, *args, **kwargs):
-    self._then(Link(__fn, args, kwargs, is_with_root=True))
+    self._then(Link(__fn, args, kwargs, fn_name='root', is_with_root=True))
     return self
 
   def root_do(self, object __fn, *args, **kwargs):
-    self._then(Link(__fn, args, kwargs, is_with_root=True, ignore_result=True))
+    self._then(Link(__fn, args, kwargs, fn_name='root_do', is_with_root=True, ignore_result=True))
     return self
 
   def attr(self, str name):
-    self._then(Link(name, is_attr=True))
+    self._then(Link(name, fn_name='attr', is_attr=True))
     return self
 
   def attr_fn(self, str __name, *args, **kwargs):
-    self._then(Link(__name, args, kwargs, is_attr=True, is_fattr=True))
+    self._then(Link(__name, args, kwargs, fn_name='attr_fn', is_attr=True, is_fattr=True))
     return self
 
   def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
@@ -434,7 +501,7 @@ cdef class Chain:
   def finally_(self, object __fn, *args, **kwargs):
     if self.on_finally_link is not None:
       raise QuentException('You can only register one \'finally\' callback.')
-    self.on_finally_link = Link(__fn, args, kwargs)
+    self.on_finally_link = Link(__fn, args, kwargs, fn_name='finally_')
     return self
 
   def while_true(self, object __fn, *args, **kwargs):
@@ -456,96 +523,92 @@ cdef class Chain:
     return self
 
   def with_(self, object __fn, *args, **kwargs):
-    self._then(with_(Link(__fn, args, kwargs), ignore_result=False))
+    self._then(with_(__fn, args, kwargs, ignore_result=False))
     return self
 
   def with_do(self, object __fn, *args, **kwargs):
-    self._then(with_(Link(__fn, args, kwargs), ignore_result=True))
+    self._then(with_(__fn, args, kwargs, ignore_result=True))
     return self
 
   def if_(self, object __v, *args, **kwargs):
-    self._if(__v, args, kwargs)
+    self._if(Link(__v, args, kwargs, True, fn_name='if_'))
     return self
 
   def else_(self, object __v, *args, **kwargs):
-    self._else(__v, args, kwargs)
+    self._else(Link(__v, args, kwargs, True, fn_name='else_'))
     return self
 
   def if_not(self, object __v, *args, **kwargs):
-    self._if(__v, args, kwargs, not_=True)
+    self._if(Link(__v, args, kwargs, True, fn_name='if_not'), not_=True)
     return self
 
   def if_raise(self, object exc):
     def if_raise(object cv): raise exc
-    self._if(if_raise)
+    self._if(Link(if_raise, fn_name='if_raise', ogv=exc))
     return self
 
   def else_raise(self, object exc):
     def else_raise(object cv): raise exc
-    self._else(else_raise)
+    self._else(Link(else_raise, fn_name='else_raise', ogv=exc))
     return self
 
   def if_not_raise(self, object exc):
     def if_not_raise(object cv): raise exc
-    self._if(if_not_raise, None, None, not_=True)
+    self._if(Link(if_not_raise, fn_name='if_not_raise', ogv=exc), not_=True)
     return self
 
   def condition(self, object __fn, *args, **kwargs):
-    cdef Link link = Link(__fn, args, kwargs)
-    def condition(object cv):
-      return evaluate_value(link, cv)
-    self.set_conditional(condition, custom=True)
+    self.set_conditional(Link(__fn, args, kwargs, fn_name='condition'), custom=True)
     return self
 
   def not_(self):
-    # use named functions (instead of a lambda) to have more details in the exception stacktrace
-    def not_(object cv) -> bool: return not cv
-    self.set_conditional(not_)
+    def not_(object cv): return not cv
+    self.set_conditional(Link(not_, fn_name='not_'))
     return self
 
   def eq(self, object value):
-    def equals(object cv) -> bool: return cv == value
-    self.set_conditional(equals)
+    def eq(object cv): return cv == value
+    self.set_conditional(Link(eq, fn_name='eq', ogv=value))
     return self
 
   def neq(self, object value):
-    def not_equals(object cv) -> bool: return cv != value
-    self.set_conditional(not_equals)
+    def neq(object cv): return cv != value
+    self.set_conditional(Link(neq, fn_name='neq', ogv=value))
     return self
 
   def is_(self, object value):
-    def is_(object cv) -> bool: return cv is value
-    self.set_conditional(is_)
+    def is_(object cv): return cv is value
+    self.set_conditional(Link(is_, fn_name='is_', ogv=value))
     return self
 
   def is_not(self, object value):
-    def is_not(object cv) -> bool: return cv is not value
-    self.set_conditional(is_not)
+    def is_not(object cv): return cv is not value
+    self.set_conditional(Link(is_not, fn_name='is_not', ogv=value))
     return self
 
   def in_(self, object value):
-    def in_(object cv) -> bool: return cv in value
-    self.set_conditional(in_)
+    def in_(object cv): return cv in value
+    self.set_conditional(Link(in_, fn_name='in_', ogv=value))
     return self
 
   def not_in(self, object value):
-    def not_in(object cv) -> bool: return cv not in value
-    self.set_conditional(not_in)
+    def not_in(object cv): return cv not in value
+    self.set_conditional(Link(not_in, fn_name='not_in', ogv=value))
     return self
 
   def or_(self, object value):
     def or_(object cv): return cv or value
-    self._then(Link(or_))
+    self._then(Link(or_, fn_name='or_', ogv=value))
     return self
 
   def raise_(self, object exc):
     def raise_(object cv): raise exc
-    self._then(Link(raise_))
+    self._then(Link(raise_, fn_name='raise_', ogv=exc))
     return self
 
   def sleep(self, float delay):
     def sleep(object cv): return asyncio.sleep(delay) if asyncio._get_running_loop() else time.sleep(delay)
-    self._then(Link(sleep, ignore_result=True))
+    self._then(Link(sleep, fn_name='sleep', ogv=delay, ignore_result=True))
     return self
 
   @classmethod
@@ -560,19 +623,19 @@ cdef class Chain:
   def break_(cls, object __v = Null, *args, **kwargs):
     raise _Break(__v, args, kwargs)
 
-  cdef void _if(self, object on_true, tuple args = None, dict kwargs = None, bint not_ = False):
+  cdef void _if(self, Link on_true, bint not_ = False):
     if self.current_conditional is None:
-      self.current_conditional = (bool, False)
-    self.on_true = (Link(on_true, args, kwargs, True), not_)
+      self.current_conditional = (None, False)
+    self.on_true = (on_true, not_)
 
-  cdef void _else(self, object on_false, tuple args = None, dict kwargs = None):
+  cdef void _else(self, Link on_false):
     if self.on_true is None:
       raise QuentException(
         'You cannot use \'.else_()\' without a preceding \'.if_()\' or \'.if_not()\''
       )
-    self.finalize_conditional(on_false, args, kwargs)
+    self.finalize_conditional(on_false)
 
-  cdef void set_conditional(self, object conditional, bint custom = False):
+  cdef void set_conditional(self, Link conditional, bint custom = False):
     self.finalize()
     self.current_conditional = (conditional, custom)
 
@@ -586,21 +649,19 @@ cdef class Chain:
       self.current_attr = None
       self._then(Link(attr, is_attr=True))
 
-  cdef void finalize_conditional(self, object on_false = Null, tuple args = None, dict kwargs = None):
+  cdef void finalize_conditional(self, Link on_false = None):
     cdef:
-      object conditional
-      Link on_true_link, on_false_link = None
+      Link conditional
+      Link on_true
       bint is_custom, not_
     conditional, is_custom = self.current_conditional
     self.current_conditional = None
     if self.on_true:
-      on_true_link, not_ = self.on_true
-      if on_false is not Null:
-        on_false_link = Link(on_false, args, kwargs, True)
+      on_true, not_ = self.on_true
       self.on_true = None
-      self._then(build_conditional(conditional, is_custom, not_, on_true_link, on_false_link))
+      build_conditional(self, conditional, is_custom, not_, on_true, on_false)
     else:
-      self._then(Link(conditional))
+      self._then(conditional)
 
   #def _clone(
   #  self, Link root_link, Link first_link, Link current_link, bint is_cascade, bint _autorun, list except_links,
@@ -636,17 +697,8 @@ cdef class Chain:
     return True
 
   def __repr__(self):
-    cdef:
-      Link root_link = self.root_link
-      object s = f'<{self.__class__.__name__}'
-
-    # TODO format the chain with proper chain actions, function names, and arguments
-    if root_link is not None:
-      s += f'({root_link.v}, {root_link.args}, {root_link.kwargs})'
-    else:
-      s += '()'
-    #s += f'({len(self.links)} links)>'
-    return s
+    self.finalize()
+    return stringify_chain(self)[0]
 
 
 cdef class Cascade(Chain):

@@ -1,5 +1,9 @@
 import sys
-from quent.quent cimport Link, evaluate_value, Null, iscoro, QuentException
+
+import cython
+
+from quent._internal import __QUENT_INTERNAL__
+from quent.quent cimport Link, evaluate_value, Null, iscoro, QuentException, Chain
 
 
 cdef class _InternalQuentException_Custom(_InternalQuentException):
@@ -15,45 +19,103 @@ cdef object handle_break_exc(_Break exc, object nv):
   return evaluate_value(Link(exc._v, exc.args, exc.kwargs, True), Null)
 
 
-cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false):
-  async def if_else_async(object r, object cv):
-    r = _if_else(await r, cv)
-    if iscoro(r):
-      r = await r
-    return r
+@cython.freelist(8)
+cdef class _Conditional:
+  cdef object cv
+  cdef bint result
 
-  def if_else(object cv):
-    # more elegant, but slower. we suffer so others won't.
-    #return Chain(conditional, cv).then(lambda r: _if_else(r, cv)).run()
-    cdef object r = conditional(cv)
-    if is_custom and iscoro(r):
-      return if_else_async(r, cv)
-    return _if_else(r, cv)
+  def __init__(self, object cv, bint result):
+    self.cv = cv
+    self.result = result
 
-  def _if_else(object r, object cv):
+  def __repr__(self):
+    return repr(self.result)
+
+
+@cython.freelist(8)
+cdef class _If:
+  cdef _Conditional cond
+
+  def __init__(self, _Conditional cond):
+    self.cond = cond
+
+  def __repr__(self):
+    if self.cond.result:
+      return repr(self.cond.cv)
+    else:
+      return '<None>'
+
+
+async def _await_if_cond_cv(_If if_cond):
+  if_cond.cond.cv = await if_cond.cond.cv
+  return if_cond
+
+
+async def _await_cond_result(object cv, object result):
+  return _Conditional(cv, bool(await result))
+
+
+cdef void build_conditional(Chain chain, Link conditional, bint is_custom, bint not_, Link on_true, Link on_false):
+  def else_(_If if_cond):
+    if not if_cond.cond.result:
+      return evaluate_value(on_false, if_cond.cond.cv)
+    else:
+      return if_cond.cond.cv
+
+  def if_(_Conditional cond):
+    cdef object result
+    cdef _If if_cond
     if not_:
-      r = not r
-    if r:
-      return evaluate_value(on_true, cv)
-    elif on_false is not None:
-      return evaluate_value(on_false, cv)
-    return cv
+      cond.result = not cond.result
+    if cond.result:
+      result = evaluate_value(on_true, cond.cv)
 
-  return Link(if_else)
+    if on_false is None:
+      if cond.result:
+        return result
+      else:
+        return cond.cv
+    else:
+      if_cond = _If(cond)
+      if cond.result:
+        cond.cv = result
+        if iscoro(result):
+          return _await_if_cond_cv(if_cond)
+      return if_cond
+
+  def direct_if(object cv):
+    return if_(_Conditional(cv, bool(cv)))
+
+  def conditional_fn(object cv):
+    cdef object result = evaluate_value(conditional, cv)
+    # non-custom conditionals (i.e. predefined by quent like `eq`, `is_`, etc.) are never coroutines.
+    if is_custom and iscoro(result):
+      return _await_cond_result(cv, result)
+    return _Conditional(cv, bool(result))
+
+  if conditional is None:
+    chain._then(Link(direct_if, ogv=on_true))
+  else:
+    chain._then(Link(conditional_fn, ogv=conditional))
+    chain._then(Link(if_, ogv=on_true))
+  if on_false is not None:
+    chain._then(Link(else_, ogv=on_false))
 
 
 cdef Link while_true(object fn, tuple args, dict kwargs):
-  cdef Link link = Link(fn, args, kwargs)
+  cdef Link link = Link(fn, args, kwargs, fn_name='while_true')
   def _while_true(object cv = Null):
     cdef object result, exc
     try:
+      if not args and not kwargs:
+        link.temp_args = (cv,)
       while True:
         result = evaluate_value(link, cv)
         if iscoro(result):
           return while_true_async(cv, link, result)
     except _Break as exc:
       return handle_break_exc(exc, cv)
-  return Link(_while_true)
+  return Link(_while_true, ogv=link)
 
 
 async def while_true_async(object cv, Link link, object result):
@@ -145,33 +207,37 @@ cdef class _Generator:
 
 
 cdef Link foreach(object fn, bint ignore_result):
+  cdef Link link = Link(fn, (), {}, fn_name='foreach')
   def _foreach(object cv):
     if hasattr(cv, '__aiter__'):
-      return async_foreach(cv, fn, ignore_result)
+      return async_foreach(cv, fn, ignore_result, link)
     cdef list lst = []
     cdef object el, result, exc
+    # we use the "raw" iteration syntax to be able to seamlessly
+    # transfer flow to the async version if `fn` is a coroutine.
     cv = cv.__iter__()
     try:
-      for el in cv:
+      while True:
+        el = cv.__next__()
+        # set the current element as the function argument to be able to
+        # format it with the correct element if an exception is raised.
+        link.temp_args = (el,)
         result = fn(el)
         if iscoro(result):
-          return foreach_async(cv, fn, el, result, lst, ignore_result)
+          return foreach_async(cv, fn, el, result, lst, ignore_result, link)
         if ignore_result:
           lst.append(el)
         else:
           lst.append(result)
+    except StopIteration:
       return lst
     except _Break as exc:
       return handle_break_exc(exc, lst)
-  return Link(_foreach)
+  return Link(_foreach, ogv=link)
 
 
-async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result):
+async def foreach_async(object cv, object fn, object el, object result, list lst, bint ignore_result, Link link):
   cdef object exc
-  # here we manually call __next__ instead of a for-loop to
-  # prevent a call to cv.__iter__() which, depending on the iterator, may
-  # produce a new iterator object, instead of continuing where we left
-  # off at the sync-foreach version above.
   try:
     while True:
       if iscoro(result):
@@ -181,6 +247,7 @@ async def foreach_async(object cv, object fn, object el, object result, list lst
       else:
         lst.append(result)
       el = cv.__next__()
+      link.temp_args = (el,)
       result = fn(el)
   except StopIteration:
     return lst
@@ -191,11 +258,12 @@ async def foreach_async(object cv, object fn, object el, object result, list lst
     return result
 
 
-async def async_foreach(object cv, object fn, bint ignore_result):
+async def async_foreach(object cv, object fn, bint ignore_result, Link link):
   cdef list lst = []
   cdef object el, result, exc
   try:
-    async for el in cv.__aiter__():
+    async for el in cv:
+      link.temp_args = (el,)
       result = fn(el)
       if iscoro(result):
         result = await result
@@ -211,26 +279,29 @@ async def async_foreach(object cv, object fn, bint ignore_result):
     return result
 
 
-cdef Link with_(Link link, bint ignore_result):
+cdef Link with_(object fn, tuple args, dict kwargs, bint ignore_result):
+  cdef Link link = Link(fn, args, kwargs, fn_name='with_')
   def with_(object cv):
     if hasattr(cv, '__aenter__'):
       return async_with(link, cv)
     cdef object ctx, result
-    cdef bint is_result_awaitable = False
+    cdef bint ignore_finally = False
     try:
       ctx = cv.__enter__()
+      if not args and not kwargs:
+        link.temp_args = (ctx,)
       result = evaluate_value(link, ctx)
-      is_result_awaitable = iscoro(result)
-      if is_result_awaitable:
-        return with_async(result, cv)
+      if iscoro(result):
+        ignore_finally = True
+        return with_async(result, cv, link)
       return result
     finally:
-      if not is_result_awaitable:
+      if not ignore_finally:
         cv.__exit__(*sys.exc_info())
-  return Link(with_, ignore_result=ignore_result)
+  return Link(with_, ogv=link, ignore_result=ignore_result)
 
 
-async def with_async(object result, object cv):
+async def with_async(object result, object cv, Link link):
   try:
     return await result
   finally:
@@ -240,6 +311,8 @@ async def with_async(object result, object cv):
 async def async_with(Link link, object cv):
   cdef object ctx, result
   async with cv as ctx:
+    if not link.args and not link.kwargs:
+      link.temp_args = (ctx,)
     result = evaluate_value(link, ctx)
     if iscoro(result):
       return await result

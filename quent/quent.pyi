@@ -2,6 +2,7 @@ from typing import Callable, Any, Iterator, AsyncIterator, TypeVar, ParamSpec, S
 from quent import ResultOrAwaitable, Null
 
 
+T = TypeVar('T')
 P = ParamSpec('P')
 
 
@@ -26,6 +27,7 @@ Link = Callable[[IN | P], OUT]
 AnyLink = OUT | Callable[[IN | P], OUT]
 
 
+FuncT = TypeVar("FuncT", bound=Callable[..., Any])
 class Chain:
   def __init__(self: Self, v: RootLink = None, *args: P.args, **kwargs: P.kwargs): ...
 
@@ -37,7 +39,8 @@ class Chain:
 
   def freeze(self) -> FrozenChain: ...
 
-  def decorator(self) -> Callable[[Callable], Callable[[...], ResultOrAwaitable[ReturnValue]]]: ...
+  # TODO fix annotation
+  def decorator(self) -> ResultOrAwaitable[ReturnValue]: ...
 
   def run(self, v: RootLink = None, *args: P.args, **kwargs: P.kwargs) -> ResultOrAwaitable[ReturnValue]: ...
 

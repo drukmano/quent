@@ -1,4 +1,4 @@
-from quent.quent cimport Link, Null
+from quent.quent cimport Link, Null, Chain
 
 
 cdef class _InternalQuentException(Exception):
@@ -17,7 +17,7 @@ cdef class _Break(_InternalQuentException_Custom):
 
 cdef object handle_break_exc(_Break exc, object nv)
 
-cdef Link build_conditional(object conditional, bint is_custom, bint not_, Link on_true, Link on_false)
+cdef void build_conditional(Chain chain, Link conditional, bint is_custom, bint not_, Link on_true, Link on_false)
 
 cdef Link while_true(object fn, tuple args, dict kwargs)
 
@@ -28,4 +28,4 @@ cdef class _Generator:
 
 cdef Link foreach(object fn, bint ignore_result)
 
-cdef Link with_(Link link, bint ignore_result)
+cdef Link with_(object fn, tuple args, dict kwargs, bint ignore_result)

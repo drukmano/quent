@@ -1,7 +1,5 @@
-from quent.quent cimport Link, ExceptLink
+from quent.quent cimport Chain, Link, ExceptLink
 from quent.custom cimport _Return
-
-cdef object handle_return_exc(_Return exc, bint propagate)
 
 cdef set task_registry
 
@@ -9,6 +7,20 @@ cdef void remove_task(object task)
 
 cdef object ensure_future(object coro)
 
-cdef ExceptLink _handle_exception(object exc, Link link, object cv, int idx)
+cdef object handle_return_exc(_Return exc, bint propagate)
 
-cdef object create_chain_link_exception(Link link, object cv, int idx)
+cdef object remove_self_frames_from_traceback()
+
+cdef ExceptLink _handle_exception(object exc, Chain chain, Link link)
+
+cdef void modify_traceback(object exc, Chain chain, Link link)
+
+cdef Link get_true_source_link(Link source_link)
+
+cdef str make_indent(int nest_lvl)
+
+cdef tuple stringify_chain(Chain chain, int nest_lvl = *, Link source_link = *, bint found_source_link = *)
+
+cdef str format_link(Link link, int nest_lvl, Link source_link = *, bint found_source_link = *)
+
+cdef str get_obj_name(object o)
