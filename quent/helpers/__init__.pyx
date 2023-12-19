@@ -107,7 +107,11 @@ cdef void modify_traceback(object exc, Chain chain, Link link):
     '__file__': filename,
     '__exc__': exc_value,
   }
+  # TODO `'\n' * (link-global-idx) + 'raise __exc__'` to include the
+  #  line number as the link index (globally; include parent chains).
   code = compile('raise __exc__', filename, 'exec')
+  # TODO add support for older versions; test the lowest python version quent works for.
+  #if sys.version_info >= (3, 8):
   code = code.replace(co_name=chain_source)
   try:
     exec(code, globals, {})

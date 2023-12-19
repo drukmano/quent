@@ -205,6 +205,10 @@ cdef class _Generator:
   def __aiter__(self):
     return async_generator(self._chain_run, self._run_args, self._fn, self._ignore_result)
 
+  def __repr__(self):
+    # TODO
+    raise NotImplementedError
+
 
 cdef Link foreach(object fn, bint ignore_result):
   cdef Link link = Link(fn, (), {}, fn_name='foreach')
