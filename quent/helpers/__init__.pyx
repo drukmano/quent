@@ -17,22 +17,10 @@ from quent.custom cimport _Return
 cdef set task_registry = set()
 
 
-cdef void remove_task(object task):
-  # this may occur when asyncio.ensure_future() is called on a Task -
-  # it returns the same Task as-is. and even though we are not registering
-  # the callback if the task is already in `task_registry`, a race condition is possible.
-  if task in task_registry:
-    try:
-      task_registry.remove(task)
-    except KeyError:
-      pass
-
-
 cdef object ensure_future(object coro):
   cdef object task = _ensure_future(coro)
-  if task not in task_registry:
-    task_registry.add(task)
-    task.add_done_callback(remove_task)
+  task_registry.add(task)
+  task.add_done_callback(task_registry.discard)
   return task
 
 
