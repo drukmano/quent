@@ -12,7 +12,7 @@ def build_extensions(file_ext, path='./quent', *, tests=False):
         macros = []
         if tests:
           macros.append(('CYTHON_TRACE_NOGIL', 1))
-        extensions.append(Extension(module_name, sources=[file_path], extra_compile_args=['-O3'], define_macros=macros))
+        extensions.append(Extension(module_name, sources=[file_path], extra_compile_args=['-O3', '-Wno-unreachable-code', '-Wno-unused-function'], define_macros=macros))
   return extensions
 
 
