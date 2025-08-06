@@ -319,6 +319,17 @@ class SingleTest(MyTestCase):
 
           await self.assertIsObj(Chain(None).or_(obj_).run())
           await self.assertIsNotObj(Chain(True).or_(obj_).run())
+          
+          # isinstance_() tests
+          await self.assertTrue(Chain(fn, "hello").isinstance_(str).run())
+          await self.assertFalse(Chain(fn, 123).isinstance_(str).run())
+          await self.assertTrue(Chain(fn, 123).isinstance_(int, str).run())
+          await self.assertTrue(Chain(fn, "hello").isinstance_(int, str).run())
+          await self.assertFalse(Chain(fn, []).isinstance_(int, str).run())
+          
+          # isinstance_() with conditional chaining
+          await self.assertEqual(Chain(fn, "hello").isinstance_(str).if_(lambda x: x.upper()).run(), "HELLO")
+          await self.assertEqual(Chain(fn, 123).isinstance_(str).if_(lambda x: str(x) + " not string").run(), 123)
 
   async def test_autorun_config(self):
     # an object that can have dynamic attributes set
@@ -655,3 +666,83 @@ class SingleTest(MyTestCase):
               await self.assertIsObj(ChainAttr(A).then(fn).f1()())
               await self.assertIsNotObj(ChainAttr(A).then(fn).f1(object()).run())
               await self.assertIs(CascadeAttr(a := A()).then(fn).p1.f1().p1.f1(object()).then(None).run(), a)
+
+  async def test_null_repr(self):
+    """Test __repr__ of _Null class to hit line 29."""
+    from quent.quent import PyNull
+    result = repr(PyNull)
+    await self.assertEqual(result, '<Null>')
+
+  async def test_traceback_modification(self):
+    """Test traceback modification to hit lines 62, 69-71."""
+    def sync_error():
+      raise RuntimeError("Sync traceback test")
+    
+    async def async_error():
+      raise RuntimeError("Async traceback test")
+    
+    # Test sync traceback modification (line 62)
+    try:
+      await await_(Chain(sync_error).run())
+      await self.assertTrue(False)  # Should not reach here
+    except RuntimeError:
+      pass  # Expected
+    
+    # Test async traceback modification (lines 69-71)  
+    try:
+      await await_(Chain(async_error).run())
+      await self.assertTrue(False)  # Should not reach here
+    except RuntimeError:
+      pass  # Expected
+
+  async def test_context_manager_finally_blocks(self):
+    """Test context manager finally blocks to hit lines 303, 312."""
+    
+    class TestContextManager:
+      def __init__(self):
+        self.entered = False
+        self.exited = False
+        self.exc_info = None
+        
+      def __enter__(self):
+        self.entered = True
+        return "context_value"
+        
+      def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exited = True
+        self.exc_info = (exc_type, exc_val, exc_tb)
+        return False  # Don't suppress exceptions
+    
+    # Test normal execution (line 303)
+    cm1 = TestContextManager()
+    result = await await_(Chain(cm1).with_(lambda x: f"processed_{x}").run())
+    await self.assertEqual(result, "processed_context_value")
+    await self.assertTrue(cm1.entered)
+    await self.assertTrue(cm1.exited)
+    
+    # Test with exception (line 312 for async case)
+    class AsyncTestContextManager:
+      def __init__(self):
+        self.entered = False
+        self.exited = False
+        
+      async def __aenter__(self):
+        self.entered = True
+        return "async_context"
+        
+      async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.exited = True
+        return False
+    
+    async def async_error_in_context(ctx):
+      raise ValueError("Async context error")
+    
+    async_cm = AsyncTestContextManager()
+    try:
+      await await_(Chain(async_cm).with_(async_error_in_context).run())
+      await self.assertTrue(False)  # Should not reach here
+    except ValueError:
+      pass  # Expected
+    
+    await self.assertTrue(async_cm.entered)
+    await self.assertTrue(async_cm.exited)
