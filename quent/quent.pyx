@@ -609,6 +609,11 @@ cdef class Chain:
     self._then(Link(or_, fn_name='or_', ogv=value))
     return self
 
+  def isinstance_(self, *types):
+    def isinstance_(object cv): return isinstance(cv, types)
+    self.set_conditional(Link(isinstance_, fn_name='isinstance_', ogv=types))
+    return self
+
   def raise_(self, object exc):
     def raise_(object cv): raise exc
     self._then(Link(raise_, fn_name='raise_', ogv=exc))
