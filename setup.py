@@ -4,6 +4,8 @@ from setuptools import setup, Extension, find_packages
 
 def build_extensions(file_ext, path='./quent', *, tests=False):
   extensions = []
+  lto = os.environ.get('QUENT_LTO')
+  pgo = os.environ.get('QUENT_PGO')
   for root, dirs, filenames in os.walk(path):
     for fname in filenames:
       if fname.endswith(file_ext):
@@ -12,7 +14,19 @@ def build_extensions(file_ext, path='./quent', *, tests=False):
         macros = []
         if tests:
           macros.append(('CYTHON_TRACE_NOGIL', 1))
-        extensions.append(Extension(module_name, sources=[file_path], extra_compile_args=['-O3', '-Wno-unreachable-code', '-Wno-unused-function'], define_macros=macros))
+          macros.append(('CYTHON_USE_SYS_MONITORING', 0))
+        compile_args = ['-O3', '-Wno-unreachable-code', '-Wno-unused-function']
+        link_args = []
+        if lto:
+          compile_args.append('-flto')
+          link_args.append('-flto')
+        if pgo == 'generate':
+          compile_args.append('-fprofile-generate')
+          link_args.append('-fprofile-generate')
+        elif pgo == 'use':
+          compile_args.extend(['-fprofile-use', '-fprofile-correction'])
+          link_args.extend(['-fprofile-use', '-fprofile-correction'])
+        extensions.append(Extension(module_name, sources=[file_path], extra_compile_args=compile_args, extra_link_args=link_args, define_macros=macros))
   return extensions
 
 
@@ -20,9 +34,5 @@ if __name__ == '__main__':
   setup(
     name='quent',
     ext_modules=build_extensions('.c'),
-    packages=find_packages(include=['quent*']),  # ['quent', 'quent.helpers']
-    #include_dirs=['quent'],
-    #package_data={
-    #  'quent': ['py.typed'],
-    #},
+    packages=find_packages(include=['quent*']),
   )

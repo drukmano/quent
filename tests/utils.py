@@ -23,21 +23,3 @@ async def await_(v):
   if inspect.isawaitable(v):
     return await v
   return v
-
-
-class DummySync:
-  @property
-  def a1(self):
-    return self
-
-  def b1(self):
-    return self
-
-
-class DummyAsync:
-  @property
-  def a1(self):
-    return self
-
-  def b1(self):
-    return self

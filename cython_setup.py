@@ -3,6 +3,8 @@ import sys
 from setuptools import setup, find_packages
 from setup import build_extensions
 from Cython.Build import cythonize
+import Cython.Compiler.Options; Cython.Compiler.Options.closure_freelist_size = 16
+# https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html#Cython.Compiler.Options.closure_freelist_size
 
 
 if __name__ == '__main__':
@@ -17,7 +19,9 @@ if __name__ == '__main__':
     'embedsignature': True,
     'annotation_typing': False,
     'always_allow_keywords': False,
-    'infer_types': False,
+    'infer_types': True,
+    'initializedcheck': False,
+    'cdivision': True,
     'iterable_coroutine': False,
   }
   if is_tests:
@@ -34,10 +38,8 @@ if __name__ == '__main__':
     name='quent',
     ext_modules=cythonize(
       build_extensions('.pyx', tests=is_tests),
-      #include_path=['quent/', 'quent/helpers/'],
       compiler_directives=compiler_directives,
       annotate=is_tests,
-      #https://cython.readthedocs.io/en/latest/src/userguide/source_files_and_compilation.html#Cython.Compiler.Options.closure_freelist_size
     ),
     packages=find_packages(),
   )

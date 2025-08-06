@@ -11,9 +11,6 @@ from tests.utils import throw_if, empty, aempty, await_
 from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
 
 
-# TODO split the tests - each functionality to separate file.
-
-
 class MyTestCase(IsolatedAsyncioTestCase):
   def with_fn(self):
     for fn in [empty, aempty]:
@@ -372,16 +369,6 @@ class SingleTest(MyTestCase):
     with FlexContext(obj=obj):
       for fn, ctx in self.with_fn():
         with ctx:
-          #chain = Chain(obj).then(fn)
-          #chain2 = chain.clone().then(object())
-          #await self.assertIsObj(chain.run())
-          #await self.assertIsNotObj(chain2.run())
-
-          #chain = Chain(fn).then(obj)
-          #chain2 = chain.clone().then(object())
-          #await self.assertIsObj(chain.run())
-          #await self.assertIsNotObj(chain2.run())
-
           chain = Chain(obj).then(fn).freeze()
           await self.assertIsObj(chain.run())
           await self.assertIsObj(chain())
@@ -409,10 +396,10 @@ class SingleTest(MyTestCase):
 
             def on_except(return_=True):
               if return_:
-                Chain.return_(*obj)
+                return Chain.return_(*obj)
             await self.assertIs(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, True, exceptions=Exc1)).then(object()).run(), obj_)
-            await self.assertIs(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, raise_=False)).then(obj_).run(), obj_)
-            await self.assertIsNot(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, raise_=False)).then(object()).run(), obj_)
+            await self.assertIs(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, reraise=False)).then(obj_).run(), obj_)
+            await self.assertIsNot(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, reraise=False)).then(object()).run(), obj_)
 
   async def test_while(self):
     class A:
@@ -423,7 +410,7 @@ class SingleTest(MyTestCase):
       with ctx:
         # test break
         def f0():
-          Chain.break_()
+          return Chain.break_()
           raise TestExc
         await self.assertIs(Chain(obj).then(fn).while_true(f0, ...).run(), obj)
         await self.assertEqual(Chain().then(fn, 1).while_true(Chain().then(fn).then(f0, ...)).run(), 1)
@@ -446,11 +433,11 @@ class SingleTest(MyTestCase):
                 if a.i >= 500:
                   raise TestExc
                 if a.i == 100:
-                  Chain.break_(*incr_arg_)
+                  return Chain.break_(*incr_arg_)
                 elif a.i == 102:
-                  Chain.break_(*incr_arg_)
+                  return Chain.break_(*incr_arg_)
                 elif a.i == 105:
-                  Chain.break_(*incr_arg_)
+                  return Chain.break_(*incr_arg_)
                 elif a.i > 50:
                   return fn()  # test a change to async mid-loop.
 
@@ -546,7 +533,7 @@ class SingleTest(MyTestCase):
     # test break
     def f(i):
       if i == 9:
-        Chain.break_()
+        return Chain.break_()
       return i*2
     r = []
     for i in Chain(A).iterate(f):
@@ -557,7 +544,7 @@ class SingleTest(MyTestCase):
       with ctx:
         def f(i):
           if i == 9:
-            Chain.break_()
+            return Chain.break_()
           return fn(i*2)
         r = []
         async for i in Chain(A).iterate(f):
@@ -590,7 +577,7 @@ class SingleTest(MyTestCase):
             # test break
             def f(i):
               if i == 9:
-                Chain.break_()
+                return Chain.break_()
               return fn(i*2)
             await self.assertEqual(Chain(iterator).foreach(f).run(), rb_break)
 
@@ -599,7 +586,7 @@ class SingleTest(MyTestCase):
               with self.subTest(break_arg=break_arg):
                 def f(i):
                   if i == 9:
-                    Chain.break_(*break_arg)
+                    return Chain.break_(*break_arg)
                   return fn(i*2)
                 await self.assertIs(Chain(iterator).foreach(f).run(), obj)
 

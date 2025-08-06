@@ -1,0 +1,358 @@
+# _helpers.pxi — Async utilities, exception handling, and chain stringification
+#
+# Contains helper functions for async task management, exception processing,
+# traceback augmentation, and human-readable chain representation. These are
+# internal utilities used by Chain's execution engine and error reporting.
+#
+# Key components:
+#   - task_registry / ensure_future: async task lifecycle management
+#   - handle_return_exc: resolves _Return signal exceptions to values
+#   - clean_internal_frames / remove_self_frames_from_traceback: traceback cleanup
+#   - _handle_exception: exception handler dispatch for Chain.except_
+#   - modify_traceback: augments exceptions with chain execution context
+#   - get_true_source_link: finds the originating link for error reporting
+#   - stringify_chain / format_link / format_args: human-readable chain display
+#   - _quent_excepthook / _clean_exc_chain: global exception formatting
+
+import os as _os
+import sys
+import types
+import inspect
+import collections.abc
+import functools
+from asyncio import create_task as _create_task
+
+_quent_pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
+cdef type _TracebackType = types.TracebackType
+cdef object _isroutine = inspect.isroutine
+cdef object _isclass = inspect.isclass
+_RAISE_CODE = compile('raise __exc__', '<quent>', 'exec')
+
+# --- Async task management ---
+
+# this holds a strong reference to all tasks that we create
+# see: https://stackoverflow.com/a/75941086
+# "... the asyncio loop avoids creating hard references (just weak) to the tasks,
+# and when it is under heavy load, it may just "drop" tasks that are not referenced somewhere else."
+cdef set task_registry = set()
+cdef object _create_task_fn = functools.partial(_create_task, eager_start=True)
+
+
+cdef object ensure_future(object coro):
+  cdef object task = _create_task_fn(coro)
+  task_registry.add(task)
+  if len(task_registry) > 10000:
+    warnings.warn(
+      f'quent task_registry has {len(task_registry)} entries; '
+      'this may indicate a leak of fire-and-forget coroutines',
+      ResourceWarning,
+      stacklevel=2,
+    )
+  task.add_done_callback(task_registry.discard)
+  return task
+
+# --- Control flow signal resolution ---
+
+cdef object handle_return_exc(_Return exc, bint propagate):
+  if propagate:
+    raise exc
+  if exc.value is Null:
+    return None
+  return _eval_signal_value(exc.value, exc.args_, exc.kwargs_)
+
+# --- Traceback cleanup ---
+
+cdef object clean_internal_frames(object tb):
+  """Clean internal frames from a traceback while preserving <quent> frames"""
+  cdef list stack = []
+  cdef object tb_next = None
+  cdef object new_tb
+  cdef str filename
+
+  while tb is not None:
+    filename = tb.tb_frame.f_code.co_filename
+    # Keep only frames that are NOT from quent internal files or are the special <quent> frame
+    if filename == '<quent>':
+      # Always keep the special <quent> frames showing the chain
+      stack.append(tb)
+    elif not filename.startswith(_quent_pkg_dir):
+      # Also check if it's not marked as internal
+      if not tb.tb_frame.f_globals.get('__QUENT_INTERNAL__') is __QUENT_INTERNAL__:
+        # Keep user code frames
+        stack.append(tb)
+    tb = tb.tb_next
+
+  # Build the chain in reverse using types.TracebackType constructor
+  for tb in reversed(stack):
+    new_tb = _TracebackType(tb_next, tb.tb_frame, tb.tb_lasti, tb.tb_lineno)
+    tb_next = new_tb
+
+  return tb_next
+
+
+cdef void _clean_chained_exceptions(object exc, set seen):
+  """Recursively clean tracebacks on __cause__ and __context__ chains."""
+  if exc is None or id(exc) in seen:
+    return
+  seen.add(id(exc))
+  if exc.__traceback__ is not None:
+    exc.__traceback__ = clean_internal_frames(exc.__traceback__)
+  _clean_chained_exceptions(exc.__cause__, seen)
+  _clean_chained_exceptions(exc.__context__, seen)
+
+
+cdef object remove_self_frames_from_traceback():
+  cdef object exc_value, tb, cleaned_tb
+  exc_value = sys.exception()
+  setattr(exc_value, '__quent__', True)
+  tb = exc_value.__traceback__
+
+  # Use the same cleaning logic as clean_internal_frames
+  cleaned_tb = clean_internal_frames(tb)
+
+  # Recursively clean chained exceptions
+  cdef set seen = set()
+  _clean_chained_exceptions(exc_value.__cause__, seen)
+  _clean_chained_exceptions(exc_value.__context__, seen)
+
+  return exc_value.with_traceback(cleaned_tb)
+
+# --- Exception handler dispatch ---
+
+cdef Link _handle_exception(object exc, Chain chain, Link link, _ExecCtx ctx):
+  cdef Link exc_link
+
+  # Copy per-exception temp_args annotations into the execution context
+  # before modify_traceback, so format_link can use them during stringify_chain
+  cdef dict exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
+  if exc_temp_args is not None:
+    if ctx.link_temp_args is None:
+      ctx.link_temp_args = exc_temp_args
+    else:
+      ctx.link_temp_args.update(exc_temp_args)
+
+  modify_traceback(exc, chain, link, ctx)
+
+  while link is not None:
+    if not link.is_exception_handler:
+      link = link.next_link
+      continue
+    exc_link = link
+    link = link.next_link
+    if not isinstance(exc, exc_link.exceptions):
+      continue
+    return exc_link
+  return None
+
+# --- Traceback augmentation ---
+
+cdef void modify_traceback(object exc, Chain chain, Link link, _ExecCtx ctx):
+  cdef Link source_link
+  cdef str filename
+  cdef str chain_source
+  cdef object exc_value, tb, new_tb, cleaned_tb
+  cdef object code
+  cdef dict globals
+  # save the link that the exception was thrown at.
+  if getattr(exc, '__quent_source_link__', None) is None:
+    setattr(exc, '__quent_source_link__', link)
+
+  if chain.is_nested:
+    return
+  source_link = getattr(exc, '__quent_source_link__')
+  delattr(exc, '__quent_source_link__')
+  filename = '<quent>'
+  chain_source, _ = stringify_chain(
+    chain, ctx, nest_lvl=0, source_link=get_true_source_link(source_link, ctx), found_source_link=False
+  )
+  chain_source = make_indent(1).join([''] + chain_source.splitlines())
+  exc_value = sys.exception()
+  globals = {
+    '__name__': filename,
+    '__file__': filename,
+    '__exc__': exc_value,
+  }
+  code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)
+  try:
+    exec(code, globals, {})
+  except BaseException:
+    # Get the traceback from the exec'd code which includes our <quent> frame
+    new_tb = sys.exception().__traceback__
+    # Clean the traceback to remove internal quent frames while keeping <quent> frames
+    cleaned_tb = clean_internal_frames(new_tb)
+    exc.__traceback__ = cleaned_tb
+
+  # Recursively clean chained exception tracebacks
+  cdef set seen = set()
+  _clean_chained_exceptions(exc.__cause__, seen)
+  _clean_chained_exceptions(exc.__context__, seen)
+
+# --- Error source resolution ---
+
+cdef Link get_true_source_link(Link source_link, _ExecCtx ctx):
+  """ retrieves the first non-chain link """
+  cdef Chain chain
+  while source_link is not None:
+    if source_link.is_chain:
+      chain = source_link.v
+    elif isinstance(source_link.original_value, Chain):
+      chain = source_link.original_value
+    else:
+      break
+    if chain.root_link is not None:
+      source_link = chain.root_link
+    elif ctx is not None and ctx.temp_root_link is not None:
+      source_link = ctx.temp_root_link
+    else:
+      break
+  return source_link
+
+# --- Chain stringification ---
+
+cdef str make_indent(int nest_lvl):
+  return '\n' + ' ' * 4 * nest_lvl
+
+
+cdef tuple stringify_chain(Chain chain, _ExecCtx ctx, int nest_lvl = 0, Link source_link = None, bint found_source_link = False):
+  cdef str output = ''
+  cdef Link link = chain.root_link
+  if link is None and ctx is not None:
+    link = ctx.temp_root_link
+
+  if nest_lvl > 0:
+    output += make_indent(nest_lvl)
+  output += get_obj_name(chain)
+  if link is None:
+    output += '()'
+  else:
+    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link)
+    if not found_source_link and link is source_link:
+      found_source_link = True
+
+  link = chain.first_link
+  while link is not None:
+    output += make_indent(nest_lvl)
+    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link)
+    if not found_source_link and link is source_link:
+      found_source_link = True
+    link = link.next_link
+
+  link = chain.on_finally_link
+  if link is not None:
+    output += make_indent(nest_lvl)
+    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link)
+    if not found_source_link and link is source_link:
+      found_source_link = True
+
+  return output, found_source_link
+
+
+cdef str format_args(tuple args):
+  if not args:
+    return ''
+  if args[0] is ...:
+    return ', ...'
+  return ', ' + ', '.join([get_obj_name(a) for a in args])
+
+
+cdef str format_kwargs(dict kwargs):
+  if not kwargs:
+    return ''
+  return ', ' + ', '.join([f'{k}={get_obj_name(v)}' for k, v in kwargs.items()])
+
+
+cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = None, bint found_source_link = False):
+  cdef Link outer_link = link
+  if isinstance(link.original_value, Link):
+    link = link.original_value
+
+  cdef object original_value = link.original_value
+  cdef tuple args = link.args
+  cdef dict kwargs = link.kwargs
+  cdef str link_v = ''
+  cdef str output = ''
+  cdef bint is_chain = False
+  cdef tuple _temp_args
+  cdef dict _temp_kwargs
+  cdef object _temp_v
+  cdef _ExecCtx nested_ctx
+  cdef object _result
+
+  if not found_source_link:
+    if ctx is not None and ctx.link_temp_args is not None and id(link) in ctx.link_temp_args:
+      args = ctx.link_temp_args[id(link)]
+      kwargs = {}
+    elif link.temp_args:
+      args = link.temp_args
+      kwargs = {}
+
+  if original_value is None:
+    original_value = link.v
+  if link.is_chain or isinstance(original_value, Chain):
+    nested_ctx = _ExecCtx.__new__(_ExecCtx)
+    nested_ctx.link_temp_args = None
+    _temp_args = args or ()
+    _temp_kwargs = kwargs or {}
+    if _temp_args or _temp_kwargs:
+      _temp_v = _temp_args[0] if _temp_args else Null
+      if _temp_v is not Null:
+        nested_ctx.temp_root_link = Link(_temp_v, _temp_args[1:], _temp_kwargs, True)
+    args = kwargs = None
+    link_v, found_source_link = stringify_chain(
+      original_value, nested_ctx, nest_lvl=nest_lvl + 1, source_link=source_link, found_source_link=found_source_link
+    )
+    is_chain = True
+  else:
+    link_v = get_obj_name(original_value)
+
+  if link.fn_name is not None:
+    output += f'.{link.fn_name}'
+  if link.eval_code in {EVAL_CALL_WITHOUT_ARGS, EVAL_CALL_WITH_EXPLICIT_ARGS, EVAL_CALL_WITH_CURRENT_VALUE}:
+    if is_chain:
+      args_s = format_args(args)
+      kwargs_s = format_kwargs(kwargs)
+      chain_newline = ''
+      if args_s or kwargs_s:
+        chain_newline = make_indent(nest_lvl + 1)
+      output += f'({link_v}{chain_newline}{args_s}{kwargs_s}'.rstrip(', ') + f'{make_indent(nest_lvl)})'
+    else:
+      output += f'({link_v}{format_args(args)}{format_kwargs(kwargs)}'.rstrip(', ') + ')'
+  else:
+    output += f'({link_v})'
+  if not found_source_link:
+    if outer_link is source_link:
+      output += ' <' + '-' * 4
+    elif ctx is not None and ctx.link_results is not None:
+      _result = ctx.link_results.get(id(outer_link), Null)
+      if _result is not Null:
+        output += ' = ' + repr(_result)[:100]
+  return output
+
+
+cdef str get_obj_name(object obj):
+  if _isroutine(obj) or _isclass(obj):
+    return obj.__name__
+  if isinstance(obj, Chain):
+    return type(obj).__name__
+  return repr(obj)
+
+
+def _get_registry_size():
+  """Return the current size of the task registry (for testing)."""
+  return len(task_registry)
+
+# --- Global exception formatting ---
+
+_original_excepthook = sys.excepthook
+
+def _quent_excepthook(exc_type, exc_value, exc_tb):
+  if getattr(exc_value, '__quent__', False):
+    _clean_chained_exceptions(exc_value, set())
+    exc_tb = exc_value.__traceback__
+  _original_excepthook(exc_type, exc_value, exc_tb)
+
+sys.excepthook = _quent_excepthook
+
+def _clean_exc_chain(exc):
+  """Python-visible wrapper for _clean_chained_exceptions."""
+  _clean_chained_exceptions(exc, set())

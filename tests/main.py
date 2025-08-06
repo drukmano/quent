@@ -1,28 +1,27 @@
-import pyximport; pyximport.install()
-from scripts.time_func import time_func
-from quent import Chain, Cascade
-from tests.utils import throw_if
-
-
-import inspect
 import asyncio
+from quent import Chain, Cascade
 
-async def test_exception_format():
-  raise Exception
-class A:
-  def __eq__(self, other):
-    raise Exception
-async def main():
-  #print(time_func(100000, lambda: Chain(A()).eq(1)))
-  #print(time_func(100000, lambda: Chain(A()).neq(1)))
-  pass
+def main():
+  # Basic sync chain
+  result = Chain(1).then(lambda v: v + 1).then(lambda v: v * 3).run()
+  assert result == 6, f"Expected 6, got {result}"
+  print(f"Sync chain: {result}")
 
-asyncio.run(main())
-#Chain(True).then(throw_if).run()
-#Chain(throw_if, True).run()
+  # Cascade
+  result = Cascade(10).do(lambda v: print(f"  cascade step: {v}")).run()
+  assert result == 10
+  print(f"Cascade: {result}")
 
-#class A:
-#  def f1(self, *args, **kwargs):
-#    raise Exception
-#
-#Cascade(A()).then(lambda: 5, ...).call('f1', 1,2,3, some_ok=5, no=6).run()
+  # Async chain
+  async def async_test():
+    async def async_add(v):
+      return v + 10
+    result = await Chain(5).then(async_add).run()
+    assert result == 15
+    print(f"Async chain: {result}")
+
+  asyncio.run(async_test())
+  print("All smoke tests passed!")
+
+if __name__ == '__main__':
+  main()
