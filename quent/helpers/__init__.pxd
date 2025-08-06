@@ -1,4 +1,4 @@
-from quent.quent cimport Chain, Link, ExceptLink
+from quent.quent cimport Chain, Link
 from quent.custom cimport _Return
 
 cdef set task_registry
@@ -9,7 +9,7 @@ cdef object handle_return_exc(_Return exc, bint propagate)
 
 cdef object remove_self_frames_from_traceback()
 
-cdef ExceptLink _handle_exception(object exc, Chain chain, Link link)
+cdef Link _handle_exception(object exc, Chain chain, Link link)
 
 cdef void modify_traceback(object exc, Chain chain, Link link)
 

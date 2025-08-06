@@ -19,6 +19,7 @@ cdef object handle_break_exc(_Break exc, object nv):
   return evaluate_value(Link(exc._v, exc.args, exc.kwargs, True), Null)
 
 
+@cython.final
 @cython.freelist(8)
 cdef class _Conditional:
   cdef object cv
@@ -32,6 +33,7 @@ cdef class _Conditional:
     return repr(self.result)
 
 
+@cython.final
 @cython.freelist(8)
 cdef class _If:
   cdef _Conditional cond
@@ -153,11 +155,17 @@ def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignor
 
 async def async_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
   cdef object el, result, iterator, exc
+  cdef bint is_aiter
   iterator = iterator_getter(*run_args)
   if iscoro(iterator):
     iterator = await iterator
   try:
-    if hasattr(iterator, '__aiter__'):
+    try:
+      iterator.__aiter__
+      is_aiter = True
+    except AttributeError:
+      is_aiter = False
+    if is_aiter:
       async for el in iterator:
         if fn is None:
           result = el
@@ -187,6 +195,8 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
     raise QuentException('Using `.return_()` inside an iterator is not allowed.')
 
 
+@cython.final
+@cython.freelist(4)
 cdef class _Generator:
   def __init__(self, object _chain_run, object _fn, bint _ignore_result):
     self._chain_run = _chain_run
@@ -213,8 +223,11 @@ cdef class _Generator:
 cdef Link foreach(object fn, bint ignore_result):
   cdef Link link = Link(fn, (), {}, fn_name='foreach')
   def _foreach(object cv):
-    if hasattr(cv, '__aiter__'):
-      return async_foreach(cv, fn, ignore_result, link)
+    try:
+      if cv.__aiter__:
+        return async_foreach(cv, fn, ignore_result, link)
+    except AttributeError:
+      pass
     cdef list lst = []
     cdef object el, result, exc
     # we use the "raw" iteration syntax to be able to seamlessly
@@ -286,8 +299,11 @@ async def async_foreach(object cv, object fn, bint ignore_result, Link link):
 cdef Link with_(object fn, tuple args, dict kwargs, bint ignore_result):
   cdef Link link = Link(fn, args, kwargs, fn_name='with_')
   def with_(object cv):
-    if hasattr(cv, '__aenter__'):
-      return async_with(link, cv)
+    try:
+      if cv.__aenter__:
+        return async_with(link, cv)
+    except AttributeError:
+      pass
     cdef object ctx, result
     cdef bint ignore_finally = False
     try:

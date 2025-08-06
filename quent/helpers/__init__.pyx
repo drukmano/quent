@@ -5,7 +5,7 @@ from asyncio import ensure_future as _ensure_future
 
 from quent._internal import __QUENT_INTERNAL__
 from quent.quent cimport (
-  Chain, Cascade, Link, evaluate_value, Null, QuentException, ExceptLink, EVAL_NO_ARGS, EVAL_CUSTOM_ARGS, EVAL_CALLABLE
+  Chain, Cascade, Link, evaluate_value, Null, QuentException, EVAL_NO_ARGS, EVAL_CUSTOM_ARGS, EVAL_CALLABLE
 )
 from quent.custom cimport _Return
 
@@ -51,8 +51,8 @@ cdef object remove_self_frames_from_traceback():
   return exc_value.with_traceback(tb_next)
 
 
-cdef ExceptLink _handle_exception(object exc, Chain chain, Link link):
-  cdef ExceptLink exc_link
+cdef Link _handle_exception(object exc, Chain chain, Link link):
+  cdef Link exc_link
   modify_traceback(exc, chain, link)
 
   while link is not None:

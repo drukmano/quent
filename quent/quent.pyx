@@ -24,12 +24,16 @@ try:
 except ImportError:
   _PipeCls = None
 
+@cython.final
 cdef class _Null:
   def __repr__(self):
     return '<Null>'
 
 cdef _Null Null = _Null()
 PyNull = Null
+
+cdef tuple EMPTY_TUPLE = ()
+cdef dict EMPTY_DICT = {}
 
 # same impl. of types.CoroutineType but for Cython coroutines.
 async def _py_coro(): pass
@@ -67,7 +71,8 @@ async def _await_modify_traceback(result, chain, link):
     raise remove_self_frames_from_traceback()
 
 
-@cython.freelist(32)
+@cython.final
+@cython.freelist(64)
 cdef class Link:
   def __init__(
     self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, str fn_name = None,
@@ -78,7 +83,8 @@ cdef class Link:
     #  create `class _Quent` which they (and Chain) inherit from and just check
     #  `isinstance(v, _Quent)`; _Quent class will also have _Quent.chain property
     #  so we could mark `_Quent.chain.is_nested = True`.
-    if isinstance(v, Chain):
+    cdef bint is_chain_type = type(v) is Chain or type(v) is Cascade or type(v) is ChainAttr or type(v) is CascadeAttr
+    if is_chain_type:
       self.is_chain = True
       (<Chain>v).is_nested = True
     else:
@@ -98,13 +104,15 @@ cdef class Link:
     self.temp_args = None
 
     self.is_exception_handler = False
+    self.exceptions = None
+    self.raise_ = True
     self.next_link = None
     if args:
       if args[0] is ...:
         self.eval_code = EVAL_NO_ARGS
       else:
         if kwargs is None:
-          self.kwargs = {}
+          self.kwargs = EMPTY_DICT
         self.eval_code = EVAL_CUSTOM_ARGS
     elif kwargs:
       if self.is_chain:
@@ -113,7 +121,7 @@ cdef class Link:
         self.eval_code = EVAL_NO_ARGS
       else:
         if args is None:
-          self.args = ()
+          self.args = EMPTY_TUPLE
         self.eval_code =  EVAL_CUSTOM_ARGS
     elif callable(v):
       self.eval_code =  EVAL_CALLABLE
@@ -127,18 +135,14 @@ cdef class Link:
       self.eval_code = EVAL_LITERAL
 
 
-cdef class ExceptLink(Link):
-  def __init__(self, object fn, tuple args = None, dict kwargs = None, object exceptions = None, bint raise_ = True):
-    super().__init__(fn, args, kwargs)
-    self.ignore_result = True
-    self.is_exception_handler = True
-    self.exceptions = exceptions
-    self.raise_ = raise_
-    self.fn_name = 'except_'
-
-
 cdef object evaluate_value(Link link, object cv):
   cdef object v
+
+  # Fast path for most common case: simple callable with single argument
+  if link.eval_code == EVAL_CALLABLE and not link.is_chain and not link.is_attr:
+    if cv is Null:
+      return link.v()
+    return link.v(cv)
 
   if link.is_chain:
     # we deliberately did not set `link.v = <Chain>v` in `Link.__init__` since
@@ -161,8 +165,7 @@ cdef object evaluate_value(Link link, object cv):
   elif link.eval_code == EVAL_CALLABLE:
     if cv is Null:
       return link.v()
-    else:
-      return link.v(cv)
+    return link.v(cv)
 
   elif not link.is_attr:
     if link.eval_code == EVAL_CUSTOM_ARGS:
@@ -188,7 +191,7 @@ cdef object evaluate_value(Link link, object cv):
       return v
 
 
-@cython.freelist(8)
+@cython.freelist(32)
 cdef class Chain:
   def __init__(self, object __v = Null, *args, **kwargs):
     """
@@ -241,7 +244,7 @@ cdef class Chain:
     self.finalize()
     cdef:
       Link link = self.root_link
-      ExceptLink exc_link
+      Link exc_link
       object pv = Null, cv = Null, rv = Null, result = None, exc = None
       bint has_root_value = link is not None, is_root_value_override = v is not Null
       bint ignore_finally = False
@@ -354,7 +357,7 @@ cdef class Chain:
 
   async def _run_async(self, Link link, object cv, object rv, object pv, bint has_root_value):
     cdef:
-      ExceptLink exc_link
+      Link exc_link
       object exc, result
 
     try:
@@ -495,7 +498,12 @@ cdef class Chain:
     return self
 
   def except_(self, object __fn, *args, object exceptions = None, bint raise_ = True, **kwargs):
-    self._then(ExceptLink(__fn, args, kwargs, exceptions=exceptions, raise_=raise_))
+    cdef Link link = Link(__fn, args, kwargs, fn_name='except_')
+    link.ignore_result = True
+    link.is_exception_handler = True
+    link.exceptions = exceptions
+    link.raise_ = raise_
+    self._then(link)
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
@@ -735,6 +743,8 @@ cdef class CascadeAttr(ChainAttr):
     self.init(__v, args, kwargs, True)
 
 
+@cython.final
+@cython.freelist(4)
 cdef class _FrozenChain:
   def decorator(self):
     cdef object _chain_run = self._chain_run
@@ -755,6 +765,8 @@ cdef class _FrozenChain:
     return self._chain_run(__v, args, kwargs, False)
 
 
+@cython.final
+@cython.freelist(4)
 cdef class run:
   """
     A replacement for `Chain.run()` when using pipe syntax
