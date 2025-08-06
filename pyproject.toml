@@ -7,12 +7,11 @@ name = "quent"
 version = "2.2.0"
 authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
 description = "Yet Another Chain Interface."
-license = { file = "LICENSE" }
+license = "MIT"
 readme = "README.md"
 requires-python = ">=3.7"
 keywords = ['chain', 'chaining', 'cascade', 'fluent', 'pipe', 'piping', 'interface', 'syntax', 'async']
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Intended Audience :: Developers",
     "Programming Language :: Python",
     "Programming Language :: Cython",
