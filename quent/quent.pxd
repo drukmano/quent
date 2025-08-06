@@ -21,17 +21,13 @@ cdef:
   int EVAL_ATTR
 
 cdef class Link:
-  cdef object v, result, ogv
+  cdef object v, result, ogv, exceptions
   cdef Link next_link
   cdef tuple args, temp_args
   cdef dict kwargs
-  cdef bint is_attr, is_fattr, is_with_root, ignore_result, is_chain, is_exception_handler
+  cdef bint is_attr, is_fattr, is_with_root, ignore_result, is_chain, is_exception_handler, raise_
   cdef int eval_code
   cdef str fn_name
-
-cdef class ExceptLink(Link):
-  cdef bint raise_
-  cdef object exceptions
 
 cdef object evaluate_value(Link link, object cv)
 
