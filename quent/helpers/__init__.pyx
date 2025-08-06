@@ -32,23 +32,42 @@ cdef object handle_return_exc(_Return exc, bint propagate):
   return evaluate_value(Link(exc._v, exc.args, exc.kwargs, True), Null)
 
 
-cdef object remove_self_frames_from_traceback():
-  # TODO also handle exc.__context__ and __cause__
+cdef object clean_internal_frames(object tb):
+  """Clean internal frames from a traceback while preserving <quent> frames"""
   cdef list stack = []
-  cdef object _, tb, exc_value, tb_next = None
-  _, exc_value, tb = sys.exc_info()
-
+  cdef object tb_next = None
+  cdef str filename
+  
   while tb is not None:
-    if not tb.tb_frame.f_globals.get('__QUENT_INTERNAL__') is __QUENT_INTERNAL__:
+    filename = tb.tb_frame.f_code.co_filename
+    # Keep only frames that are NOT from quent internal files or are the special <quent> frame
+    if filename == '<quent>':
+      # Always keep the special <quent> frames showing the chain
       stack.append(tb)
+    elif filename not in ('quent/quent.pyx', 'quent/helpers/__init__.pyx', 'quent/custom/__init__.pyx'):
+      # Also check if it's not marked as internal
+      if not tb.tb_frame.f_globals.get('__QUENT_INTERNAL__') is __QUENT_INTERNAL__:
+        # Keep user code frames
+        stack.append(tb)
     tb = tb.tb_next
-
-  # Assign tb_next in reverse to avoid circular references. (ref: jinja2.debug.py)
+  
+  # Assign tb_next in reverse to avoid circular references
   for tb in reversed(stack):
     tb.tb_next = tb_next
     tb_next = tb
+  
+  return tb_next
 
-  return exc_value.with_traceback(tb_next)
+
+cdef object remove_self_frames_from_traceback():
+  # TODO also handle exc.__context__ and __cause__
+  cdef object _, exc_value, tb
+  _, exc_value, tb = sys.exc_info()
+  
+  # Use the same cleaning logic as clean_internal_frames
+  cleaned_tb = clean_internal_frames(tb)
+  
+  return exc_value.with_traceback(cleaned_tb)
 
 
 cdef Link _handle_exception(object exc, Chain chain, Link link):
@@ -104,7 +123,11 @@ cdef void modify_traceback(object exc, Chain chain, Link link):
   try:
     exec(code, globals, {})
   except BaseException:
-    exc.__traceback__ = sys.exc_info()[2]
+    # Get the traceback from the exec'd code which includes our <quent> frame
+    _, _, new_tb = sys.exc_info()
+    # Clean the traceback to remove internal quent frames while keeping <quent> frames
+    cleaned_tb = clean_internal_frames(new_tb)
+    exc.__traceback__ = cleaned_tb
 
 
 cdef Link get_true_source_link(Link source_link):
