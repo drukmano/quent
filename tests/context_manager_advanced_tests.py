@@ -1,31 +1,7 @@
 import asyncio
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import TestExc, empty, aempty, await_
+from unittest import TestCase
+from tests.utils import TestExc, empty, aempty, await_, MyTestCase
 from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
 
 
 # -- Helper classes ----------------------------------------------------------
@@ -181,12 +157,6 @@ class DualProtocolCMTests(MyTestCase):
     await self.assertTrue(cm.async_exited)
     await self.assertFalse(cm.sync_exited)
 
-  async def test_dual_cm_with_do_returns_cm(self):
-    """DualCM with with_do: body result discarded, CM returned."""
-    cm = DualCM(sync_val='s', async_val='a')
-    result = await Chain(cm).with_do(lambda ctx: 'ignored').run()
-    await self.assertIs(result, cm)
-
 
 # ---------------------------------------------------------------------------
 # CMEnterReturnsNoneTests
@@ -274,12 +244,6 @@ class CMExplicitArgsTests(MyTestCase):
     await self.assertEqual(result, 'p:q')
     super(MyTestCase, self).assertEqual(received, [('p', 'q')])
 
-  async def test_explicit_args_with_do_returns_cm(self):
-    """with_do with explicit args: body result discarded, CM returned."""
-    cm = SyncCM(value='cm_val')
-    result = Chain(cm).with_do(lambda a: a, 'explicit').run()
-    await self.assertIs(result, cm)
-
 
 # ---------------------------------------------------------------------------
 # CMNestedChainBodyTests
@@ -305,13 +269,6 @@ class CMNestedChainBodyTests(MyTestCase):
       Chain(cm).with_(inner).run()
     await self.assertTrue(cm.exited)
     super(MyTestCase, self).assertEqual(cm.exit_exc_type, TestExc)
-
-  async def test_with_do_body_chain_result_discarded(self):
-    """with_do with a Chain body: body result is discarded."""
-    cm = SyncCM(value='ctx')
-    inner = Chain().then(lambda ctx: 'chain_result')
-    result = Chain(cm).with_do(inner).run()
-    await self.assertIs(result, cm)
 
   async def test_nested_with_calls(self):
     """Nested with_ calls: outer CM wraps inner CM."""
@@ -370,14 +327,6 @@ class CMAsyncWithEdgeCaseTests(MyTestCase):
     cm = OrderedAsyncCM()
     await Chain(cm).with_(body).run()
     super(MyTestCase, self).assertEqual(order, ['enter', 'body', 'exit'])
-
-  async def test_async_cm_body_coroutine_with_do(self):
-    """Async body with with_do on async CM: result discarded, CM returned."""
-    cm = AsyncCM(value='async_val')
-    async def async_body(ctx):
-      return 'should_be_ignored'
-    result = await Chain(cm).with_do(async_body).run()
-    await self.assertIs(result, cm)
 
 
 if __name__ == '__main__':

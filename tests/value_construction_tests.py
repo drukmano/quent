@@ -1,31 +1,7 @@
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_
-from quent import Chain, Cascade, ChainAttr, CascadeAttr, QuentException, run
+from unittest import TestCase
+from tests.utils import empty, aempty, await_, MyTestCase
+from quent import Chain, Cascade, QuentException
 from quent.quent import PyNull
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
 
 
 class NullSentinelTests(TestCase):
@@ -44,12 +20,6 @@ class NullSentinelTests(TestCase):
     # Chain(PyNull) behaves as a void chain (no root), so run() returns None.
     result = Chain(PyNull).run()
     self.assertIsNone(result)
-
-  def test_chain_null_classmethod(self):
-    self.assertIs(Chain.null(), PyNull)
-
-  def test_chain_null_consistent(self):
-    self.assertIs(Chain.null(), Chain.null())
 
 
 class ChainConstructionTests(TestCase):
@@ -132,16 +102,6 @@ class ChainConstructionTests(TestCase):
     result = c.do(lambda v: v)
     self.assertIs(result, c)
 
-  def test_chain_returns_self_from_root(self):
-    c = Chain(1)
-    result = c.root(lambda v: v)
-    self.assertIs(result, c)
-
-  def test_chain_returns_self_from_root_do(self):
-    c = Chain(1)
-    result = c.root_do(lambda v: v)
-    self.assertIs(result, c)
-
 
 class CascadeConstructionTests(TestCase):
 
@@ -170,23 +130,6 @@ class CascadeConstructionTests(TestCase):
     self.assertIsNone(result)
 
 
-class _Obj:
-  """Helper class with properties and methods for attribute tests."""
-  def __init__(self, val=10):
-    self.val = val
-    self.prop = val
-
-  @property
-  def value(self):
-    return self.val
-
-  def method(self):
-    return self.val * 2
-
-  def add(self, n, *, extra=0):
-    return self.val + n + extra
-
-
 class EvalCodeEdgeCaseTests(TestCase):
 
   def test_noncallable_in_do_raises(self):
@@ -201,27 +144,12 @@ class EvalCodeEdgeCaseTests(TestCase):
     result = Chain(1).then(lambda: 'no_arg', ...).run()
     self.assertEqual(result, 'no_arg')
 
-  def test_fattr_with_no_args(self):
-    obj = _Obj(7)
-    result = Chain(obj).attr_fn('method').run()
-    self.assertEqual(result, 14)
-
   def test_kwargs_only_in_link(self):
     # When only kwargs are supplied (no positional args), the link uses
     # EVAL_CALL_WITH_EXPLICIT_ARGS which calls fn(*args, **kwargs) without
     # injecting the current value.  So we use a lambda that accepts only kwargs.
     result = Chain(1).then(lambda *, extra=0: extra, extra=10).run()
     self.assertEqual(result, 10)
-
-  def test_attr_get_attribute_eval_code(self):
-    obj = _Obj(42)
-    result = Chain(obj).attr('prop').run()
-    self.assertEqual(result, 42)
-
-  def test_attr_fn_with_args_and_kwargs(self):
-    obj = _Obj(10)
-    result = Chain(obj).attr_fn('add', 5, extra=3).run()
-    self.assertEqual(result, 18)
 
 
 class ValuePassingTests(MyTestCase):
@@ -239,26 +167,6 @@ class ValuePassingTests(MyTestCase):
       with ctx:
         result = Chain(fn, 5).do(lambda v: 999).run()
         await self.assertEqual(result, 5)
-
-  async def test_root_passes_root_value(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        result = Chain(fn, 5).then(lambda v: v * 2).root(lambda v: v + 100).run()
-        await self.assertEqual(result, 105)
-
-  async def test_root_do_passes_root_discards_result(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        captured = {}
-        def capture_root(v):
-          captured['root'] = v
-          return 999  # should be discarded
-
-        result = Chain(fn, 5).then(lambda v: v * 2).root_do(capture_root).run()
-        # root_do receives root value (5) and discards its return (999);
-        # current value remains v*2 = 10.
-        await self.assertEqual(result, 10)
-        await self.assertEqual(captured['root'], 5)
 
   async def test_value_none_propagates(self):
     for fn, ctx in self.with_fn():

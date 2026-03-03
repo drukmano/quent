@@ -1,9 +1,8 @@
 import asyncio
 import inspect
-import time
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_
-from quent import Chain, Cascade, QuentException, run
+from tests.utils import aempty, await_
+from quent import Chain, Cascade, run
 
 
 class RunClassTests(IsolatedAsyncioTestCase):
@@ -53,19 +52,6 @@ class SleepMethodTests(IsolatedAsyncioTestCase):
     """sleep() can be chained between operations."""
     result = await await_(Chain(10).then(lambda v: v * 2).sleep(0.01).then(lambda v: v + 1).run())
     self.assertEqual(result, 21)
-
-
-class NullMethodTests(IsolatedAsyncioTestCase):
-  """Tests for Chain.null() classmethod (quent.pyx:664-666)."""
-
-  async def test_null_returns_sentinel(self):
-    """Chain.null() returns the Null sentinel."""
-    from quent import Null
-    self.assertIs(Chain.null(), Null)
-
-  async def test_null_is_consistent(self):
-    """Chain.null() always returns the same object."""
-    self.assertIs(Chain.null(), Chain.null())
 
 
 class BoolMethodTests(IsolatedAsyncioTestCase):
@@ -149,44 +135,11 @@ class EmptyChainTests(IsolatedAsyncioTestCase):
     self.assertTrue(bool(Chain()))
 
 
-class AutorunSimpleChainTests(IsolatedAsyncioTestCase):
-  """Tests for autorun behavior on simple chains (quent.pyx __call__ and run() autorun paths)."""
+class AsyncChainBehaviorTests(IsolatedAsyncioTestCase):
+  """Tests for async chain return behavior."""
 
-  async def test_autorun_call_simple_chain(self):
-    """Autorun via __call__() on a simple chain wraps the result in a Task."""
-    result = [None]
-    async def async_op():
-      await asyncio.sleep(0.05)
-      result[0] = 'done'
-    Chain(async_op).autorun()()
-    self.assertIsNone(result[0])
-    await asyncio.sleep(0.15)
-    self.assertEqual(result[0], 'done')
-
-  async def test_autorun_run_simple_chain(self):
-    """Autorun via run() on a simple chain wraps the result in a Task."""
-    result = [None]
-    async def async_op():
-      await asyncio.sleep(0.05)
-      result[0] = 'done'
-    Chain(async_op).autorun().run()
-    self.assertIsNone(result[0])
-    await asyncio.sleep(0.15)
-    self.assertEqual(result[0], 'done')
-
-  async def test_autorun_run_with_context(self):
-    """Autorun via run() with with_context() wraps the async result in a Task."""
-    result = [None]
-    async def async_op():
-      await asyncio.sleep(0.05)
-      result[0] = 'done'
-    Chain(async_op).autorun().with_context(key='value').run()
-    self.assertIsNone(result[0])
-    await asyncio.sleep(0.15)
-    self.assertEqual(result[0], 'done')
-
-  async def test_autorun_disabled_returns_coroutine(self):
-    """Without autorun, run() on an async chain returns an awaitable, not a Task."""
+  async def test_async_chain_returns_awaitable(self):
+    """run() on an async chain returns an awaitable, not a Task."""
     async def async_op():
       return 42
     result = Chain(async_op).run()

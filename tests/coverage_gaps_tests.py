@@ -1,31 +1,5 @@
-import asyncio
-from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
-from quent import Chain, Cascade, QuentException
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
+from tests.utils import empty, aempty, await_, TestExc, MyTestCase
+from quent import Chain
 
 
 class AsyncIterator:
@@ -84,31 +58,12 @@ class SyncCMWithCoroExit:
 
 
 # ---------------------------------------------------------------------------
-# 1. while_true: break returning coroutine
-# ---------------------------------------------------------------------------
-class WhileTrueBreakCoroTests(MyTestCase):
-
-  async def test_while_break_coro_value(self):
-    """Break value is a coroutine in while_true_async path."""
-    counter = {'count': 0}
-    def f():
-      counter['count'] += 1
-      if counter['count'] == 1:
-        return aempty()
-      return Chain.break_(aempty, 42)
-    counter['count'] = 0
-    await self.assertEqual(
-      Chain().while_true(f, ...).run(), 42
-    )
-
-
-# ---------------------------------------------------------------------------
-# 2-5. foreach: break with coroutine + exception paths
+# foreach: break with coroutine + exception paths
 # ---------------------------------------------------------------------------
 class ForeachBreakCoroTests(MyTestCase):
 
   async def test_foreach_break_coro_sync_to_async(self):
-    """Break value is coroutine in foreach_async (sync iterator, transition)."""
+    """Break value is coroutine in _foreach_to_async (sync iterator, transition)."""
     counter = {'count': 0}
     def f(el):
       counter['count'] += 1
@@ -121,7 +76,7 @@ class ForeachBreakCoroTests(MyTestCase):
     )
 
   async def test_foreach_break_coro_async_iterator(self):
-    """Break value is coroutine in async_foreach."""
+    """Break value is coroutine in _foreach_full_async."""
     def f(el):
       if el >= 2:
         return Chain.break_(aempty, 'done')
@@ -131,7 +86,7 @@ class ForeachBreakCoroTests(MyTestCase):
     )
 
   async def test_foreach_exception_async_iterator(self):
-    """Exception in async_foreach sets link.temp_args."""
+    """Exception in _foreach_full_async sets link.temp_args."""
     def f(el):
       if el >= 2:
         raise ValueError('async foreach error')
@@ -142,7 +97,7 @@ class ForeachBreakCoroTests(MyTestCase):
       )
 
   async def test_foreach_exception_sync_to_async(self):
-    """Exception in foreach_async sets link.temp_args."""
+    """Exception in _foreach_to_async sets link.temp_args."""
     counter = {'count': 0}
     def f(el):
       counter['count'] += 1
@@ -157,12 +112,12 @@ class ForeachBreakCoroTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 6-8. foreach_indexed: break with coroutine + exception paths
+# foreach_indexed: break with coroutine + exception paths
 # ---------------------------------------------------------------------------
 class ForeachIndexedBreakCoroTests(MyTestCase):
 
   async def test_foreach_indexed_break_coro_sync_to_async(self):
-    """Break value is coroutine in foreach_indexed_async (transition)."""
+    """Break value is coroutine in _foreach_indexed_to_async (transition)."""
     counter = {'count': 0}
     def f(idx, el):
       counter['count'] += 1
@@ -175,7 +130,7 @@ class ForeachIndexedBreakCoroTests(MyTestCase):
     )
 
   async def test_foreach_indexed_break_coro_async_iterator(self):
-    """Break value is coroutine in async_foreach_indexed."""
+    """Break value is coroutine in _foreach_indexed_full_async."""
     def f(idx, el):
       if idx >= 1:
         return Chain.break_(aempty, 'done')
@@ -185,7 +140,7 @@ class ForeachIndexedBreakCoroTests(MyTestCase):
     )
 
   async def test_foreach_indexed_exception_async_iterator(self):
-    """Exception in async_foreach_indexed sets link.temp_args."""
+    """Exception in _foreach_indexed_full_async sets link.temp_args."""
     def f(idx, el):
       if idx >= 1:
         raise ValueError('indexed async error')
@@ -197,12 +152,12 @@ class ForeachIndexedBreakCoroTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 9-10. filter: exception paths
+# filter: exception paths
 # ---------------------------------------------------------------------------
 class FilterExceptionTests(MyTestCase):
 
   async def test_filter_exception_async_iterator(self):
-    """Exception in async_filter sets link.temp_args."""
+    """Exception in _filter_full_async sets link.temp_args."""
     def pred(x):
       if x >= 2:
         raise ValueError('async filter error')
@@ -213,7 +168,7 @@ class FilterExceptionTests(MyTestCase):
       )
 
   async def test_filter_exception_sync_to_async(self):
-    """Exception in filter_async sets link.temp_args."""
+    """Exception in _filter_to_async sets link.temp_args."""
     counter = {'count': 0}
     def pred(x):
       counter['count'] += 1
@@ -228,38 +183,7 @@ class FilterExceptionTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 11. reduce: exception paths
-# ---------------------------------------------------------------------------
-class ReduceExceptionTests(MyTestCase):
-
-  async def test_reduce_exception_async_iterator(self):
-    """Exception in async_reduce sets link.temp_args."""
-    def reducer(a, x):
-      if x >= 2:
-        raise ValueError('async reduce error')
-      return a + x
-    with self.assertRaises(ValueError):
-      await await_(
-        Chain(AsyncIterator([1, 2, 3])).reduce(reducer, 0).run()
-      )
-
-  async def test_reduce_exception_sync_to_async(self):
-    """Exception in reduce_async sets link.temp_args."""
-    counter = {'count': 0}
-    def reducer(a, x):
-      counter['count'] += 1
-      if counter['count'] == 1:
-        return aempty(a + x)
-      raise ValueError('reduce transition error')
-    counter['count'] = 0
-    with self.assertRaises(ValueError):
-      await await_(
-        Chain([1, 2, 3, 4]).reduce(reducer, 0).run()
-      )
-
-
-# ---------------------------------------------------------------------------
-# 12-14. context manager edge cases
+# context manager edge cases
 # ---------------------------------------------------------------------------
 class ContextManagerEdgeCaseTests(MyTestCase):
 
@@ -302,7 +226,7 @@ class ContextManagerEdgeCaseTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 15-16. iterate (generator) break
+# iterate (generator) break
 # ---------------------------------------------------------------------------
 class IterateBreakTests(MyTestCase):
 
@@ -330,40 +254,8 @@ class IterateBreakTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 17-18. context variable management for async chains
-# ---------------------------------------------------------------------------
-class ContextVarTests(MyTestCase):
-
-  async def test_async_chain_with_context(self):
-    """Async chain with .with_context() exercises token set/reset."""
-    async def check_context(v):
-      ctx = Chain.get_context()
-      return ctx.get('key')
-    c = Chain(1).then(check_context).with_context(key='async_val')
-    result = await c.run()
-    await self.assertEqual(result, 'async_val')
-    super(MyTestCase, self).assertEqual(Chain.get_context(), {})
-
-  async def test_call_with_context(self):
-    """chain() instead of chain.run() when _context is set."""
-    def check(v):
-      return Chain.get_context().get('key')
-    c = Chain(1).then(check).with_context(key='call_val')
-    result = c()
-    await self.assertEqual(result, 'call_val')
-
-  async def test_async_call_with_context(self):
-    """Async chain via __call__ with context."""
-    async def check(v):
-      return Chain.get_context().get('key')
-    c = Chain(1).then(check).with_context(key='async_call')
-    result = await c()
-    await self.assertEqual(result, 'async_call')
-
-
-# ---------------------------------------------------------------------------
-# 19-20. _run_async: _Return with coroutine value + _Break in nested chain
-# (chains must be non-simple to reach _run_async instead of _run_async_simple)
+# _run_async: _Return with coroutine value
+# (chain must be non-simple to reach _run_async instead of _run_async_simple)
 # ---------------------------------------------------------------------------
 class RunAsyncControlFlowTests(MyTestCase):
 
@@ -375,77 +267,9 @@ class RunAsyncControlFlowTests(MyTestCase):
     result = await Chain(aempty, 1).do(lambda v: None).then(body).run()
     await self.assertEqual(result, 42)
 
-  async def test_break_in_nested_async_chain(self):
-    """Chain.break_() in nested chain within while_true, _run_async path."""
-    def body():
-      Chain.break_()
-    # .do() makes the inner chain non-simple → uses _run/_run_async
-    inner = Chain().then(aempty).do(lambda v: None).then(body, ...)
-    result = await Chain(99).while_true(inner, ...).run()
-    await self.assertEqual(result, 99)
-
 
 # ---------------------------------------------------------------------------
-# 21. on_success async exception path
-# ---------------------------------------------------------------------------
-class OnSuccessAsyncExcTests(MyTestCase):
-
-  async def test_on_success_async_raises(self):
-    """Async on_success raises exercises _run_async_on_success exception."""
-    async def failing_cb(v):
-      raise ValueError('on_success async error')
-    c = Chain(42).set_async().on_success(failing_cb)
-    with self.assertRaises(ValueError):
-      await await_(c.run())
-
-  async def test_on_success_async_raises_with_finally(self):
-    """Async on_success raises, finally handler still executes."""
-    finally_called = [False]
-    async def failing_cb(v):
-      raise ValueError('on_success error')
-    def finally_cb(v):
-      finally_called[0] = True
-    c = Chain(42).set_async().on_success(failing_cb).finally_(finally_cb)
-    with self.assertRaises(ValueError):
-      await await_(c.run())
-    super(MyTestCase, self).assertTrue(finally_called[0])
-
-  async def test_on_success_async_raises_with_async_finally(self):
-    """Async on_success raises, async finally handler awaited."""
-    finally_called = [False]
-    async def failing_cb(v):
-      raise ValueError('on_success error')
-    async def async_finally_cb(v):
-      finally_called[0] = True
-    c = Chain(42).set_async().on_success(failing_cb).finally_(async_finally_cb)
-    with self.assertRaises(ValueError):
-      await await_(c.run())
-    super(MyTestCase, self).assertTrue(finally_called[0])
-
-  async def test_on_success_ok_async_finally_raises(self):
-    """on_success succeeds, finally handler raises in _run_async_on_success."""
-    async def ok_cb(v):
-      pass
-    def failing_finally(v):
-      raise RuntimeError('finally error')
-    c = Chain(42).set_async().on_success(ok_cb).finally_(failing_finally)
-    with self.assertRaises(RuntimeError):
-      await await_(c.run())
-
-  async def test_on_success_ok_async_finally_control_flow(self):
-    """on_success succeeds, finally uses control flow signal."""
-    async def ok_cb(v):
-      pass
-    c = Chain(42).set_async().on_success(ok_cb).finally_(Chain.return_, 99)
-    with self.assertRaises(QuentException) as cm:
-      await await_(c.run())
-    super(MyTestCase, self).assertIn(
-      'control flow signals', str(cm.exception).lower()
-    )
-
-
-# ---------------------------------------------------------------------------
-# 22. frozen chain .decorator()
+# frozen chain .decorator()
 # ---------------------------------------------------------------------------
 class FrozenChainDecoratorTests(MyTestCase):
 

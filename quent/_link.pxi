@@ -10,7 +10,7 @@
 #   - Link: the chain node class holding a value, args, and evaluation metadata
 #   - _clone_link / _clone_chain_links: deep-copy utilities for Link lists
 #   - _make_temp_link: factory for temporary root-value override links
-#   - evaluate_value: central dispatch — calls, accesses, or returns a link's value
+#   - evaluate_value: central dispatch — calls or returns a link's value
 
 
 async def _await_run(result, chain=None, link=None, ctx=None):
@@ -28,7 +28,7 @@ cdef object _await_run_fn = _await_run
 
 cdef inline int _determine_eval_code(
   Link link, object v, tuple args, dict kwargs,
-  bint is_fattr, bint is_attr, bint allow_literal,
+  bint allow_literal,
 ):
   """Determine the eval_code for a Link based on its value and arguments.
 
@@ -38,10 +38,6 @@ cdef inline int _determine_eval_code(
   if not args and not kwargs:
     if callable(v):
       return EVAL_CALL_WITH_CURRENT_VALUE
-    elif is_fattr:
-      return EVAL_CALL_WITHOUT_ARGS
-    elif is_attr:
-      return EVAL_GET_ATTRIBUTE
     else:
       if not allow_literal:
         raise QuentException('Non-callable objects cannot be used with this method.')
@@ -73,16 +69,39 @@ cdef class Link:
   controlling how it is evaluated (eval_code) and whether its result propagates.
   Links are connected via ``next_link`` to form the evaluation sequence.
   """
+
+  # ┌─────────────────────────────────────────────────────────────────────────┐
+  # │ FIELD INVENTORY (14 fields — see quent.pxd lines 33-39)               │
+  # │                                                                         │
+  # │ All fields must stay in sync across three locations:                    │
+  # │   • __init__           — normal construction                           │
+  # │   • _clone_link()      — deep-copy for chain cloning                   │
+  # │   • _make_temp_link()  — fast-path allocation (bypasses __init__)      │
+  # │                                                                         │
+  # │ Field            Type    Purpose                                        │
+  # │ ─────            ────    ───────                                        │
+  # │ v                object  The callable or literal value                  │
+  # │ args             tuple   Positional args passed alongside v             │
+  # │ kwargs           dict    Keyword args passed alongside v                │
+  # │ is_with_root     bint    True if this link receives the root value      │
+  # │ ignore_result    bint    True if v's return value is discarded          │
+  # │ original_value   object  The raw user-supplied value (before wrapping)  │
+  # │ fn_name          str     Display name for debugging/repr               │
+  # │ temp_args        tuple   Transient args from _ExecCtx (cleared on run) │
+  # │ is_exception_handler bint True if this is an except_/finally_ link     │
+  # │ exceptions       object  Exception type(s) this handler catches        │
+  # │ reraise          bint    True if caught exceptions should be reraised   │
+  # │ next_link        Link    Pointer to the next link in the chain          │
+  # │ eval_code        int     Dispatch code for evaluate_value()             │
+  # │ is_chain         bint    True if v is a Chain instance                  │
+  # └─────────────────────────────────────────────────────────────────────────┘
+
   def __init__(
     self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, str fn_name = None,
-    bint is_with_root = False, bint ignore_result = False, bint is_attr = False, bint is_fattr = False,
+    bint is_with_root = False, bint ignore_result = False,
     object original_value = None,
   ):
     """Initialize a Link with a value, arguments, and evaluation metadata."""
-    # TODO if we ever add `is_nested` support for _FrozenChain, _Generator, we can
-    #  create `class _Quent` which they (and Chain) inherit from and just check
-    #  `isinstance(v, _Quent)`; _Quent class will also have _Quent.chain property
-    #  so we could mark `_Quent.chain.is_nested = True`.
     cdef bint is_chain_type = isinstance(v, Chain)
     if is_chain_type:
       self.is_chain = True
@@ -96,8 +115,6 @@ cdef class Link:
     self.kwargs = kwargs
     self.is_with_root = is_with_root
     self.ignore_result = ignore_result
-    self.is_attr = is_attr
-    self.is_fattr = is_fattr
     self.original_value = original_value
     self.fn_name = fn_name
     self.temp_args = None
@@ -106,7 +123,7 @@ cdef class Link:
     self.exceptions = None
     self.reraise = True
     self.next_link = None
-    self.eval_code = _determine_eval_code(self, v, args, kwargs, is_fattr, is_attr, allow_literal)
+    self.eval_code = _determine_eval_code(self, v, args, kwargs, allow_literal)
 
 
 cdef Link _clone_link(Link src):
@@ -118,8 +135,6 @@ cdef Link _clone_link(Link src):
   dst.eval_code = src.eval_code
   dst.is_with_root = src.is_with_root
   dst.ignore_result = src.ignore_result
-  dst.is_attr = src.is_attr
-  dst.is_fattr = src.is_fattr
   dst.is_chain = src.is_chain
   dst.original_value = src.original_value
   dst.fn_name = src.fn_name
@@ -154,8 +169,6 @@ cdef Link _make_temp_link(object v, tuple args, dict kwargs):
   link.kwargs = kwargs
   link.is_with_root = False
   link.ignore_result = False
-  link.is_attr = False
-  link.is_fattr = False
   link.is_chain = False
   link.original_value = None
   link.fn_name = None
@@ -164,7 +177,7 @@ cdef Link _make_temp_link(object v, tuple args, dict kwargs):
   link.exceptions = None
   link.reraise = True
   link.next_link = None
-  link.eval_code = _determine_eval_code(link, v, args, kwargs, False, False, True)
+  link.eval_code = _determine_eval_code(link, v, args, kwargs, True)
   return link
 
 
@@ -172,13 +185,11 @@ cdef object evaluate_value(Link link, object current_value):
   """Evaluate a single Link against the current pipeline value.
 
   Dispatches based on the link's eval_code to call the link's value with
-  the appropriate arguments (current value, explicit args, no args, or
-  attribute access). Returns the raw result which may be a coroutine.
+  the appropriate arguments (current value, explicit args, or no args).
+  Returns the raw result which may be a coroutine.
   """
-  cdef object v
-
   # Fast path for most common case: simple callable with single argument
-  if link.eval_code == EVAL_CALL_WITH_CURRENT_VALUE and not link.is_chain and not link.is_attr:
+  if link.eval_code == EVAL_CALL_WITH_CURRENT_VALUE and not link.is_chain:
     if current_value is Null:
       return link.v()
     return link.v(current_value)
@@ -202,7 +213,7 @@ cdef object evaluate_value(Link link, object current_value):
         'If you see this error then something has gone terribly wrong.'
       )
 
-  elif not link.is_attr:
+  else:
     if link.eval_code == EVAL_CALL_WITH_EXPLICIT_ARGS:
       if link.args is None or link.kwargs is None:
         # Safety: when args/kwargs are None (not just empty), Cython would dereference
@@ -215,18 +226,3 @@ cdef object evaluate_value(Link link, object current_value):
       return link.v()
     else:
       return link.v
-
-  else:
-    v = getattr(current_value, link.v)
-    if link.eval_code == EVAL_CALL_WITHOUT_ARGS:
-      return v()
-    elif link.eval_code == EVAL_CALL_WITH_EXPLICIT_ARGS:
-      if link.args is None or link.kwargs is None:
-        # Safety: when args/kwargs are None (not just empty), Cython would dereference
-        # a NULL PyObject* when unpacking them, causing a segfault at the C level.
-        return v()
-      if link.kwargs is EMPTY_DICT:
-        return v(*link.args)
-      return v(*link.args, **link.kwargs)
-    else:
-      return v

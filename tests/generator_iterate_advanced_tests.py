@@ -1,31 +1,5 @@
-import asyncio
-from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
-from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
+from tests.utils import empty, aempty, await_, TestExc, MyTestCase
+from quent import Chain, QuentException
 
 
 class SyncIterator:
@@ -200,31 +174,9 @@ class AsyncGeneratorTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# IterateDoAdvancedTests
+# IterateAdvancedTests
 # ---------------------------------------------------------------------------
-class IterateDoAdvancedTests(MyTestCase):
-
-  async def test_iterate_do_discards_body_result(self):
-    """iterate_do yields original elements, ignoring fn's return value."""
-    side = []
-    r = []
-    for i in Chain(SyncIterator, [10, 20, 30]).iterate_do(lambda i: side.append(i * 2)):
-      r.append(i)
-    super(MyTestCase, self).assertEqual(r, [10, 20, 30])
-    super(MyTestCase, self).assertEqual(side, [20, 40, 60])
-
-  async def test_iterate_do_async_fn(self):
-    """iterate_do with async fn, yields originals, awaits fn."""
-    side = []
-
-    async def async_side(i):
-      side.append(i * 3)
-
-    r = []
-    async for i in Chain(SyncIterator, [1, 2, 3]).iterate_do(async_side):
-      r.append(i)
-    super(MyTestCase, self).assertEqual(r, [1, 2, 3])
-    super(MyTestCase, self).assertEqual(side, [3, 6, 9])
+class IterateAdvancedTests(MyTestCase):
 
   async def test_iterate_over_range(self):
     """iterate over a range object."""
@@ -254,10 +206,3 @@ class IterateDoAdvancedTests(MyTestCase):
     for i in Chain(SyncIterator, [2, 3, 4]).iterate(body):
       r.append(i)
     super(MyTestCase, self).assertEqual(r, [4, 9, 16])
-
-  async def test_iterate_do_no_fn(self):
-    """iterate_do with no fn yields all elements unchanged."""
-    r = []
-    for i in Chain(SyncIterator, [7, 8, 9]).iterate_do():
-      r.append(i)
-    super(MyTestCase, self).assertEqual(r, [7, 8, 9])

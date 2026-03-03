@@ -1,6 +1,6 @@
 import asyncio
 from unittest import TestCase, IsolatedAsyncioTestCase
-from quent import Chain, Cascade, QuentException
+from quent import Chain, Cascade
 
 
 class CloneBasicTests(TestCase):
@@ -33,21 +33,6 @@ class CloneBasicTests(TestCase):
     side_effects.clear()
     self.assertEqual(c2.run(), 15)
     self.assertEqual(side_effects, [10])
-
-  def test_clone_with_root_method(self):
-    """Clone preserves root() operations."""
-    c = Chain(5).then(lambda v: v * 2).root(lambda v: v + 100)
-    c2 = c.clone()
-    self.assertEqual(c2.run(), 105)
-
-  def test_clone_with_root_do_method(self):
-    """Clone preserves root_do() operations."""
-    captured = []
-    c = Chain(5).then(lambda v: v * 2).root_do(lambda v: captured.append(v))
-    c2 = c.clone()
-    captured.clear()
-    self.assertEqual(c2.run(), 10)
-    self.assertEqual(captured, [5])
 
   def test_clone_with_literal_values(self):
     """Clone works with literal (non-callable) values in then()."""
@@ -303,34 +288,3 @@ class CloneAsyncTests(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result1, 3)
     self.assertEqual(result2, 3)
-
-
-class CloneAutorunTests(TestCase):
-  """Test that clone preserves autorun configuration."""
-
-  def test_clone_preserves_autorun(self):
-    """Clone preserves the autorun flag."""
-    c = Chain(1).autorun(True)
-    c2 = c.clone()
-    # We can't easily test autorun behavior directly without an event loop,
-    # but we can verify the clone has the same config by checking it
-    # doesn't crash and produces valid output
-    c3 = Chain(1).autorun(False)
-    c4 = c3.clone()
-    self.assertEqual(c4.run(), 1)
-
-
-class CloneConditionalTests(TestCase):
-  """Test that clone works after conditionals are finalized."""
-
-  def test_clone_after_if_else(self):
-    """Clone works for chains with if_/else_ (finalized conditionals)."""
-    c = Chain(10).not_().if_(lambda v: "falsy").else_(lambda v: "truthy")
-    c2 = c.clone()
-    self.assertEqual(c2.run(), "truthy")
-
-  def test_clone_after_eq(self):
-    """Clone works for chains with eq conditional."""
-    c = Chain(5).eq(5).if_(lambda v: "equal")
-    c2 = c.clone()
-    self.assertEqual(c2.run(), "equal")

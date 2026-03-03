@@ -1,13 +1,11 @@
 # _variants.pxi — Chain subclasses and supporting wrappers
 #
-# Defines the Chain variants (Cascade, ChainAttr, CascadeAttr) and related
-# utility types (_DescriptorWrapper, _FrozenChain, run). These are thin
-# extensions of the base Chain class, each adding a specific behavioral twist.
+# Defines the Chain variants (Cascade) and related utility types
+# (_DescriptorWrapper, _FrozenChain, run). These are thin extensions
+# of the base Chain class, each adding a specific behavioral twist.
 #
 # Key components:
 #   - Cascade: every link receives the root value instead of the previous result
-#   - ChainAttr: supports attribute access on the current value via __getattr__
-#   - CascadeAttr: combines Cascade and ChainAttr behavior
 #   - _DescriptorWrapper: makes chain decorators work as instance methods
 #   - _FrozenChain: immutable snapshot for safe repeated execution
 #   - run: pipe syntax terminator (Chain(f1) | f2 | run())
@@ -20,42 +18,6 @@ cdef class Cascade(Chain):
   # noinspection PyMissingConstructor
   def __init__(self, object __v = Null, *args, **kwargs):
     """Create a new Cascade with an optional root value."""
-    self.init(__v, args, kwargs, True)
-
-
-cdef class ChainAttr(Chain):
-  """Chain variant that supports attribute access on the current value via __getattr__."""
-  def __init__(self, object __v = Null, *args, **kwargs):
-    """Create a new ChainAttr with an optional root value."""
-    self.init(__v, args, kwargs, False)
-
-  def __getattr__(self, str name):
-    """Record an attribute access to be resolved against the current value during execution."""
-    self.finalize()
-    self.current_attr = name
-    return self
-
-  def __call__(self, *args, **kwargs):
-    """Call the pending attribute as a method, or run the chain if no attribute is pending."""
-    cdef str attr = self.current_attr
-    if attr is None:
-      # much slower than directly calling `._run()`, but we have no choice since
-      # we wish support arbitrary __call__ invocations on attributes.
-      # avoid running a chain this way. opt to use `.run()` instead.
-      return self.run(*args, **kwargs)
-    else:
-      self.current_attr = None
-      self._then(Link(attr, args, kwargs, is_attr=True, is_fattr=True))
-      return self
-
-
-# cannot have multiple inheritance in Cython.
-@cython.final
-cdef class CascadeAttr(ChainAttr):
-  """Cascade variant that supports attribute access on the current value via __getattr__."""
-  # noinspection PyMissingConstructor
-  def __init__(self, object __v = Null, *args, **kwargs):
-    """Create a new CascadeAttr with an optional root value."""
     self.init(__v, args, kwargs, True)
 
 

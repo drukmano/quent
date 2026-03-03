@@ -1,33 +1,8 @@
-import sys
 import traceback
 import logging
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
-from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
+from unittest import TestCase
+from tests.utils import empty, aempty, await_, MyTestCase
+from quent import Chain, Cascade
 
 
 # ---------------------------------------------------------------------------
@@ -406,13 +381,6 @@ class StringifyChainTests(TestCase):
     """repr of a Cascade shows 'Cascade' as the class name."""
     r = repr(Cascade())
     self.assertIn('Cascade', r)
-
-  def test_repr_chain_with_conditional_pending(self):
-    """repr of a chain with a pending conditional state still produces output."""
-    c = Chain(1).condition(lambda v: v)
-    r = repr(c)
-    # Should not crash and should contain 'Chain'
-    self.assertIn('Chain', r)
 
   def test_repr_chain_with_multiple_operations(self):
     """repr of a chain with many operations shows all of them."""

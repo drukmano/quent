@@ -1,30 +1,5 @@
-from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
+from tests.utils import empty, aempty, await_, TestExc, MyTestCase
 from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -145,97 +120,6 @@ class ReturnSignalValueTests(MyTestCase):
 # BreakSignalValueTests
 # ---------------------------------------------------------------------------
 class BreakSignalValueTests(MyTestCase):
-
-  async def test_break_no_args(self):
-    """Chain(42).while_true(lambda: Chain.break_(), ...).run() — break_() raises
-    _Break(Null, (), {}), handle_break_exc sees _v is Null → returns nv=42."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 42).while_true(lambda: Chain.break_(), ...).run(), 42
-        )
-
-  async def test_break_literal_value(self):
-    """Chain(1).while_true(lambda: Chain.break_(99), ...).run() — break_(99) raises
-    _Break(99, (), {}), 99 is not callable → returns 99."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 1).while_true(lambda: Chain.break_(99), ...).run(), 99
-        )
-
-  async def test_break_callable_no_args(self):
-    """Chain(1).while_true(lambda: Chain.break_(lambda: 77), ...).run() — break_(lambda: 77),
-    lambda is callable → calls it → returns 77."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 1).while_true(lambda: Chain.break_(lambda: 77), ...).run(), 77
-        )
-
-  async def test_break_callable_with_ellipsis(self):
-    """Chain(1).while_true(lambda: Chain.break_(lambda: 55, ...), ...).run() —
-    args=(Ellipsis,), args[0] is ... → calls v() → 55."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 1).while_true(lambda: Chain.break_(lambda: 55, ...), ...).run(), 55
-        )
-
-  async def test_break_callable_with_explicit_args(self):
-    """break_ with explicit positional args: break_(fn, 10, 20) → fn(10, 20)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def add(a, b):
-          return a + b
-        await self.assertEqual(
-          Chain(fn, 1).while_true(lambda: Chain.break_(add, 10, 20), ...).run(), 30
-        )
-
-  async def test_break_callable_with_kwargs_only(self):
-    """break_ with kwargs but no positional args.
-    Uses a wrapper to call Chain.break_(fn, key=val) directly."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def trigger():
-          Chain.break_(lambda **kw: kw['key'], key=99)
-
-        await self.assertEqual(
-          Chain(fn, 1).while_true(trigger, ...).run(), 99
-        )
-
-  async def test_break_callable_with_args_and_kwargs(self):
-    """break_ with both args and kwargs: break_(fn, 1, key=2) → fn(1, key=2)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def trigger():
-          Chain.break_(lambda a, key=None: a + key, 10, key=20)
-
-        await self.assertEqual(
-          Chain(fn, 1).while_true(trigger, ...).run(), 30
-        )
-
-  async def test_break_async_callable(self):
-    """break_ with an async callable: break_(aempty, 42) → awaits aempty(42) → 42."""
-    await self.assertEqual(
-      Chain(1).while_true(lambda: Chain.break_(aempty, 42), ...).run(), 42
-    )
-
-  async def test_break_falsy_literal(self):
-    """break_(0) returns 0, not the loop's current value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 1).while_true(lambda: Chain.break_(0), ...).run(), 0
-        )
-
-  async def test_break_none_literal(self):
-    """break_(None) returns None — None is not Null and not callable."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIsNone(
-          Chain(fn, 1).while_true(lambda: Chain.break_(None), ...).run()
-        )
 
   async def test_break_in_foreach(self):
     """break_() inside foreach returns the partial list accumulated so far."""

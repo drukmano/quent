@@ -7,15 +7,15 @@
 # File organization:
 #   _link.pxi          — Link node, evaluation dispatch, clone utilities
 #   _operators.pxi     — Comparison, type-check, sleep, and negation operators
-#   _control_flow.pxi  — Signals, conditionals, loops, context managers, generators
-#   _iteration.pxi     — foreach, filter, reduce, gather collection operations
-#   _helpers.pxi       — Async utilities, exception handling, chain stringification
-#   _chain.pxi         — Core Chain class (construction, execution, API methods)
-#   _variants.pxi      — Cascade, ChainAttr, CascadeAttr, FrozenChain, run
+#   _control_flow.pxi  — Signals, context managers, generators
+#   _iteration.pxi     — foreach, filter, gather collection operations
+#   _async_utils.pxi   — Async task lifecycle management
+#   _diagnostics.pxi   — Exception handling, traceback augmentation, chain stringification
+#   _chain_core.pxi    — Core Chain class (construction, execution, API methods)
+#   _variants.pxi      — Cascade, FrozenChain, run
 
 import sys
 import asyncio
-import contextvars
 import logging
 import time
 import types
@@ -34,7 +34,6 @@ except ImportError:
   _PipeCls = None
 
 _logger = logging.getLogger('quent')
-cdef object _current_context = contextvars.ContextVar('quent_chain_context', default=None)
 
 @cython.final
 @cython.no_gc
@@ -66,7 +65,6 @@ cdef:
 
 cdef:
   object _asyncio_sleep = asyncio.sleep
-  object _asyncio_get_running_loop = asyncio.get_running_loop
   object _asyncio_get_running_loop_internal = asyncio._get_running_loop
 
 # EvalCode enum is declared in quent.pxd
@@ -80,6 +78,7 @@ include "_link.pxi"
 include "_operators.pxi"
 include "_control_flow.pxi"
 include "_iteration.pxi"
-include "_helpers.pxi"
-include "_chain.pxi"
+include "_async_utils.pxi"
+include "_diagnostics.pxi"
+include "_chain_core.pxi"
 include "_variants.pxi"

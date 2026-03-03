@@ -1,4 +1,4 @@
-# _iteration.pxi — Collection operations (foreach, filter, reduce, gather)
+# _iteration.pxi — Collection operations (foreach, filter, gather)
 #
 # Implements the iterable transformation operations that apply functions to
 # each element of a collection. Each operation follows a 3-function architecture:
@@ -10,7 +10,6 @@
 #   - _Foreach / foreach: apply fn to each element, collecting results
 #   - _ForeachIndexed / foreach_indexed: like foreach but fn receives (index, element)
 #   - _Filter / filter_: keep elements where fn returns truthy
-#   - _Reduce / reduce_: fold elements into a single value with fn(acc, el)
 #   - _Gather / gather_: execute multiple functions in parallel, collect results
 
 
@@ -18,10 +17,10 @@
 
 # foreach uses a 3-function architecture to handle sync-to-async transitions:
 # 1. foreach (sync): iterates synchronously, calling fn(el) for each element.
-#    If fn returns a coroutine, hands off to foreach_async mid-iteration.
-# 2. foreach_async (transition): continues iteration from where sync left off,
+#    If fn returns a coroutine, hands off to _foreach_to_async mid-iteration.
+# 2. _foreach_to_async (transition): continues iteration from where sync left off,
 #    awaiting coroutine results. Handles the sync-to-async boundary.
-# 3. async_foreach (fully async): used when the input itself is an async
+# 3. _foreach_full_async (fully async): used when the input itself is an async
 #    iterator (__aiter__). All iteration and fn calls are fully async.
 
 @cython.final
@@ -76,7 +75,7 @@ cdef Link foreach(object fn, bint ignore_result):
   return Link(_Foreach(fn, ignore_result, link), original_value=link)
 
 
-async def foreach_async(object current_value, object fn, object el, object result, list lst, bint ignore_result, Link link):
+async def _foreach_to_async(object current_value, object fn, object el, object result, list lst, bint ignore_result, Link link):
   """Async continuation of foreach when a coroutine is encountered mid-iteration."""
   try:
     while True:
@@ -102,7 +101,7 @@ async def foreach_async(object current_value, object fn, object el, object resul
     raise
 
 
-async def async_foreach(object current_value, object fn, bint ignore_result, Link link):
+async def _foreach_full_async(object current_value, object fn, bint ignore_result, Link link):
   """Fully async foreach for async iterables, awaiting each fn result."""
   cdef list lst = []
   cdef object el, result
@@ -132,10 +131,10 @@ async def async_foreach(object current_value, object fn, bint ignore_result, Lin
 
 # filter uses the same 3-function architecture as foreach:
 # 1. filter_ (sync): iterates synchronously, calling fn(el) for each element.
-#    If fn returns a coroutine, hands off to filter_async mid-iteration.
-# 2. filter_async (transition): continues iteration from where sync left off,
+#    If fn returns a coroutine, hands off to _filter_to_async mid-iteration.
+# 2. _filter_to_async (transition): continues iteration from where sync left off,
 #    awaiting coroutine results. Handles the sync-to-async boundary.
-# 3. async_filter (fully async): used when the input itself is an async
+# 3. _filter_full_async (fully async): used when the input itself is an async
 #    iterator (__aiter__). All iteration and fn calls are fully async.
 
 @cython.final
@@ -183,7 +182,7 @@ cdef Link filter_(object fn):
   return Link(_Filter(fn, link), original_value=link)
 
 
-async def filter_async(object current_value, object fn, object el, object result, list lst, Link link):
+async def _filter_to_async(object current_value, object fn, object el, object result, list lst, Link link):
   """Async continuation of filter when a coroutine is encountered mid-iteration."""
   try:
     while True:
@@ -202,7 +201,7 @@ async def filter_async(object current_value, object fn, object el, object result
     raise
 
 
-async def async_filter(object current_value, object fn, Link link):
+async def _filter_full_async(object current_value, object fn, Link link):
   """Fully async filter for async iterables, awaiting each fn result."""
   cdef list lst = []
   cdef object el, result
@@ -214,107 +213,6 @@ async def async_filter(object current_value, object fn, Link link):
       if result:
         lst.append(el)
     return lst
-  except BaseException as exc:
-    if not hasattr(exc, '__quent_link_temp_args__'):
-      exc.__quent_link_temp_args__ = {}
-    exc.__quent_link_temp_args__[id(link)] = (el,)
-    raise
-
-
-# --- Reduce ---
-
-# reduce uses the same 3-function architecture:
-# 1. reduce_ (sync): iterates synchronously, calling fn(acc, el) for each element.
-#    If fn returns a coroutine, hands off to reduce_async mid-iteration.
-# 2. reduce_async (transition): continues iteration from where sync left off.
-# 3. async_reduce (fully async): used when the input is an async iterator.
-
-@cython.final
-@cython.freelist(8)
-cdef class _Reduce:
-  """Callable that reduces an iterable to a single value using a binary function."""
-
-  def __init__(self, object fn, object initial, Link link):
-    """Initialize with the reducer function, initial accumulator, and error context link."""
-    self.fn = fn
-    self.initial = initial
-    self.link = link
-
-  def __call__(self, object current_value):
-    """Iterate over current_value, applying fn(accumulator, element) to reduce to a single value.
-
-    NOTE: temp_args is mutated on `self.link` for traceback context.
-    """
-    if hasattr(current_value, '__aiter__'):
-      return _async_reduce_fn(current_value, self.fn, self.initial, self.link)
-    cdef object acc, el, result
-    current_value = current_value.__iter__()
-    if self.initial is Null:
-      try:
-        acc = current_value.__next__()
-      except StopIteration:
-        raise TypeError('reduce() of empty iterable with no initial value')
-    else:
-      acc = self.initial
-    try:
-      while True:
-        el = current_value.__next__()
-        result = self.fn(acc, el)
-        if iscoro(result):
-          self.link.temp_args = (el,)
-          return _reduce_async_fn(current_value, self.fn, el, result, acc, self.link)
-        acc = result
-    except StopIteration:
-      return acc
-    except BaseException:
-      self.link.temp_args = (el,)
-      raise
-
-
-cdef Link reduce_(object fn, object initial):
-  """Reduce an iterable to a single value using a binary function."""
-  cdef Link link = Link(fn, (), {}, fn_name='reduce')
-  return Link(_Reduce(fn, initial, link), original_value=link)
-
-
-async def reduce_async(object current_value, object fn, object el, object result, object acc, Link link):
-  """Async continuation of reduce when a coroutine is encountered mid-iteration."""
-  try:
-    while True:
-      if iscoro(result):
-        result = await result
-      acc = result
-      el = current_value.__next__()
-      result = fn(acc, el)
-  except StopIteration:
-    return acc
-  except BaseException as exc:
-    if not hasattr(exc, '__quent_link_temp_args__'):
-      exc.__quent_link_temp_args__ = {}
-    exc.__quent_link_temp_args__[id(link)] = (el,)
-    raise
-
-
-async def async_reduce(object current_value, object fn, object initial, Link link):
-  """Fully async reduce for async iterables."""
-  cdef object acc, el, result
-  cdef bint first = True
-  if initial is not Null:
-    acc = initial
-    first = False
-  try:
-    async for el in current_value:
-      if first:
-        acc = el
-        first = False
-        continue
-      result = fn(acc, el)
-      if iscoro(result):
-        result = await result
-      acc = result
-    if first:
-      raise TypeError('reduce() of empty iterable with no initial value')
-    return acc
   except BaseException as exc:
     if not hasattr(exc, '__quent_link_temp_args__'):
       exc.__quent_link_temp_args__ = {}
@@ -356,7 +254,7 @@ cdef Link gather_(tuple fns):
   return Link(_Gather(fns, link), original_value=link)
 
 
-async def gather_async(list results):
+async def _gather_to_async(list results):
   """Await all coroutines in results using asyncio.gather."""
   cdef int i
   cdef list coros = []
@@ -375,9 +273,9 @@ async def gather_async(list results):
 
 # foreach_indexed uses the same 3-function architecture as foreach:
 # 1. foreach_indexed (sync): iterates synchronously, calling fn(idx, el).
-#    If fn returns a coroutine, hands off to foreach_indexed_async mid-iteration.
-# 2. foreach_indexed_async (transition): continues iteration from where sync left off.
-# 3. async_foreach_indexed (fully async): used when the input is an async iterator.
+#    If fn returns a coroutine, hands off to _foreach_indexed_to_async mid-iteration.
+# 2. _foreach_indexed_to_async (transition): continues iteration from where sync left off.
+# 3. _foreach_indexed_full_async (fully async): used when the input is an async iterator.
 
 @cython.final
 @cython.freelist(8)
@@ -428,7 +326,7 @@ cdef Link foreach_indexed(object fn, bint ignore_result):
   return Link(_ForeachIndexed(fn, ignore_result, link), original_value=link)
 
 
-async def foreach_indexed_async(object current_value, object fn, int idx, object el, object result, list lst, bint ignore_result, Link link):
+async def _foreach_indexed_to_async(object current_value, object fn, int idx, object el, object result, list lst, bint ignore_result, Link link):
   """Async continuation of foreach_indexed when a coroutine is encountered mid-iteration."""
   try:
     while True:
@@ -455,7 +353,7 @@ async def foreach_indexed_async(object current_value, object fn, int idx, object
     raise
 
 
-async def async_foreach_indexed(object current_value, object fn, bint ignore_result, Link link):
+async def _foreach_indexed_full_async(object current_value, object fn, bint ignore_result, Link link):
   """Fully async foreach_indexed for async iterables."""
   cdef list lst = []
   cdef object el, result
@@ -485,13 +383,11 @@ async def async_foreach_indexed(object current_value, object fn, bint ignore_res
 
 # --- Function aliases ---
 
-cdef object _async_foreach_fn = async_foreach
-cdef object _foreach_async_fn = foreach_async
-cdef object _filter_async_fn = filter_async
-cdef object _async_filter_fn = async_filter
-cdef object _reduce_async_fn = reduce_async
-cdef object _async_reduce_fn = async_reduce
-cdef object _gather_async_fn = gather_async
+cdef object _async_foreach_fn = _foreach_full_async
+cdef object _foreach_async_fn = _foreach_to_async
+cdef object _filter_async_fn = _filter_to_async
+cdef object _async_filter_fn = _filter_full_async
+cdef object _gather_async_fn = _gather_to_async
 cdef object _asyncio_gather_fn = asyncio.gather
-cdef object _foreach_indexed_async_fn = foreach_indexed_async
-cdef object _async_foreach_indexed_fn = async_foreach_indexed
+cdef object _foreach_indexed_async_fn = _foreach_indexed_to_async
+cdef object _async_foreach_indexed_fn = _foreach_indexed_full_async

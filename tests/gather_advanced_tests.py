@@ -1,31 +1,7 @@
 import asyncio
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
+from unittest import TestCase
+from tests.utils import empty, aempty, await_, TestExc, MyTestCase
 from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +18,7 @@ class GatherAsyncExceptionTests(MyTestCase):
       await await_(Chain(5).gather(bad).run())
 
   async def test_sync_fn_raises_before_gather_async(self):
-    """A sync function raising prevents gather_async from being reached."""
+    """A sync function raising prevents _gather_to_async from being reached."""
     def bad_sync(v):
       raise TestExc('sync fail')
 
@@ -188,7 +164,7 @@ class GatherIndicesTests(MyTestCase):
     )
 
   async def test_single_async_among_many_sync(self):
-    """One async fn among many sync fns triggers gather_async; indices correct."""
+    """One async fn among many sync fns triggers _gather_to_async; indices correct."""
     def s(v):
       return v
 

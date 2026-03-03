@@ -9,7 +9,7 @@ authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
 description = "High-performance fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in retry, timeout, and context propagation. Cython-compiled, zero dependencies."
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.10"
 keywords = [
     'chain', 'chaining', 'pipeline', 'fluent', 'pipe',
     'async', 'sync', 'asyncio', 'coroutine', 'await',
@@ -23,6 +23,10 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Cython",
     "Framework :: AsyncIO",
@@ -40,7 +44,7 @@ Changelog = "https://github.com/drukmano/quent/releases"
 Issues = "https://github.com/drukmano/quent/issues"
 
 [tool.cibuildwheel]
-build = "cp314-*"
+build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
 skip = "*-musllinux*"
 test-command = "python -m unittest discover -s {project}/tests -p '*_tests.py'"
 

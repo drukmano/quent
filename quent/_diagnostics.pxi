@@ -1,12 +1,10 @@
-# _helpers.pxi — Async utilities, exception handling, and chain stringification
+# _diagnostics.pxi — Exception handling, traceback augmentation, and chain stringification
 #
-# Contains helper functions for async task management, exception processing,
-# traceback augmentation, and human-readable chain representation. These are
-# internal utilities used by Chain's execution engine and error reporting.
+# Contains internal utilities for exception processing, traceback cleanup,
+# chain-execution context injection, and human-readable chain representation.
+# These support Chain's error reporting and the global exception hook.
 #
 # Key components:
-#   - task_registry / ensure_future: async task lifecycle management
-#   - handle_return_exc: resolves _Return signal exceptions to values
 #   - clean_internal_frames / remove_self_frames_from_traceback: traceback cleanup
 #   - _handle_exception: exception handler dispatch for Chain.except_
 #   - modify_traceback: augments exceptions with chain execution context
@@ -15,50 +13,14 @@
 #   - _quent_excepthook / _clean_exc_chain: global exception formatting
 
 import os as _os
-import sys
-import types
 import inspect
-import collections.abc
-import functools
-from asyncio import create_task as _create_task
 
 _quent_pkg_dir = _os.path.dirname(_os.path.abspath(__file__))
 cdef type _TracebackType = types.TracebackType
 cdef object _isroutine = inspect.isroutine
 cdef object _isclass = inspect.isclass
 _RAISE_CODE = compile('raise __exc__', '<quent>', 'exec')
-
-# --- Async task management ---
-
-# this holds a strong reference to all tasks that we create
-# see: https://stackoverflow.com/a/75941086
-# "... the asyncio loop avoids creating hard references (just weak) to the tasks,
-# and when it is under heavy load, it may just "drop" tasks that are not referenced somewhere else."
-cdef set task_registry = set()
-cdef object _create_task_fn = functools.partial(_create_task, eager_start=True)
-
-
-cdef object ensure_future(object coro):
-  cdef object task = _create_task_fn(coro)
-  task_registry.add(task)
-  if len(task_registry) > 10000:
-    warnings.warn(
-      f'quent task_registry has {len(task_registry)} entries; '
-      'this may indicate a leak of fire-and-forget coroutines',
-      ResourceWarning,
-      stacklevel=2,
-    )
-  task.add_done_callback(task_registry.discard)
-  return task
-
-# --- Control flow signal resolution ---
-
-cdef object handle_return_exc(_Return exc, bint propagate):
-  if propagate:
-    raise exc
-  if exc.value is Null:
-    return None
-  return _eval_signal_value(exc.value, exc.args_, exc.kwargs_)
+cdef bint _HAS_QUALNAME = sys.version_info >= (3, 11)
 
 # --- Traceback cleanup ---
 
@@ -103,7 +65,7 @@ cdef void _clean_chained_exceptions(object exc, set seen):
 
 cdef object remove_self_frames_from_traceback():
   cdef object exc_value, tb, cleaned_tb
-  exc_value = sys.exception()
+  exc_value = sys.exc_info()[1]
   setattr(exc_value, '__quent__', True)
   tb = exc_value.__traceback__
 
@@ -166,18 +128,21 @@ cdef void modify_traceback(object exc, Chain chain, Link link, _ExecCtx ctx):
     chain, ctx, nest_lvl=0, source_link=get_true_source_link(source_link, ctx), found_source_link=False
   )
   chain_source = make_indent(1).join([''] + chain_source.splitlines())
-  exc_value = sys.exception()
+  exc_value = sys.exc_info()[1]
   globals = {
     '__name__': filename,
     '__file__': filename,
     '__exc__': exc_value,
   }
-  code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)
+  if _HAS_QUALNAME:
+    code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)
+  else:
+    code = _RAISE_CODE.replace(co_name=chain_source)
   try:
     exec(code, globals, {})
   except BaseException:
     # Get the traceback from the exec'd code which includes our <quent> frame
-    new_tb = sys.exception().__traceback__
+    new_tb = sys.exc_info()[1].__traceback__
     # Clean the traceback to remove internal quent frames while keeping <quent> frames
     cleaned_tb = clean_internal_frames(new_tb)
     exc.__traceback__ = cleaned_tb
@@ -335,11 +300,6 @@ cdef str get_obj_name(object obj):
   if isinstance(obj, Chain):
     return type(obj).__name__
   return repr(obj)
-
-
-def _get_registry_size():
-  """Return the current size of the task registry (for testing)."""
-  return len(task_registry)
 
 # --- Global exception formatting ---
 

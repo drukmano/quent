@@ -7,33 +7,9 @@ import asyncio
 import logging
 import inspect
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
+from tests.utils import empty, aempty, await_, TestExc, MyTestCase
 from quent import Chain, Cascade, QuentException, run
 from quent.quent import _get_registry_size
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
 
 
 class SyncToAsyncTransitionTests(MyTestCase):
@@ -150,24 +126,6 @@ class SyncToAsyncTransitionTests(MyTestCase):
     result = await Chain().then(lambda v: v + 8).run(async_return_42)
     await self.assertEqual(result, 50)
 
-    # With .root() to access the updated root_value
-    result = await Chain().then(lambda v: v * 2).root(lambda v: v + 1).run(async_return_42)
-    # async_return_42 -> 42, then(v*2) -> 84, root(v+1) -> 42+1=43
-    await self.assertEqual(result, 43)
-
-  async def test_non_void_chain_root_not_overwritten(self):
-    """Chain with existing root, async link -> root_value stays original.
-
-    When the chain has a root value, root_value is set from the root link.
-    Even if a later link is async, root_value does not change.
-    """
-    async def async_double(v):
-      return v * 2
-
-    # root=5, then async_double -> 10, root(lambda v: v) accesses root which is 5
-    result = await Chain(5).then(async_double).root(lambda v: v).run()
-    await self.assertEqual(result, 5)
-
 
 class TaskRegistryTests(MyTestCase):
   """Test task registry behavior for autorun chains.
@@ -184,7 +142,7 @@ class TaskRegistryTests(MyTestCase):
       await asyncio.sleep(0.1)
       return v
 
-    task = Chain(10).then(slow_fn).autorun().run()
+    task = Chain(10).then(slow_fn).config(autorun=True).run()
     # Task should be in the registry now
     IsolatedAsyncioTestCase.assertGreater(self, _get_registry_size(), initial_size)
     # Clean up: await the task
@@ -197,7 +155,7 @@ class TaskRegistryTests(MyTestCase):
     async def fast_fn(v):
       return v
 
-    task = Chain(10).then(fast_fn).autorun().run()
+    task = Chain(10).then(fast_fn).config(autorun=True).run()
     # Wait for the task to complete
     await task
     # Give the event loop a tick for the done callback to fire
@@ -205,14 +163,14 @@ class TaskRegistryTests(MyTestCase):
     IsolatedAsyncioTestCase.assertEqual(self, _get_registry_size(), initial_size)
 
   async def test_autorun_adds_to_registry(self):
-    """chain.autorun().run() adds task to registry."""
+    """chain.config(autorun=True).run() adds task to registry."""
     initial_size = _get_registry_size()
 
     async def wait_fn(v):
       await asyncio.sleep(0.05)
       return v * 2
 
-    task = Chain(5).then(wait_fn).autorun().run()
+    task = Chain(5).then(wait_fn).config(autorun=True).run()
     current_size = _get_registry_size()
     IsolatedAsyncioTestCase.assertGreater(self, current_size, initial_size)
     result = await task
@@ -232,7 +190,7 @@ class TaskRegistryTests(MyTestCase):
       completed["value"] = True
       return v
 
-    task = Chain(1).then(set_completed).autorun().run()
+    task = Chain(1).then(set_completed).config(autorun=True).run()
     # The task is in the registry holding a strong reference
     IsolatedAsyncioTestCase.assertGreater(self, _get_registry_size(), 0)
     await task

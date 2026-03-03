@@ -2,9 +2,9 @@ import asyncio
 import sys
 import traceback
 import warnings
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import throw_if, empty, aempty, await_, TestExc
-from quent import Chain, Cascade, QuentException, run
+from unittest import TestCase
+from tests.utils import empty, aempty, await_, TestExc, MyTestCase
+from quent import Chain, QuentException
 
 
 # ---------------------------------------------------------------------------
@@ -29,34 +29,6 @@ class CustomBaseExc(BaseException):
 
 def raise_exc(exc_type=TestExc):
   raise exc_type()
-
-
-# ---------------------------------------------------------------------------
-# Base test class
-# ---------------------------------------------------------------------------
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
 
 
 # ---------------------------------------------------------------------------
@@ -292,54 +264,6 @@ class ExceptMultipleHandlersTests(MyTestCase):
         super(MyTestCase, self).assertTrue(called2[0])
         super(MyTestCase, self).assertFalse(called3[0])
 
-  async def test_except_after_raise_positioned_correctly(self):
-    """except_ before raise_ doesn't catch; except_ after does."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called_before = [False]
-        called_after = [False]
-        def handler_before(v=None):
-          called_before[0] = True
-        def handler_after(v=None):
-          called_after[0] = True
-        try:
-          await await_(
-            Chain(fn)
-            .except_(handler_before, exceptions=TestExc)
-            .raise_(Exc1())
-            .except_(handler_after, exceptions=TestExc)
-            .run()
-          )
-        except TestExc:
-          pass
-        super(MyTestCase, self).assertFalse(called_before[0])
-        super(MyTestCase, self).assertTrue(called_after[0])
-
-  async def test_except_in_nested_chain_with_noraise(self):
-    """Nested chain catches, outer chain continues."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        sentinel = object()
-        called_inner = [False]
-        called_outer = [False]
-        def inner_handler(v=None):
-          called_inner[0] = True
-        def outer_handler(v=None):
-          called_outer[0] = True
-        result = await await_(
-          Chain(fn)
-          .then(
-            Chain(fn).raise_(Exc1())
-            .except_(inner_handler, exceptions=TestExc, reraise=False), ...
-          )
-          .except_(outer_handler)
-          .then(sentinel)
-          .run()
-        )
-        super(MyTestCase, self).assertTrue(called_inner[0])
-        super(MyTestCase, self).assertFalse(called_outer[0])
-        super(MyTestCase, self).assertIs(result, sentinel)
-
 
 # ---------------------------------------------------------------------------
 # Class 3: ExceptHandlerRaisesTests
@@ -496,189 +420,7 @@ class FinallyTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 5: SuppressTests
-# ---------------------------------------------------------------------------
-
-class SuppressTests(MyTestCase):
-
-  async def test_suppress_default_catches_exception(self):
-    """suppress() catches Exception, returns None."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def raiser(v=None):
-          raise ValueError('default suppress')
-        await self.assertIsNone(
-          Chain(fn, 1).then(raiser).suppress().run()
-        )
-
-  async def test_suppress_specific_exceptions(self):
-    """suppress(ValueError) catches ValueError, not TypeError."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def raise_val(v=None):
-          raise ValueError('val')
-        def raise_type(v=None):
-          raise TypeError('type')
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_val).suppress(ValueError).run()
-        )
-        with self.assertRaises(TypeError):
-          await await_(
-            Chain(fn, 1).then(raise_type).suppress(ValueError).run()
-          )
-
-  async def test_suppress_multiple_exceptions(self):
-    """suppress(ValueError, TypeError) catches both."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def raise_val(v=None):
-          raise ValueError('val')
-        def raise_type(v=None):
-          raise TypeError('type')
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_val).suppress(ValueError, TypeError).run()
-        )
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_type).suppress(ValueError, TypeError).run()
-        )
-
-  async def test_suppress_no_error(self):
-    """No exception -> returns normal value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        sentinel = object()
-        await self.assertIs(
-          Chain(fn, sentinel).suppress().run(), sentinel
-        )
-
-
-# ---------------------------------------------------------------------------
-# Class 6: OnSuccessTests
-# ---------------------------------------------------------------------------
-
-class OnSuccessTests(MyTestCase):
-
-  async def test_on_success_called_on_success(self):
-    """Callback invoked when chain succeeds."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called = [False]
-        def cb(v):
-          called[0] = True
-        await await_(Chain(fn, 42).on_success(cb).run())
-        super(MyTestCase, self).assertTrue(called[0])
-
-  async def test_on_success_receives_final_value(self):
-    """Callback receives the chain's final value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = [None]
-        def cb(v):
-          received[0] = v
-        sentinel = object()
-        await await_(
-          Chain(fn, 1).then(sentinel).on_success(cb).run()
-        )
-        super(MyTestCase, self).assertIs(received[0], sentinel)
-
-  async def test_on_success_return_ignored(self):
-    """Return value of on_success is discarded."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        sentinel = object()
-        await self.assertIs(
-          Chain(fn, sentinel).on_success(lambda v: 'ignored').run(), sentinel
-        )
-
-  async def test_on_success_not_called_on_exception(self):
-    """Not called when exception occurs."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called = [False]
-        def cb(v):
-          called[0] = True
-        def raiser(v=None):
-          raise ValueError('fail')
-        # Use except_ with reraise=False so chain doesn't bubble up
-        await await_(
-          Chain(fn).then(raiser).except_(lambda v: None, reraise=False).on_success(cb).run()
-        )
-        super(MyTestCase, self).assertFalse(called[0])
-
-  async def test_on_success_duplicate_raises(self):
-    """Two on_success() calls raise QuentException."""
-    with self.assertRaises(QuentException):
-      Chain().on_success(lambda v: v).on_success(lambda v: v)
-
-  async def test_on_success_async_callback(self):
-    """Async callback on async chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called = [False]
-        async def cb(v):
-          called[0] = True
-        await await_(Chain(fn, 10).on_success(cb).run())
-        super(MyTestCase, self).assertTrue(called[0])
-
-  async def test_on_success_with_finally(self):
-    """on_success runs before finally."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        order = []
-        def on_success_cb(v):
-          order.append('success')
-        def on_finally_cb(v):
-          order.append('finally')
-        await await_(
-          Chain(fn, 1).on_success(on_success_cb).finally_(on_finally_cb).run()
-        )
-        super(MyTestCase, self).assertEqual(order, ['success', 'finally'])
-        order.clear()
-
-  async def test_on_success_with_cascade(self):
-    """Cascade: on_success receives root value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = [None]
-        def cb(v):
-          received[0] = v
-        sentinel = object()
-        await await_(
-          Cascade(sentinel).then(fn).then(lambda v: 'other').on_success(cb).run()
-        )
-        super(MyTestCase, self).assertIs(received[0], sentinel)
-
-
-# ---------------------------------------------------------------------------
-# Class 7: RaiseMethodTests
-# ---------------------------------------------------------------------------
-
-class RaiseMethodTests(MyTestCase):
-
-  async def test_raise_unconditional(self):
-    """Chain(1).raise_(ValueError('x')).run() raises ValueError."""
-    with self.assertRaises(ValueError) as cm:
-      Chain(1).raise_(ValueError('x')).run()
-    super(MyTestCase, self).assertEqual(str(cm.exception), 'x')
-
-  async def test_raise_with_async_root(self):
-    """Same with async root via with_fn()."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        with self.assertRaises(ValueError) as cm:
-          await await_(Chain(fn, 1).raise_(ValueError('async raise')).run())
-        super(MyTestCase, self).assertEqual(str(cm.exception), 'async raise')
-
-  async def test_raise_exception_instance(self):
-    """The raised exception is the exact same object."""
-    exc_obj = ValueError('identity check')
-    with self.assertRaises(ValueError) as cm:
-      Chain(1).raise_(exc_obj).run()
-    super(MyTestCase, self).assertIs(cm.exception, exc_obj)
-
-
-# ---------------------------------------------------------------------------
-# Class 8: TracebackTests
+# Class 5: TracebackTests
 # ---------------------------------------------------------------------------
 
 def _tb_helper_step1(v):
@@ -841,7 +583,7 @@ class TracebackTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 9: WarningTests
+# Class 6: WarningTests
 # ---------------------------------------------------------------------------
 
 class WarningTests(MyTestCase):

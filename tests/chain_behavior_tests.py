@@ -1,51 +1,7 @@
 import asyncio
 from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_
-from quent import Chain, run
-
-
-class IfNotRaiseTests(TestCase):
-  """Issue 55: Test if_not_raise public API method.
-
-  if_not_raise(exc) raises the given exception when the current chain
-  value is falsy, and passes the value through when truthy.
-  """
-
-  def test_truthy_int_passes_through(self):
-    result = Chain(42).if_not_raise(ValueError).run()
-    self.assertEqual(result, 42)
-
-  def test_falsy_zero_raises(self):
-    with self.assertRaises(ValueError):
-      Chain(0).if_not_raise(ValueError).run()
-
-  def test_falsy_none_raises(self):
-    with self.assertRaises(TypeError):
-      Chain(None).if_not_raise(TypeError).run()
-
-  def test_truthy_string_passes_through(self):
-    result = Chain("hello").if_not_raise(RuntimeError).run()
-    self.assertEqual(result, "hello")
-
-  def test_falsy_empty_string_raises(self):
-    with self.assertRaises(RuntimeError):
-      Chain("").if_not_raise(RuntimeError).run()
-
-  def test_falsy_empty_list_raises(self):
-    with self.assertRaises(ValueError):
-      Chain([]).if_not_raise(ValueError).run()
-
-  def test_truthy_list_passes_through(self):
-    result = Chain([1, 2]).if_not_raise(ValueError).run()
-    self.assertEqual(result, [1, 2])
-
-  def test_truthy_true_passes_through(self):
-    result = Chain(True).if_not_raise(ValueError).run()
-    self.assertEqual(result, True)
-
-  def test_falsy_false_raises(self):
-    with self.assertRaises(ValueError):
-      Chain(False).if_not_raise(ValueError).run()
+from tests.utils import await_
+from quent import Chain
 
 
 class ExceptSkipTests(TestCase):

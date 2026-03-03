@@ -1,42 +1,6 @@
 import functools
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_
-from quent import Chain, Cascade, QuentException, run
-
-
-class _Obj:
-  def __init__(self, val=10):
-    self.val = val
-
-  def method(self):
-    return self.val * 2
-
-  def add(self, n, *, extra=0):
-    return self.val + n + extra
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
+from tests.utils import empty, aempty, await_, MyTestCase
+from quent import Chain, Cascade
 
 
 # ---------------------------------------------------------------------------
@@ -101,42 +65,6 @@ class EvaluateValueDispatchTests(MyTestCase):
       with ctx:
         await self.assertEqual(
           Chain(fn, 1).then("hello").run(), "hello"
-        )
-
-  async def test_get_attribute(self):
-    """EVAL_GET_ATTRIBUTE via attr(): attribute value retrieved from current value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        obj = _Obj(10)
-        await self.assertEqual(
-          Chain(fn, obj).attr('val').run(), 10
-        )
-
-  async def test_attr_fn_call_without_args(self):
-    """EVAL_CALL_WITHOUT_ARGS via attr_fn(): method called with no extra args."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        obj = _Obj(10)
-        await self.assertEqual(
-          Chain(fn, obj).attr_fn('method').run(), 20
-        )
-
-  async def test_attr_fn_call_with_explicit_args(self):
-    """EVAL_CALL_WITH_EXPLICIT_ARGS via attr_fn(): method called with args and kwargs."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        obj = _Obj(10)
-        await self.assertEqual(
-          Chain(fn, obj).attr_fn('add', 5, extra=3).run(), 18
-        )
-
-  async def test_attr_get_then_return(self):
-    """EVAL_GET_ATTRIBUTE path: attr() retrieves the raw attribute, not calling it."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        obj = _Obj(42)
-        await self.assertEqual(
-          Chain(fn, obj).attr('val').run(), 42
         )
 
   async def test_kwargs_only_explicit_args(self):

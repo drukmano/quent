@@ -26,7 +26,6 @@ cdef enum EvalCode:
   EVAL_CALL_WITHOUT_ARGS = 1002
   EVAL_CALL_WITH_CURRENT_VALUE = 1003
   EVAL_RETURN_AS_IS = 1004
-  EVAL_GET_ATTRIBUTE = 1005
 
 # --- Link ---
 
@@ -35,13 +34,13 @@ cdef class Link:
   cdef Link next_link
   cdef tuple args, temp_args
   cdef dict kwargs
-  cdef bint is_attr, is_fattr, is_with_root, ignore_result, is_chain, is_exception_handler, reraise
+  cdef bint is_with_root, ignore_result, is_chain, is_exception_handler, reraise
   cdef int eval_code
   cdef str fn_name
 
 # --- Link utility functions ---
 
-cdef inline int _determine_eval_code(Link link, object v, tuple args, dict kwargs, bint is_fattr, bint is_attr, bint allow_literal)
+cdef inline int _determine_eval_code(Link link, object v, tuple args, dict kwargs, bint allow_literal)
 
 cdef Link _clone_link(Link src)
 
@@ -63,37 +62,15 @@ cdef class _ExecCtx:
   cdef dict link_temp_args
 
 @cython.final
-@cython.freelist(8)
-cdef class _Raiser:
-  cdef object exc
-
-@cython.final
-@cython.freelist(16)
-cdef class _Comparator:
-  cdef object value
-  cdef int op
-
-@cython.final
-@cython.freelist(8)
-cdef class _Or:
-  cdef object value
-
-@cython.final
-@cython.freelist(8)
-@cython.no_gc
-cdef class _IsInstance:
-  cdef tuple types
-
-@cython.final
 @cython.freelist(4)
 @cython.no_gc
 cdef class _Sleep:
   cdef float delay
 
 @cython.final
-@cython.no_gc
-cdef class _Not:
-  pass
+@cython.freelist(4)
+cdef class _ToThread:
+  cdef object fn
 
 @cython.final
 cdef class _ChainCallWrapper:
@@ -103,12 +80,9 @@ cdef class _ChainCallWrapper:
 
 cdef class Chain:
   cdef:
-    Link root_link, first_link, on_finally_link, on_success_link
+    Link root_link, first_link, on_finally_link
     Link current_link
-    bint is_cascade, _autorun, uses_attr, is_nested, _debug
-    dict _context
-    tuple current_conditional, on_true
-    str current_attr
+    bint is_cascade, _autorun, is_nested, _debug
   cdef readonly:
     bint _is_simple, _is_sync
 
@@ -120,27 +94,10 @@ cdef class Chain:
 
   cdef object _run_simple(self, object v, tuple args, dict kwargs, bint invoked_by_parent_chain)
 
-  cdef void _if(self, Link on_true, bint not_ = *)
-
-  cdef void _else(self, Link on_false)
-
-  cdef void set_conditional(self, Link conditional, bint custom = *)
-
-  cdef void finalize(self)
-
-  cdef void finalize_conditional(self, Link on_false = *)
-
 # --- Chain variants ---
 
 @cython.final
 cdef class Cascade(Chain):
-  pass
-
-cdef class ChainAttr(Chain):
-  pass
-
-@cython.final
-cdef class CascadeAttr(ChainAttr):
   pass
 
 @cython.final
@@ -177,9 +134,7 @@ cdef class _Break(_InternalQuentException):
 
 cdef object handle_break_exc(_Break exc, object fallback)
 
-cdef void build_conditional(Chain chain, Link conditional, bint is_custom, bint not_, Link on_true, Link on_false)
-
-cdef Link while_true(object fn, tuple args, dict kwargs, int max_iterations = *)
+cdef object handle_return_exc(_Return exc, bint propagate)
 
 # --- Context managers and generators ---
 
@@ -196,56 +151,11 @@ cdef Link foreach(object fn, bint ignore_result)
 
 cdef Link filter_(object fn)
 
-cdef Link reduce_(object fn, object initial)
-
 cdef Link gather_(tuple fns)
 
 cdef Link foreach_indexed(object fn, bint ignore_result)
 
 cdef Link with_(object fn, tuple args, dict kwargs, bint ignore_result)
-
-# --- Conditional evaluation ---
-
-@cython.final
-@cython.freelist(8)
-cdef class _Conditional:
-  cdef object current_value
-  cdef bint result
-
-@cython.final
-@cython.freelist(8)
-cdef class _If:
-  cdef _Conditional cond
-
-@cython.final
-@cython.freelist(8)
-cdef class _IfEvaluator:
-  cdef bint not_, has_on_false
-  cdef Link on_true
-
-@cython.final
-@cython.freelist(8)
-cdef class _DirectIf:
-  cdef _IfEvaluator if_eval
-
-@cython.final
-@cython.freelist(8)
-cdef class _ConditionalFn:
-  cdef Link conditional
-  cdef bint is_custom
-
-@cython.final
-@cython.freelist(8)
-cdef class _ElseEvaluator:
-  cdef Link on_false
-
-@cython.final
-@cython.freelist(4)
-cdef class _WhileTrue:
-  cdef Link link
-  cdef tuple args
-  cdef dict kwargs
-  cdef int max_iterations
 
 @cython.final
 @cython.freelist(8)
@@ -258,13 +168,6 @@ cdef class _Foreach:
 @cython.freelist(8)
 cdef class _Filter:
   cdef object fn
-  cdef Link link
-
-@cython.final
-@cython.freelist(8)
-cdef class _Reduce:
-  cdef object fn
-  cdef object initial
   cdef Link link
 
 @cython.final
@@ -288,13 +191,11 @@ cdef class _With:
   cdef tuple args
   cdef dict kwargs
 
-# --- Helper declarations ---
+# --- Diagnostics declarations ---
 
 cdef set task_registry
 
 cdef object ensure_future(object coro)
-
-cdef object handle_return_exc(_Return exc, bint propagate)
 
 cdef void _clean_chained_exceptions(object exc, set seen)
 

@@ -1,18 +1,14 @@
 # _operators.pxi — Operator wrappers and execution context
 #
-# Contains lightweight callable classes used as chain links for comparisons,
-# type checks, exception raising, sleeping, and logical negation. Also defines
-# the per-execution _ExecCtx and the _eval_signal_value dispatch function.
+# Contains lightweight callable classes used as chain links for sleeping,
+# thread delegation, and frozen chain calls. Also defines the per-execution
+# _ExecCtx and the _eval_signal_value dispatch function.
 #
 # Key components:
 #   - _ExecCtx: per-execution mutable state (debug info, temp links)
-#   - _Raiser: raises a stored exception
-#   - _Comparator: binary comparison operators (==, !=, is, in, etc.)
-#   - _Or: falsy-fallback operator
-#   - _IsInstance: isinstance check
 #   - _Sleep: sync/async sleep
+#   - _ToThread: runs a function in a separate thread
 #   - _ChainCallWrapper: frozen chain call delegation
-#   - _Not: logical negation
 #   - _eval_signal_value: evaluates values from control flow signals
 
 
@@ -26,70 +22,6 @@ cdef class _ExecCtx:
   """
   pass
 
-
-cdef:
-  int _OP_EQ = 0
-  int _OP_NEQ = 1
-  int _OP_IS = 2
-  int _OP_IS_NOT = 3
-  int _OP_IN = 4
-  int _OP_NOT_IN = 5
-
-
-@cython.final
-@cython.freelist(8)
-cdef class _Raiser:
-  """Callable that unconditionally raises a stored exception when invoked."""
-  def __init__(self, object exc):
-    """Store the exception to raise."""
-    self.exc = exc
-  def __call__(self, object current_value):
-    """Raise the stored exception, ignoring the current value."""
-    raise self.exc
-
-
-@cython.final
-@cython.freelist(16)
-cdef class _Comparator:
-  """Callable that compares the current value against a stored value using a given operator."""
-  def __init__(self, object value, int op):
-    """Store the comparison value and operator code."""
-    self.value = value
-    self.op = op
-  def __call__(self, object current_value):
-    """Evaluate the comparison and return a boolean result."""
-    if self.op == _OP_EQ: return current_value == self.value
-    elif self.op == _OP_NEQ: return current_value != self.value
-    elif self.op == _OP_IS: return current_value is self.value
-    elif self.op == _OP_IS_NOT: return current_value is not self.value
-    elif self.op == _OP_IN: return current_value in self.value
-    elif self.op == _OP_NOT_IN: return current_value not in self.value
-    else: raise QuentException(f'Unknown comparator operator code: {self.op}')
-
-
-@cython.final
-@cython.freelist(8)
-cdef class _Or:
-  """Callable that returns the current value or a fallback if the current value is falsy."""
-  def __init__(self, object value):
-    """Store the fallback value."""
-    self.value = value
-  def __call__(self, object current_value):
-    """Return current_value if truthy, otherwise the stored fallback value."""
-    return current_value or self.value
-
-
-@cython.final
-@cython.freelist(8)
-@cython.no_gc
-cdef class _IsInstance:
-  """Callable that checks whether the current value is an instance of stored types."""
-  def __init__(self, tuple types):
-    """Store the types to check against."""
-    self.types = types
-  def __call__(self, object current_value):
-    """Return True if current_value is an instance of the stored types."""
-    return isinstance(current_value, self.types)
 
 
 @cython.final
@@ -121,14 +53,23 @@ cdef class _ChainCallWrapper:
 
 
 @cython.final
-@cython.no_gc
-cdef class _Not:
-  """Callable that returns the logical negation of the current value."""
-  def __call__(self, object current_value):
-    """Return not current_value."""
-    return not current_value
+@cython.freelist(4)
+cdef class _ToThread:
+  """Callable that runs a function in a separate thread via asyncio.to_thread."""
 
-cdef _Not _not_instance = _Not()
+  def __init__(self, object fn):
+    """Store the function to run in a thread."""
+    self.fn = fn
+
+  def __call__(self, object current_value):
+    """Run self.fn(current_value) in a thread pool, or call directly if no event loop."""
+    if _asyncio_get_running_loop_internal() is not None:
+      if current_value is Null:
+        return asyncio.to_thread(self.fn)
+      return asyncio.to_thread(self.fn, current_value)
+    if current_value is Null:
+      return self.fn()
+    return self.fn(current_value)
 
 
 cdef object _eval_signal_value(object v, tuple args, dict kwargs):
@@ -151,8 +92,6 @@ cdef object _eval_signal_value(object v, tuple args, dict kwargs):
   elif kwargs:
     if args is None:
       args = EMPTY_TUPLE
-    if kwargs is EMPTY_DICT:
-      return v(*args)
     return v(*args, **kwargs)
   elif callable(v):
     # EVAL_CALL_WITH_CURRENT_VALUE with Null -> call without args

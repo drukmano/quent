@@ -1,32 +1,6 @@
 import asyncio
-import inspect
-from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc
-from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
+from tests.utils import empty, aempty, await_, MyTestCase
+from quent import Chain, QuentException
 
 
 class SyncIterator:
@@ -50,194 +24,6 @@ class AsyncIterator:
       return next(self._iter)
     except StopIteration:
       raise StopAsyncIteration
-
-
-# ---------------------------------------------------------------------------
-# WhileTrueTests
-# ---------------------------------------------------------------------------
-class WhileTrueTests(MyTestCase):
-
-  async def test_while_break_immediately(self):
-    """Loop body calls Chain.break_() on first iteration; returns root value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def f0():
-          return Chain.break_()
-
-        await self.assertEqual(
-          Chain(fn, 10).while_true(f0, ...).run(), 10
-        )
-
-  async def test_while_break_with_value(self):
-    """Chain.break_(42) returns 42 instead of root."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def f0():
-          return Chain.break_(42)
-
-        await self.assertEqual(
-          Chain(fn, 10).while_true(f0, ...).run(), 42
-        )
-
-  async def test_while_break_with_callable_value(self):
-    """Chain.break_(lambda: 42) returns 42."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def f0():
-          return Chain.break_(lambda: 42)
-
-        await self.assertEqual(
-          Chain(fn, 10).while_true(f0, ...).run(), 42
-        )
-
-  async def test_while_break_with_fn_and_arg(self):
-    """Chain.break_(fn, 42) where fn is a callable."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def f0():
-          return Chain.break_(fn, 42)
-
-        await self.assertEqual(
-          Chain(fn, 10).while_true(f0, ...).run(), 42
-        )
-
-  async def test_while_counts_iterations(self):
-    """Verify iteration count matches expected number before break."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        counter = {'count': 0}
-
-        def f0(v=None):
-          counter['count'] += 1
-          if counter['count'] >= 5:
-            return Chain.break_()
-
-        counter['count'] = 0
-        await self.assertEqual(
-          Chain(fn, 99).while_true(f0, ...).run(), 99
-        )
-        super(MyTestCase, self).assertEqual(counter['count'], 5)
-
-  async def test_while_max_iterations_exceeded(self):
-    """Loop never breaks, max_iterations=5 raises QuentException."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def f0(v=None):
-          pass
-
-        with self.assertRaises(QuentException) as cm:
-          await await_(
-            Chain(fn, 1).while_true(f0, ..., max_iterations=5).run()
-          )
-        super(MyTestCase, self).assertIn('exceeded max_iterations', str(cm.exception))
-
-  async def test_while_max_iterations_not_exceeded(self):
-    """Break before max_iterations -- no exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        counter = {'count': 0}
-
-        def f0(v=None):
-          counter['count'] += 1
-          if counter['count'] >= 3:
-            return Chain.break_()
-
-        counter['count'] = 0
-        await self.assertEqual(
-          Chain(fn, 7).while_true(f0, ..., max_iterations=10).run(), 7
-        )
-        super(MyTestCase, self).assertEqual(counter['count'], 3)
-
-  async def test_while_sync_to_async_transition(self):
-    """Loop body returns sync initially, then a coroutine mid-loop."""
-    counter = {'count': 0}
-
-    def f0(v=None):
-      counter['count'] += 1
-      if counter['count'] >= 5:
-        return Chain.break_(counter['count'])
-      if counter['count'] > 2:
-        return aempty()  # returns a coroutine mid-loop
-      return None
-
-    counter['count'] = 0
-    await self.assertEqual(
-      Chain().while_true(f0, ...).run(), 5
-    )
-
-  async def test_while_async_max_iterations(self):
-    """Async continuation exceeding max_iterations."""
-    counter = {'count': 0}
-
-    def f0(v=None):
-      counter['count'] += 1
-      if counter['count'] > 2:
-        return aempty()  # forces async transition, never breaks
-      return None
-
-    counter['count'] = 0
-    with self.assertRaises(QuentException) as cm:
-      await await_(
-        Chain().while_true(f0, ..., max_iterations=5).run()
-      )
-    super(MyTestCase, self).assertIn('exceeded max_iterations', str(cm.exception))
-
-  async def test_while_nested_chain_body(self):
-    """Chain(5).while_true(Chain().then(fn).then(break_fn)).run()."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def break_fn(v=None):
-          return Chain.break_()
-
-        await self.assertEqual(
-          Chain(fn, 5).while_true(Chain().then(fn).then(break_fn, ...)).run(), 5
-        )
-
-  async def test_while_receives_root_value(self):
-    """fn receives the root value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = {'value': None}
-
-        def f0(v):
-          received['value'] = v
-          return Chain.break_()
-
-        await self.assertEqual(
-          Chain(fn, 42).while_true(f0).run(), 42
-        )
-        super(MyTestCase, self).assertEqual(received['value'], 42)
-
-  async def test_while_with_explicit_args(self):
-    """fn with args forwarded via while_true(fn, arg)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = {'args': None}
-
-        def f0(a, b):
-          received['args'] = (a, b)
-          return Chain.break_()
-
-        await self.assertIsNone(
-          Chain().while_true(f0, 'x', 'y').run()
-        )
-        super(MyTestCase, self).assertEqual(received['args'], ('x', 'y'))
-
-  async def test_while_with_ellipsis_args(self):
-    """Chain(5).while_true(fn, ...).run() ignores current value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = {'called_without_args': False}
-
-        def f0():
-          received['called_without_args'] = True
-          return Chain.break_()
-
-        received['called_without_args'] = False
-        await self.assertEqual(
-          Chain(fn, 5).while_true(f0, ...).run(), 5
-        )
-        super(MyTestCase, self).assertTrue(received['called_without_args'])
 
 
 # ---------------------------------------------------------------------------
@@ -285,33 +71,6 @@ class ForeachTests(MyTestCase):
       Chain([1, 2, 3]).foreach(lambda x: aempty(x * 3)).run(),
       [3, 6, 9]
     )
-
-  async def test_foreach_do_preserves_elements(self):
-    """foreach_do returns original elements."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        side_effects = []
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3]).foreach_do(lambda x: side_effects.append(x * 2)).run(),
-          [1, 2, 3]
-        )
-        super(MyTestCase, self).assertEqual(side_effects, [2, 4, 6])
-
-  async def test_foreach_do_async_iterable(self):
-    """foreach_do on async iterable."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        side_effects = []
-
-        def side_fn(x):
-          side_effects.append(x * 2)
-
-        side_effects.clear()
-        await self.assertEqual(
-          Chain(fn, AsyncIterator([1, 2, 3])).foreach_do(side_fn).run(),
-          [1, 2, 3]
-        )
-        super(MyTestCase, self).assertEqual(side_effects, [2, 4, 6])
 
   async def test_foreach_break_returns_partial(self):
     """Break at element 3: returns partial list."""
@@ -416,24 +175,6 @@ class ForeachIndexedTests(MyTestCase):
       Chain(['a', 'b', 'c']).foreach(f, with_index=True).run(),
       [(0, 'a'), (1, 'b'), (2, 'c')]
     )
-
-  async def test_foreach_indexed_do(self):
-    """foreach_do(fn, with_index=True) preserves original elements."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        side_effects = []
-
-        def f(idx, el):
-          side_effects.append((idx, el))
-
-        side_effects.clear()
-        await self.assertEqual(
-          Chain(fn, ['a', 'b', 'c']).foreach_do(f, with_index=True).run(),
-          ['a', 'b', 'c']
-        )
-        super(MyTestCase, self).assertEqual(
-          side_effects, [(0, 'a'), (1, 'b'), (2, 'c')]
-        )
 
   async def test_foreach_indexed_break(self):
     """Break at idx=2 returns partial list."""
@@ -554,114 +295,6 @@ class FilterTests(MyTestCase):
 
     with self.assertRaises(ValueError):
       await await_(Chain([1, 2, 3]).filter(pred).run())
-
-
-# ---------------------------------------------------------------------------
-# ReduceTests
-# ---------------------------------------------------------------------------
-class ReduceTests(MyTestCase):
-
-  async def test_reduce_with_initial(self):
-    """Chain([1,2,3]).reduce(lambda a,x: a+x, 10).run() = 16."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3]).reduce(lambda a, x: a + x, 10).run(),
-          16
-        )
-
-  async def test_reduce_without_initial(self):
-    """Chain([1,2,3]).reduce(lambda a,x: a+x).run() = 6."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3]).reduce(lambda a, x: a + x).run(),
-          6
-        )
-
-  async def test_reduce_empty_no_initial_raises(self):
-    """Chain([]).reduce(fn).run() raises TypeError."""
-    with self.assertRaises(TypeError):
-      await await_(Chain([]).reduce(lambda a, x: a + x).run())
-
-  async def test_reduce_empty_with_initial(self):
-    """Chain([]).reduce(fn, 99).run() = 99."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, []).reduce(lambda a, x: a + x, 99).run(),
-          99
-        )
-
-  async def test_reduce_single_element_no_initial(self):
-    """Chain([42]).reduce(fn).run() = 42."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [42]).reduce(lambda a, x: a + x).run(),
-          42
-        )
-
-  async def test_reduce_async_reducer(self):
-    """Sync iterable, async reducer."""
-    await self.assertEqual(
-      Chain([1, 2, 3]).reduce(lambda a, x: aempty(a + x), 0).run(),
-      6
-    )
-
-  async def test_reduce_async_iterable(self):
-    """Async iterable with sync reducer."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, AsyncIterator([1, 2, 3])).reduce(lambda a, x: a + x, 0).run(),
-          6
-        )
-
-  async def test_reduce_async_iterable_no_initial(self):
-    """Async iterable, no initial."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, AsyncIterator([1, 2, 3])).reduce(lambda a, x: a + x).run(),
-          6
-        )
-
-  async def test_reduce_async_iterable_empty_no_initial(self):
-    """Raises TypeError (intended) but currently raises UnboundLocalError due to
-    a bug in async_reduce where `el` is referenced in `except BaseException`
-    before being assigned when the async iterable is empty."""
-    # The intended behavior is TypeError('reduce() of empty iterable with no initial value')
-    # but the except BaseException handler in async_reduce references `el` before assignment.
-    with self.assertRaises((TypeError, UnboundLocalError)):
-      await await_(
-        Chain(AsyncIterator([])).reduce(lambda a, x: a + x).run()
-      )
-
-  async def test_reduce_sync_to_async_transition(self):
-    """Reducer returns sync then coroutine."""
-    counter = {'count': 0}
-
-    def reducer(a, x):
-      counter['count'] += 1
-      if counter['count'] > 1:
-        return aempty(a + x)
-      return a + x
-
-    counter['count'] = 0
-    await self.assertEqual(
-      Chain([1, 2, 3, 4]).reduce(reducer, 0).run(),
-      10
-    )
-
-  async def test_reduce_then_further_chain(self):
-    """Reduce result piped to further .then()."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3]).reduce(lambda a, x: a + x, 0).then(lambda v: v * 10).run(),
-          60
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -793,15 +426,6 @@ class IterateTests(MyTestCase):
     async for i in Chain(AsyncIterator).iterate(lambda i: i * 2):
       r.append(i)
     super(MyTestCase, self).assertEqual(r, [i * 2 for i in range(10)])
-
-  async def test_iterate_do_preserves_elements(self):
-    """iterate_do(fn) yields original elements."""
-    side_effects = []
-    r = []
-    for i in Chain(SyncIterator).iterate_do(lambda i: side_effects.append(i * 10)):
-      r.append(i)
-    super(MyTestCase, self).assertEqual(r, list(range(10)))
-    super(MyTestCase, self).assertEqual(side_effects, [i * 10 for i in range(10)])
 
   async def test_iterate_break_stops(self):
     """fn returns Chain.break_() stops the generator."""

@@ -1,8 +1,7 @@
 import asyncio
 import inspect
-from unittest import IsolatedAsyncioTestCase
-from tests.utils import throw_if, empty, aempty, await_, TestExc
-from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
+from tests.utils import throw_if, empty, aempty, await_, TestExc, MyTestCase
+from quent import Chain, Cascade, QuentException, run
 
 
 class AsyncIter:
@@ -22,195 +21,8 @@ class AsyncIter:
     return val
 
 
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
-
-
 # ---------------------------------------------------------------------------
-# Class 1: SuppressTests
-# ---------------------------------------------------------------------------
-class SuppressTests(MyTestCase):
-
-  async def test_suppress_default(self):
-    def raise_val(v=None):
-      raise ValueError("boom")
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_val).suppress().run()
-        )
-
-  async def test_suppress_not_base_exception(self):
-    class MyBaseExc(BaseException):
-      pass
-    def raise_base(v=None):
-      raise MyBaseExc("base")
-    for fn, ctx in self.with_fn():
-      with ctx:
-        with self.assertRaises(MyBaseExc):
-          await await_(
-            Chain(fn, 1).then(raise_base).suppress().run()
-          )
-
-  async def test_suppress_specific_exceptions(self):
-    def raise_val(v=None):
-      raise ValueError("boom")
-    def raise_type(v=None):
-      raise TypeError("boom")
-    for fn, ctx in self.with_fn():
-      with ctx:
-        # Suppresses ValueError
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_val).suppress(ValueError).run()
-        )
-        # Does NOT suppress TypeError when only ValueError is specified
-        with self.assertRaises(TypeError):
-          await await_(
-            Chain(fn, 1).then(raise_type).suppress(ValueError).run()
-          )
-
-  async def test_suppress_no_error(self):
-    obj_ = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIs(
-          Chain(fn, obj_).suppress().run(), obj_
-        )
-
-  async def test_suppress_async(self):
-    async def raise_value_error(v=None):
-      raise ValueError("async boom")
-    await self.assertIsNone(
-      Chain(1).then(raise_value_error).suppress().run()
-    )
-
-  async def test_suppress_multiple_exceptions(self):
-    def raise_value(v=None):
-      raise ValueError("v")
-    def raise_type(v=None):
-      raise TypeError("t")
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_value).suppress(ValueError, TypeError).run()
-        )
-        await self.assertIsNone(
-          Chain(fn, 1).then(raise_type).suppress(ValueError, TypeError).run()
-        )
-
-
-# ---------------------------------------------------------------------------
-# Class 2: OnSuccessTests
-# ---------------------------------------------------------------------------
-class OnSuccessTests(MyTestCase):
-
-  async def test_on_success_called(self):
-    called = [False]
-    def cb(v):
-      called[0] = True
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called[0] = False
-        await await_(Chain(fn, 42).on_success(cb).run())
-        super(MyTestCase, self).assertTrue(called[0])
-
-  async def test_on_success_receives_value(self):
-    received = [None]
-    def cb(v):
-      received[0] = v
-    obj_ = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received[0] = None
-        await await_(Chain(fn, obj_).on_success(cb).run())
-        super(MyTestCase, self).assertIs(received[0], obj_)
-
-  async def test_on_success_return_ignored(self):
-    obj_ = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIs(
-          Chain(fn, obj_).on_success(lambda v: "ignored_return").run(), obj_
-        )
-
-  async def test_on_success_not_called_on_exception(self):
-    called = [False]
-    def cb(v):
-      called[0] = True
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called[0] = False
-        def raiser(v=None):
-          raise ValueError("fail")
-        await await_(
-          Chain(fn).then(raiser).except_(lambda v: None, reraise=False).on_success(cb).run()
-        )
-        super(MyTestCase, self).assertFalse(called[0])
-
-  async def test_on_success_duplicate_raises(self):
-    with self.assertRaises(QuentException):
-      Chain().on_success(lambda v: v).on_success(lambda v: v)
-
-  async def test_on_success_async_callback(self):
-    called = [False]
-    async def cb(v):
-      called[0] = True
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called[0] = False
-        await await_(Chain(fn, 10).on_success(cb).run())
-        super(MyTestCase, self).assertTrue(called[0])
-
-  async def test_on_success_with_finally(self):
-    order = []
-    def on_success_cb(v):
-      order.append('success')
-    def on_finally_cb(v):
-      order.append('finally')
-    for fn, ctx in self.with_fn():
-      with ctx:
-        order.clear()
-        await await_(
-          Chain(fn, 1).on_success(on_success_cb).finally_(on_finally_cb).run()
-        )
-        super(MyTestCase, self).assertEqual(order, ['success', 'finally'])
-
-  async def test_on_success_with_cascade(self):
-    received = [None]
-    def cb(v):
-      received[0] = v
-    obj_ = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received[0] = None
-        await await_(
-          Cascade(obj_).then(fn).then(lambda v: "other").on_success(cb).run()
-        )
-        super(MyTestCase, self).assertIs(received[0], obj_)
-
-
-# ---------------------------------------------------------------------------
-# Class 3: FilterTests
+# Class 1: FilterTests
 # ---------------------------------------------------------------------------
 class FilterTests(MyTestCase):
 
@@ -262,71 +74,7 @@ class FilterTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 4: ReduceTests
-# ---------------------------------------------------------------------------
-class ReduceTests(MyTestCase):
-
-  async def test_reduce_with_initial(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3]).reduce(lambda acc, x: acc + x, 10).run(),
-          16
-        )
-
-  async def test_reduce_without_initial(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3, 4]).reduce(lambda acc, x: acc + x).run(),
-          10
-        )
-
-  async def test_reduce_empty_raises(self):
-    with self.assertRaises(TypeError):
-      await await_(
-        Chain([]).reduce(lambda acc, x: acc + x).run()
-      )
-
-  async def test_reduce_single_element(self):
-    called = [False]
-    def reducer(acc, x):
-      called[0] = True
-      return acc + x
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called[0] = False
-        await self.assertEqual(
-          Chain(fn, [42]).reduce(reducer).run(),
-          42
-        )
-        super(MyTestCase, self).assertFalse(called[0])
-
-  async def test_reduce_with_initial_empty(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, []).reduce(lambda acc, x: acc + x, 99).run(),
-          99
-        )
-
-  async def test_reduce_async_iterable(self):
-    result = await await_(
-      Chain(AsyncIter([1, 2, 3, 4])).reduce(lambda acc, x: acc + x, 0).run()
-    )
-    super(MyTestCase, self).assertEqual(result, 10)
-
-  async def test_reduce_async_reducer(self):
-    async def async_add(acc, x):
-      return acc + x
-    result = await await_(
-      Chain([5, 10, 15]).reduce(async_add, 0).run()
-    )
-    super(MyTestCase, self).assertEqual(result, 30)
-
-
-# ---------------------------------------------------------------------------
-# Class 5: GatherTests
+# Class 2: GatherTests
 # ---------------------------------------------------------------------------
 class GatherTests(MyTestCase):
 
@@ -391,121 +139,7 @@ class GatherTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Class 6: PipeMethodTests
-# ---------------------------------------------------------------------------
-class PipeMethodTests(MyTestCase):
-
-  async def test_pipe_callable(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 5).pipe(lambda v: v * 2).run(),
-          10
-        )
-
-  async def test_pipe_chain(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        inner = Chain().then(fn).then(lambda v: v + 100)
-        await self.assertEqual(
-          Chain(fn, 5).pipe(inner).run(),
-          105
-        )
-
-  async def test_pipe_returns_self(self):
-    c = Chain(10)
-    result = c.pipe(lambda v: v)
-    super(MyTestCase, self).assertIs(result, c)
-
-
-# ---------------------------------------------------------------------------
-# Class 7: ComposeTests
-# ---------------------------------------------------------------------------
-class ComposeTests(MyTestCase):
-
-  async def test_compose_callables(self):
-    composed = Chain.compose(
-      lambda v: v + 1,
-      lambda v: v * 3,
-    )
-    await self.assertEqual(composed.run(2), 9)
-
-  async def test_compose_chains(self):
-    c1 = Chain().then(lambda v: v + 10)
-    c2 = Chain().then(lambda v: v * 2)
-    composed = Chain.compose(c1, c2)
-    await self.assertEqual(composed.run(5), 30)
-
-  async def test_compose_empty(self):
-    composed = Chain.compose()
-    await self.assertIsNone(composed.run())
-
-  async def test_compose_single(self):
-    composed = Chain.compose(lambda v: v ** 2)
-    await self.assertEqual(composed.run(4), 16)
-
-  async def test_compose_returns_chain(self):
-    composed = Chain.compose(lambda v: v)
-    super(MyTestCase, self).assertIsInstance(composed, Chain)
-
-
-# ---------------------------------------------------------------------------
-# Class 8: IfRaiseElseRaiseTests
-# ---------------------------------------------------------------------------
-class IfRaiseElseRaiseTests(MyTestCase):
-
-  async def test_if_raise_truthy(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        with self.assertRaises(ValueError):
-          await await_(
-            Chain(fn, True).if_raise(ValueError("truthy")).run()
-          )
-
-  async def test_if_raise_falsy(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertFalse(
-          Chain(fn, False).if_raise(ValueError("should not raise")).run()
-        )
-
-  async def test_else_raise_falsy(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        with self.assertRaises(RuntimeError):
-          await await_(
-            Chain(fn, False).if_(lambda v: "yes").else_raise(RuntimeError("falsy path")).run()
-          )
-
-  async def test_if_not_raise(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        with self.assertRaises(ValueError):
-          await await_(
-            Chain(fn, False).if_not_raise(ValueError("falsy")).run()
-          )
-        # Truthy value should NOT raise
-        await self.assertTrue(
-          Chain(fn, True).if_not_raise(ValueError("should not raise")).run()
-        )
-
-  async def test_combined_pattern(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        # Truthy path triggers if_raise
-        with self.assertRaises(ValueError):
-          await await_(
-            Chain(fn, True).if_raise(ValueError("if_true")).run()
-          )
-        # Falsy path triggers else_raise
-        with self.assertRaises(RuntimeError):
-          await await_(
-            Chain(fn, False).if_(lambda v: "yes").else_raise(RuntimeError("else_path")).run()
-          )
-
-
-# ---------------------------------------------------------------------------
-# Class 9: ReprTests
+# Class 3: ReprTests
 # ---------------------------------------------------------------------------
 class ReprTests(MyTestCase):
 
@@ -531,14 +165,9 @@ class ReprTests(MyTestCase):
     r = repr(c)
     super(MyTestCase, self).assertTrue(r.startswith('Cascade'))
 
-  async def test_repr_chain_attr(self):
-    c = ChainAttr()
-    r = repr(c)
-    super(MyTestCase, self).assertTrue(r.startswith('ChainAttr'))
-
 
 # ---------------------------------------------------------------------------
-# Class 10: ForeachIndexedTests
+# Class 4: ForeachIndexedTests
 # ---------------------------------------------------------------------------
 class ForeachIndexedTests(MyTestCase):
 
@@ -602,29 +231,3 @@ class ForeachIndexedTests(MyTestCase):
           await await_(
             Chain(fn, [1, 2, 3]).foreach(raiser, with_index=True).run()
           )
-
-  async def test_foreach_do_indexed(self):
-    side_effects = []
-    def track(idx, el):
-      side_effects.append((idx, el))
-      return "ignored"
-    for fn, ctx in self.with_fn():
-      with ctx:
-        side_effects.clear()
-        await self.assertEqual(
-          Chain(fn, [10, 20, 30]).foreach_do(track, with_index=True).run(),
-          [10, 20, 30]
-        )
-        super(MyTestCase, self).assertEqual(side_effects, [(0, 10), (1, 20), (2, 30)])
-
-  async def test_foreach_do_indexed_async(self):
-    side_effects = []
-    async def track(idx, el):
-      side_effects.append((idx, el))
-      return "ignored"
-    side_effects.clear()
-    result = await await_(
-      Chain(AsyncIter([100, 200])).foreach_do(track, with_index=True).run()
-    )
-    super(MyTestCase, self).assertEqual(result, [100, 200])
-    super(MyTestCase, self).assertEqual(side_effects, [(0, 100), (1, 200)])

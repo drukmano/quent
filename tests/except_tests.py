@@ -1,13 +1,8 @@
 import asyncio
-import contextlib
-import inspect
-from typing import *
-import time
-from contextlib import contextmanager, asynccontextmanager
 from tests.flex_context import FlexContext
-from unittest import TestCase, IsolatedAsyncioTestCase
-from tests.utils import throw_if, empty, aempty, await_, TestExc
-from quent import Chain, ChainAttr, Cascade, CascadeAttr, QuentException, run
+from unittest import IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain
 
 
 class ExceptFinallyCheckSync:
@@ -196,80 +191,6 @@ class ExcFinallyTests(MyExcTestCase):
           await await_(Chain(fn, False).then(raise_).except_(f, reraise=False).run())
         except TestExc:
           self.assertTrue(False)
-
-  async def test_multi_except(self):
-    obj = object()
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
-        efc1 = efc_cls()
-        efc2 = efc_cls()
-        efc3 = efc_cls()
-        efc4 = efc_cls()
-        efc5 = efc_cls()
-        try:
-          await await_(
-            Chain(fn)
-            .except_(efc1.on_except)
-            .raise_(Exc1())
-            .except_(efc2.on_except, exceptions=Exc2)
-            .except_(efc3.on_except, exceptions=TestExc)
-            .except_(efc4.on_except)
-            .run()
-          )
-        except TestExc:
-          await await_(efc5.on_except())
-        self.assertFalse(efc1.ran_exc)
-        self.assertFalse(efc2.ran_exc)
-        self.assertTrue(efc3.ran_exc)
-        self.assertFalse(efc4.ran_exc)
-        self.assertTrue(efc5.ran_exc)
-
-        # with no raise
-        efc1 = efc_cls()
-        efc2 = efc_cls()
-        efc3 = efc_cls()
-        efc4 = efc_cls()
-        try:
-          self.assertIs(await await_(
-            Chain(fn)
-            .except_(efc1.on_except)
-            .raise_(Exc1())
-            .except_(efc2.on_except, exceptions=Exc2)
-            .except_(efc3.on_except, obj, exceptions=TestExc, reraise=False)
-            .except_(efc4.on_except)
-            .run()
-          ), obj)
-        except TestExc:
-          self.assertTrue(False)
-        self.assertFalse(efc1.ran_exc)
-        self.assertFalse(efc2.ran_exc)
-        self.assertTrue(efc3.ran_exc)
-        self.assertFalse(efc4.ran_exc)
-
-        # with nested chain and no raise, the chain continues after exception
-        efc1 = efc_cls()
-        efc2 = efc_cls()
-        efc3 = efc_cls()
-        efc4 = efc_cls()
-        try:
-          self.assertIs(await await_(
-            Chain(fn)
-            .except_(efc1.on_except)
-            .then(
-              Chain(fn).raise_(Exc1())
-              .except_(efc2.on_except, exceptions=Exc2)
-              .except_(efc3.on_except, exceptions=TestExc, reraise=False), ...
-            )
-            .except_(efc4.on_except)
-            .then(obj)
-            .run()
-          ), obj)
-        except TestExc:
-          self.assertTrue(False)
-        self.assertFalse(efc1.ran_exc)
-        self.assertFalse(efc2.ran_exc)
-        self.assertTrue(efc3.ran_exc)
-        self.assertFalse(efc4.ran_exc)
 
   async def test_raise_on_await(self):
     async def f(v=None):
