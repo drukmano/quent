@@ -331,10 +331,17 @@ class TrueSourceLinkResolutionTests(TestCase):
   def test_nested_chain_with_root_source_link(self):
     """A nested chain that HAS a root_link. get_true_source_link follows
     chain.root_link (line 168) and resolves to the root if it's the
-    failing operation."""
+    failing operation.
+
+    Note: the inner chain is invoked with ... (Ellipsis) so that the outer
+    chain's current value is NOT passed as a root override. Without ...,
+    the outer chain's value (5) would conflict with the inner chain's
+    existing root (lambda: 1/0), raising QuentException instead of
+    ZeroDivisionError.
+    """
     inner = Chain(lambda: 1 / 0)
     try:
-      Chain(5).then(inner).run()
+      Chain(5).then(inner, ...).run()
       self.fail('Expected ZeroDivisionError')
     except ZeroDivisionError as exc:
       entries = _get_quent_entries(exc)
@@ -383,7 +390,12 @@ class FormatLinkChainArgsTests(TestCase):
   def test_format_link_source_arrow_with_results(self):
     """When an exception occurs, links before the source get '= result'
     annotations showing their intermediate values (line 291-293 of
-    _diagnostics.pxi)."""
+    _diagnostics.pxi).
+
+    Note: link_results (intermediate values) are only populated when
+    debug=True is set via .config(debug=True). Without it, the traceback
+    visualization will not include '= result' annotations.
+    """
     def double(v):
       return v * 2
 
@@ -391,7 +403,7 @@ class FormatLinkChainArgsTests(TestCase):
       raise ValueError('boom')
 
     try:
-      Chain(5).then(double).then(raiser).run()
+      Chain(5).then(double).then(raiser).config(debug=True).run()
       self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)

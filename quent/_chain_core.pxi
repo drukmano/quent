@@ -418,6 +418,9 @@ cdef class Chain:
       ctx.temp_root_link = temp_root_link
       ctx.link_results = None
       ctx.link_temp_args = None
+      exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
+      if exc_temp_args is not None:
+        ctx.link_temp_args = exc_temp_args
       modify_traceback(exc, self, link, ctx)
       raise exc
 
@@ -466,6 +469,9 @@ cdef class Chain:
       ctx.temp_root_link = temp_root_link
       ctx.link_results = None
       ctx.link_temp_args = None
+      exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
+      if exc_temp_args is not None:
+        ctx.link_temp_args = exc_temp_args
       modify_traceback(exc, self, link, ctx)
       raise exc
 

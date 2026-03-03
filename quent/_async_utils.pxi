@@ -46,3 +46,9 @@ cdef object ensure_future(object coro):
 def _get_registry_size():
   """Return the current size of the task registry (for testing)."""
   return len(task_registry)
+
+
+def _reset_registry_warned():
+  """Reset the _registry_warned flag (for testing only)."""
+  global _registry_warned
+  _registry_warned = False
