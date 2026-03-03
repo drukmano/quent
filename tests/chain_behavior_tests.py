@@ -80,8 +80,10 @@ class FinallyEmptyChainTests(IsolatedAsyncioTestCase):
       warnings.simplefilter("ignore", RuntimeWarning)
       result = Chain().finally_(handler).run()
     self.assertIsNone(result)
-    # Allow the scheduled task to execute
-    await asyncio.sleep(0.1)
+    # Yield to the event loop so the fire-and-forget task can execute.
+    # asyncio.sleep(0) is sufficient: it suspends this coroutine for
+    # one iteration, allowing the scheduled handler task to run.
+    await asyncio.sleep(0)
     self.assertTrue(called["value"])
 
   async def test_async_finally_on_empty_chain_with_sync_handler(self):

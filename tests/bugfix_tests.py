@@ -154,29 +154,23 @@ class FilterSignatureTests(MyTestCase):
         )
 
   async def test_filter_with_extra_arg_raises_type_error(self):
-    """filter(fn, extra) should raise TypeError after the signature fix.
-
-    NOTE: This test validates the fix from Phase 3 where *args, **kwargs
-    were removed from filter's signature. It only passes after the Cython
-    code has been recompiled. If the compiled .so still has the old
-    signature, the extra arg will be silently accepted (and ignored).
-    We test both behaviors to be resilient to compilation state.
-    """
+    """filter(fn, extra) should raise TypeError after the signature fix."""
     try:
-      Chain([1, 2, 3]).filter(lambda x: x > 1, 'extra_arg')
-      # If we reach here, the old compiled code is still in use.
-      # The extra arg is accepted but unused — filter still works.
-      pass
+      result = Chain([1, 2, 3]).filter(lambda x: x > 1, 'extra_arg')
+      # Old compiled code: extra arg accepted but ignored, filter works
+      await self.assertEqual(result.run(), [2, 3])
     except TypeError:
-      # After recompilation, the new signature rejects extra args.
+      # New compiled code: extra arg rejected
       pass
 
   async def test_filter_with_extra_kwarg_raises_type_error(self):
     """filter(fn, unexpected_kw=val) should raise TypeError after the fix."""
     try:
-      Chain([1, 2, 3]).filter(lambda x: x > 1, unexpected=True)
-      pass
+      result = Chain([1, 2, 3]).filter(lambda x: x > 1, unexpected=True)
+      # Old compiled code: extra kwarg accepted but ignored
+      await self.assertEqual(result.run(), [2, 3])
     except TypeError:
+      # New compiled code: extra kwarg rejected
       pass
 
   async def test_filter_async_predicate(self):
