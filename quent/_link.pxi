@@ -108,8 +108,6 @@ cdef class Link:
       (<Chain>v).is_nested = True
     else:
       self.is_chain = False
-      if _PipeCls is not None and isinstance(v, _PipeCls):
-        v = v.function
     self.v = v
     self.args = args
     self.kwargs = kwargs

@@ -8,12 +8,6 @@ from typing import Any, Callable, Coroutine
 from pydruk import Null
 
 
-try:
-  from pipe import Pipe as _PipeObj
-except ImportError:
-  _PipeObj = None
-
-
 class SequentException(Exception):
   pass
 
@@ -323,8 +317,6 @@ class Sequent(metaclass=_SequentMeta):
   def then(self, v: Any | Callable = Null, *args, **kwargs) -> Sequent:
     if v is Null:
       return self
-    if _PipeObj and isinstance(v, _PipeObj):
-      v = v.function
     # this is primarily to improve performance since we are not creating more Sequents
     if self._can_eager:
       pv = self._nv

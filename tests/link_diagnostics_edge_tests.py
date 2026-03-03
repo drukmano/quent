@@ -428,34 +428,6 @@ class FormatLinkChainArgsTests(TestCase):
       self.assertIn('extra_arg', viz)
 
 
-# ---------------------------------------------------------------------------
-# 7. Pipe library integration (conditional)
-# ---------------------------------------------------------------------------
-
-try:
-  from pipe import Pipe as _PipeCls
-  _HAS_PIPE = True
-except ImportError:
-  _PipeCls = None
-  _HAS_PIPE = False
-
-
-@unittest.skipUnless(_HAS_PIPE, 'pipe library not installed')
-class PipeIntegrationTests(MyTestCase):
-
-  async def test_pipe_object_unwrapped_in_link(self):
-    """When the pipe library is installed, Pipe objects are unwrapped
-    to their .function attribute (lines 111-112 of _link.pxi)."""
-    p = _PipeCls(lambda x: x * 2)
-    result = Chain(5).then(p).run()
-    await self.assertEqual(result, 10)
-
-  async def test_pipe_with_chain_operations(self):
-    """Pipe objects work with other chain operations."""
-    p = _PipeCls(lambda x: x + 1)
-    result = Chain(10).then(p).then(lambda v: v * 3).run()
-    await self.assertEqual(result, 33)  # (10+1)*3
-
 
 if __name__ == '__main__':
   unittest.main()

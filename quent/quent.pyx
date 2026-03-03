@@ -27,12 +27,6 @@ cimport cython
 from quent._internal import __QUENT_INTERNAL__
 
 
-cdef object _PipeCls
-try:
-  from pipe import Pipe as _PipeCls
-except ImportError:
-  _PipeCls = None
-
 _logger = logging.getLogger('quent')
 
 @cython.final

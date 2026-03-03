@@ -113,26 +113,6 @@ class DetermineEvalCodeKwargsNoArgsTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Line 112: Pipe unwrap — v = v.function when value is a Pipe instance
-# (Only hits if `pipe` library is installed)
-# ---------------------------------------------------------------------------
-class PipeUnwrapTests(TestCase):
-  """Line 112: When a Pipe instance is used as a link value, it is unwrapped
-  to v.function. Only runs if pipe is installed."""
-
-  def test_pipe_unwrap_if_available(self):
-    """If pipe is installed, Pipe instances are unwrapped to their .function attribute."""
-    try:
-      from pipe import Pipe
-    except ImportError:
-      self.skipTest('pipe library not installed')
-      return
-    double = Pipe(lambda x: x * 2)
-    result = Chain(5).then(double).run()
-    self.assertEqual(result, 10)
-
-
-# ---------------------------------------------------------------------------
 # Lines 129, 150, 153: _clone_link, _clone_chain_links entry and None check
 # ---------------------------------------------------------------------------
 class CloneLinkTests(TestCase):

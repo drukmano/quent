@@ -3,26 +3,23 @@
 Coverage targets:
   - Line 12: `from asyncio import create_task as _create_task` (import)
   - Line 14: `cdef bint _HAS_EAGER_START = ...` (module-level)
-  - Lines 22-23: `task_registry = set()`, `_registry_warned = False` (module-level)
-  - Lines 26-30: `ensure_future` body: task creation via eager_start=True (Python 3.14+)
-  - Line 32: `else: task = _create_task(coro)` -- IMPOSSIBLE on Python 3.14+ (only <3.14)
-  - Lines 33-34: `task_registry.add(task)` and `if not _registry_warned and ...`
-  - Lines 35-39: Warning block when registry exceeds 10000 entries
-  - Line 42: `task.add_done_callback(task_registry.discard)`
-  - Line 43: `return task`
-  - Lines 46-48: `_get_registry_size()` function
+  - Line 22: `task_registry = set()` (module-level)
+  - Lines 26-33: `ensure_future` body: task creation, registry add, done callback
+  - Line 31: `else: task = _create_task(coro)` -- IMPOSSIBLE on Python 3.14+ (only <3.14)
+  - Line 34: `task.add_done_callback(task_registry.discard)`
+  - Line 35: `return task`
+  - Lines 38-40: `_get_registry_size()` function
 
-NOTE: Line 32 (the `else` branch for Python < 3.14) CANNOT be covered
+NOTE: Line 31 (the `else` branch for Python < 3.14) CANNOT be covered
 on our current Python 3.14 runtime. This is a version-gated branch.
 """
 import sys
 import asyncio
-import warnings
 import gc
 from unittest import IsolatedAsyncioTestCase
 from tests.utils import empty, aempty, await_, TestExc, MyTestCase
 from quent import Chain, Cascade, QuentException, run
-from quent.quent import _get_registry_size, _reset_registry_warned
+from quent.quent import _get_registry_size
 
 
 # ---------------------------------------------------------------------------
@@ -298,122 +295,6 @@ class RegistryPreventsGCTests(IsolatedAsyncioTestCase):
     task = Chain(check_registry, 1).config(autorun=True).run()
     await task
     self.assertTrue(in_registry_during_exec['value'])
-
-
-# ---------------------------------------------------------------------------
-# Warning when registry exceeds 10000 entries (lines 34-39)
-#
-# IMPORTANT: _registry_warned is a module-level C variable that persists
-# across tests. We consolidate all warning tests into a single class that
-# runs the expensive 10001-task creation only once.
-# ---------------------------------------------------------------------------
-class RegistryWarningTests(IsolatedAsyncioTestCase):
-  """Test the ResourceWarning when task_registry exceeds 10000 entries.
-
-  Lines 34-39 of _async_utils.pxi:
-    if not _registry_warned and len(task_registry) > 10000:
-      _registry_warned = True
-      warnings.warn(...)
-
-  We create >10000 concurrent tasks to trigger the warning path.
-  Since _registry_warned persists across tests and cannot be reset
-  (it's a cdef bint), we use a single test method that validates
-  all warning aspects at once.
-  """
-
-  async def test_warning_behavior_above_10000_tasks(self):
-    """ResourceWarning: emitted once when registry > 10000, with correct message.
-
-    This single test covers:
-    - Warning is emitted when registry exceeds 10000 (lines 34-35)
-    - Warning message contains 'task_registry' and 'leak' (lines 36-39)
-    - Warning includes the count (>= 5 digits)
-    - Warning is only emitted once (_registry_warned flag, line 35)
-    """
-    # Reset the _registry_warned flag so this test is independent of
-    # prior tests that may have already triggered the warning.
-    _reset_registry_warned()
-
-    initial = _get_registry_size()
-    target = 10001 - initial
-
-    blocker = asyncio.Event()
-
-    async def wait_for_signal(v):
-      await blocker.wait()
-      return v
-
-    # --- Phase 1: Create > 10000 tasks and capture the warning ---
-    tasks = []
-    with warnings.catch_warnings(record=True) as caught:
-      warnings.simplefilter('always', ResourceWarning)
-      for i in range(target):
-        t = Chain(wait_for_signal, i).config(autorun=True).run()
-        tasks.append(t)
-        # Yield periodically to avoid starving the event loop
-        if i % 1000 == 0:
-          await asyncio.sleep(0)
-
-    # Verify warning was emitted
-    resource_warnings = [
-      w for w in caught
-      if issubclass(w.category, ResourceWarning)
-      and 'task_registry' in str(w.message)
-    ]
-    self.assertGreater(
-      len(resource_warnings), 0,
-      f'Expected ResourceWarning about task_registry, got: '
-      f'{[str(w.message) for w in caught]}'
-    )
-
-    # Verify warning message content
-    msg = str(resource_warnings[0].message)
-    self.assertIn('task_registry', msg)
-    self.assertIn('leak', msg)
-    # Count should be a 5+ digit number
-    self.assertRegex(msg, r'\d{5,}')
-
-    # Verify warning was emitted exactly once in this batch
-    self.assertEqual(
-      len(resource_warnings), 1,
-      f'Expected exactly 1 warning, got {len(resource_warnings)}'
-    )
-
-    # Release first batch
-    blocker.set()
-    await asyncio.gather(*tasks)
-    await asyncio.sleep(0)
-
-    # --- Phase 2: Verify _registry_warned prevents second warning ---
-    blocker2 = asyncio.Event()
-
-    async def wait_for_signal2(v):
-      await blocker2.wait()
-      return v
-
-    tasks2 = []
-    with warnings.catch_warnings(record=True) as caught2:
-      warnings.simplefilter('always', ResourceWarning)
-      for i in range(target):
-        t = Chain(wait_for_signal2, i).config(autorun=True).run()
-        tasks2.append(t)
-        if i % 1000 == 0:
-          await asyncio.sleep(0)
-
-    second_warnings = [
-      w for w in caught2
-      if issubclass(w.category, ResourceWarning)
-      and 'task_registry' in str(w.message)
-    ]
-    self.assertEqual(
-      len(second_warnings), 0,
-      'Warning was emitted again despite _registry_warned flag'
-    )
-
-    # Clean up
-    blocker2.set()
-    await asyncio.gather(*tasks2)
-    await asyncio.sleep(0)
 
 
 # ---------------------------------------------------------------------------

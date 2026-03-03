@@ -101,7 +101,7 @@ cdef class Chain:
     """Core synchronous execution loop. Evaluates all links and returns the final value or a coroutine."""
     if not invoked_by_parent_chain and self.is_nested:
       raise QuentException('You cannot directly run a nested chain.')
-    if self._is_simple and self.on_finally_link is None and not self._debug:
+    if self._is_simple and not self._debug:
       return self._run_simple(v, args, kwargs, invoked_by_parent_chain)
     cdef:
       Link link = self.root_link
@@ -340,7 +340,7 @@ cdef class Chain:
           raise exc_
 
   cdef object _run_simple(self, object v, tuple args, dict kwargs, bint invoked_by_parent_chain):
-    """Fast execution path for simple chains (only .then() links, no debug/finally)."""
+    """Fast execution path for simple chains (only .then() links, no debug)."""
     if not invoked_by_parent_chain and self.is_nested:
       raise QuentException('You cannot directly run a nested chain.')
     cdef:
@@ -348,7 +348,9 @@ cdef class Chain:
       Link temp_root_link = None
       _ExecCtx ctx = None
       object current_value = Null, root_value = Null
+      object result = None
       bint has_root_value = link is not None, is_root_value_override = v is not Null
+      bint ignore_finally = False
 
     if is_root_value_override:
       if has_root_value:
@@ -364,6 +366,7 @@ cdef class Chain:
       if has_root_value:
         root_value = evaluate_value(link, Null)
         if not self._is_sync and iscoro(root_value):
+          ignore_finally = True
           return self._run_async_simple(temp_root_link, link, root_value, Null, has_root_value)
         current_value = root_value
         link = link.next_link
@@ -381,6 +384,7 @@ cdef class Chain:
         while link is not None:
           current_value = evaluate_value(link, current_value)
           if iscoro(current_value):
+            ignore_finally = True
             return self._run_async_simple(temp_root_link, link, current_value, root_value, has_root_value)
           link = link.next_link
       elif self._is_sync:
@@ -397,6 +401,7 @@ cdef class Chain:
         while link is not None:
           current_value = evaluate_value(link, root_value)
           if iscoro(current_value):
+            ignore_finally = True
             return self._run_async_simple(temp_root_link, link, current_value, root_value, has_root_value)
           link = link.next_link
         current_value = root_value
@@ -424,10 +429,38 @@ cdef class Chain:
       modify_traceback(exc, self, link, ctx)
       raise exc
 
+    finally:
+      if not ignore_finally and self.on_finally_link is not None:
+        try:
+          result = evaluate_value(self.on_finally_link, root_value)
+        except _InternalQuentException:
+          raise QuentException('Using control flow signals inside finally handlers is not allowed.')
+        except BaseException as exc_:
+          if ctx is None:
+            ctx = _ExecCtx.__new__(_ExecCtx)
+            ctx.temp_root_link = temp_root_link
+            ctx.link_results = None
+            ctx.link_temp_args = None
+          modify_traceback(exc_, self, self.on_finally_link, ctx)
+          raise exc_
+        if not self._is_sync and iscoro(result):
+          if ctx is None:
+            ctx = _ExecCtx.__new__(_ExecCtx)
+            ctx.temp_root_link = temp_root_link
+            ctx.link_results = None
+            ctx.link_temp_args = None
+          ensure_future(_await_run_fn(result, self, self.on_finally_link, ctx))
+          warnings.warn(
+            'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode. '
+            'It was therefore scheduled for execution in a new Task.',
+            category=RuntimeWarning
+          )
+
   async def _run_async_simple(self, Link temp_root_link, Link link, object current_value, object root_value, bint has_root_value):
     """Async fast path for simple chains."""
     cdef:
       _ExecCtx ctx = None
+      object result = None
 
     try:
       current_value = await current_value
@@ -474,6 +507,23 @@ cdef class Chain:
         ctx.link_temp_args = exc_temp_args
       modify_traceback(exc, self, link, ctx)
       raise exc
+
+    finally:
+      if self.on_finally_link is not None:
+        try:
+          result = evaluate_value(self.on_finally_link, root_value)
+          if iscoro(result):
+            result = await result
+        except _InternalQuentException:
+          raise QuentException('Using control flow signals inside finally handlers is not allowed.')
+        except BaseException as exc_:
+          if ctx is None:
+            ctx = _ExecCtx.__new__(_ExecCtx)
+            ctx.temp_root_link = temp_root_link
+            ctx.link_results = None
+            ctx.link_temp_args = None
+          modify_traceback(exc_, self, self.on_finally_link, ctx)
+          raise exc_
 
   def config(self, *, object autorun = None, object debug = None):
     """Configure chain options (autorun, debug) in a single call."""
