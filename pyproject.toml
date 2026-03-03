@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quent"
-version = "3.0.1"
+version = "3.1.0"
 authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
 description = "High-performance fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in retry, timeout, and context propagation. Cython-compiled, zero dependencies."
 license = "MIT"
