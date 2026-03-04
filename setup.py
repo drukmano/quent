@@ -6,6 +6,7 @@ def build_extensions(file_ext, path='./quent', *, tests=False):
   extensions = []
   lto = os.environ.get('QUENT_LTO')
   pgo = os.environ.get('QUENT_PGO')
+  native = os.environ.get('QUENT_NATIVE')
   for root, dirs, filenames in os.walk(path):
     for fname in filenames:
       if fname.endswith(file_ext):
@@ -26,6 +27,8 @@ def build_extensions(file_ext, path='./quent', *, tests=False):
         elif pgo == 'use':
           compile_args.extend(['-fprofile-use', '-fprofile-correction'])
           link_args.extend(['-fprofile-use', '-fprofile-correction'])
+        if native:
+          compile_args.extend(['-march=native', '-funroll-loops', '-fomit-frame-pointer'])
         extensions.append(Extension(module_name, sources=[file_path], extra_compile_args=compile_args, extra_link_args=link_args, define_macros=macros))
   return extensions
 

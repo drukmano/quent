@@ -23,6 +23,10 @@ if __name__ == '__main__':
     'initializedcheck': False,
     'cdivision': True,
     'iterable_coroutine': False,
+    'nonecheck': False,
+    'overflowcheck': False,
+    'optimize.use_switch': True,
+    'optimize.unpack_method_calls': True,
   }
   if is_tests:
     compiler_directives.update({

@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
+# Compilation modes:
+# ┌───────────┬──────────────────────────────┬─────────────────────────────────────────────────┐
+# │ Mode      │ Command                      │ Effect                                          │
+# ├───────────┼──────────────────────────────┼─────────────────────────────────────────────────┤
+# │ Standard  │ bash scripts/compile.sh      │ Portable, incremental, no extra flags            │
+# │ Benchmark │ bash scripts/compile.sh bench│ Sets QUENT_NATIVE=1 QUENT_LTO=1, full recompile │
+# │ PGO       │ bash scripts/compile.sh pgo  │ 2-pass profile-guided optimisation               │
+# └───────────┴──────────────────────────────┴─────────────────────────────────────────────────┘
+
 # Always clean test artifacts
 rm -f .coverage
 rm -rf htmlcov
@@ -53,6 +62,9 @@ for arg in "$@"; do
     pgo)
       mode="pgo"
       ;;
+    bench)
+      mode="bench"
+      ;;
     *)
       extra_args="$extra_args $arg"
       ;;
@@ -79,6 +91,10 @@ if [ "$mode" = "pgo" ]; then
   # Clean profile data files
   find . -name '*.gcda' -delete
   find . -name '*.gcno' -delete
+elif [ "$mode" = "bench" ]; then
+  echo "Building with native optimizations + LTO..."
+  clean_build_artifacts
+  QUENT_NATIVE=1 QUENT_LTO=1 python cython_setup.py build_ext --inplace
 else
   if [ "$force" = true ] || sources_changed; then
     [ "$force" = true ] && echo "Forcing full recompilation..."
