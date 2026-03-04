@@ -236,7 +236,7 @@ cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = N
     if _temp_args or _temp_kwargs:
       _temp_v = _temp_args[0] if _temp_args else Null
       if _temp_v is not Null:
-        nested_ctx.temp_root_link = Link(_temp_v, _temp_args[1:], _temp_kwargs)
+        nested_ctx.temp_root_link = _create_link(_temp_v, _temp_args[1:], _temp_kwargs)
     args = kwargs = None
     link_v, found_source_link = stringify_chain(
       original_value, nested_ctx, nest_lvl=nest_lvl + 1, source_link=source_link, found_source_link=found_source_link

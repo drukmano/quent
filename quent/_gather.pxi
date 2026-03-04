@@ -20,8 +20,8 @@ cdef class _Gather:
 
 
 cdef Link gather_(tuple fns):
-  cdef Link link = Link(None, EMPTY_TUPLE, EMPTY_DICT)
-  return Link(_Gather(fns, link), original_value=link)
+  cdef Link link = _create_link(None, EMPTY_TUPLE, EMPTY_DICT)
+  return _create_link(_Gather(fns, link), None, None, False, link)
 
 
 async def _gather_to_async(list results):

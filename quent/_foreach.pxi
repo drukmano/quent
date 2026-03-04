@@ -38,8 +38,8 @@ cdef class _Foreach:
 
 
 cdef Link foreach(object fn, bint ignore_result):
-  cdef Link link = Link(fn, EMPTY_TUPLE, EMPTY_DICT)
-  return Link(_Foreach(fn, ignore_result, link), original_value=link)
+  cdef Link link = _create_link(fn, EMPTY_TUPLE, EMPTY_DICT)
+  return _create_link(_Foreach(fn, ignore_result, link), None, None, False, link)
 
 
 async def _foreach_to_async(object current_value, object fn, object el, object result, list lst, bint ignore_result, Link link):

@@ -54,6 +54,8 @@ cdef Link _clone_chain_links(Link src)
 
 cdef Link _make_temp_link(object v, tuple args, dict kwargs)
 
+cdef Link _create_link(object v, tuple args, dict kwargs, bint ignore_result=*, object original_value=*)
+
 cdef object evaluate_value(Link link, object current_value)
 
 # --- Execution context & signal helpers (quent.pyx) ---
@@ -61,9 +63,17 @@ cdef object evaluate_value(Link link, object current_value)
 @cython.final
 @cython.freelist(16)
 cdef class _ExecCtx:
+  # Diagnostic fields (populated on exception paths)
   cdef Link temp_root_link
   cdef dict link_results
   cdef dict link_temp_args
+  # PERF: Async transition state — packing these into _ExecCtx reduces _run_async
+  # from 8 parameters to 3 (self, ctx, awaitable), eliminating Python argument
+  # parsing overhead and bint→PyBool boxing.
+  cdef Link async_link
+  cdef object current_value
+  cdef object root_value
+  cdef bint has_root_value
 
 cdef object _eval_signal_value(object v, tuple args, dict kwargs)
 

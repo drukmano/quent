@@ -52,7 +52,9 @@ async def _await_run(result, chain=None, link=None, ctx=None):
       modify_traceback(exc, chain, link, ctx)
     raise remove_self_frames_from_traceback()
 
-cdef object _await_run_fn = _await_run
+# PERF: _await_run is called directly at all call sites instead of through a cdef object alias.
+# This allows Cython to generate a direct coroutine creation call within the same compilation unit,
+# avoiding __Pyx_PyObject_FastCall + PyMethod_Check overhead (score 20-34 per call).
 
 
 # --- Execution context ---
@@ -136,9 +138,12 @@ cdef bint _HAS_EAGER_START = sys.version_info >= (3, 14)
 cdef set task_registry = set()
 cdef object _registry_discard = task_registry.discard
 
+cdef object _create_task_og = _create_task
+cdef object _create_task_eager(coro):
+  return _create_task_og(coro, eager_start=True)
 cdef object _create_task_fn
 if _HAS_EAGER_START:
-  _create_task_fn = lambda coro: _create_task(coro, eager_start=True)
+  _create_task_fn = _create_task_eager
 else:
   _create_task_fn = _create_task
 

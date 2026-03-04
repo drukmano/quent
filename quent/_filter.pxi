@@ -33,8 +33,8 @@ cdef class _Filter:
 
 
 cdef Link filter_(object fn):
-  cdef Link link = Link(fn, EMPTY_TUPLE, EMPTY_DICT)
-  return Link(_Filter(fn, link), original_value=link)
+  cdef Link link = _create_link(fn, EMPTY_TUPLE, EMPTY_DICT)
+  return _create_link(_Filter(fn, link), None, None, False, link)
 
 
 async def _filter_to_async(object current_value, object fn, object el, object result, list lst, Link link):

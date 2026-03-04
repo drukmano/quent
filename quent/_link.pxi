@@ -47,6 +47,10 @@ cdef class Link:
 
     self.next_link = None
     self.eval_code = _determine_eval_code(self, v, args, kwargs)
+    # PERF: Pre-split args for nested chain links at construction time.
+    # Avoids tuple slice link.args[1:] (score 20) on every evaluate_value call.
+    if is_chain_type and self.eval_code == EVAL_CALL_WITH_EXPLICIT_ARGS and self.args:
+      self.temp_args = self.args[1:] if len(self.args) > 1 else EMPTY_TUPLE
 
 
 cdef Link _clone_link(Link src):
@@ -58,8 +62,8 @@ cdef Link _clone_link(Link src):
   dst.ignore_result = src.ignore_result
   dst.is_chain = src.is_chain
   dst.original_value = src.original_value
-  # Reset execution state
-  dst.temp_args = None
+  # Preserve pre-computed state (e.g., pre-split args for chain links)
+  dst.temp_args = src.temp_args
   dst.next_link = None
   return dst
 
@@ -91,6 +95,31 @@ cdef Link _make_temp_link(object v, tuple args, dict kwargs):
   return link
 
 
+# PERF: cdef factory bypasses Link.__init__ Python argument parsing overhead (score 27).
+# All internal code paths use this instead of Link(v, args, kwargs).
+# Link.__init__ is kept for external API compatibility.
+cdef Link _create_link(object v, tuple args, dict kwargs, bint ignore_result=False, object original_value=None):
+  cdef Link link = Link.__new__(Link)
+  cdef bint is_chain_type = type(v) is Chain
+  if is_chain_type:
+    link.is_chain = True
+    (<Chain>v).is_nested = True
+  else:
+    link.is_chain = False
+  link.v = v
+  link.args = args
+  link.kwargs = kwargs
+  link.ignore_result = ignore_result
+  link.original_value = original_value
+  link.temp_args = None
+  link.next_link = None
+  link.eval_code = _determine_eval_code(link, v, args, kwargs)
+  # PERF: Pre-split args for nested chain links at construction time.
+  if is_chain_type and link.eval_code == EVAL_CALL_WITH_EXPLICIT_ARGS and link.args:
+    link.temp_args = link.args[1:] if len(link.args) > 1 else EMPTY_TUPLE
+  return link
+
+
 cdef object evaluate_value(Link link, object current_value):
   # Fast path for most common case: simple callable with single argument
   if link.eval_code == EVAL_CALL_WITH_CURRENT_VALUE and not link.is_chain:
@@ -108,7 +137,8 @@ cdef object evaluate_value(Link link, object current_value):
         # Safety: when args/kwargs are None (not just empty), Cython would dereference
         # a NULL PyObject* when unpacking them, causing a segfault at the C level.
         return (<Chain>link.v)._run(Null, None, None, True)
-      return (<Chain>link.v)._run(link.args[0], link.args[1:], link.kwargs, True)
+      # PERF: Use pre-split temp_args instead of link.args[1:] (avoids tuple allocation per call).
+      return (<Chain>link.v)._run(link.args[0], link.temp_args, link.kwargs, True)
     elif link.eval_code == EVAL_CALL_WITHOUT_ARGS:
       return (<Chain>link.v)._run(Null, None, None, True)
     else:

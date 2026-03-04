@@ -36,8 +36,8 @@ cdef class _With:
 
 
 cdef Link with_(object fn, tuple args, dict kwargs, bint ignore_result):
-  cdef Link link = Link(fn, args, kwargs)
-  return Link(_With(link, ignore_result, args, kwargs), original_value=link, ignore_result=ignore_result)
+  cdef Link link = _create_link(fn, args, kwargs)
+  return _create_link(_With(link, ignore_result, args, kwargs), None, None, ignore_result, link)
 
 
 async def _with_to_async(object current_value, object body_result, Link link, bint entered, bint ignore_result, object outer_value):

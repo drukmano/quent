@@ -7,7 +7,7 @@ cdef class Chain:
   cdef void init(self, object root_value, tuple args, dict kwargs):
     self.is_nested = False
     if root_value is not Null:
-      self.root_link = Link(root_value, args, kwargs)
+      self.root_link = _create_link(root_value, args, kwargs)
     else:
       self.root_link = None
     self.first_link = None
@@ -47,15 +47,41 @@ cdef class Chain:
 
     try:
       if is_root_value_override:
-        temp_root_link = _make_temp_link(v, args, kwargs)
-        link = temp_root_link
-        link.next_link = self.first_link
+        # PERF: Inline root evaluation — avoids Link allocation for the common sync case.
+        # _eval_signal_value replicates evaluate_value dispatch without creating a Link.
         has_root_value = True
-      if has_root_value:
+        result = _eval_signal_value(v, args, kwargs)
+        if iscoro(result):
+          # Async path: lazily create temp link for continuation + diagnostics.
+          temp_root_link = _make_temp_link(v, args, kwargs)
+          temp_root_link.next_link = self.first_link
+          link = temp_root_link
+          ignore_finally = True
+          ctx = _ExecCtx.__new__(_ExecCtx)
+          ctx.temp_root_link = temp_root_link
+          ctx.link_results = link_results
+          ctx.link_temp_args = None
+          ctx.async_link = temp_root_link
+          ctx.current_value = Null
+          ctx.root_value = Null
+          ctx.has_root_value = True
+          return self._run_async(ctx, result)
+        root_value = result
+        current_value = result
+        link = self.first_link
+      elif has_root_value:
         result = evaluate_value(link, Null)
         if iscoro(result):
           ignore_finally = True
-          return self._run_async(temp_root_link, link_results, link, result, Null, Null, has_root_value)
+          ctx = _ExecCtx.__new__(_ExecCtx)
+          ctx.temp_root_link = temp_root_link
+          ctx.link_results = link_results
+          ctx.link_temp_args = None
+          ctx.async_link = link
+          ctx.current_value = Null
+          ctx.root_value = Null
+          ctx.has_root_value = has_root_value
+          return self._run_async(ctx, result)
         root_value = result
         current_value = result
         link = link.next_link
@@ -66,7 +92,16 @@ cdef class Chain:
         result = evaluate_value(link, current_value)
         if iscoro(result):
           ignore_finally = True
-          return self._run_async(temp_root_link, link_results, link, result, current_value, root_value, has_root_value)
+          # PERF: Pack async transition state into _ExecCtx instead of passing 7 args.
+          ctx = _ExecCtx.__new__(_ExecCtx)
+          ctx.temp_root_link = temp_root_link
+          ctx.link_results = link_results
+          ctx.link_temp_args = None
+          ctx.async_link = link
+          ctx.current_value = current_value
+          ctx.root_value = root_value
+          ctx.has_root_value = has_root_value
+          return self._run_async(ctx, result)
         if not link.ignore_result:
           current_value = result
         link = link.next_link
@@ -84,6 +119,11 @@ cdef class Chain:
       raise QuentException('_Break cannot be used in this context.')
 
     except BaseException as exc:
+      # If root override raised before creating temp_root_link, create it now for diagnostics.
+      if is_root_value_override and temp_root_link is None:
+        temp_root_link = _make_temp_link(v, args, kwargs)
+        temp_root_link.next_link = self.first_link
+        link = temp_root_link
       ctx = _ExecCtx.__new__(_ExecCtx)
       ctx.temp_root_link = temp_root_link
       ctx.link_results = link_results
@@ -102,7 +142,7 @@ cdef class Chain:
         modify_traceback(exc_, self, self.on_except_link, ctx)
         raise exc_ from exc
       if iscoro(result):
-        result = ensure_future(_await_run_fn(result, self, self.on_except_link, ctx))
+        result = ensure_future(_await_run(result, self, self.on_except_link, ctx))
         warnings.warn(
           'An except handler returned a coroutine from a synchronous execution path. '
           'It was scheduled as a fire-and-forget Task via ensure_future().',
@@ -133,18 +173,24 @@ cdef class Chain:
             ctx.temp_root_link = temp_root_link
             ctx.link_results = link_results
             ctx.link_temp_args = None
-          ensure_future(_await_run_fn(result, self, self.on_finally_link, ctx))
+          ensure_future(_await_run(result, self, self.on_finally_link, ctx))
           warnings.warn(
             'A finally handler returned a coroutine from a synchronous execution path. '
             'It was scheduled as a fire-and-forget Task via ensure_future().',
             category=RuntimeWarning
           )
 
-  async def _run_async(self, Link temp_root_link, dict link_results, Link link, object awaitable, object current_value, object root_value, bint has_root_value):
+  # PERF: Reduced from 8 parameters to 3 by packing state into _ExecCtx.
+  # Eliminates Python argument parsing overhead and bint->PyBool boxing.
+  async def _run_async(self, _ExecCtx ctx, object awaitable):
     cdef:
       dict exc_temp_args
-      _ExecCtx ctx = None
       object exc, result
+      # Unpack async transition state from ctx
+      Link link = ctx.async_link
+      object current_value = ctx.current_value
+      object root_value = ctx.root_value
+      bint has_root_value = ctx.has_root_value
 
     try:
       result = await awaitable
@@ -180,9 +226,7 @@ cdef class Chain:
       raise QuentException('_Break cannot be used in this context.')
 
     except BaseException as exc:
-      ctx = _ExecCtx.__new__(_ExecCtx)
-      ctx.temp_root_link = temp_root_link
-      ctx.link_results = link_results
+      # ctx already has temp_root_link and link_results from _run — reuse it.
       ctx.link_temp_args = None
       exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
       if exc_temp_args is not None:
@@ -212,11 +256,7 @@ cdef class Chain:
         except _InternalQuentException:
           raise QuentException('Using control flow signals inside finally handlers is not allowed.')
         except BaseException as exc_:
-          if ctx is None:
-            ctx = _ExecCtx.__new__(_ExecCtx)
-            ctx.temp_root_link = temp_root_link
-            ctx.link_results = link_results
-            ctx.link_temp_args = None
+          # ctx is always available — no need to check for None.
           modify_traceback(exc_, self, self.on_finally_link, ctx)
           raise exc_
 
@@ -238,11 +278,11 @@ cdef class Chain:
       raise QuentException(str(exc)) from None
 
   def then(self, object __v, *args, **kwargs):
-    self._then(Link(__v, args, kwargs))
+    self._then(_create_link(__v, args, kwargs))
     return self
 
   def do(self, object __fn, *args, **kwargs):
-    self._then(Link(__fn, args, kwargs, ignore_result=True))
+    self._then(_create_link(__fn, args, kwargs, ignore_result=True))
     return self
 
   def except_(self, object __fn, *args, object exceptions = None, **kwargs):
@@ -257,13 +297,13 @@ cdef class Chain:
         self.on_except_exceptions = (exceptions,)
     else:
       self.on_except_exceptions = (Exception,)
-    self.on_except_link = Link(__fn, args, kwargs)
+    self.on_except_link = _create_link(__fn, args, kwargs)
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
     if self.on_finally_link is not None:
       raise QuentException('You can only register one \'finally\' callback.')
-    self.on_finally_link = Link(__fn, args, kwargs)
+    self.on_finally_link = _create_link(__fn, args, kwargs)
     return self
 
   def iterate(self, object fn = None):
