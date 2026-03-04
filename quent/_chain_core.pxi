@@ -277,6 +277,9 @@ cdef class Chain:
     except _InternalQuentException as exc:
       raise QuentException(str(exc)) from None
 
+  def freeze(self):
+    return _FrozenChain(self)
+
   def then(self, object __v, *args, **kwargs):
     self._then(_create_link(__v, args, kwargs))
     return self

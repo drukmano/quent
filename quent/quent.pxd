@@ -182,6 +182,20 @@ cdef class Chain:
 
   cdef object _run(self, object v, tuple args, dict kwargs, bint invoked_by_parent_chain)
 
+# --- FrozenChain (_frozen_chain.pxi) ---
+
+@cython.final
+@cython.freelist(4)
+cdef class _FrozenChain:
+  cdef Chain _chain
+  cdef tuple _links
+  cdef int _n_links
+  cdef bint _all_simple
+  cdef bint _has_finally
+  cdef bint _has_except
+
+cdef object _frozen_run(_FrozenChain fc, object v, tuple args, dict kwargs)
+
 # --- Diagnostics (_diagnostics.pxi) ---
 
 cdef void _clean_chained_exceptions(object exc, set seen)
