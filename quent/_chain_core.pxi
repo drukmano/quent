@@ -269,8 +269,15 @@ cdef class Chain:
   def iterate(self, object fn = None):
     return _Generator(self._run, fn, _ignore_result=False)
 
+  def iterate_do(self, object fn = None):
+    return _Generator(self._run, fn, _ignore_result=True)
+
   def foreach(self, object fn):
     self._then(foreach(fn, ignore_result=False))
+    return self
+
+  def foreach_do(self, object fn):
+    self._then(foreach(fn, ignore_result=True))
     return self
 
   def filter(self, object __fn):
@@ -283,6 +290,10 @@ cdef class Chain:
 
   def with_(self, object __fn, *args, **kwargs):
     self._then(with_(__fn, args, kwargs, ignore_result=False))
+    return self
+
+  def with_do(self, object __fn, *args, **kwargs):
+    self._then(with_(__fn, args, kwargs, ignore_result=True))
     return self
 
   @classmethod
