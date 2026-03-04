@@ -34,7 +34,7 @@ class Chain:
 
   def except_(
     self, fn: Callable[..., Any], *args: Any,
-    exceptions: tuple[Type[BaseException], ...] | Type[BaseException] | None = None, reraise: bool = True, **kwargs: Any
+    exceptions: tuple[Type[BaseException], ...] | Type[BaseException] | None = None, **kwargs: Any
   ) -> Self: ...
 
   def finally_(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Self: ...

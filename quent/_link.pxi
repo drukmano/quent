@@ -1,37 +1,6 @@
-# _link.pxi — Link node and value evaluation
-#
-# Defines the Link class (the fundamental node in a chain's linked list of
-# operations), the evaluate_value dispatch function, and supporting utilities
-# for cloning and creating temporary links.
-#
-# Key components:
-#   - _await_run / _await_run_fn: async wrapper for awaiting chain results
-#   - _determine_eval_code: resolves how a link should be evaluated
-#   - Link: the chain node class holding a value, args, and evaluation metadata
-#   - _clone_link / _clone_chain_links: deep-copy utilities for Link lists
-#   - _make_temp_link: factory for temporary root-value override links
-#   - evaluate_value: central dispatch — calls or returns a link's value
-
-
-async def _await_run(result, chain=None, link=None, ctx=None):
-  """Await a coroutine result and optionally annotate exceptions with chain traceback info."""
-  try:
-    return await result
-  except BaseException as exc:
-    if chain is not None and link is not None:
-      modify_traceback(exc, chain, link, ctx)
-    raise remove_self_frames_from_traceback()
-
-cdef object _await_run_fn = _await_run
-
-
 cdef inline int _determine_eval_code(
   Link link, object v, tuple args, dict kwargs,
 ) noexcept:
-  """Determine the eval_code for a Link based on its value and arguments.
-
-  Also normalizes args/kwargs on the link (fills EMPTY_DICT/EMPTY_TUPLE as needed).
-  """
   if not args and not kwargs:
     if PyCallable_Check(v):
       return EVAL_CALL_WITH_CURRENT_VALUE
@@ -58,43 +27,11 @@ cdef inline int _determine_eval_code(
 @cython.final
 @cython.freelist(64)
 cdef class Link:
-  """A single node in the chain's linked list of operations.
-
-  Each Link holds a callable (or literal value), its arguments, and metadata
-  controlling how it is evaluated (eval_code) and whether its result propagates.
-  Links are connected via ``next_link`` to form the evaluation sequence.
-  """
-
-  # ┌─────────────────────────────────────────────────────────────────────────┐
-  # │ FIELD INVENTORY (12 fields — see quent.pxd)                             │
-  # │                                                                         │
-  # │ All fields must stay in sync across three locations:                    │
-  # │   • __init__           — normal construction                           │
-  # │   • _clone_link()      — deep-copy for chain cloning                   │
-  # │   • _make_temp_link()  — fast-path allocation (bypasses __init__)      │
-  # │                                                                         │
-  # │ Field            Type    Purpose                                        │
-  # │ ─────            ────    ───────                                        │
-  # │ v                object  The callable or literal value                  │
-  # │ next_link        Link    Pointer to the next link in the chain          │
-  # │ eval_code        int     Dispatch code for evaluate_value()             │
-  # │ is_chain         bint    True if v is a Chain instance                  │
-  # │ ignore_result    bint    True if v's return value is discarded          │
-  # │ is_exception_handler bint True if this is an except_/finally_ link     │
-  # │ args             tuple   Positional args passed alongside v             │
-  # │ kwargs           dict    Keyword args passed alongside v                │
-  # │ reraise          bint    True if caught exceptions should be reraised   │
-  # │ original_value   object  The raw user-supplied value (before wrapping)  │
-  # │ exceptions       object  Exception type(s) this handler catches        │
-  # │ temp_args        tuple   Transient args from _ExecCtx (cleared on run) │
-  # └─────────────────────────────────────────────────────────────────────────┘
-
   def __init__(
     self, object v, tuple args = None, dict kwargs = None,
     bint ignore_result = False,
     object original_value = None,
   ):
-    """Initialize a Link with a value, arguments, and evaluation metadata."""
     cdef bint is_chain_type = type(v) is Chain
     if is_chain_type:
       self.is_chain = True
@@ -108,15 +45,11 @@ cdef class Link:
     self.original_value = original_value
     self.temp_args = None
 
-    self.is_exception_handler = False
-    self.exceptions = None
-    self.reraise = True
     self.next_link = None
     self.eval_code = _determine_eval_code(self, v, args, kwargs)
 
 
 cdef Link _clone_link(Link src):
-  """Deep-copy a single Link, resetting execution state (result, temp_args)."""
   cdef Link dst = Link.__new__(Link)
   dst.v = src.v
   dst.args = src.args
@@ -125,9 +58,6 @@ cdef Link _clone_link(Link src):
   dst.ignore_result = src.ignore_result
   dst.is_chain = src.is_chain
   dst.original_value = src.original_value
-  dst.is_exception_handler = src.is_exception_handler
-  dst.exceptions = src.exceptions
-  dst.reraise = src.reraise
   # Reset execution state
   dst.temp_args = None
   dst.next_link = None
@@ -135,7 +65,6 @@ cdef Link _clone_link(Link src):
 
 
 cdef Link _clone_chain_links(Link src):
-  """Clone a linked list of Links starting at src. Returns the head of the cloned list."""
   if src is None:
     return None
   cdef Link head = _clone_link(src)
@@ -149,7 +78,6 @@ cdef Link _clone_chain_links(Link src):
 
 
 cdef Link _make_temp_link(object v, tuple args, dict kwargs):
-  """Create a temporary Link via __new__ (no __init__), used for root value overrides."""
   cdef Link link = Link.__new__(Link)
   link.v = v
   link.args = args
@@ -158,21 +86,12 @@ cdef Link _make_temp_link(object v, tuple args, dict kwargs):
   link.is_chain = False
   link.original_value = None
   link.temp_args = None
-  link.is_exception_handler = False
-  link.exceptions = None
-  link.reraise = True
   link.next_link = None
   link.eval_code = _determine_eval_code(link, v, args, kwargs)
   return link
 
 
 cdef object evaluate_value(Link link, object current_value):
-  """Evaluate a single Link against the current pipeline value.
-
-  Dispatches based on the link's eval_code to call the link's value with
-  the appropriate arguments (current value, explicit args, or no args).
-  Returns the raw result which may be a coroutine.
-  """
   # Fast path for most common case: simple callable with single argument
   if link.eval_code == EVAL_CALL_WITH_CURRENT_VALUE and not link.is_chain:
     if current_value is Null:

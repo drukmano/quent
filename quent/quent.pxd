@@ -27,13 +27,12 @@ cdef class Link:
   cdef object v
   cdef Link next_link
   cdef int eval_code
-  cdef bint is_chain, ignore_result, is_exception_handler
+  cdef bint is_chain, ignore_result
   # Warm fields
   cdef tuple args
   cdef dict kwargs
   # Cold fields
-  cdef bint reraise
-  cdef object original_value, exceptions
+  cdef object original_value
   cdef tuple temp_args
 
 cdef inline int _determine_eval_code(Link link, object v, tuple args, dict kwargs) noexcept
@@ -48,8 +47,6 @@ cdef object evaluate_value(Link link, object current_value)
 
 cdef object _eval_signal_value(object v, tuple args, dict kwargs)
 
-# --- Operator wrappers ---
-
 @cython.final
 @cython.freelist(16)
 cdef class _ExecCtx:
@@ -62,14 +59,13 @@ cdef class _ChainCallWrapper:
   cdef Chain _chain
   cdef object _fn
 
-# --- Chain ---
-
 @cython.final
 @cython.freelist(32)
 cdef class Chain:
   cdef:
-    Link root_link, first_link, on_finally_link
+    Link root_link, first_link, on_finally_link, on_except_link
     Link current_link
+    object on_except_exceptions
     bint is_nested
 
   cdef void init(self, object root_value, tuple args, dict kwargs)
@@ -78,15 +74,11 @@ cdef class Chain:
 
   cdef object _run(self, object v, tuple args, dict kwargs, bint invoked_by_parent_chain)
 
-# --- Chain variants ---
-
 @cython.final
 @cython.freelist(8)
 cdef class _DescriptorWrapper:
   cdef object _fn
   cdef dict __dict__
-
-# --- Control flow signals ---
 
 cdef class _InternalQuentException(Exception):
   cdef object value
@@ -103,16 +95,12 @@ cdef object handle_break_exc(_Break exc, object fallback)
 
 cdef object handle_return_exc(_Return exc, bint propagate)
 
-# --- Context managers and generators ---
-
 @cython.final
 @cython.freelist(4)
 cdef class _Generator:
   cdef object _chain_run, _fn
   cdef bint _ignore_result
   cdef tuple _run_args
-
-# --- Iteration operations ---
 
 cdef Link foreach(object fn, bint ignore_result)
 
@@ -149,8 +137,6 @@ cdef class _With:
   cdef tuple args
   cdef dict kwargs
 
-# --- Diagnostics declarations ---
-
 cdef set task_registry
 
 cdef object ensure_future(object coro)
@@ -158,8 +144,6 @@ cdef object ensure_future(object coro)
 cdef void _clean_chained_exceptions(object exc, set seen)
 
 cdef object remove_self_frames_from_traceback()
-
-cdef Link _handle_exception(object exc, Chain chain, Link link, _ExecCtx ctx)
 
 cdef void modify_traceback(object exc, Chain chain, Link link, _ExecCtx ctx)
 

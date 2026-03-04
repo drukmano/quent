@@ -62,31 +62,6 @@ cdef object remove_self_frames_from_traceback():
 
   return exc_value.with_traceback(cleaned_tb)
 
-cdef Link _handle_exception(object exc, Chain chain, Link link, _ExecCtx ctx):
-  cdef Link exc_link
-
-  # Copy per-exception temp_args annotations into the execution context
-  # before modify_traceback, so format_link can use them during stringify_chain
-  cdef dict exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
-  if exc_temp_args is not None:
-    if ctx.link_temp_args is None:
-      ctx.link_temp_args = exc_temp_args
-    else:
-      ctx.link_temp_args.update(exc_temp_args)
-
-  modify_traceback(exc, chain, link, ctx)
-
-  while link is not None:
-    if not link.is_exception_handler:
-      link = link.next_link
-      continue
-    exc_link = link
-    link = link.next_link
-    if not isinstance(exc, exc_link.exceptions):
-      continue
-    return exc_link
-  return None
-
 # --- Traceback augmentation ---
 
 cdef void modify_traceback(object exc, Chain chain, Link link, _ExecCtx ctx):
@@ -166,8 +141,6 @@ cdef str _get_link_name(Link link):
     return 'gather'
   if vt is _With:
     return 'with_'
-  if link.is_exception_handler:
-    return 'except_'
   if link.ignore_result:
     return 'do'
   return 'then'
@@ -196,6 +169,13 @@ cdef tuple stringify_chain(Chain chain, _ExecCtx ctx, int nest_lvl = 0, Link sou
     if not found_source_link and link is source_link:
       found_source_link = True
     link = link.next_link
+
+  link = chain.on_except_link
+  if link is not None:
+    output += make_indent(nest_lvl)
+    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link, method_name='except_')
+    if not found_source_link and link is source_link:
+      found_source_link = True
 
   link = chain.on_finally_link
   if link is not None:

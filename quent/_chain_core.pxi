@@ -1,3 +1,4 @@
+@cython.final
 @cython.freelist(32)
 cdef class Chain:
   def __init__(self, object __v = Null, *args, **kwargs):
@@ -12,9 +13,10 @@ cdef class Chain:
     self.first_link = None
     self.current_link = None
     self.on_finally_link = None
+    self.on_except_link = None
+    self.on_except_exceptions = None
 
   cdef void _then(self, Link link):
-    """Append a Link to the end of the chain's linked list."""
     if self.current_link is not None:
       self.current_link.next_link = link
       self.current_link = link
@@ -31,9 +33,9 @@ cdef class Chain:
       raise QuentException('You cannot directly run a nested chain.')
     cdef:
       Link link = self.root_link
-      Link exc_link
       Link temp_root_link = None
       dict link_results = None
+      dict exc_temp_args
       _ExecCtx ctx = None
       object current_value = Null, root_value = Null, result = None, exc = None
       bint has_root_value = link is not None, is_root_value_override = v is not Null
@@ -61,9 +63,6 @@ cdef class Chain:
         link = self.first_link
 
       while link is not None:
-        if link.is_exception_handler:
-          link = link.next_link
-          continue
         result = evaluate_value(link, current_value)
         if iscoro(result):
           ignore_finally = True
@@ -89,25 +88,27 @@ cdef class Chain:
       ctx.temp_root_link = temp_root_link
       ctx.link_results = link_results
       ctx.link_temp_args = None
-      exc_link = _handle_exception(exc, self, link, ctx)
-      if exc_link is None:
+      exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
+      if exc_temp_args is not None:
+        ctx.link_temp_args = exc_temp_args
+      modify_traceback(exc, self, link, ctx)
+      if self.on_except_link is None or not isinstance(exc, self.on_except_exceptions):
         raise exc
       try:
-        result = evaluate_value(exc_link, root_value)
+        result = evaluate_value(self.on_except_link, exc)
+      except _InternalQuentException:
+        raise QuentException('Using control flow signals inside except handlers is not allowed.')
       except BaseException as exc_:
-        modify_traceback(exc_, self, exc_link, ctx)
+        modify_traceback(exc_, self, self.on_except_link, ctx)
         raise exc_ from exc
       if iscoro(result):
-        if not exc_link.reraise:
-          return ensure_future(_await_run_fn(result, self, exc_link, ctx))
-        result = ensure_future(_await_run_fn(result, self, exc_link, ctx))
+        result = ensure_future(_await_run_fn(result, self, self.on_except_link, ctx))
         warnings.warn(
           'An except handler returned a coroutine from a synchronous execution path. '
           'It was scheduled as a fire-and-forget Task via ensure_future().',
           category=RuntimeWarning
         )
-      if exc_link.reraise:
-        raise exc
+        return result
       if result is Null:
         return None
       return result
@@ -141,7 +142,7 @@ cdef class Chain:
 
   async def _run_async(self, Link temp_root_link, dict link_results, Link link, object awaitable, object current_value, object root_value, bint has_root_value):
     cdef:
-      Link exc_link
+      dict exc_temp_args
       _ExecCtx ctx = None
       object exc, result
 
@@ -156,9 +157,6 @@ cdef class Chain:
 
       link = link.next_link
       while link is not None:
-        if link.is_exception_handler:
-          link = link.next_link
-          continue
         result = evaluate_value(link, current_value)
         if iscoro(result):
           result = await result
@@ -186,18 +184,21 @@ cdef class Chain:
       ctx.temp_root_link = temp_root_link
       ctx.link_results = link_results
       ctx.link_temp_args = None
-      exc_link = _handle_exception(exc, self, link, ctx)
-      if exc_link is None:
+      exc_temp_args = getattr(exc, '__quent_link_temp_args__', None)
+      if exc_temp_args is not None:
+        ctx.link_temp_args = exc_temp_args
+      modify_traceback(exc, self, link, ctx)
+      if self.on_except_link is None or not isinstance(exc, self.on_except_exceptions):
         raise exc
       try:
-        result = evaluate_value(exc_link, root_value)
+        result = evaluate_value(self.on_except_link, exc)
         if iscoro(result):
           result = await result
+      except _InternalQuentException:
+        raise QuentException('Using control flow signals inside except handlers is not allowed.')
       except BaseException as exc_:
-        modify_traceback(exc_, self, exc_link, ctx)
+        modify_traceback(exc_, self, self.on_except_link, ctx)
         raise exc_ from exc
-      if exc_link.reraise:
-        raise exc
       if result is Null:
         return None
       return result
@@ -219,48 +220,9 @@ cdef class Chain:
           modify_traceback(exc_, self, self.on_finally_link, ctx)
           raise exc_
 
-  def clone(self):
-    cdef Chain new_chain = Chain.__new__(Chain)
-    cdef Link walk
-    new_chain.is_nested = False
-
-    # Clone the main link chain
-    if self.root_link is not None:
-      new_chain.root_link = _clone_chain_links(self.root_link)
-      # Walk the cloned chain to find first_link and current_link
-      new_chain.first_link = new_chain.root_link.next_link
-      if new_chain.first_link is not None:
-        walk = new_chain.first_link
-        while walk.next_link is not None:
-          walk = walk.next_link
-        new_chain.current_link = walk if walk is not new_chain.first_link else None
-      else:
-        new_chain.current_link = None
-    else:
-      new_chain.root_link = None
-      if self.first_link is not None:
-        new_chain.first_link = _clone_chain_links(self.first_link)
-        walk = new_chain.first_link
-        while walk.next_link is not None:
-          walk = walk.next_link
-        new_chain.current_link = walk if walk is not new_chain.first_link else None
-      else:
-        new_chain.first_link = None
-        new_chain.current_link = None
-
-    # Clone the finally link (single link, not a chain)
-    if self.on_finally_link is not None:
-      new_chain.on_finally_link = _clone_link(self.on_finally_link)
-    else:
-      new_chain.on_finally_link = None
-
-    return new_chain
-
   def decorator(self):
-    """Return a decorator that wraps functions to run through this chain."""
     cdef Chain chain = self
     def _decorator(fn):
-      """Wrap fn so that calling it executes the chain with fn as root value."""
       result = _DescriptorWrapper(_ChainCallWrapper(chain, fn))
       try:
         functools.update_wrapper(result, fn)
@@ -283,21 +245,19 @@ cdef class Chain:
     self._then(Link(__fn, args, kwargs, ignore_result=True))
     return self
 
-  def except_(self, object __fn, *args, object exceptions = None, bint reraise = True, **kwargs):
-    cdef Link link = Link(__fn, args, kwargs)
-    link.ignore_result = True
-    link.is_exception_handler = True
+  def except_(self, object __fn, *args, object exceptions = None, **kwargs):
+    if self.on_except_link is not None:
+      raise QuentException('You can only register one \'except\' callback.')
     if exceptions is not None:
       if isinstance(exceptions, str):
         raise TypeError(f"except_() expects exception types, not string '{exceptions}'")
       if isinstance(exceptions, collections.abc.Iterable):
-        link.exceptions = tuple(exceptions)
+        self.on_except_exceptions = tuple(exceptions)
       else:
-        link.exceptions = (exceptions,)
+        self.on_except_exceptions = (exceptions,)
     else:
-      link.exceptions = (Exception,)
-    link.reraise = reraise
-    self._then(link)
+      self.on_except_exceptions = (Exception,)
+    self.on_except_link = Link(__fn, args, kwargs)
     return self
 
   def finally_(self, object __fn, *args, **kwargs):
