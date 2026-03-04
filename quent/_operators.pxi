@@ -49,7 +49,10 @@ cdef class _ChainCallWrapper:
   def __call__(self, *args, **kwargs):
     """Run the chain with the wrapped function as root value, forwarding all arguments."""
     __tracebackhide__ = True
-    return self._chain_run(self._fn, args, kwargs, False)
+    try:
+      return self._chain_run(self._fn, args, kwargs, False)
+    except _InternalQuentException as exc:
+      raise QuentException(str(exc)) from None
 
 
 @cython.final

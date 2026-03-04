@@ -800,7 +800,7 @@ class NoAsyncMethod(MyTestCase):
   # I107
   async def test_no_async_default(self):
     c = Chain(1).no_async()
-    super(MyTestCase, self).assertFalse(c._is_sync)
+    super(MyTestCase, self).assertTrue(c._is_sync)
 
   # I108 — no_async(True) returns coroutine objects as-is (not awaited)
   async def test_no_async_returns_coro_as_is(self):

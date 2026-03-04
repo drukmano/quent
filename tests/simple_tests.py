@@ -260,10 +260,12 @@ class NoAsyncTests(MyTestCase):
     await self.assertFalse(Chain()._is_sync)
 
   async def test_no_async_sets_flag(self):
-    # no_async() with default=False sets _is_sync to False (default behavior)
-    await self.assertFalse(Chain().no_async()._is_sync)
-    # no_async(True) forces sync mode
+    # no_async() with default enabled=True sets _is_sync to True
+    await self.assertTrue(Chain().no_async()._is_sync)
+    # no_async(True) explicitly forces sync mode
     await self.assertTrue(Chain().no_async(True)._is_sync)
+    # no_async(False) re-enables async detection
+    await self.assertFalse(Chain().no_async(False)._is_sync)
 
   async def test_sync_clone_preserves_flag(self):
     c = Chain(1).no_async(True)

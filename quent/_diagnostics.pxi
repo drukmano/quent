@@ -39,7 +39,7 @@ cdef object clean_internal_frames(object tb):
       stack.append(tb)
     elif not filename.startswith(_quent_pkg_dir):
       # Also check if it's not marked as internal
-      if not tb.tb_frame.f_globals.get('__QUENT_INTERNAL__') is __QUENT_INTERNAL__:
+      if tb.tb_frame.f_globals.get('__QUENT_INTERNAL__') is not __QUENT_INTERNAL__:
         # Keep user code frames
         stack.append(tb)
     tb = tb.tb_next
@@ -279,9 +279,15 @@ cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = N
       chain_newline = ''
       if args_s or kwargs_s:
         chain_newline = make_indent(nest_lvl + 1)
-      output += f'({link_v}{chain_newline}{args_s}{kwargs_s}'.rstrip(', ') + f'{make_indent(nest_lvl)})'
+      link_v = f'({link_v}{chain_newline}{args_s}{kwargs_s}'
+      if link_v.endswith(', '):
+        link_v = link_v[:len(link_v) - 2]
+      output += link_v + f'{make_indent(nest_lvl)})'
     else:
-      output += f'({link_v}{format_args(args)}{format_kwargs(kwargs)}'.rstrip(', ') + ')'
+      link_v = f'({link_v}{format_args(args)}{format_kwargs(kwargs)}'
+      if link_v.endswith(', '):
+        link_v = link_v[:len(link_v) - 2]
+      output += link_v + ')'
   else:
     output += f'({link_v})'
   if not found_source_link:
@@ -295,11 +301,21 @@ cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = N
 
 
 cdef str get_obj_name(object obj):
-  if _isroutine(obj) or _isclass(obj):
-    return obj.__name__
   if isinstance(obj, Chain):
     return type(obj).__name__
-  return repr(obj)
+  cdef object name
+  try:
+    name = getattr(obj, '__qualname__', None) or getattr(obj, '__name__', None)
+    if name is not None:
+      return str(name)
+  except Exception:
+    pass
+  if hasattr(obj, 'func'):  # functools.partial
+    return f'partial({get_obj_name(obj.func)})'
+  try:
+    return repr(obj)
+  except Exception:
+    return type(obj).__name__
 
 # --- Global exception formatting ---
 

@@ -1050,12 +1050,16 @@ class TracebackExceptionPatchTests(unittest.TestCase):
 
   def test_clean_exc_chain_works(self):
     """_clean_exc_chain should clean chained exceptions."""
+    caught = False
     try:
       Chain(1).then(_raise_from).run()
     except ValueError as exc:
+      caught = True
       # Clean the exception chain
       _clean_exc_chain(exc)
-      # Should not crash and should have cleaned tracebacks
+      # Should not crash; verify cause is still present
+      self.assertIsInstance(exc.__cause__, TypeError)
+    self.assertTrue(caught, 'Expected ValueError to be raised')
 
 
 class TracebackExceptionFormattingTests(unittest.TestCase):
@@ -1383,8 +1387,9 @@ class DiagnosticsEdgeCaseTests(_TC):
     c = Chain(1)
     for _ in range(5):
       c = c.then(maybe_raise).except_(_identity, reraise=False)
-    # Should not crash
-    c.run()
+    # Should not crash and should produce a result
+    result = c.run()
+    self.assertIsNotNone(result)
 
   async def test_unicode_in_function_names(self):
     """Unicode in function names - verify stringify_chain handles it."""
@@ -1719,12 +1724,12 @@ class CleanExcChainDirectTests(unittest.TestCase):
   """Test _clean_exc_chain directly."""
 
   def test_clean_none(self):
-    """_clean_exc_chain(None) should not crash."""
-    # This calls _clean_chained_exceptions internally
+    """_clean_exc_chain on exception with no traceback should not crash."""
     # Passing an exception with no traceback
     exc = ValueError('test')
     _clean_exc_chain(exc)
-    # Should not raise
+    # Should not raise; exception still valid
+    self.assertIsInstance(exc, ValueError)
 
   def test_clean_with_cause(self):
     try:
@@ -1745,6 +1750,9 @@ class CleanExcChainDirectTests(unittest.TestCase):
     exc2.__context__ = exc1
     # Should not infinite loop
     _clean_exc_chain(exc1)
+    # Verify exceptions are still intact after cleaning
+    self.assertIsInstance(exc1, ValueError)
+    self.assertIsInstance(exc2, TypeError)
 
 
 class AsyncTracebackComboTests(_TC):

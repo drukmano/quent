@@ -1065,17 +1065,17 @@ class TestConfig(MyTestCase):
 # =============================================================================
 
 class TestNoAsync(MyTestCase):
-  """Chain.no_async(default=False) -> self."""
+  """Chain.no_async(enabled=True) -> self."""
 
   async def test_no_async_returns_self(self):
     """no_async() returns the same Chain instance."""
     c = Chain()
     super(MyTestCase, self).assertIs(c.no_async(), c)
 
-  async def test_no_async_default_false(self):
-    """no_async() with default=False keeps async detection enabled."""
+  async def test_no_async_default_enables_sync(self):
+    """no_async() with default enabled=True enables sync mode."""
     c = Chain().no_async()
-    super(MyTestCase, self).assertFalse(c._is_sync)
+    super(MyTestCase, self).assertTrue(c._is_sync)
 
   async def test_no_async_true_disables(self):
     """no_async(True) disables async detection."""

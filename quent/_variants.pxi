@@ -46,7 +46,7 @@ cdef class _DescriptorWrapper:
 @cython.final
 @cython.freelist(4)
 cdef class _FrozenChain:
-  """Immutable snapshot of a chain that can be executed repeatedly without mutation."""
+  """Frozen reference to a chain's execution engine for safe repeated execution."""
   def decorator(self):
     """Return a decorator that wraps functions to run through this frozen chain."""
     cdef object _chain_run = self._chain_run
@@ -60,19 +60,33 @@ cdef class _FrozenChain:
       return result
     return _decorator
 
-  def __init__(self, object _chain_run):
-    """Initialize with a reference to the chain's _run method."""
+  def __init__(self, object _chain_run, bint _autorun = False, bint _is_sync = False):
+    """Initialize with a reference to the chain's _run method and execution flags."""
     self._chain_run = _chain_run
+    self._autorun = _autorun
+    self._is_sync = _is_sync
 
   def run(self, object __v = Null, *args, **kwargs):
     """Execute the frozen chain with an optional root value override."""
     __tracebackhide__ = True
-    return self._chain_run(__v, args, kwargs, False)
+    try:
+      result = self._chain_run(__v, args, kwargs, False)
+    except _InternalQuentException as exc:
+      raise QuentException(str(exc)) from None
+    if self._autorun and not self._is_sync and iscoro(result):
+      return ensure_future(result)
+    return result
 
   def __call__(self, object __v = Null, *args, **kwargs):
     """Shorthand for run(). Execute the frozen chain."""
     __tracebackhide__ = True
-    return self._chain_run(__v, args, kwargs, False)
+    try:
+      result = self._chain_run(__v, args, kwargs, False)
+    except _InternalQuentException as exc:
+      raise QuentException(str(exc)) from None
+    if self._autorun and not self._is_sync and iscoro(result):
+      return ensure_future(result)
+    return result
 
 
 @cython.final

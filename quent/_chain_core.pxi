@@ -49,7 +49,7 @@ cdef class Chain:
   # │ _autorun         bint          True → __call__ delegates to run()       │
   # │ is_nested        bint          True when used as a nested sub-chain     │
   # │ _debug           bint          True → enhanced tracebacks enabled       │
-  # │ _is_simple       bint readonly True if chain has exactly one operation  │
+  # │ _is_simple       bint readonly True if all links are simple .then() (no do/except_/with_root)  │
   # │ _is_sync         bint readonly True if no_async() was called            │
   # └─────────────────────────────────────────────────────────────────────────┘
 
@@ -202,8 +202,8 @@ cdef class Chain:
           return ensure_future(_await_run_fn(result, self, exc_link, ctx))
         result = ensure_future(_await_run_fn(result, self, exc_link, ctx))
         warnings.warn(
-          'An \'except\' callback has returned a coroutine, but the chain is in synchronous mode. '
-          'It was therefore scheduled for execution in a new Task.',
+          'An except handler returned a coroutine from a synchronous execution path. '
+          'It was scheduled as a fire-and-forget Task via ensure_future().',
           category=RuntimeWarning
         )
       if exc_link.reraise:
@@ -235,8 +235,8 @@ cdef class Chain:
             ctx.link_temp_args = None
           ensure_future(_await_run_fn(result, self, self.on_finally_link, ctx))
           warnings.warn(
-            'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode. '
-            'It was therefore scheduled for execution in a new Task.',
+            'A finally handler returned a coroutine from a synchronous execution path. '
+            'It was scheduled as a fire-and-forget Task via ensure_future().',
             category=RuntimeWarning
           )
 
@@ -451,8 +451,8 @@ cdef class Chain:
             ctx.link_temp_args = None
           ensure_future(_await_run_fn(result, self, self.on_finally_link, ctx))
           warnings.warn(
-            'The \'finally\' callback has returned a coroutine, but the chain is in synchronous mode. '
-            'It was therefore scheduled for execution in a new Task.',
+            'A finally handler returned a coroutine from a synchronous execution path. '
+            'It was scheduled as a fire-and-forget Task via ensure_future().',
             category=RuntimeWarning
           )
 
@@ -533,9 +533,9 @@ cdef class Chain:
       self._debug = bool(debug)
     return self
 
-  def no_async(self, bint default = False):
-    """Disable async detection when default is True. The chain will never check for coroutines."""
-    self._is_sync = default
+  def no_async(self, bint enabled = True):
+    """Disable async detection in the chain loop when ``enabled`` is True."""
+    self._is_sync = enabled
     return self
 
   def to_thread(self, object __fn):
@@ -588,8 +588,13 @@ cdef class Chain:
     return new_chain
 
   def freeze(self):
-    """Return a frozen (immutable) snapshot of this chain as a ``_FrozenChain``."""
-    return _FrozenChain(self._run)
+    """Return a frozen reference to this chain's execution engine as a ``_FrozenChain``.
+
+    Note: The frozen chain shares the execution engine with the original chain.
+    Modifications to the original chain after freezing (e.g., adding links) will
+    affect the frozen chain. To create an independent snapshot, use ``clone().freeze()``.
+    """
+    return _FrozenChain(self._run, self._autorun, self._is_sync)
 
   def decorator(self):
     """Shorthand for freeze().decorator(). Returns a decorator that wraps functions through this chain."""

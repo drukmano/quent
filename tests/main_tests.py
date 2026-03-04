@@ -348,7 +348,7 @@ class SingleTest(MyTestCase):
                 await self.assertEqual(
                   Chain(flx_ctx(v=1)).then(fn)
                   .with_(Chain().then(fn1).then(flx_ctx.get, v=0))
-                  .do(lambda: self.assertEqual(flx_ctx.get(v=0), 0), ...)
+                  .do(lambda: super(_BaseTestCase, self).assertEqual(flx_ctx.get(v=0), 0), ...)
                   .run(), 1
                 )
                 await self.assertEqual(

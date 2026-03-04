@@ -110,6 +110,7 @@ cdef class _DescriptorWrapper:
 @cython.freelist(4)
 cdef class _FrozenChain:
   cdef object _chain_run
+  cdef bint _autorun, _is_sync
 
 @cython.final
 @cython.freelist(4)

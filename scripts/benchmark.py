@@ -99,29 +99,6 @@ async def af_double(v):
   return v * 2
 
 
-# Helper class for attr benchmarks
-
-class Obj:
-  def __init__(self, value):
-    self.value = value
-
-  def get_value(self):
-    return self.value
-
-  def multiply(self, factor):
-    return self.value * factor
-
-
-# Dummy context manager
-
-class DummyCtx:
-  def __enter__(self):
-    return self
-
-  def __exit__(self, *args):
-    pass
-
-
 # ---------------------------------------------------------------------------
 # Timing runners
 # ---------------------------------------------------------------------------
@@ -272,39 +249,6 @@ def bench_do_side_effects():
   return run_bench('do_side_effects', plain, quent, frozen.run)
 
 
-def bench_conditional_if():
-  def plain_true():
-    v = 10
-    if v:
-      return f_mul_10(v)
-    return v
-  def plain_false():
-    v = 0
-    if v:
-      return f_mul_10(v)
-    else:
-      return f_add_5(v)
-    return v
-  def quent_true():
-    return Chain(10).if_(f_mul_10).run()
-  def quent_false():
-    return Chain(0).if_(f_mul_10).else_(f_add_5).run()
-  frozen_true = Chain(10).if_(f_mul_10).freeze()
-  frozen_false = Chain(0).if_(f_mul_10).else_(f_add_5).freeze()
-  r1 = run_bench('conditional_if (true path)', plain_true, quent_true, frozen_true.run)
-  r2 = run_bench('conditional_if (false path)', plain_false, quent_false, frozen_false.run)
-  return [r1, r2]
-
-
-def bench_comparator_eq():
-  def plain():
-    return 10 == 10
-  def quent():
-    return Chain(10).eq(10).run()
-  frozen = Chain(10).eq(10).freeze()
-  return run_bench('comparator_eq', plain, quent, frozen.run)
-
-
 def bench_foreach():
   items = list(range(100))
   def plain():
@@ -332,16 +276,6 @@ def bench_except_finally():
     return Chain(1).then(f_mul_10).except_(on_exc).finally_(on_finally).run()
   frozen = Chain(1).then(f_mul_10).except_(on_exc).finally_(on_finally).freeze()
   return run_bench('except_finally (happy path)', plain, quent, frozen.run)
-
-
-def bench_attr_access():
-  obj = Obj(42)
-  def plain():
-    return obj.get_value()
-  def quent():
-    return Chain(obj).attr_fn('get_value').run()
-  frozen = Chain(obj).attr_fn('get_value').freeze()
-  return run_bench('attr_access', plain, quent, frozen.run)
 
 
 def bench_cascade():
@@ -467,14 +401,6 @@ def bench_simple_cascade():
   return run_comparison_bench('cascade (3 ops)', nonsimple, simple, 'nonsimple', 'simple')
 
 
-def bench_simple_attr():
-  def simple():
-    return Chain(Obj(42)).attr_fn('get_value').run()
-  def nonsimple():
-    return Chain(Obj(42)).attr_fn('get_value').do(f_noop).run()
-  return run_comparison_bench('attr_fn', nonsimple, simple, 'nonsimple', 'simple')
-
-
 async def bench_async_simple_vs_nonsimple():
   def simple():
     return Chain(1).then(af_mul_10).run()
@@ -492,39 +418,39 @@ async def bench_async_simple_medium():
 
 
 # ---------------------------------------------------------------------------
-# set_async(False) benchmarks
+# no_async() benchmarks
 # ---------------------------------------------------------------------------
 
 def bench_sync_flag_short():
   def default_fn():
     return Chain(1).then(f_mul_10).run()
   def sync_fn():
-    return Chain(1).then(f_mul_10).set_async(False).run()
-  return run_comparison_bench('sync_flag_short (2 ops)', default_fn, sync_fn, 'default', 'set_async(F)')
+    return Chain(1).then(f_mul_10).no_async().run()
+  return run_comparison_bench('sync_flag_short (2 ops)', default_fn, sync_fn, 'default', 'no_async')
 
 
 def bench_sync_flag_medium():
   def default_fn():
     return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).run()
   def sync_fn():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).set_async(False).run()
-  return run_comparison_bench('sync_flag_medium (5 ops)', default_fn, sync_fn, 'default', 'set_async(F)')
+    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).no_async().run()
+  return run_comparison_bench('sync_flag_medium (5 ops)', default_fn, sync_fn, 'default', 'no_async')
 
 
 def bench_sync_flag_long():
   def default_fn():
     return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).run()
   def sync_fn():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).set_async(False).run()
-  return run_comparison_bench('sync_flag_long (12 ops)', default_fn, sync_fn, 'default', 'set_async(F)')
+    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).no_async().run()
+  return run_comparison_bench('sync_flag_long (12 ops)', default_fn, sync_fn, 'default', 'no_async')
 
 
 def bench_sync_flag_frozen():
   default_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double)
-  sync_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).set_async(False)
+  sync_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).no_async()
   default_frozen = default_chain.freeze()
   sync_frozen = sync_chain.freeze()
-  return run_comparison_bench('sync_flag_frozen (5 ops)', default_frozen.run, sync_frozen.run, 'default', 'set_async(F)')
+  return run_comparison_bench('sync_flag_frozen (5 ops)', default_frozen.run, sync_frozen.run, 'default', 'no_async')
 
 
 # ---------------------------------------------------------------------------
@@ -591,12 +517,8 @@ def main():
   results.append(bench_medium_chain())
   results.append(bench_long_chain())
   results.append(bench_do_side_effects())
-  cond_results = bench_conditional_if()
-  results.extend(cond_results)
-  results.append(bench_comparator_eq())
   results.append(bench_foreach())
   results.append(bench_except_finally())
-  results.append(bench_attr_access())
   results.append(bench_cascade())
   results.append(bench_pipe_syntax())
   results.append(bench_nested_chains())
@@ -614,12 +536,11 @@ def main():
   comparison_results.append(bench_simple_vs_nonsimple_long())
   comparison_results.append(bench_simple_frozen())
   comparison_results.append(bench_simple_cascade())
-  comparison_results.append(bench_simple_attr())
   async_comparison = asyncio.run(run_async_comparison_benchmarks())
   comparison_results.extend(async_comparison)
 
   print()
-  print('set_async(False) Optimization:')
+  print('no_async() Optimization:')
   sync_flag_results = []
   sync_flag_results.append(bench_sync_flag_short())
   sync_flag_results.append(bench_sync_flag_medium())

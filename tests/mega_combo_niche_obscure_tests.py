@@ -869,17 +869,14 @@ class DiagnosticsEdgeTests(MyTestCase):
   async def test_chain_repr_with_partial(self):
     """Chain where fn is a functools.partial — repr triggers get_obj_name.
 
-    functools.partial has no __name__, and inspect.isroutine returns False.
-    get_obj_name falls through to repr(obj), so it should still work.
+    get_obj_name now has special handling for functools.partial via
+    hasattr(obj, 'func'), producing 'partial(funcname)' output.
     """
-    # functools.partial is a routine according to inspect, BUT doesn't have __name__
-    # The library's get_obj_name calls obj.__name__ which raises AttributeError.
-    # This is a known edge case in the diagnostics code.
     p = functools.partial(lambda x, y: x + y, 10)
     c = Chain(1).then(p)
-    # repr may raise due to the partial not having __name__
-    with self.assertRaises(AttributeError):
-      repr(c)
+    r = repr(c)
+    assert 'Chain' in r
+    assert 'partial(' in r
 
   async def test_very_long_chain_repr(self):
     """Very long chain (100 links) — repr doesn't explode."""
