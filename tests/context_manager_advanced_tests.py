@@ -1,7 +1,7 @@
 import asyncio
-from unittest import TestCase
-from tests.utils import TestExc, empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from unittest import IsolatedAsyncioTestCase
+from tests.utils import TestExc, empty, aempty, await_
+from quent import Chain, QuentException
 
 
 # -- Helper classes ----------------------------------------------------------
@@ -135,33 +135,33 @@ class RaisingBodyCM:
 # ---------------------------------------------------------------------------
 # DualProtocolCMTests
 # ---------------------------------------------------------------------------
-class DualProtocolCMTests(MyTestCase):
+class DualProtocolCMTests(IsolatedAsyncioTestCase):
 
   async def test_dual_cm_prefers_async_protocol(self):
     """When an object has both __enter__ and __aenter__, quent prefers __aenter__."""
     cm = DualCM(sync_val='sync_v', async_val='async_v')
     result = await Chain(cm).with_(lambda ctx: ctx).run()
-    await self.assertEqual(result, 'async_v')
+    self.assertEqual(result, 'async_v')
 
   async def test_dual_cm_async_enter_called(self):
     """DualCM: __aenter__ is called, __enter__ is not."""
     cm = DualCM()
     await Chain(cm).with_(lambda ctx: ctx).run()
-    await self.assertTrue(cm.async_entered)
-    await self.assertFalse(cm.sync_entered)
+    self.assertTrue(cm.async_entered)
+    self.assertFalse(cm.sync_entered)
 
   async def test_dual_cm_async_exit_called(self):
     """DualCM: __aexit__ is called, __exit__ is not."""
     cm = DualCM()
     await Chain(cm).with_(lambda ctx: ctx).run()
-    await self.assertTrue(cm.async_exited)
-    await self.assertFalse(cm.sync_exited)
+    self.assertTrue(cm.async_exited)
+    self.assertFalse(cm.sync_exited)
 
 
 # ---------------------------------------------------------------------------
 # CMEnterReturnsNoneTests
 # ---------------------------------------------------------------------------
-class CMEnterReturnsNoneTests(MyTestCase):
+class CMEnterReturnsNoneTests(IsolatedAsyncioTestCase):
 
   async def test_sync_cm_enter_returns_none_body_receives_none(self):
     """When sync __enter__ returns None, body receives None."""
@@ -171,21 +171,21 @@ class CMEnterReturnsNoneTests(MyTestCase):
       return 'ok'
     cm = NoneEnterCM()
     result = Chain(cm).with_(body).run()
-    await self.assertEqual(result, 'ok')
-    super(MyTestCase, self).assertEqual(received, [None])
+    self.assertEqual(result, 'ok')
+    self.assertEqual(received, [None])
 
   async def test_sync_cm_enter_returns_none_exit_called(self):
     """When sync __enter__ returns None, __exit__ is still called."""
     cm = NoneEnterCM()
     Chain(cm).with_(lambda ctx: 'ok').run()
-    await self.assertTrue(cm.entered)
-    await self.assertTrue(cm.exited)
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
 
   async def test_sync_cm_enter_returns_none_chain_continues(self):
     """Chain continues after with_ when __enter__ returns None."""
     cm = NoneEnterCM()
     result = Chain(cm).with_(lambda ctx: 42).then(lambda v: v + 1).run()
-    await self.assertEqual(result, 43)
+    self.assertEqual(result, 43)
 
   async def test_async_cm_enter_returns_none_body_receives_none(self):
     """When async __aenter__ returns None, body receives None."""
@@ -195,21 +195,21 @@ class CMEnterReturnsNoneTests(MyTestCase):
       return 'async_ok'
     cm = AsyncNoneEnterCM()
     result = await Chain(cm).with_(body).run()
-    await self.assertEqual(result, 'async_ok')
-    super(MyTestCase, self).assertEqual(received, [None])
+    self.assertEqual(result, 'async_ok')
+    self.assertEqual(received, [None])
 
   async def test_async_cm_enter_returns_none_exit_called(self):
     """When async __aenter__ returns None, __aexit__ is still called."""
     cm = AsyncNoneEnterCM()
     await Chain(cm).with_(lambda ctx: 'ok').run()
-    await self.assertTrue(cm.entered)
-    await self.assertTrue(cm.exited)
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
 
 
 # ---------------------------------------------------------------------------
 # CMExplicitArgsTests
 # ---------------------------------------------------------------------------
-class CMExplicitArgsTests(MyTestCase):
+class CMExplicitArgsTests(IsolatedAsyncioTestCase):
 
   async def test_explicit_args_override_context_value(self):
     """with_(body, 'a', 'b') passes 'a', 'b' to body, not the CM context."""
@@ -219,8 +219,8 @@ class CMExplicitArgsTests(MyTestCase):
       return f'{a}+{b}'
     cm = SyncCM(value='should_not_appear')
     result = Chain(cm).with_(body, 'x', 'y').run()
-    await self.assertEqual(result, 'x+y')
-    super(MyTestCase, self).assertEqual(received, [('x', 'y')])
+    self.assertEqual(result, 'x+y')
+    self.assertEqual(received, [('x', 'y')])
 
   async def test_explicit_kwargs_override_context_value(self):
     """with_(body, key='val') passes keyword args, not context."""
@@ -230,8 +230,8 @@ class CMExplicitArgsTests(MyTestCase):
       return key
     cm = SyncCM(value='ignored')
     result = Chain(cm).with_(body, key='override').run()
-    await self.assertEqual(result, 'override')
-    super(MyTestCase, self).assertEqual(received, ['override'])
+    self.assertEqual(result, 'override')
+    self.assertEqual(received, ['override'])
 
   async def test_explicit_args_with_async_cm(self):
     """Explicit args with async CM pass args to body, not __aenter__ value."""
@@ -241,21 +241,21 @@ class CMExplicitArgsTests(MyTestCase):
       return f'{a}:{b}'
     cm = AsyncCM(value='async_ignored')
     result = await Chain(cm).with_(body, 'p', 'q').run()
-    await self.assertEqual(result, 'p:q')
-    super(MyTestCase, self).assertEqual(received, [('p', 'q')])
+    self.assertEqual(result, 'p:q')
+    self.assertEqual(received, [('p', 'q')])
 
 
 # ---------------------------------------------------------------------------
 # CMNestedChainBodyTests
 # ---------------------------------------------------------------------------
-class CMNestedChainBodyTests(MyTestCase):
+class CMNestedChainBodyTests(IsolatedAsyncioTestCase):
 
   async def test_body_chain_receives_context(self):
     """Body is a Chain (no root) that receives the CM entered value."""
     cm = SyncCM(value='nested_ctx')
     inner = Chain().then(lambda ctx: f'inner_{ctx}')
     result = Chain(cm).with_(inner).run()
-    await self.assertEqual(result, 'inner_nested_ctx')
+    self.assertEqual(result, 'inner_nested_ctx')
 
   async def test_body_chain_raises_calls_exit(self):
     """Body is a Chain that raises; __exit__ still called."""
@@ -267,8 +267,8 @@ class CMNestedChainBodyTests(MyTestCase):
     inner = Chain().then(raise_exc)
     with self.assertRaises(TestExc):
       Chain(cm).with_(inner).run()
-    await self.assertTrue(cm.exited)
-    super(MyTestCase, self).assertEqual(cm.exit_exc_type, TestExc)
+    self.assertTrue(cm.exited)
+    self.assertEqual(cm.exit_exc_type, TestExc)
 
   async def test_nested_with_calls(self):
     """Nested with_ calls: outer CM wraps inner CM."""
@@ -279,15 +279,15 @@ class CMNestedChainBodyTests(MyTestCase):
       .with_(lambda ctx: Chain(inner_cm).with_(lambda ictx: f'{ctx}+{ictx}').run())
       .run()
     )
-    await self.assertEqual(result, 'outer+inner')
-    await self.assertTrue(outer_cm.exited)
-    await self.assertTrue(inner_cm.exited)
+    self.assertEqual(result, 'outer+inner')
+    self.assertTrue(outer_cm.exited)
+    self.assertTrue(inner_cm.exited)
 
 
 # ---------------------------------------------------------------------------
 # CMAsyncWithEdgeCaseTests
 # ---------------------------------------------------------------------------
-class CMAsyncWithEdgeCaseTests(MyTestCase):
+class CMAsyncWithEdgeCaseTests(IsolatedAsyncioTestCase):
 
   async def test_sync_cm_exit_returns_coroutine_success(self):
     """Sync CM whose __exit__ returns a coroutine: coroutine is awaited on success path."""
@@ -295,8 +295,8 @@ class CMAsyncWithEdgeCaseTests(MyTestCase):
     async def async_body(ctx):
       return f'got_{ctx}'
     result = await Chain(cm).with_(async_body).run()
-    await self.assertEqual(result, 'got_coro_val')
-    await self.assertTrue(cm.exited)
+    self.assertEqual(result, 'got_coro_val')
+    self.assertTrue(cm.exited)
 
   async def test_sync_cm_exit_returns_coroutine_exception(self):
     """Sync CM whose __exit__ returns a coroutine: exception path awaits it."""
@@ -305,8 +305,8 @@ class CMAsyncWithEdgeCaseTests(MyTestCase):
       raise TestExc('should be suppressed')
     # __exit__ returns a coroutine that resolves to True -> exception suppressed
     result = await Chain(cm).with_(async_body_raises).run()
-    await self.assertIsNone(result)
-    await self.assertTrue(cm.exited)
+    self.assertIsNone(result)
+    self.assertTrue(cm.exited)
 
   async def test_async_cm_enter_exit_ordering(self):
     """Verify that __aenter__ is called before body and __aexit__ after."""
@@ -326,7 +326,7 @@ class CMAsyncWithEdgeCaseTests(MyTestCase):
 
     cm = OrderedAsyncCM()
     await Chain(cm).with_(body).run()
-    super(MyTestCase, self).assertEqual(order, ['enter', 'body', 'exit'])
+    self.assertEqual(order, ['enter', 'body', 'exit'])
 
 
 if __name__ == '__main__':

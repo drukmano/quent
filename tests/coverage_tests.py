@@ -2,56 +2,7 @@ import asyncio
 import inspect
 from unittest import IsolatedAsyncioTestCase
 from tests.utils import aempty, await_
-from quent import Chain, Cascade, run
-
-
-class RunClassTests(IsolatedAsyncioTestCase):
-  """Tests for the `run` class (quent.pyx:790-802)."""
-
-  async def test_run_basic(self):
-    """run() as pipe terminator with no arguments."""
-    result = await await_(Chain(lambda: 42) | run())
-    self.assertEqual(result, 42)
-
-  async def test_run_with_root_value(self):
-    """run(value) provides a root value via pipe syntax."""
-    result = await await_(Chain() | (lambda v: v + 1) | run(10))
-    self.assertEqual(result, 11)
-
-  async def test_run_with_callable_root(self):
-    """run(fn, arg) passes callable + arg as root via pipe."""
-    result = await await_(Chain() | (lambda v: v * 2) | run(lambda: 5))
-    self.assertEqual(result, 10)
-
-  async def test_run_pipe_equivalence(self):
-    """Verify pipe+run is equivalent to .run()."""
-    chain_result = await await_(Chain(1).then(lambda v: v + 1).run())
-    pipe_result = await await_(Chain(1) | (lambda v: v + 1) | run())
-    self.assertEqual(chain_result, pipe_result)
-
-  async def test_run_with_async(self):
-    """run() works with async chains."""
-    result = await (Chain(aempty, 5) | (lambda v: v * 3) | run())
-    self.assertEqual(result, 15)
-
-
-class SleepMethodTests(IsolatedAsyncioTestCase):
-  """Tests for Chain.sleep() (quent.pyx:659-662)."""
-
-  async def test_sleep_preserves_value(self):
-    """sleep() does not alter the chain value (ignore_result=True)."""
-    result = await await_(Chain(42).sleep(0.01).run())
-    self.assertEqual(result, 42)
-
-  async def test_sleep_async_preserves_value(self):
-    """sleep() in an async context preserves value."""
-    result = await Chain(aempty, 99).sleep(0.01).run()
-    self.assertEqual(result, 99)
-
-  async def test_sleep_in_chain(self):
-    """sleep() can be chained between operations."""
-    result = await await_(Chain(10).then(lambda v: v * 2).sleep(0.01).then(lambda v: v + 1).run())
-    self.assertEqual(result, 21)
+from quent import Chain
 
 
 class BoolMethodTests(IsolatedAsyncioTestCase):
@@ -68,43 +19,37 @@ class BoolMethodTests(IsolatedAsyncioTestCase):
     """Chain with operations is still truthy."""
     self.assertTrue(bool(Chain(1).then(lambda v: v)))
 
-  async def test_cascade_is_truthy(self):
-    """Cascade instances are always truthy."""
-    self.assertTrue(bool(Cascade()))
-    self.assertTrue(bool(Cascade(1)))
+class ChainReuseTests(IsolatedAsyncioTestCase):
+  """Tests for chain reuse (run/call multiple times)."""
 
+  async def test_chain_run_multiple_times(self):
+    """Chain can be run multiple times via .run()."""
+    c = Chain(10).then(lambda v: v * 2)
+    self.assertEqual(await await_(c.run()), 20)
+    self.assertEqual(await await_(c.run()), 20)
 
-class FrozenChainTests(IsolatedAsyncioTestCase):
-  """Tests for _FrozenChain (quent.pyx:770-787), accessed via Chain.freeze()."""
+  async def test_chain_call_multiple_times(self):
+    """Chain can be called multiple times."""
+    c = Chain(5).then(lambda v: v + 3)
+    self.assertEqual(await await_(c()), 8)
+    self.assertEqual(await await_(c()), 8)
 
-  async def test_freeze_run(self):
-    """Frozen chain can be run multiple times via .run()."""
-    frozen = Chain(10).then(lambda v: v * 2).freeze()
-    self.assertEqual(await await_(frozen.run()), 20)
-    self.assertEqual(await await_(frozen.run()), 20)
+  async def test_chain_run_with_root_override(self):
+    """Chain .run() can accept a root value."""
+    c = Chain().then(lambda v: v * 3)
+    self.assertEqual(await await_(c.run(7)), 21)
+    self.assertEqual(await await_(c.run(2)), 6)
 
-  async def test_freeze_call(self):
-    """Frozen chain can be called."""
-    frozen = Chain(5).then(lambda v: v + 3).freeze()
-    self.assertEqual(await await_(frozen()), 8)
-    self.assertEqual(await await_(frozen()), 8)
-
-  async def test_freeze_with_root_override(self):
-    """Frozen chain .run() can accept a root value."""
-    frozen = Chain().then(lambda v: v * 3).freeze()
-    self.assertEqual(await await_(frozen.run(7)), 21)
-    self.assertEqual(await await_(frozen.run(2)), 6)
-
-  async def test_freeze_decorator_returns_callable(self):
-    """Frozen chain .decorator() returns a callable decorator."""
+  async def test_chain_decorator_returns_callable(self):
+    """Chain .decorator() returns a callable decorator."""
     decorator = Chain().then(lambda v: v ** 2).decorator()
     self.assertTrue(callable(decorator))
 
-  async def test_freeze_with_async_chain(self):
-    """Frozen chain works with async operations."""
-    frozen = Chain(aempty, 10).then(lambda v: v + 5).freeze()
-    self.assertEqual(await frozen.run(), 15)
-    self.assertEqual(await frozen(), 15)
+  async def test_chain_reuse_with_async(self):
+    """Chain works with async operations and can be reused."""
+    c = Chain(aempty, 10).then(lambda v: v + 5)
+    self.assertEqual(await c.run(), 15)
+    self.assertEqual(await c(), 15)
 
 
 class EmptyChainTests(IsolatedAsyncioTestCase):
@@ -113,11 +58,6 @@ class EmptyChainTests(IsolatedAsyncioTestCase):
   async def test_empty_chain_returns_none(self):
     """Chain().run() with no root and no operations returns None."""
     result = await await_(Chain().run())
-    self.assertIsNone(result)
-
-  async def test_empty_cascade_returns_none(self):
-    """Cascade().run() with no root and no operations returns None."""
-    result = Cascade().run()
     self.assertIsNone(result)
 
   async def test_empty_chain_with_run_value(self):

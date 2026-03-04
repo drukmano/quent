@@ -1,6 +1,6 @@
 import unittest
 import logging
-from quent import Chain, Cascade
+from quent import Chain
 
 
 class DebugModeTests(unittest.TestCase):
@@ -45,36 +45,6 @@ class DebugModeTests(unittest.TestCase):
     c = Chain(1).config(debug=True)
     c2 = c.clone()
     self.assertEqual(c2.run(), 1)
-
-  def test_debug_cascade(self):
-    logs = []
-    handler = logging.Handler()
-    handler.emit = lambda record: logs.append(record.getMessage())
-    logger = logging.getLogger('quent')
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
-    try:
-      c = Cascade(5).then(lambda v: v * 2).config(debug=True)
-      c.run()
-      self.assertGreater(len(logs), 0)
-    finally:
-      logger.removeHandler(handler)
-
-  def test_debug_with_fn_name(self):
-    logs = []
-    handler = logging.Handler()
-    handler.emit = lambda record: logs.append(record.getMessage())
-    logger = logging.getLogger('quent')
-    logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG)
-    try:
-      c = Chain(5).then(lambda v: v + 1).config(debug=True)
-      c.run()
-      # Check that 'then' appears in some log
-      self.assertTrue(any('then' in log for log in logs))
-    finally:
-      logger.removeHandler(handler)
-
 
 class DebugAsyncTests(unittest.IsolatedAsyncioTestCase):
   async def test_debug_async(self):

@@ -15,7 +15,6 @@
 
 async def _await_run(result, chain=None, link=None, ctx=None):
   """Await a coroutine result and optionally annotate exceptions with chain traceback info."""
-  __tracebackhide__ = True
   try:
     return await result
   except BaseException as exc:
@@ -28,19 +27,15 @@ cdef object _await_run_fn = _await_run
 
 cdef inline int _determine_eval_code(
   Link link, object v, tuple args, dict kwargs,
-  bint allow_literal,
-):
+) noexcept:
   """Determine the eval_code for a Link based on its value and arguments.
 
   Also normalizes args/kwargs on the link (fills EMPTY_DICT/EMPTY_TUPLE as needed).
-  Raises QuentException if the value is a non-callable literal and allow_literal is False.
   """
   if not args and not kwargs:
-    if callable(v):
+    if PyCallable_Check(v):
       return EVAL_CALL_WITH_CURRENT_VALUE
     else:
-      if not allow_literal:
-        raise QuentException('Non-callable objects cannot be used with this method.')
       return EVAL_RETURN_AS_IS
   elif args:
     if args[0] is ...:
@@ -71,7 +66,7 @@ cdef class Link:
   """
 
   # ┌─────────────────────────────────────────────────────────────────────────┐
-  # │ FIELD INVENTORY (14 fields — see quent.pxd lines 33-39)               │
+  # │ FIELD INVENTORY (12 fields — see quent.pxd)                             │
   # │                                                                         │
   # │ All fields must stay in sync across three locations:                    │
   # │   • __init__           — normal construction                           │
@@ -81,28 +76,26 @@ cdef class Link:
   # │ Field            Type    Purpose                                        │
   # │ ─────            ────    ───────                                        │
   # │ v                object  The callable or literal value                  │
-  # │ args             tuple   Positional args passed alongside v             │
-  # │ kwargs           dict    Keyword args passed alongside v                │
-  # │ is_with_root     bint    True if this link receives the root value      │
-  # │ ignore_result    bint    True if v's return value is discarded          │
-  # │ original_value   object  The raw user-supplied value (before wrapping)  │
-  # │ fn_name          str     Display name for debugging/repr               │
-  # │ temp_args        tuple   Transient args from _ExecCtx (cleared on run) │
-  # │ is_exception_handler bint True if this is an except_/finally_ link     │
-  # │ exceptions       object  Exception type(s) this handler catches        │
-  # │ reraise          bint    True if caught exceptions should be reraised   │
   # │ next_link        Link    Pointer to the next link in the chain          │
   # │ eval_code        int     Dispatch code for evaluate_value()             │
   # │ is_chain         bint    True if v is a Chain instance                  │
+  # │ ignore_result    bint    True if v's return value is discarded          │
+  # │ is_exception_handler bint True if this is an except_/finally_ link     │
+  # │ args             tuple   Positional args passed alongside v             │
+  # │ kwargs           dict    Keyword args passed alongside v                │
+  # │ reraise          bint    True if caught exceptions should be reraised   │
+  # │ original_value   object  The raw user-supplied value (before wrapping)  │
+  # │ exceptions       object  Exception type(s) this handler catches        │
+  # │ temp_args        tuple   Transient args from _ExecCtx (cleared on run) │
   # └─────────────────────────────────────────────────────────────────────────┘
 
   def __init__(
-    self, object v, tuple args = None, dict kwargs = None, bint allow_literal = False, str fn_name = None,
-    bint is_with_root = False, bint ignore_result = False,
+    self, object v, tuple args = None, dict kwargs = None,
+    bint ignore_result = False,
     object original_value = None,
   ):
     """Initialize a Link with a value, arguments, and evaluation metadata."""
-    cdef bint is_chain_type = isinstance(v, Chain)
+    cdef bint is_chain_type = type(v) is Chain
     if is_chain_type:
       self.is_chain = True
       (<Chain>v).is_nested = True
@@ -111,17 +104,15 @@ cdef class Link:
     self.v = v
     self.args = args
     self.kwargs = kwargs
-    self.is_with_root = is_with_root
     self.ignore_result = ignore_result
     self.original_value = original_value
-    self.fn_name = fn_name
     self.temp_args = None
 
     self.is_exception_handler = False
     self.exceptions = None
     self.reraise = True
     self.next_link = None
-    self.eval_code = _determine_eval_code(self, v, args, kwargs, allow_literal)
+    self.eval_code = _determine_eval_code(self, v, args, kwargs)
 
 
 cdef Link _clone_link(Link src):
@@ -131,11 +122,9 @@ cdef Link _clone_link(Link src):
   dst.args = src.args
   dst.kwargs = src.kwargs
   dst.eval_code = src.eval_code
-  dst.is_with_root = src.is_with_root
   dst.ignore_result = src.ignore_result
   dst.is_chain = src.is_chain
   dst.original_value = src.original_value
-  dst.fn_name = src.fn_name
   dst.is_exception_handler = src.is_exception_handler
   dst.exceptions = src.exceptions
   dst.reraise = src.reraise
@@ -165,17 +154,15 @@ cdef Link _make_temp_link(object v, tuple args, dict kwargs):
   link.v = v
   link.args = args
   link.kwargs = kwargs
-  link.is_with_root = False
   link.ignore_result = False
   link.is_chain = False
   link.original_value = None
-  link.fn_name = None
   link.temp_args = None
   link.is_exception_handler = False
   link.exceptions = None
   link.reraise = True
   link.next_link = None
-  link.eval_code = _determine_eval_code(link, v, args, kwargs, True)
+  link.eval_code = _determine_eval_code(link, v, args, kwargs)
   return link
 
 

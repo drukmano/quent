@@ -1,4 +1,5 @@
 import asyncio
+from itertools import product
 from tests.flex_context import FlexContext
 from unittest import IsolatedAsyncioTestCase
 from tests.utils import empty, aempty, await_, TestExc
@@ -31,12 +32,6 @@ class ExceptFinallyCheckAsync:
     self.ran_finally = register
 
 
-class MyExcTestCase(IsolatedAsyncioTestCase):
-  def with_fn_efc(self):
-    for fn, efc in [(empty, ExceptFinallyCheckSync), (aempty, ExceptFinallyCheckAsync)]:
-      yield fn, efc, self.subTest(fn=fn, efc=efc)
-
-
 class Exc1(TestExc):
   pass
 
@@ -55,10 +50,10 @@ def raise_(e=TestExc):
   raise e
 
 
-class ExcFinallyTests(MyExcTestCase):
+class ExcFinallyTests(IsolatedAsyncioTestCase):
   async def test_except(self):
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
+    for fn, efc_cls in product([empty, aempty], [ExceptFinallyCheckSync, ExceptFinallyCheckAsync]):
+      with self.subTest(fn=fn, efc_cls=efc_cls):
         efc = efc_cls()
         try:
           await await_(Chain(fn).then(raise_).except_(efc.on_except).run())
@@ -132,8 +127,8 @@ class ExcFinallyTests(MyExcTestCase):
         self.assertFalse(efc2.ran_exc)
 
   async def test_except_in_with(self):
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
+    for fn, efc_cls in product([empty, aempty], [ExceptFinallyCheckSync, ExceptFinallyCheckAsync]):
+      with self.subTest(fn=fn, efc_cls=efc_cls):
         efc = efc_cls()
         try:
           await await_(Chain(fn).then(FlexContext, v=1).with_(raise_, ...).except_(efc.on_except).run())
@@ -141,8 +136,8 @@ class ExcFinallyTests(MyExcTestCase):
         self.assertTrue(efc.ran_exc)
 
   async def test_except_noraise(self):
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
+    for fn, efc_cls in product([empty, aempty], [ExceptFinallyCheckSync, ExceptFinallyCheckAsync]):
+      with self.subTest(fn=fn, efc_cls=efc_cls):
         efc = efc_cls()
         try:
           await await_(Chain(fn).then(raise_).except_(lambda v: v, reraise=True).run())
@@ -159,8 +154,8 @@ class ExcFinallyTests(MyExcTestCase):
 
   async def test_except_return(self):
     obj = object()
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
+    for fn, efc_cls in product([empty, aempty], [ExceptFinallyCheckSync, ExceptFinallyCheckAsync]):
+      with self.subTest(fn=fn, efc_cls=efc_cls):
         efc = efc_cls()
         self.assertIs(await await_(Chain(fn).then(raise_).except_(efc.on_except, obj, reraise=False).run()), obj)
         self.assertTrue(efc.ran_exc)
@@ -196,8 +191,8 @@ class ExcFinallyTests(MyExcTestCase):
     async def f(v=None):
       raise TestExc
 
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
+    for fn, efc_cls in product([empty, aempty], [ExceptFinallyCheckSync, ExceptFinallyCheckAsync]):
+      with self.subTest(fn=fn, efc_cls=efc_cls):
         for fn1, fn2 in [(fn, f), (f, fn)]:
           with self.subTest(fn1=fn1, fn2=fn2):
             efc = efc_cls()
@@ -239,8 +234,8 @@ class ExcFinallyTests(MyExcTestCase):
     self.assertTrue(efc.ran_exc)
 
   async def test_finally(self):
-    for fn, efc_cls, ctx in self.with_fn_efc():
-      with ctx:
+    for fn, efc_cls in product([empty, aempty], [ExceptFinallyCheckSync, ExceptFinallyCheckAsync]):
+      with self.subTest(fn=fn, efc_cls=efc_cls):
         efc = efc_cls()
         await await_(Chain(fn).finally_(efc.on_finally).run())
         self.assertTrue(efc.ran_finally)

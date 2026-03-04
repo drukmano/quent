@@ -1,6 +1,6 @@
 """Exhaustive edge-case value/type tests for the Quent library.
 
-Tests every conceivable edge-case value type through Chain and Cascade,
+Tests every conceivable edge-case value type through Chain,
 verifying that falsy values, special numerics, exotic types, containers,
 callables, strings, bytes, the Null sentinel, bool protocol, and complex
 value combinations all behave correctly.
@@ -14,8 +14,8 @@ from collections import OrderedDict, defaultdict, Counter, namedtuple
 from dataclasses import dataclass, field
 from unittest import TestCase, IsolatedAsyncioTestCase
 
-from tests.utils import empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from tests.utils import empty, aempty, await_
+from quent import Chain, QuentException
 from quent.quent import PyNull as Null
 
 
@@ -274,39 +274,6 @@ class FalsyValuesPropagatingTests(TestCase):
     result = Chain(1).then(lambda v: ()).then(lambda v: v).run()
     self.assertEqual(result, ())
 
-  def test_cascade_with_none_root(self):
-    """Cascade with None root — all links receive None."""
-    received = []
-    def capture(v):
-      received.append(v)
-    Cascade(None).then(capture).then(capture).run()
-    self.assertEqual(received, [None, None])
-
-  def test_cascade_with_false_root(self):
-    """Cascade with False root — all links receive False, returns False."""
-    received = []
-    def capture(v):
-      received.append(v)
-    result = Cascade(False).then(capture).then(capture).run()
-    self.assertIs(result, False)
-    self.assertEqual(received, [False, False])
-
-  def test_cascade_with_zero_root(self):
-    received = []
-    def capture(v):
-      received.append(v)
-    result = Cascade(0).then(capture).then(capture).run()
-    self.assertEqual(result, 0)
-    self.assertEqual(received, [0, 0])
-
-  def test_cascade_with_empty_string_root(self):
-    received = []
-    def capture(v):
-      received.append(v)
-    result = Cascade('').then(capture).then(capture).run()
-    self.assertEqual(result, '')
-    self.assertEqual(received, ['', ''])
-
   def test_falsy_propagates_through_multiple_links(self):
     result = (
       Chain(42)
@@ -412,10 +379,6 @@ class SpecialNumericValuesTests(TestCase):
   def test_inf_arithmetic_in_chain(self):
     result = Chain(float('inf')).then(lambda v: v + 1).run()
     self.assertEqual(result, float('inf'))
-
-  def test_complex_in_cascade(self):
-    result = Cascade(2+3j).then(lambda v: abs(v)).run()
-    self.assertEqual(result, 2+3j)
 
   def test_sys_maxsize_as_root(self):
     result = Chain(sys.maxsize).run()
@@ -959,12 +922,6 @@ class BoolProtocolTests(TestCase):
   def test_bool_chain_with_zero_root_is_true(self):
     self.assertTrue(bool(Chain(0)))
 
-  def test_bool_cascade_is_true(self):
-    self.assertTrue(bool(Cascade()))
-
-  def test_bool_cascade_with_false_is_true(self):
-    self.assertTrue(bool(Cascade(False)))
-
   def test_chain_in_if_always_enters(self):
     entered = False
     if Chain():
@@ -1005,11 +962,6 @@ class EdgeValueCombinationsTests(TestCase):
   def test_none_type_name(self):
     result = Chain(None).then(lambda v: type(v).__name__).run()
     self.assertEqual(result, 'NoneType')
-
-  def test_cascade_none_returns_none(self):
-    """Cascade always returns root, so even .then(lambda v: v is None) is discarded."""
-    result = Cascade(None).then(lambda v: v is None).run()
-    self.assertIsNone(result)
 
   def test_chain_empty_list_foreach(self):
     result = Chain([]).foreach(lambda x: x).run()
@@ -1074,54 +1026,13 @@ class EdgeValueCombinationsTests(TestCase):
     result = Chain(sentinel).then(lambda v: v).run()
     self.assertIs(result, sentinel)
 
-  def test_cascade_preserves_root_identity(self):
-    sentinel = object()
-    result = Cascade(sentinel).then(lambda v: object()).run()
-    self.assertIs(result, sentinel)
-
-
-# ===================================================================
-# 11. PIPE OPERATOR WITH EDGE VALUES
-# ===================================================================
-
-class PipeOperatorEdgeTests(TestCase):
-  """Pipe (|) operator with edge-case values."""
-
-  def test_pipe_with_falsy_root(self):
-    result = Chain(0) | (lambda v: v + 1) | run()
-    self.assertEqual(result, 1)
-
-  def test_pipe_with_none_root(self):
-    result = Chain(None) | (lambda v: v is None) | run()
-    self.assertTrue(result)
-
-  def test_pipe_with_false_root(self):
-    result = Chain(False) | (lambda v: not v) | run()
-    self.assertTrue(result)
-
-  def test_pipe_with_empty_string(self):
-    result = Chain('') | (lambda v: len(v)) | run()
-    self.assertEqual(result, 0)
-
-  def test_pipe_chain_then_run_override(self):
-    result = Chain() | (lambda v: v * 2) | run(5)
-    self.assertEqual(result, 10)
-
-  def test_pipe_with_builtin(self):
-    result = Chain(42) | str | run()
-    self.assertEqual(result, '42')
-
-  def test_pipe_multiple_steps(self):
-    result = Chain(-5) | abs | str | len | run()
-    self.assertEqual(result, 1)
-
 
 # ===================================================================
 # 12. CLONE AND FREEZE WITH EDGE VALUES
 # ===================================================================
 
 class CloneFreezeEdgeTests(TestCase):
-  """clone() and freeze() with edge-case values."""
+  """clone() and chain reuse with edge-case values."""
 
   def test_clone_with_falsy_root(self):
     c = Chain(0).then(lambda v: v + 1)
@@ -1141,20 +1052,14 @@ class CloneFreezeEdgeTests(TestCase):
     self.assertTrue(c.run())
     self.assertTrue(c2.run())
 
-  def test_freeze_with_falsy_root(self):
-    frozen = Chain(0).then(lambda v: v + 1).freeze()
-    self.assertEqual(frozen.run(), 1)
-    self.assertEqual(frozen.run(), 1)  # can run multiple times
+  def test_chain_reuse_with_falsy_root(self):
+    c = Chain(0).then(lambda v: v + 1)
+    self.assertEqual(c.run(), 1)
+    self.assertEqual(c.run(), 1)  # can run multiple times
 
-  def test_freeze_with_none_root(self):
-    frozen = Chain(None).then(lambda v: 'was_none' if v is None else 'not_none').freeze()
-    self.assertEqual(frozen.run(), 'was_none')
-
-  def test_clone_cascade_with_falsy_root(self):
-    c = Cascade(0).then(lambda v: v + 999)
-    c2 = c.clone()
-    self.assertEqual(c.run(), 0)
-    self.assertEqual(c2.run(), 0)
+  def test_chain_reuse_with_none_root(self):
+    c = Chain(None).then(lambda v: 'was_none' if v is None else 'not_none')
+    self.assertEqual(c.run(), 'was_none')
 
 
 # ===================================================================
@@ -1387,22 +1292,6 @@ class AsyncEdgeValuesTests(IsolatedAsyncioTestCase):
     result = await Chain(aempty, '').then(lambda v: len(v)).run()
     self.assertEqual(result, 0)
 
-  async def test_async_cascade_with_none_root(self):
-    received = []
-    async def capture(v):
-      received.append(v)
-    result = await Cascade(aempty, None).then(capture).then(capture).run()
-    self.assertIsNone(result)
-    self.assertEqual(received, [None, None])
-
-  async def test_async_cascade_with_false_root(self):
-    received = []
-    async def capture(v):
-      received.append(v)
-    result = await Cascade(aempty, False).then(capture).then(capture).run()
-    self.assertIs(result, False)
-    self.assertEqual(received, [False, False])
-
   async def test_async_then_returning_none(self):
     result = await Chain(aempty, 42).then(lambda v: None).then(lambda v: v is None).run()
     self.assertTrue(result)
@@ -1428,35 +1317,6 @@ class AsyncEdgeValuesTests(IsolatedAsyncioTestCase):
     result = await Chain(aempty, 3+4j).then(lambda v: abs(v)).run()
     self.assertEqual(result, 5.0)
 
-
-# ===================================================================
-# 19. CONFIG AND NO_ASYNC WITH EDGE VALUES
-# ===================================================================
-
-class ConfigNoAsyncEdgeTests(TestCase):
-  """config() and no_async() with edge-case values."""
-
-  def test_no_async_with_falsy_root(self):
-    result = Chain(0).then(lambda v: v + 1).no_async(True).run()
-    self.assertEqual(result, 1)
-
-  def test_no_async_with_none_root(self):
-    result = Chain(None).then(lambda v: v is None).no_async(True).run()
-    self.assertTrue(result)
-
-  def test_config_debug_with_edge_values(self):
-    result = Chain(False).then(lambda v: not v).config(debug=True).run()
-    self.assertTrue(result)
-
-  def test_config_returns_self(self):
-    c = Chain(1)
-    result = c.config(autorun=False)
-    self.assertIs(result, c)
-
-  def test_no_async_returns_self(self):
-    c = Chain(1)
-    result = c.no_async(True)
-    self.assertIs(result, c)
 
 
 # ===================================================================
@@ -1516,30 +1376,6 @@ class ReturnBreakEdgeTests(TestCase):
 
 
 # ===================================================================
-# 21. SLEEP WITH EDGE VALUES
-# ===================================================================
-
-class SleepEdgeTests(TestCase):
-  """sleep() preserves the current value."""
-
-  def test_sleep_preserves_falsy_value(self):
-    result = Chain(0).sleep(0.001).run()
-    self.assertEqual(result, 0)
-
-  def test_sleep_preserves_none(self):
-    result = Chain(None).sleep(0.001).run()
-    self.assertIsNone(result)
-
-  def test_sleep_preserves_false(self):
-    result = Chain(False).sleep(0.001).run()
-    self.assertIs(result, False)
-
-  def test_sleep_preserves_string(self):
-    result = Chain('hello').sleep(0.001).run()
-    self.assertEqual(result, 'hello')
-
-
-# ===================================================================
 # 22. REPR WITH EDGE VALUES
 # ===================================================================
 
@@ -1560,10 +1396,6 @@ class ReprEdgeTests(TestCase):
 
   def test_repr_chain_with_lambda(self):
     r = repr(Chain(lambda: 42))
-    self.assertIsInstance(r, str)
-
-  def test_repr_cascade(self):
-    r = repr(Cascade(42))
     self.assertIsInstance(r, str)
 
 
@@ -1593,12 +1425,6 @@ class NestedChainEdgeTests(TestCase):
     inner = Chain().then(lambda v: v * 2)
     result = Chain(5).then(inner).run()
     self.assertEqual(result, 10)
-
-  def test_nested_cascade_returns_outer_root_propagated(self):
-    """A nested Cascade returns its root, which is the value passed from outer chain."""
-    inner = Cascade().then(lambda v: v * 100)
-    result = Chain(7).then(inner).run()
-    self.assertEqual(result, 7)
 
   def test_deeply_nested_chain_with_falsy(self):
     inner2 = Chain().then(lambda v: 0)
@@ -1640,11 +1466,11 @@ class CallProtocolEdgeTests(TestCase):
 
 
 # ===================================================================
-# 25. FROZEN CHAIN DECORATOR WITH EDGE VALUES
+# 25. CHAIN DECORATOR WITH EDGE VALUES
 # ===================================================================
 
-class FrozenChainDecoratorEdgeTests(TestCase):
-  """freeze().decorator() with edge-case values."""
+class ChainDecoratorEdgeTests(TestCase):
+  """Chain.decorator() with edge-case values."""
 
   def test_decorator_with_identity(self):
     @Chain().then(lambda v: v * 2).decorator()
@@ -1860,14 +1686,6 @@ class VoidChainEdgeTests(TestCase):
   def test_void_chain_override_with_zero(self):
     result = Chain().then(lambda v: v + 1).run(0)
     self.assertEqual(result, 1)
-
-  def test_void_cascade_run_returns_none(self):
-    result = Cascade().run()
-    self.assertIsNone(result)
-
-  def test_void_cascade_override(self):
-    result = Cascade().then(lambda v: v * 2).run(5)
-    self.assertEqual(result, 5)
 
 
 # ===================================================================

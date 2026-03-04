@@ -23,8 +23,8 @@ import unittest
 import warnings
 from contextlib import contextmanager
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run, Null
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException, Null
 from quent.quent import _clean_exc_chain, _quent_excepthook
 
 
@@ -414,13 +414,6 @@ class FormatLinkChainNewlineTests(_TC):
       for entry in entries:
         self.assertGreater(len(entry.name), 0)
 
-  async def test_cascade_nested_chain_repr(self):
-    """Cascade with nested chain repr."""
-    c = Cascade(10).then(Chain().then(_double))
-    s = repr(c)
-    self.assertIn('Cascade', s)
-    self.assertIn('Chain', s)
-
   async def test_format_args_ellipsis(self):
     """format_args with ellipsis args (...) returns ', ...'."""
     # When ... is passed as an arg to a non-chain link, it shows in the repr
@@ -479,17 +472,6 @@ class AsyncDebugDeferredLinkResultsTests(_TC):
       Chain(_async_identity, 5).then(_add_one).config(debug=True).run()
     )
     self.assertEqual(result, 6)
-
-  async def test_debug_async_cascade_deferred_init(self):
-    """Cascade mode with async root and debug=True."""
-    async def async_val():
-      return 100
-
-    result = await await_(
-      Cascade(async_val).then(lambda v: v * 2).config(debug=True).run()
-    )
-    # Cascade returns root value
-    self.assertEqual(result, 100)
 
   async def test_debug_async_with_ignore_result_link(self):
     """Debug mode async path with a .do() link (ignore_result=True)."""
@@ -611,25 +593,6 @@ class AsyncFinallyHandlerErrorTests(_TC):
       entries = _get_quent_entries(exc)
       self.assertGreater(len(entries), 0)
 
-  async def test_async_finally_after_cascade_success(self):
-    """Cascade async path: successful cascade, finally_ raises."""
-    async def async_val():
-      return 99
-
-    async def bad_finally(v=None):
-      raise ValueError('cascade finally fail')
-
-    try:
-      await await_(
-        Cascade(async_val)
-        .then(lambda v: v * 2)
-        .finally_(bad_finally)
-        .run()
-      )
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      self.assertIn('cascade finally fail', str(exc))
-
 
 # ==========================================================================
 # TARGET 6: _chain_core.pxi line 345
@@ -666,12 +629,12 @@ class RunSimpleNestedChainTests(_TC):
       inner.run(5)
     self.assertIn('nested', str(cm.exception).lower())
 
-  async def test_nested_chain_run_via_pipe_raises(self):
-    """Run nested chain via pipe syntax."""
+  async def test_nested_chain_run_raises(self):
+    """Run nested chain directly raises QuentException."""
     inner = Chain().then(_identity)
     _ = Chain(1).then(inner)
     with self.assertRaises(QuentException):
-      inner | run(42)
+      inner.run(42)
 
   async def test_nested_chain_with_root_value_run_raises(self):
     """Nested chain with its own root value still can't be run directly."""
@@ -725,19 +688,6 @@ class RunSimpleLinkTempArgsTests(_TC):
       self.fail('Expected ValueError')
     except ValueError as exc:
       self.assertIn('filter fail', str(exc))
-
-  async def test_foreach_indexed_raises_in_async_sets_link_temp_args(self):
-    """foreach with_index that raises in async path."""
-    async def async_fn(idx, v):
-      if idx == 1:
-        raise ValueError(f'indexed fail at {idx}')
-      return v
-
-    try:
-      await await_(Chain([10, 20, 30]).foreach(async_fn, with_index=True).run())
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      self.assertIn('indexed fail', str(exc))
 
   async def test_simple_chain_sync_foreach_raises_no_quent_link_temp_args(self):
     """Sync foreach in a simple chain. The _Foreach.__call__ catches
@@ -1305,12 +1255,6 @@ class StringifyChainTests(_TC):
     self.assertIn('Chain', s)
     self.assertGreater(s.count('Chain'), 1)
 
-  async def test_repr_cascade(self):
-    """Cascade repr shows 'Cascade'."""
-    c = Cascade(5).then(_double)
-    s = repr(c)
-    self.assertIn('Cascade', s)
-
   async def test_repr_with_finally(self):
     """Chain with finally_ shows the finally link."""
     c = Chain(1).then(_double).finally_(lambda v: None)
@@ -1340,12 +1284,6 @@ class StringifyChainTests(_TC):
     c = Chain([1, 2, 3]).filter(lambda v: v > 1)
     s = repr(c)
     self.assertIn('.filter', s)
-
-  async def test_repr_with_sleep(self):
-    """Chain with sleep."""
-    c = Chain(1).sleep(0.1)
-    s = repr(c)
-    self.assertIn('.sleep', s)
 
   async def test_repr_with_gather(self):
     """Chain with gather."""
@@ -1436,12 +1374,6 @@ class GetObjNameTests(_TC):
     inner = Chain(1)
     c = Chain().then(inner)
     self.assertIn('Chain', repr(c))
-
-  async def test_cascade_instance_name(self):
-    """Cascade instances show 'Cascade'."""
-    inner = Cascade(1)
-    c = Chain().then(inner)
-    self.assertIn('Cascade', repr(c))
 
   async def test_int_literal(self):
     """Integer literals show their repr."""
@@ -1619,12 +1551,6 @@ class DebugModeComprehensiveTests(_TC):
     )
     self.assertEqual(result, 10)
 
-  async def test_debug_logs_fn_name(self):
-    """Debug logs include the fn_name of each link."""
-    with capture_quent_logs() as handler:
-      Chain(5).then(_double).config(debug=True).run()
-    self.assertTrue(any('then' in msg for msg in handler.messages))
-
   async def test_debug_logs_root_name(self):
     """Debug logs include 'root' for root value."""
     with capture_quent_logs() as handler:
@@ -1652,13 +1578,6 @@ class DebugModeComprehensiveTests(_TC):
     with capture_quent_logs() as handler:
       Chain(5).then(_double).run()
     self.assertEqual(len(handler.messages), 0)
-
-  async def test_debug_cascade_mode(self):
-    """Debug mode works with Cascade chains."""
-    with capture_quent_logs() as handler:
-      result = Cascade(5).then(lambda v: v * 2).config(debug=True).run()
-    self.assertEqual(result, 5)
-    self.assertGreater(len(handler.messages), 0)
 
   async def test_debug_with_except(self):
     """Debug mode with exception handling."""
@@ -1733,12 +1652,10 @@ class ChainBoolAndReprTests(_TC):
       Chain(1),
       Chain(1).then(_double),
       Chain(1).then(_double).then(_add_one),
-      Cascade(1).then(_double),
       Chain(1).except_(lambda v: None),
       Chain(1).finally_(lambda v: None),
       Chain([1, 2]).foreach(_double),
       Chain([1, 2]).filter(lambda v: v > 1),
-      Chain(1).sleep(0.001),
     ]
     for c in chains:
       s = repr(c)
@@ -1746,36 +1663,14 @@ class ChainBoolAndReprTests(_TC):
       self.assertGreater(len(s), 0)
 
 
-class PipeRunSyntaxTests(_TC):
-  """Tests for pipe | run() syntax."""
+class ChainReuseDecoratorTests(_TC):
+  """Tests for chain reuse and decorator()."""
 
-  async def test_pipe_run_basic(self):
-    """Chain | run() executes the chain."""
-    result = Chain(1) | _double | run()
-    self.assertEqual(result, 2)
-
-  async def test_pipe_run_with_root(self):
-    """Chain() | fn | run(root_value) passes root to void chain."""
-    result = Chain() | _double | run(5)
-    self.assertEqual(result, 10)
-
-  async def test_pipe_appends_link(self):
-    """Chain | value appends a link and returns the chain."""
-    c = Chain(1)
-    result = c | _double
-    self.assertIs(result, c)
-    self.assertEqual(c.run(), 2)
-
-
-class ChainFreezeDecoratorTests(_TC):
-  """Tests for freeze() and decorator()."""
-
-  async def test_freeze_basic(self):
-    """freeze() returns a frozen chain that can be called."""
+  async def test_chain_reuse_basic(self):
+    """Chain can be run and called multiple times."""
     c = Chain().then(_double)
-    f = c.freeze()
-    self.assertEqual(f.run(5), 10)
-    self.assertEqual(f(7), 14)
+    self.assertEqual(c.run(5), 10)
+    self.assertEqual(c(7), 14)
 
   async def test_decorator_wraps_function(self):
     """decorator() wraps a function through the chain."""
@@ -1786,26 +1681,12 @@ class ChainFreezeDecoratorTests(_TC):
     result = my_fn(4)
     self.assertEqual(result, 10)
 
-  async def test_frozen_chain_reusable(self):
-    """Frozen chain can be called multiple times."""
-    f = Chain().then(_double).freeze()
-    self.assertEqual(f(1), 2)
-    self.assertEqual(f(2), 4)
-    self.assertEqual(f(3), 6)
-
-
-class NoAsyncModeTests(_TC):
-  """Tests for no_async() mode."""
-
-  async def test_no_async_sync_chain(self):
-    """no_async(True) disables coroutine detection."""
-    c = Chain(5).then(_double).no_async(True)
-    self.assertEqual(c.run(), 10)
-
-  async def test_no_async_default_false(self):
-    """no_async(False) re-enables coroutine detection."""
-    c = Chain(5).then(_double).no_async(True).no_async(False)
-    self.assertEqual(c.run(), 10)
+  async def test_chain_reusable(self):
+    """Chain can be called multiple times."""
+    c = Chain().then(_double)
+    self.assertEqual(c(1), 2)
+    self.assertEqual(c(2), 4)
+    self.assertEqual(c(3), 6)
 
 
 class ExceptionHandlerEdgeCaseTests(_TC):
@@ -1905,45 +1786,6 @@ class AsyncExceptionPathTests(_TC):
     self.assertEqual(result, 50)
 
 
-class CascadeAdvancedTests(_TC):
-  """Advanced Cascade tests."""
-
-  async def test_cascade_returns_root_after_links(self):
-    """Cascade always returns the root value."""
-    result = Cascade(42).then(_double).then(_add_one).run()
-    self.assertEqual(result, 42)
-
-  async def test_async_cascade_returns_root(self):
-    """Async Cascade returns root value."""
-    async def async_root():
-      return 99
-
-    result = await await_(Cascade(async_root).then(_double).run())
-    self.assertEqual(result, 99)
-
-  async def test_cascade_void_returns_none(self):
-    """Cascade with no root returns None."""
-    result = Cascade().run()
-    self.assertIsNone(result)
-
-
-class ToThreadTests(_TC):
-  """Tests for to_thread."""
-
-  async def test_to_thread_basic(self):
-    """to_thread runs function in a thread."""
-    def blocking_fn(v):
-      return v * 2
-
-    result = await await_(Chain(5).to_thread(blocking_fn).run())
-    self.assertEqual(result, 10)
-
-  async def test_to_thread_repr(self):
-    """to_thread shows in repr."""
-    c = Chain(5).to_thread(lambda v: v)
-    self.assertIn('.to_thread', repr(c))
-
-
 class IterateTests(_TC):
   """Tests for iterate/generator."""
 
@@ -1985,15 +1827,6 @@ class GatherTests(_TC):
       Chain(5).gather(_async_double, _async_add_one).run()
     )
     self.assertEqual(result, [10, 6])
-
-
-class SleepTests(_TC):
-  """Tests for sleep."""
-
-  async def test_sleep_async(self):
-    """sleep in async context uses asyncio.sleep."""
-    result = await await_(Chain(1).sleep(0.01).then(_double).run())
-    self.assertEqual(result, 2)
 
 
 class WithContextManagerTests(_TC):
@@ -2113,55 +1946,6 @@ class ChainNullReturnTests(_TC):
     self.assertIsNone(result)
 
 
-class SimplePathTests(_TC):
-  """Tests specifically for the _run_simple fast path."""
-
-  async def test_simple_path_single_then(self):
-    """A chain with only .then() links uses the simple path."""
-    c = Chain(5).then(_double)
-    self.assertTrue(c._is_simple)
-    self.assertEqual(c.run(), 10)
-
-  async def test_simple_path_multiple_then(self):
-    """Multiple .then() links still use simple path."""
-    c = Chain(1).then(_add_one).then(_double).then(_add_one)
-    self.assertTrue(c._is_simple)
-    self.assertEqual(c.run(), 5)
-
-  async def test_non_simple_with_except(self):
-    """Adding except_ makes chain non-simple."""
-    c = Chain(1).then(_double).except_(lambda v: None)
-    self.assertFalse(c._is_simple)
-
-  async def test_non_simple_with_do(self):
-    """Adding .do() makes chain non-simple (ignore_result=True)."""
-    c = Chain(1).do(_double)
-    self.assertFalse(c._is_simple)
-
-  async def test_simple_path_cascade(self):
-    """Cascade simple path."""
-    c = Cascade(5).then(_double)
-    self.assertEqual(c.run(), 5)
-
-  async def test_simple_path_sync_mode(self):
-    """Simple path with no_async(True)."""
-    c = Chain(5).then(_double).no_async(True)
-    self.assertEqual(c.run(), 10)
-
-  async def test_simple_path_cascade_sync(self):
-    """Simple Cascade with no_async(True)."""
-    c = Cascade(5).then(_double).no_async(True)
-    self.assertEqual(c.run(), 5)
-
-  async def test_simple_path_async_cascade(self):
-    """Simple Cascade goes async."""
-    async def async_val():
-      return 50
-
-    result = await await_(Cascade(async_val).then(_double).run())
-    self.assertEqual(result, 50)
-
-
 class AsyncSimplePathTests(_TC):
   """Tests for _run_async_simple."""
 
@@ -2181,14 +1965,6 @@ class AsyncSimplePathTests(_TC):
     inner = Chain().then(async_return)
     result = await await_(Chain(5).then(inner).run())
     self.assertEqual(result, 50)
-
-  async def test_async_simple_cascade(self):
-    """Async simple Cascade returns root value."""
-    async def async_link(v):
-      return v * 2
-
-    result = await await_(Cascade(5).then(async_link).run())
-    self.assertEqual(result, 5)
 
 
 class ExceptHandlerRaisesTests(_TC):
@@ -2226,28 +2002,6 @@ class ExceptHandlerRaisesTests(_TC):
       self.fail('Expected TypeError')
     except TypeError as exc:
       self.assertIn('async handler error', str(exc))
-
-
-class ForeachWithIndexTests(_TC):
-  """Tests for foreach with_index=True."""
-
-  async def test_foreach_indexed_basic(self):
-    """foreach with_index passes (index, element) to fn."""
-    def fn(idx, v):
-      return (idx, v)
-
-    result = Chain([10, 20, 30]).foreach(fn, with_index=True).run()
-    self.assertEqual(result, [(0, 10), (1, 20), (2, 30)])
-
-  async def test_foreach_indexed_async(self):
-    """Async foreach with_index."""
-    async def fn(idx, v):
-      return (idx, v * 2)
-
-    result = await await_(
-      Chain([1, 2, 3]).foreach(fn, with_index=True).run()
-    )
-    self.assertEqual(result, [(0, 2), (1, 4), (2, 6)])
 
 
 if __name__ == '__main__':

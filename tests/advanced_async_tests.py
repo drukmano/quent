@@ -16,8 +16,8 @@ import time
 import warnings
 import gc
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run, Null
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException, Null
 from quent.quent import _get_registry_size
 
 
@@ -288,16 +288,6 @@ class CancelledErrorHandlingTests(IsolatedAsyncioTestCase):
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
-  async def test_cancel_during_sleep(self):
-    """Cancel during chain sleep link."""
-    task = asyncio.ensure_future(
-      Chain(42).sleep(10).run()
-    )
-    await asyncio.sleep(0.01)
-    task.cancel()
-    with self.assertRaises(asyncio.CancelledError):
-      await task
-
   async def test_cancel_autorun_task_registry_cleanup(self):
     """Cancel autorun task; verify registry cleanup."""
     initial_size = _get_registry_size()
@@ -356,28 +346,28 @@ class CancelledErrorHandlingTests(IsolatedAsyncioTestCase):
 # 2. Concurrent Chain Execution (12 tests)
 # ---------------------------------------------------------------------------
 class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
-  """Test concurrent execution of chains, frozen chains, and clones."""
+  """Test concurrent execution of chains and clones."""
 
-  async def test_100_concurrent_frozen_chain_runs(self):
-    """100 concurrent runs of the same frozen chain."""
+  async def test_100_concurrent_chain_runs(self):
+    """100 concurrent runs of the same chain."""
     async def async_double(v):
       await asyncio.sleep(0)
       return v * 2
 
-    frozen = Chain().then(async_double).freeze()
-    coros = [frozen(i) for i in range(100)]
+    c = Chain().then(async_double)
+    coros = [c(i) for i in range(100)]
     results = await asyncio.gather(*coros)
     expected = [i * 2 for i in range(100)]
     self.assertEqual(sorted(results), sorted(expected))
 
   async def test_concurrent_runs_different_root_values(self):
-    """Concurrent runs of frozen chain with different root values."""
+    """Concurrent runs of chain with different root values."""
     async def async_square(v):
       await asyncio.sleep(0)
       return v ** 2
 
-    frozen = Chain().then(async_square).freeze()
-    coros = [frozen(i) for i in range(50)]
+    c = Chain().then(async_square)
+    coros = [c(i) for i in range(50)]
     results = await asyncio.gather(*coros)
     self.assertEqual(sorted(results), sorted([i ** 2 for i in range(50)]))
 
@@ -389,8 +379,8 @@ class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
         raise TestExc(f'fail-{v}')
       return v
 
-    frozen = Chain().then(maybe_raise).freeze()
-    tasks = [asyncio.ensure_future(frozen(i)) for i in range(15)]
+    c = Chain().then(maybe_raise)
+    tasks = [asyncio.ensure_future(c(i)) for i in range(15)]
     results = []
     exceptions = []
     for t in tasks:
@@ -411,8 +401,8 @@ class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return v + 'b'
 
-    frozen = Chain().then(lambda v: str(v)).gather(fn_a, fn_b).freeze()
-    coros = [frozen(i) for i in range(20)]
+    c = Chain().then(lambda v: str(v)).gather(fn_a, fn_b)
+    coros = [c(i) for i in range(20)]
     results = await asyncio.gather(*coros)
     for i, r in enumerate(results):
       self.assertEqual(sorted(r), sorted([f'{i}a', f'{i}b']))
@@ -423,31 +413,30 @@ class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return v * 3
 
-    frozen = Chain().foreach(async_triple).freeze()
+    c = Chain().foreach(async_triple)
     inputs = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
-    coros = [frozen(inp) for inp in inputs]
+    coros = [c(inp) for inp in inputs]
     results = await asyncio.gather(*coros)
     expected = [[3, 6, 9], [12, 15, 18], [21, 24, 27]]
     self.assertEqual(results, expected)
 
-  async def test_frozen_chain_safe_concurrent_modification(self):
-    """Frozen chain captures _run bound method; modifications after freeze
-    DO affect the frozen chain since _run is bound to the mutating chain.
-    To get a truly independent frozen copy, clone() before freeze().
+  async def test_chain_clone_independent_concurrent(self):
+    """Clone captures chain state at clone time.
+    To get a truly independent copy, clone() before modifying.
     """
     async def async_double(v):
       await asyncio.sleep(0)
       return v * 2
 
-    # Use clone().freeze() for a truly independent frozen copy
+    # Use clone() for a truly independent copy
     chain = Chain().then(async_double)
-    frozen = chain.clone().freeze()
-    # Modify the original chain after freezing a clone
+    cloned = chain.clone()
+    # Modify the original chain after cloning
     chain.then(lambda v: v + 100)
 
-    coros = [frozen(i) for i in range(10)]
+    coros = [cloned(i) for i in range(10)]
     results = await asyncio.gather(*coros)
-    # Clone-frozen captures the chain state at clone time (only async_double)
+    # Clone captures the chain state at clone time (only async_double)
     self.assertEqual(sorted(results), sorted([i * 2 for i in range(10)]))
 
   async def test_concurrent_clone_calls(self):
@@ -478,9 +467,9 @@ class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return v % 2 == 0
 
-    frozen = Chain().filter(async_is_even).freeze()
+    c = Chain().filter(async_is_even)
     inputs = [list(range(10)), list(range(5, 15)), list(range(20, 30))]
-    coros = [frozen(inp) for inp in inputs]
+    coros = [c(inp) for inp in inputs]
     results = await asyncio.gather(*coros)
     for inp, res in zip(inputs, results):
       self.assertEqual(res, [x for x in inp if x % 2 == 0])
@@ -491,29 +480,17 @@ class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return v + 100
 
-    frozen_early = Chain().then(async_add).then(lambda v: v * 2).freeze()
-    frozen_late = Chain().then(lambda v: v * 2).then(async_add).freeze()
+    c_early = Chain().then(async_add).then(lambda v: v * 2)
+    c_late = Chain().then(lambda v: v * 2).then(async_add)
 
-    coros_early = [frozen_early(i) for i in range(10)]
-    coros_late = [frozen_late(i) for i in range(10)]
+    coros_early = [c_early(i) for i in range(10)]
+    coros_late = [c_late(i) for i in range(10)]
     results_early = await asyncio.gather(*coros_early)
     results_late = await asyncio.gather(*coros_late)
 
     for i in range(10):
       self.assertEqual(results_early[i], (i + 100) * 2)
       self.assertEqual(results_late[i], i * 2 + 100)
-
-  async def test_concurrent_cascade_frozen(self):
-    """Concurrent execution of frozen Cascade chains."""
-    async def async_side(v):
-      await asyncio.sleep(0)
-      return 'ignored'
-
-    frozen = Cascade().then(async_side).then(lambda v: 'also_ignored').freeze()
-    coros = [frozen(i) for i in range(20)]
-    results = await asyncio.gather(*coros)
-    # Cascade returns root value
-    self.assertEqual(results, list(range(20)))
 
   async def test_concurrent_chains_with_except_handlers(self):
     """Concurrent chain execution with exception handlers."""
@@ -523,11 +500,11 @@ class ConcurrentChainExecutionTests(IsolatedAsyncioTestCase):
         raise TestExc('negative')
       return v
 
-    frozen = Chain().then(maybe_fail).except_(
+    c = Chain().then(maybe_fail).except_(
       lambda v=None: -1, reraise=False
-    ).freeze()
+    )
     values = [1, -1, 2, -2, 3, -3]
-    coros = [frozen(v) for v in values]
+    coros = [c(v) for v in values]
     results = await asyncio.gather(*coros)
     expected = [1, -1, 2, -1, 3, -1]
     self.assertEqual(results, expected)
@@ -600,37 +577,6 @@ class MixedSyncAsyncTransitionTests(IsolatedAsyncioTestCase):
     # 5 -> 6 -> 12
     self.assertEqual(result, 12)
 
-  async def test_cascade_simple_async_transition(self):
-    """Cascade with simple path, async transition, returns root."""
-    async def async_identity(v):
-      return v
-
-    sentinel = object()
-    result = await Cascade(async_identity, sentinel).then(lambda v: 'ignored').run()
-    self.assertIs(result, sentinel)
-
-  async def test_cascade_non_simple_async_transition(self):
-    """Cascade non-simple with async, returns root value."""
-    async def async_identity(v):
-      return v
-
-    sentinel = object()
-    result = await Cascade(async_identity, sentinel).do(lambda v: None).then(lambda v: 'ignored').run()
-    self.assertIs(result, sentinel)
-
-  async def test_no_async_returns_coroutine_unawaited(self):
-    """Chain with no_async(True) and async functions -- coroutines returned without awaiting."""
-    async def async_fn(v):
-      return v * 2
-
-    result = Chain(5).no_async(True).then(async_fn).run()
-    # With no_async=True, the coroutine is returned as-is
-    import inspect
-    self.assertTrue(inspect.iscoroutine(result))
-    # Clean up the coroutine to avoid RuntimeWarning
-    actual = await result
-    self.assertEqual(actual, 10)
-
   async def test_return_with_async_value(self):
     """Chain.return_ with async callable -- the signal value is a coroutine."""
     async def async_return_val():
@@ -700,14 +646,6 @@ class MixedSyncAsyncTransitionTests(IsolatedAsyncioTestCase):
 
     result = await Chain().then(lambda v: v + 5).run(async_val)
     self.assertEqual(result, 15)
-
-  async def test_cascade_async_root_sync_links_returns_root(self):
-    """Cascade async root with all sync links returns root."""
-    async def async_produce():
-      return 'root_val'
-
-    result = await Cascade(async_produce).then(lambda v: 'a').then(lambda v: 'b').run()
-    self.assertEqual(result, 'root_val')
 
   async def test_sync_chain_then_nested_async_chain(self):
     """Sync outer chain containing a nested async chain."""
@@ -1385,15 +1323,6 @@ class AsyncReturnBreakSignalTests(IsolatedAsyncioTestCase):
 class AdditionalConcurrentEdgeCases(IsolatedAsyncioTestCase):
   """Additional edge case tests for concurrent async operations."""
 
-  async def test_concurrent_chains_with_sleep(self):
-    """Multiple concurrent chains with sleep links."""
-    async def async_val(v):
-      return v * 2
-
-    coros = [Chain(i).sleep(0.001).then(async_val).run() for i in range(10)]
-    results = await asyncio.gather(*coros)
-    self.assertEqual(sorted(results), sorted([i * 2 for i in range(10)]))
-
   async def test_concurrent_chains_with_finally(self):
     """Concurrent chains with finally handlers all execute finally."""
     counters = {'finally_count': 0}
@@ -1420,9 +1349,9 @@ class AdditionalConcurrentEdgeCases(IsolatedAsyncioTestCase):
       return v * 2
 
     inner = Chain().then(async_double)
-    frozen_outer = Chain().then(lambda v: v + 1).then(inner).freeze()
+    outer = Chain().then(lambda v: v + 1).then(inner)
 
-    coros = [frozen_outer(i) for i in range(20)]
+    coros = [outer(i) for i in range(20)]
     results = await asyncio.gather(*coros)
     # i -> i+1 -> (i+1)*2
     expected = [(i + 1) * 2 for i in range(20)]
@@ -1433,23 +1362,8 @@ class AdditionalConcurrentEdgeCases(IsolatedAsyncioTestCase):
     async def async_triple(v):
       return v * 3
 
-    result = await (Chain(5) | async_triple | (lambda v: v + 1) | run())
+    result = await Chain(5).then(async_triple).then(lambda v: v + 1).run()
     self.assertEqual(result, 16)
-
-  async def test_chain_with_to_thread(self):
-    """to_thread executes function in separate thread."""
-    import threading
-    thread_ids = []
-
-    def thread_fn(v):
-      thread_ids.append(threading.current_thread().ident)
-      return v * 2
-
-    result = await Chain(5).to_thread(thread_fn).run()
-    self.assertEqual(result, 10)
-    # Should have run in a different thread
-    self.assertEqual(len(thread_ids), 1)
-    self.assertNotEqual(thread_ids[0], threading.current_thread().ident)
 
 
 # ---------------------------------------------------------------------------
@@ -1471,14 +1385,6 @@ class AsyncForeachEdgeCaseTests(IsolatedAsyncioTestCase):
     result = await Chain(AsyncIterator([2, 3, 4])).foreach(async_square).run()
     self.assertEqual(result, [4, 9, 16])
 
-  async def test_foreach_indexed_async(self):
-    """foreach with_index=True and async function."""
-    async def async_indexed(idx, val):
-      return (idx, val * 2)
-
-    result = await Chain([10, 20, 30]).foreach(async_indexed, with_index=True).run()
-    self.assertEqual(result, [(0, 20), (1, 40), (2, 60)])
-
   async def test_foreach_async_break(self):
     """Break during async foreach."""
     async def async_mapper(v):
@@ -1498,14 +1404,6 @@ class AsyncForeachEdgeCaseTests(IsolatedAsyncioTestCase):
 
     result = await Chain(AsyncIterator([1, 2, 3, 4, 5])).foreach(mapper).run()
     self.assertEqual(result, [10, 20])
-
-  async def test_foreach_indexed_async_iterator(self):
-    """foreach with_index over async iterator."""
-    async def indexed_fn(idx, val):
-      return idx + val
-
-    result = await Chain(AsyncIterator([10, 20, 30])).foreach(indexed_fn, with_index=True).run()
-    self.assertEqual(result, [10, 21, 32])
 
 
 # ---------------------------------------------------------------------------
@@ -1607,65 +1505,7 @@ class AsyncGatherEdgeCaseTests(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# 13. Cascade Async Tests (5 tests)
-# ---------------------------------------------------------------------------
-class CascadeAsyncTests(IsolatedAsyncioTestCase):
-  """Test Cascade behavior in async contexts."""
-
-  async def test_cascade_async_root_returns_root(self):
-    """Cascade with async root returns root value, not last link result."""
-    async def async_val():
-      return 'root'
-
-    result = await Cascade(async_val).then(lambda v: 'a').then(lambda v: 'b').run()
-    self.assertEqual(result, 'root')
-
-  async def test_cascade_async_links_receive_root(self):
-    """Cascade async links all receive root value."""
-    received = []
-
-    async def capture(v):
-      received.append(v)
-      return 'ignored'
-
-    await Cascade(42).then(capture).then(capture).then(capture).run()
-    self.assertEqual(received, [42, 42, 42])
-
-  async def test_cascade_with_async_do(self):
-    """Cascade with async do (side effect)."""
-    side = []
-
-    async def async_side(v):
-      side.append(v)
-
-    result = await Cascade(aempty, 'root').do(async_side).run()
-    self.assertEqual(result, 'root')
-    self.assertEqual(side, ['root'])
-
-  async def test_cascade_clone_async(self):
-    """Clone of Cascade works with async."""
-    async def async_noop(v):
-      return 'noop'
-
-    c = Cascade().then(async_noop)
-    clone = c.clone()
-    result = await clone.run(99)
-    self.assertEqual(result, 99)
-
-  async def test_cascade_frozen_concurrent(self):
-    """Frozen Cascade concurrent execution."""
-    async def async_side(v):
-      await asyncio.sleep(0)
-      return 'ignored'
-
-    frozen = Cascade().then(async_side).freeze()
-    coros = [frozen(i) for i in range(30)]
-    results = await asyncio.gather(*coros)
-    self.assertEqual(results, list(range(30)))
-
-
-# ---------------------------------------------------------------------------
-# 14. Autorun and ensure_future Integration (5 tests)
+# 13. Autorun and ensure_future Integration (5 tests)
 # ---------------------------------------------------------------------------
 class AutorunEnsureFutureIntegrationTests(IsolatedAsyncioTestCase):
   """Test autorun behavior with ensure_future integration."""
@@ -1706,19 +1546,10 @@ class AutorunEnsureFutureIntegrationTests(IsolatedAsyncioTestCase):
     result = await task
     self.assertEqual(result, 101)
 
-  async def test_autorun_cascade(self):
-    """Autorun Cascade returns root."""
-    async def async_fn(v):
-      return 'ignored'
-
-    task = Cascade(aempty, 'root').then(async_fn).config(autorun=True).run()
-    self.assertIsInstance(task, asyncio.Task)
-    result = await task
-    self.assertEqual(result, 'root')
 
 
 # ---------------------------------------------------------------------------
-# 15. Debug Mode Async Tests (3 tests)
+# 14. Debug Mode Async Tests (3 tests)
 # ---------------------------------------------------------------------------
 class DebugModeAsyncTests(IsolatedAsyncioTestCase):
   """Test debug mode behavior in async chains."""
@@ -1758,16 +1589,16 @@ class DebugModeAsyncTests(IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 # 16. Decorator + Frozen Chain Async Tests (4 tests)
 # ---------------------------------------------------------------------------
-class DecoratorFrozenChainAsyncTests(IsolatedAsyncioTestCase):
-  """Test decorator and frozen chain behavior with async functions."""
+class DecoratorChainAsyncTests(IsolatedAsyncioTestCase):
+  """Test decorator and chain reuse behavior with async functions."""
 
-  async def test_frozen_chain_with_async_fn(self):
-    """Frozen chain wrapping async function."""
+  async def test_chain_reuse_with_async_fn(self):
+    """Chain wrapping async function reused."""
     async def async_square(v):
       return v ** 2
 
-    frozen = Chain().then(async_square).freeze()
-    result = await frozen(7)
+    c = Chain().then(async_square)
+    result = await c(7)
     self.assertEqual(result, 49)
 
   async def test_decorator_wraps_async_function(self):
@@ -1780,24 +1611,24 @@ class DecoratorFrozenChainAsyncTests(IsolatedAsyncioTestCase):
     # get_value(4) -> 5 -> 15
     self.assertEqual(result, 15)
 
-  async def test_frozen_chain_multiple_async_calls(self):
-    """Frozen chain can be called many times with async links."""
+  async def test_chain_reuse_multiple_async_calls(self):
+    """Chain can be called many times with async links."""
     async def async_fn(v):
       return v + 100
 
-    frozen = Chain().then(async_fn).freeze()
+    c = Chain().then(async_fn)
     for i in range(50):
-      result = await frozen(i)
+      result = await c(i)
       self.assertEqual(result, i + 100)
 
-  async def test_frozen_chain_concurrent_with_debug(self):
-    """Frozen chain concurrent calls with debug mode."""
+  async def test_chain_reuse_concurrent_with_debug(self):
+    """Chain concurrent calls with debug mode."""
     async def async_double(v):
       await asyncio.sleep(0)
       return v * 2
 
-    frozen = Chain().then(async_double).config(debug=True).freeze()
-    coros = [frozen(i) for i in range(20)]
+    c = Chain().then(async_double).config(debug=True)
+    coros = [c(i) for i in range(20)]
     results = await asyncio.gather(*coros)
     self.assertEqual(sorted(results), sorted([i * 2 for i in range(20)]))
 

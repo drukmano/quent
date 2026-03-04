@@ -32,8 +32,8 @@ import inspect
 import logging
 import warnings
 from unittest import IsolatedAsyncioTestCase, TestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException
 from quent.quent import PyNull
 
 
@@ -92,10 +92,6 @@ class ChainInitTests(TestCase):
     c = Chain(lambda x=0: x + 1, x=10)
     self.assertEqual(c.run(), 11)
 
-  def test_init_cascade(self):
-    """Line 65: Cascade init sets is_cascade=True."""
-    c = Cascade(42)
-    self.assertEqual(c.run(), 42)
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +122,8 @@ class ChainThenTests(TestCase):
     self.assertEqual(side['v'], 5)
 
   def test_then_with_except(self):
-    """Line 82: _then with exception handler link (sets _is_simple=False)."""
+    """Line 82: _then with exception handler link."""
     c = Chain(1).except_(lambda v: None)
-    # _is_simple should be False now
     self.assertEqual(c.run(), 1)
 
 
@@ -175,8 +170,7 @@ class ChainRunEntryTests(TestCase):
 #    The only way result is Null is if the handler literal IS Null.
 #    But we can't easily pass Null through the public API.
 #    Actually, looking more carefully: the except_ handler link is built
-#    with Link(__fn, args, kwargs, fn_name='except_'), and fn_name='except_'
-#    does not set allow_literal=True. So __fn must be callable.
+#    with Link(__fn, args, kwargs). So __fn must be callable.
 #    If the callable returns Null (the sentinel), result is Null.
 #    We can import PyNull and return it from the handler.
 # ---------------------------------------------------------------------------
@@ -549,11 +543,6 @@ class RunAsyncSimpleEntryTests(IsolatedAsyncioTestCase):
     result = await Chain(5).then(async_add).run()
     self.assertEqual(result, 15)
 
-  async def test_simple_async_chain_cascade(self):
-    """Simple Cascade with async root -> _run_async_simple."""
-    result = await Cascade(aempty, 99).then(lambda v: v * 2).run()
-    self.assertEqual(result, 99)
-
   async def test_simple_async_root_override(self):
     """Simple chain with async root override at run()."""
     result = await Chain().then(lambda v: v + 1).run(aempty, 10)
@@ -571,8 +560,7 @@ class RunAsyncSimpleEntryTests(IsolatedAsyncioTestCase):
 #     current_value ends up as Null.
 #     Wait: in _run_async_simple, current_value starts as the awaited result.
 #     After the loop, if current_value is Null, return None.
-#     For Cascade: `current_value = root_value` at line 441. If root_value is
-#     Null (void chain), current_value becomes Null.
+#     If root_value is Null (void chain), current_value becomes Null.
 #     But if has_root_value is False, we wouldn't have a root to evaluate,
 #     and _run_async_simple is only entered from the root eval or link eval
 #     when a coro is detected.
@@ -672,7 +660,7 @@ class RunAsyncSimpleBreakNestedTests(IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 # 15. Lines 542, 548: run method and autorun check
 #     Line 542: result = self._run(__v, args, kwargs, False)
-#     Line 548: if self._autorun and not self._is_sync and iscoro(result):
+#     Line 548: if self._autorun and iscoro(result):
 # ---------------------------------------------------------------------------
 
 class RunMethodTests(IsolatedAsyncioTestCase):
@@ -700,19 +688,6 @@ class RunMethodTests(IsolatedAsyncioTestCase):
     result = Chain(42).then(lambda v: v * 2).config(autorun=True).run()
     self.assertNotIsInstance(result, asyncio.Task)
     self.assertEqual(result, 84)
-
-  async def test_run_autorun_with_no_async_flag(self):
-    """Line 548: autorun with no_async(True) -> _is_sync is True, no wrapping."""
-    # With no_async(True), even async results are not checked.
-    # The chain won't detect coroutines at all, so the coro is returned raw.
-    # Actually with no_async(True), iscoro checks are skipped in _run_simple,
-    # so the coroutine itself is returned as the result value (not awaited).
-    # Then in run(), self._is_sync is True so the autorun check is skipped.
-    result = Chain(aempty, 42).config(autorun=True).no_async(True).run()
-    # Result is the coroutine object itself (not awaited, not wrapped)
-    self.assertTrue(inspect.iscoroutine(result))
-    # Clean up
-    result.close()
 
   async def test_run_internal_exception_wrapping(self):
     """Line 548: _InternalQuentException caught and re-raised as QuentException."""
@@ -814,7 +789,7 @@ class BreakClassmethodTests(IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 # 18. Lines 647, 653: __call__ _run and autorun check
 #     Line 647: result = self._run(__v, args, kwargs, False)
-#     Line 653: if self._autorun and not self._is_sync and iscoro(result):
+#     Line 653: if self._autorun and iscoro(result):
 # ---------------------------------------------------------------------------
 
 class CallMethodTests(IsolatedAsyncioTestCase):
@@ -849,14 +824,6 @@ class CallMethodTests(IsolatedAsyncioTestCase):
     """Line 653: _InternalQuentException caught as QuentException via __call__."""
     with self.assertRaises(QuentException):
       Chain().then(Chain.break_)()
-
-  async def test_call_autorun_no_async_flag(self):
-    """Line 653: autorun + no_async(True) via __call__ -> _is_sync True, skip."""
-    chain = Chain(aempty, 42).config(autorun=True).no_async(True)
-    result = chain()
-    # With no_async, the coroutine is not detected; returned raw
-    self.assertTrue(inspect.iscoroutine(result))
-    result.close()
 
 
 # ---------------------------------------------------------------------------
@@ -956,61 +923,6 @@ class AutorunNonSimpleAsyncTests(IsolatedAsyncioTestCase):
     result = chain()
     self.assertIsInstance(result, asyncio.Task)
     self.assertEqual(await result, 10)
-
-
-# ---------------------------------------------------------------------------
-# 21. Cascade async paths (ensures cascade-specific branches in _run_async
-#     and _run_async_simple)
-# ---------------------------------------------------------------------------
-
-class CascadeAsyncTests(IsolatedAsyncioTestCase):
-  """Cascade mode in async paths."""
-
-  async def test_cascade_async_returns_root_value(self):
-    """Cascade with async root -> _run_async returns root_value."""
-    result = await Cascade(aempty, 42).then(lambda v: v * 2).run()
-    self.assertEqual(result, 42)
-
-  async def test_cascade_async_with_finally(self):
-    """Cascade async chain with finally handler."""
-    called = {'v': False}
-    async def handler(v=None):
-      called['v'] = True
-    result = await Cascade(aempty, 42).then(lambda v: v * 2).finally_(handler).run()
-    self.assertEqual(result, 42)
-    self.assertTrue(called['v'])
-
-  async def test_cascade_async_with_do(self):
-    """Cascade async chain with .do() (non-simple path)."""
-    side = {'v': None}
-    def track(v):
-      side['v'] = v
-    result = await Cascade(aempty, 42).do(track).then(lambda v: v * 2).run()
-    self.assertEqual(result, 42)
-    self.assertEqual(side['v'], 42)
-
-
-# ---------------------------------------------------------------------------
-# 22. Pipe operator + run -> ensures __or__ with run() calls self.run()
-# ---------------------------------------------------------------------------
-
-class PipeRunTests(IsolatedAsyncioTestCase):
-  """Pipe operator integration with run()."""
-
-  async def test_pipe_run_basic(self):
-    """Chain | run() invokes self.run()."""
-    result = Chain(10) | (lambda v: v + 5) | run()
-    self.assertEqual(result, 15)
-
-  async def test_pipe_run_with_value(self):
-    """Chain | run(val) passes root override."""
-    result = Chain() | (lambda v: v * 2) | run(7)
-    self.assertEqual(result, 14)
-
-  async def test_pipe_run_async(self):
-    """Async chain with pipe + run."""
-    result = await (Chain(aempty, 5) | (lambda v: v * 3) | run())
-    self.assertEqual(result, 15)
 
 
 # ---------------------------------------------------------------------------

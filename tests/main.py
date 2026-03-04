@@ -1,16 +1,11 @@
 import asyncio
-from quent import Chain, Cascade
+from quent import Chain
 
 def main():
   # Basic sync chain
   result = Chain(1).then(lambda v: v + 1).then(lambda v: v * 3).run()
   assert result == 6, f"Expected 6, got {result}"
   print(f"Sync chain: {result}")
-
-  # Cascade
-  result = Cascade(10).do(lambda v: print(f"  cascade step: {v}")).run()
-  assert result == 10
-  print(f"Cascade: {result}")
 
   # Async chain
   async def async_test():

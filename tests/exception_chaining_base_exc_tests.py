@@ -3,7 +3,7 @@ import warnings
 import traceback
 from unittest import TestCase, IsolatedAsyncioTestCase
 from tests.utils import empty, aempty, await_, TestExc
-from quent import Chain, Cascade, QuentException, run
+from quent import Chain, QuentException
 
 
 # ---------------------------------------------------------------------------
@@ -64,133 +64,97 @@ def raise_custom_base(v=None):
 
 
 # ---------------------------------------------------------------------------
-# Base test class
-# ---------------------------------------------------------------------------
-
-class MyTestCase(IsolatedAsyncioTestCase):
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
-
-  async def assertTrue(self, expr, msg=None):
-    return super().assertTrue(await await_(expr), msg)
-
-  async def assertFalse(self, expr, msg=None):
-    return super().assertFalse(await await_(expr), msg)
-
-  async def assertEqual(self, first, second, msg=None):
-    return super().assertEqual(await await_(first), second, msg)
-
-  async def assertIsNone(self, obj, msg=None):
-    return super().assertIsNone(await await_(obj), msg)
-
-  async def assertIs(self, expr1, expr2, msg=None):
-    return super().assertIs(await await_(expr1), expr2, msg)
-
-  async def assertIsNot(self, expr1, expr2, msg=None):
-    return super().assertIsNot(await await_(expr1), expr2, msg)
-
-
-# ---------------------------------------------------------------------------
 # ExceptionChainingTests
 # ---------------------------------------------------------------------------
 
-class ExceptionChainingTests(MyTestCase):
+class ExceptionChainingTests(IsolatedAsyncioTestCase):
 
   async def test_explicit_chaining_cause_preserved(self):
     """raise X from Y preserves __cause__ through a chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(raise_from).run())
-        super(MyTestCase, self).assertIsNotNone(cm.exception.__cause__)
-        super(MyTestCase, self).assertIsInstance(cm.exception.__cause__, InnerExc)
+        self.assertIsNotNone(cm.exception.__cause__)
+        self.assertIsInstance(cm.exception.__cause__, InnerExc)
 
   async def test_explicit_chaining_cause_message(self):
     """raise X from Y preserves the cause exception message."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(raise_from).run())
-        super(MyTestCase, self).assertEqual(str(cm.exception.__cause__), 'cause')
+        self.assertEqual(str(cm.exception.__cause__), 'cause')
 
   async def test_implicit_chaining_context_preserved(self):
     """Implicit exception chaining preserves __context__ through a chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(raise_implicit_chain).run())
-        super(MyTestCase, self).assertIsNotNone(cm.exception.__context__)
-        super(MyTestCase, self).assertIsInstance(cm.exception.__context__, InnerExc)
+        self.assertIsNotNone(cm.exception.__context__)
+        self.assertIsInstance(cm.exception.__context__, InnerExc)
 
   async def test_implicit_chaining_context_message(self):
     """Implicit chaining preserves the context exception message."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(raise_implicit_chain).run())
-        super(MyTestCase, self).assertEqual(str(cm.exception.__context__), 'original')
+        self.assertEqual(str(cm.exception.__context__), 'original')
 
   async def test_suppress_context_flag_preserved(self):
     """raise X from None sets __suppress_context__ = True, preserved through chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(raise_suppress_context).run())
-        super(MyTestCase, self).assertTrue(cm.exception.__suppress_context__)
+        self.assertTrue(cm.exception.__suppress_context__)
 
   async def test_suppress_context_still_has_context(self):
     """raise X from None still sets __context__ (just suppressed in display)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(raise_suppress_context).run())
         # __context__ is set even when __suppress_context__ is True
-        super(MyTestCase, self).assertIsNotNone(cm.exception.__context__)
+        self.assertIsNotNone(cm.exception.__context__)
 
   async def test_except_handler_raises_sets_cause(self):
     """When except_ handler raises, original exception becomes __cause__."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise OuterExc('from handler')
         with self.assertRaises(OuterExc) as cm:
           await await_(
             Chain(fn, 1).then(raise_inner).except_(handler, reraise=False).run()
           )
-        super(MyTestCase, self).assertIsInstance(cm.exception.__cause__, InnerExc)
-        super(MyTestCase, self).assertEqual(str(cm.exception), 'from handler')
+        self.assertIsInstance(cm.exception.__cause__, InnerExc)
+        self.assertEqual(str(cm.exception), 'from handler')
 
   async def test_chained_exceptions_in_nested_chain(self):
     """Exception chaining is preserved through nested chains."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         inner_chain = Chain().then(raise_from)
         with self.assertRaises(OuterExc) as cm:
           await await_(Chain(fn, 1).then(inner_chain).run())
-        super(MyTestCase, self).assertIsNotNone(cm.exception.__cause__)
-        super(MyTestCase, self).assertIsInstance(cm.exception.__cause__, InnerExc)
+        self.assertIsNotNone(cm.exception.__cause__)
+        self.assertIsInstance(cm.exception.__cause__, InnerExc)
 
-  async def test_cascade_preserves_exception_chaining(self):
-    """Exception chaining is preserved in Cascade chains."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        with self.assertRaises(OuterExc) as cm:
-          await await_(Cascade(fn, 1).then(raise_from).run())
-        super(MyTestCase, self).assertIsNotNone(cm.exception.__cause__)
-        super(MyTestCase, self).assertIsInstance(cm.exception.__cause__, InnerExc)
 
 
 # ---------------------------------------------------------------------------
 # BaseExceptionTests
 # ---------------------------------------------------------------------------
 
-class BaseExceptionTests(MyTestCase):
+class BaseExceptionTests(IsolatedAsyncioTestCase):
 
   async def test_system_exit_propagates_through_chain(self):
     """SystemExit propagates through a chain without being caught by default except_."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -198,12 +162,12 @@ class BaseExceptionTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raise_system_exit).except_(handler).run()
           )
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertFalse(called[0])
 
   async def test_keyboard_interrupt_propagates_through_chain(self):
     """KeyboardInterrupt propagates through a chain without being caught by default except_."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -211,12 +175,12 @@ class BaseExceptionTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raise_keyboard_interrupt).except_(handler).run()
           )
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertFalse(called[0])
 
   async def test_custom_base_exception_not_caught_by_default(self):
     """Custom BaseException subclass is not caught by default except_."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -224,12 +188,12 @@ class BaseExceptionTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raise_custom_base).except_(handler).run()
           )
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertFalse(called[0])
 
   async def test_except_with_base_exception_catches_system_exit(self):
     """except_ with exceptions=BaseException catches SystemExit."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -242,12 +206,12 @@ class BaseExceptionTests(MyTestCase):
           )
         except SystemExit:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_except_with_base_exception_catches_keyboard_interrupt(self):
     """except_ with exceptions=BaseException catches KeyboardInterrupt."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -260,12 +224,12 @@ class BaseExceptionTests(MyTestCase):
           )
         except KeyboardInterrupt:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_except_with_base_exception_catches_custom(self):
     """except_ with exceptions=BaseException catches custom BaseException subclasses."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -278,12 +242,12 @@ class BaseExceptionTests(MyTestCase):
           )
         except CustomBaseExc:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_except_with_specific_base_exception_class(self):
     """except_ with exceptions=SystemExit catches SystemExit but not KeyboardInterrupt."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -296,7 +260,7 @@ class BaseExceptionTests(MyTestCase):
           )
         except SystemExit:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
         # KeyboardInterrupt should NOT be caught by SystemExit handler
         called[0] = False
@@ -307,39 +271,27 @@ class BaseExceptionTests(MyTestCase):
             .except_(handler, exceptions=SystemExit)
             .run()
           )
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertFalse(called[0])
 
   async def test_base_exception_suppress_with_noraise(self):
     """except_ with exceptions=BaseException and reraise=False suppresses BaseException."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         result = await await_(
           Chain(fn, 1)
           .then(raise_custom_base)
           .except_(lambda v: None, exceptions=BaseException, reraise=False)
           .run()
         )
-        super(MyTestCase, self).assertIsNone(result)
+        self.assertIsNone(result)
 
-  async def test_base_exception_in_cascade(self):
-    """BaseException propagates through Cascade without being caught by default except_."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called = [False]
-        def handler(v=None):
-          called[0] = True
-        with self.assertRaises(CustomBaseExc):
-          await await_(
-            Cascade(fn, 1).then(raise_custom_base).except_(handler).run()
-          )
-        super(MyTestCase, self).assertFalse(called[0])
 
 
 # ---------------------------------------------------------------------------
 # WarningTests
 # ---------------------------------------------------------------------------
 
-class WarningTests(MyTestCase):
+class WarningTests(IsolatedAsyncioTestCase):
 
   async def test_async_except_on_sync_chain_emits_runtime_warning(self):
     """Async except_ handler on sync chain emits RuntimeWarning about coroutine scheduling."""
@@ -353,7 +305,7 @@ class WarningTests(MyTestCase):
       except InnerExc:
         pass
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
     await asyncio.sleep(0.1)
 
   async def test_async_finally_on_sync_chain_emits_runtime_warning(self):
@@ -365,7 +317,7 @@ class WarningTests(MyTestCase):
       warnings.simplefilter("always")
       Chain(empty, 1).finally_(async_finally).run()
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
     await asyncio.sleep(0.1)
 
   async def test_warning_message_content_except(self):
@@ -380,9 +332,9 @@ class WarningTests(MyTestCase):
       except InnerExc:
         pass
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
       msg = str(runtime_warnings[0].message)
-      super(MyTestCase, self).assertIn('coroutine', msg.lower())
+      self.assertIn('coroutine', msg.lower())
     await asyncio.sleep(0.1)
 
   async def test_warning_message_content_finally(self):
@@ -394,9 +346,9 @@ class WarningTests(MyTestCase):
       warnings.simplefilter("always")
       Chain(empty, 1).finally_(async_finally).run()
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
       msg = str(runtime_warnings[0].message)
-      super(MyTestCase, self).assertIn('coroutine', msg.lower())
+      self.assertIn('coroutine', msg.lower())
     await asyncio.sleep(0.1)
 
   async def test_no_warning_for_sync_except_on_sync_chain(self):
@@ -410,7 +362,7 @@ class WarningTests(MyTestCase):
       except InnerExc:
         pass
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertEqual(len(runtime_warnings), 0)
+      self.assertEqual(len(runtime_warnings), 0)
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,9 @@
 import asyncio
 import inspect
 import logging
-from unittest import TestCase
-from tests.utils import TestExc, empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade, run
+from unittest import IsolatedAsyncioTestCase, TestCase
+from tests.utils import TestExc, empty, aempty, await_
+from quent import Chain
 
 
 # ---------------------------------------------------------------------------
@@ -56,16 +56,11 @@ class CloneFeatureTests(TestCase):
     c = Chain(10).config(autorun=True)
     c2 = c.clone()
     # Both should have autorun set. We verify by checking the config result
-    # chain is returned from config. We check behavior: with autorun=True
-    # and _is_sync=False, if an async chain is run, it wraps in a task.
-    # For a sync chain, autorun doesn't change behavior. We just verify
-    # the clone maintains the state by observing the clone still works.
+    # chain is returned from config. We check behavior: with autorun=True,
+    # if an async chain is run, it wraps in a task. For a sync chain,
+    # autorun doesn't change behavior. We just verify the clone maintains
+    # the state by observing the clone still works.
     self.assertEqual(c2.run(), 10)
-
-  def test_clone_cascade_type_preserved(self):
-    c = Cascade()
-    c2 = c.clone()
-    self.assertIsInstance(c2, Cascade)
 
   def test_clone_of_clone(self):
     c = Chain(5).then(lambda v: v * 2)
@@ -92,68 +87,68 @@ class CloneFeatureTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Freeze Feature Tests
+# Chain Reuse Tests
 # ---------------------------------------------------------------------------
 
-class FreezeFeatureTests(MyTestCase):
-  async def test_freeze_run(self):
-    frozen = Chain(10).then(lambda v: v * 2).freeze()
-    await self.assertEqual(frozen.run(), 20)
+class ChainReuseTests(IsolatedAsyncioTestCase):
+  async def test_chain_reuse_run(self):
+    c = Chain(10).then(lambda v: v * 2)
+    self.assertEqual(c.run(), 20)
 
-  async def test_freeze_call(self):
-    frozen = Chain(10).then(lambda v: v * 2).freeze()
-    await self.assertEqual(frozen(), 20)
+  async def test_chain_reuse_call(self):
+    c = Chain(10).then(lambda v: v * 2)
+    self.assertEqual(c(), 20)
 
-  async def test_freeze_reusable(self):
-    frozen = Chain(10).then(lambda v: v + 5).freeze()
-    await self.assertEqual(frozen.run(), 15)
-    await self.assertEqual(frozen.run(), 15)
-    await self.assertEqual(frozen(), 15)
+  async def test_chain_reusable(self):
+    c = Chain(10).then(lambda v: v + 5)
+    self.assertEqual(c.run(), 15)
+    self.assertEqual(c.run(), 15)
+    self.assertEqual(c(), 15)
 
-  async def test_freeze_with_root_override(self):
-    frozen = Chain().then(lambda v: v * 3).freeze()
-    await self.assertEqual(frozen.run(7), 21)
-    await self.assertEqual(frozen.run(2), 6)
+  async def test_chain_reuse_with_root_override(self):
+    c = Chain().then(lambda v: v * 3)
+    self.assertEqual(c.run(7), 21)
+    self.assertEqual(c.run(2), 6)
 
-  async def test_freeze_concurrent_async(self):
-    frozen = Chain().then(aempty).then(lambda v: v * 2).freeze()
-    tasks = [frozen.run(i) for i in range(50)]
+  async def test_chain_reuse_concurrent_async(self):
+    c = Chain().then(aempty).then(lambda v: v * 2)
+    tasks = [c.run(i) for i in range(50)]
     results = await asyncio.gather(*tasks)
     expected = [i * 2 for i in range(50)]
-    super(MyTestCase, self).assertEqual(sorted(results), sorted(expected))
+    self.assertEqual(sorted(results), sorted(expected))
 
-  async def test_freeze_async_chain(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        frozen = Chain(5).then(fn).then(lambda v: v + 10).freeze()
-        await self.assertEqual(frozen.run(), 15)
+  async def test_chain_reuse_async(self):
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        c = Chain(5).then(fn).then(lambda v: v + 10)
+        self.assertEqual(await await_(c.run()), 15)
 
 
 # ---------------------------------------------------------------------------
 # Decorator Feature Tests
 # ---------------------------------------------------------------------------
 
-class DecoratorFeatureTests(MyTestCase):
+class DecoratorFeatureTests(IsolatedAsyncioTestCase):
   async def test_decorator_sync_fn(self):
     @Chain().then(lambda v: v * 2).decorator()
     def double(v):
       return v + 1
 
-    await self.assertEqual(double(3), 8)  # (3+1)*2
+    self.assertEqual(double(3), 8)  # (3+1)*2
 
   async def test_decorator_async_fn(self):
     @Chain().then(lambda v: v * 2).decorator()
     async def double(v):
       return v + 1
 
-    await self.assertEqual(double(3), 8)
+    self.assertEqual(await double(3), 8)
 
   async def test_decorator_preserves_name(self):
     @Chain().then(lambda v: v).decorator()
     def my_function(x):
       return x
 
-    super(MyTestCase, self).assertEqual(my_function.__name__, 'my_function')
+    self.assertEqual(my_function.__name__, 'my_function')
 
   async def test_decorator_on_class_method(self):
     class MyClass:
@@ -162,7 +157,7 @@ class DecoratorFeatureTests(MyTestCase):
         return x
 
     obj = MyClass()
-    await self.assertEqual(obj.multiply(5), 15)
+    self.assertEqual(obj.multiply(5), 15)
 
 
 # ---------------------------------------------------------------------------
@@ -207,50 +202,10 @@ class ConfigTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# No Async Tests
-# ---------------------------------------------------------------------------
-
-class NoAsyncTests(MyTestCase):
-  async def test_no_async_skips_coro_check(self):
-    # With no_async(), _is_sync is set, so the chain skips coroutine detection
-    # For a pure sync chain, this is equivalent to a fast path
-    c = Chain(5).then(lambda v: v * 2).no_async()
-    await self.assertEqual(c.run(), 10)
-
-  async def test_no_async_simple_chain(self):
-    c = Chain(100).then(lambda v: v - 50).no_async()
-    await self.assertEqual(c.run(), 50)
-
-  async def test_no_async_cascade(self):
-    obj = object()
-    c = Cascade(obj).then(lambda v: None).no_async()
-    result = c.run()
-    super(MyTestCase, self).assertIs(result, obj)
-
-
-# ---------------------------------------------------------------------------
-# Pipe Operator Tests
-# ---------------------------------------------------------------------------
-
-class PipeOperatorTests(MyTestCase):
-  async def test_pipe_operator_basic(self):
-    result = Chain(1) | (lambda v: v * 10) | run()
-    await self.assertEqual(result, 10)
-
-  async def test_pipe_operator_chained(self):
-    result = Chain(2) | (lambda v: v + 3) | (lambda v: v * 2) | run()
-    await self.assertEqual(result, 10)
-
-  async def test_pipe_with_run_root(self):
-    result = Chain() | (lambda v: v * 4) | run(5)
-    await self.assertEqual(result, 20)
-
-
-# ---------------------------------------------------------------------------
 # Debug Mode Tests
 # ---------------------------------------------------------------------------
 
-class DebugModeTests(MyTestCase):
+class DebugModeTests(IsolatedAsyncioTestCase):
   def _make_logger_handler(self):
     import io
     logger = logging.getLogger('quent')
@@ -271,7 +226,7 @@ class DebugModeTests(MyTestCase):
     try:
       Chain(42).config(debug=True).run()
       log_output = stream.getvalue()
-      super(MyTestCase, self).assertIn('42', log_output)
+      self.assertIn('42', log_output)
     finally:
       self._cleanup_logger(logger, handler, old_level)
 
@@ -281,9 +236,9 @@ class DebugModeTests(MyTestCase):
       Chain(5).then(lambda v: v * 3).config(debug=True).run()
       log_output = stream.getvalue()
       # Root value 5 should be logged
-      super(MyTestCase, self).assertIn('5', log_output)
+      self.assertIn('5', log_output)
       # Link result 15 should be logged
-      super(MyTestCase, self).assertIn('15', log_output)
+      self.assertIn('15', log_output)
     finally:
       self._cleanup_logger(logger, handler, old_level)
 
@@ -292,7 +247,7 @@ class DebugModeTests(MyTestCase):
     try:
       Chain(999).then(lambda v: v + 1).run()
       log_output = stream.getvalue()
-      super(MyTestCase, self).assertNotIn('999', log_output)
+      self.assertNotIn('999', log_output)
     finally:
       self._cleanup_logger(logger, handler, old_level)
 
@@ -306,9 +261,9 @@ class DebugModeTests(MyTestCase):
       result = await await_(Chain(7).then(aempty).then(lambda v: v + 3).config(debug=True).run())
       log_output = stream.getvalue()
       # Root value 7 is logged in the sync path
-      super(MyTestCase, self).assertIn('7', log_output)
+      self.assertIn('7', log_output)
       # The chain should still produce the correct result
-      super(MyTestCase, self).assertEqual(result, 10)
+      self.assertEqual(result, 10)
     finally:
       self._cleanup_logger(logger, handler, old_level)
 
@@ -317,7 +272,7 @@ class DebugModeTests(MyTestCase):
 # Autorun Tests
 # ---------------------------------------------------------------------------
 
-class AutorunTests(MyTestCase):
+class AutorunTests(IsolatedAsyncioTestCase):
   async def test_autorun_wraps_in_task(self):
     obj = type('', (), {})()
     obj._v = False
@@ -327,16 +282,16 @@ class AutorunTests(MyTestCase):
 
     result = Chain(aempty).then(asyncio.sleep, 0.05).then(set_val, ...).config(autorun=True).run()
     # autorun=True wraps the coroutine in a Task
-    super(MyTestCase, self).assertIsInstance(result, asyncio.Task)
+    self.assertIsInstance(result, asyncio.Task)
     await result
-    super(MyTestCase, self).assertTrue(obj._v)
+    self.assertTrue(obj._v)
 
   async def test_autorun_disabled_returns_coroutine(self):
     result = Chain(aempty).then(lambda v: 42).config(autorun=False).run()
     # Without autorun, should return a coroutine
-    super(MyTestCase, self).assertTrue(inspect.isawaitable(result))
+    self.assertTrue(inspect.isawaitable(result))
     value = await result
-    super(MyTestCase, self).assertEqual(value, 42)
+    self.assertEqual(value, 42)
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +314,6 @@ class ReprTests(TestCase):
       return v
     r = repr(Chain(1).then(step1))
     self.assertIn('then', r)
-
-  def test_repr_cascade(self):
-    r = repr(Cascade())
-    self.assertIn('Cascade', r)
 
   def test_repr_nested_chain(self):
     inner = Chain().then(lambda v: v)

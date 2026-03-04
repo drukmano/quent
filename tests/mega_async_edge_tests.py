@@ -22,8 +22,8 @@ import logging
 import time
 import warnings
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run, Null
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException, Null
 from quent.quent import _get_registry_size
 
 
@@ -140,7 +140,7 @@ class AsyncCallableClass:
 # A. Sync-to-Async Transition Points (15+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class SyncToAsyncTransitionTests(MyTestCase):
+class SyncToAsyncTransitionTests(IsolatedAsyncioTestCase):
   """Tests for sync-to-async transition points in _run, _run_simple,
   _run_async, _run_async_simple. Each tests a specific entry point where
   the chain detects a coroutine and transitions to the async path.
@@ -154,7 +154,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
     Forces non-simple via .do().
     """
     result = await Chain(aempty, 42).do(lambda v: None).run()
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
   async def test_a02_first_link_returns_coroutine(self):
     """Chain(sync_root).then(async_fn) — first link returns coroutine.
@@ -164,7 +164,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
     Forces non-simple via .do().
     """
     result = await Chain(10).do(lambda v: None).then(async_double).run()
-    await self.assertEqual(result, 20)
+    self.assertEqual(result, 20)
 
   async def test_a03_last_link_returns_coroutine(self):
     """Chain with sync links, last link returns coroutine.
@@ -180,7 +180,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .then(async_identity)
       .run()
     )
-    await self.assertEqual(result, 12)
+    self.assertEqual(result, 12)
 
   async def test_a04_middle_link_returns_coroutine(self):
     """Chain where middle link returns coroutine.
@@ -197,7 +197,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .run()
     )
     # 1 -> 2 -> 4 -> 14
-    await self.assertEqual(result, 14)
+    self.assertEqual(result, 14)
 
   async def test_a05_alternating_sync_async_links(self):
     """Chain with alternating sync/async links.
@@ -215,7 +215,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .then(lambda v: v * 10)       # sync (in async): 70
       .run()
     )
-    await self.assertEqual(result, 70)
+    self.assertEqual(result, 70)
 
   async def test_a06_all_links_return_coroutines(self):
     """Chain where ALL links return coroutines.
@@ -238,20 +238,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .run()
     )
     # 2 -> 7 -> 21 -> 21
-    await self.assertEqual(result, 21)
-
-  async def test_a07_is_sync_true_coroutines_not_detected(self):
-    """Chain with no_async(True) — coroutines NOT detected, returned as objects.
-
-    When _is_sync=True, the chain never checks iscoro(), so coroutine
-    objects are returned as raw objects. We verify the returned value
-    is a coroutine object (not awaited).
-    """
-    coro_result = Chain(10).then(async_double).no_async(True).run()
-    # Result is a raw coroutine, not awaited
-    IsolatedAsyncioTestCase.assertTrue(self, inspect.iscoroutine(coro_result))
-    # Must close the coroutine to avoid RuntimeWarning
-    coro_result.close()
+    self.assertEqual(result, 21)
 
   async def test_a08_simple_path_async_transition_at_root(self):
     """Simple path (_run_simple) async transition at root.
@@ -260,7 +247,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
     detects coroutine and returns _run_async_simple coroutine (line 366-367).
     """
     result = await Chain(aempty, 99).then(lambda v: v + 1).run()
-    await self.assertEqual(result, 100)
+    self.assertEqual(result, 100)
 
   async def test_a09_simple_path_async_transition_at_first_link(self):
     """Simple path async transition at first (and only) link.
@@ -269,7 +256,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
     detects it in the link loop (line 383-384).
     """
     result = await Chain(10).then(async_double).run()
-    await self.assertEqual(result, 20)
+    self.assertEqual(result, 20)
 
   async def test_a10_simple_path_async_transition_at_middle_link(self):
     """Simple path async transition at middle link.
@@ -284,7 +271,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .then(lambda v: v + 10)       # continues in _run_async_simple: 14
       .run()
     )
-    await self.assertEqual(result, 14)
+    self.assertEqual(result, 14)
 
   async def test_a11_simple_path_async_transition_at_last_link(self):
     """Simple path async transition at last link.
@@ -298,37 +285,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .then(async_identity)
       .run()
     )
-    await self.assertEqual(result, 11)
-
-  async def test_a12_cascade_simple_path_async_transition(self):
-    """Cascade simple path async transition.
-
-    Cascade mode on simple path. Async link triggers _run_async_simple.
-    In cascade mode, _run_async_simple returns root_value (line 444).
-    """
-    sentinel = object()
-    result = await (
-      Cascade(aempty, sentinel)
-      .then(lambda v: 'ignored')
-      .run()
-    )
-    await self.assertIs(result, sentinel)
-
-  async def test_a13_cascade_simple_path_with_is_sync(self):
-    """Cascade simple path with is_sync=True.
-
-    Cascade + no_async(True): Loop 2a (sync, cascade) in _run_simple.
-    Passes root_value to each link, no coro check, restores root at end.
-    """
-    captured = []
-
-    def capture(v):
-      captured.append(v)
-      return 'ignored'
-
-    result = Cascade(42).then(capture).then(capture).no_async(True).run()
-    IsolatedAsyncioTestCase.assertEqual(self, result, 42)
-    IsolatedAsyncioTestCase.assertEqual(self, captured, [42, 42])
+    self.assertEqual(result, 11)
 
   async def test_a14_async_chain_debug_mode_link_results(self):
     """Async chain in debug mode — link_results tracked across async boundaries.
@@ -352,7 +309,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
         .run()
       )
       # 2 -> 5 -> 10 -> 11
-      await self.assertEqual(result, 11)
+      self.assertEqual(result, 11)
       # Root value (2) and first sync link (5) logged before async transition
       IsolatedAsyncioTestCase.assertGreaterEqual(self, len(logs), 2)
     finally:
@@ -379,31 +336,17 @@ class SyncToAsyncTransitionTests(MyTestCase):
         .config(debug=True)
         .run()
       )
-      await self.assertEqual(result, 80)
+      self.assertEqual(result, 80)
     finally:
       logger.removeHandler(handler)
 
-  async def test_a16_cascade_non_simple_async_transition(self):
-    """Cascade non-simple path with async transition.
-
-    Cascade + .do() forces non-simple. Async root triggers _run_async
-    which returns root_value (line 286-287) in cascade mode.
-    """
-    sentinel = object()
-    result = await (
-      Cascade(aempty, sentinel)
-      .do(lambda v: None)
-      .then(lambda v: 'discarded')
-      .run()
-    )
-    await self.assertIs(result, sentinel)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # B. ensure_future and Task Registry (10+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TaskRegistryTests(MyTestCase):
+class TaskRegistryTests(IsolatedAsyncioTestCase):
   """Tests for the task registry in _async_utils.pxi and ensure_future
   behavior when used via autorun chains.
   """
@@ -506,20 +449,6 @@ class TaskRegistryTests(MyTestCase):
     await asyncio.sleep(0)
     IsolatedAsyncioTestCase.assertEqual(self, _get_registry_size(), initial)
 
-  async def test_b10_autorun_is_sync_does_not_call_ensure_future(self):
-    """Autorun with _is_sync=True — does NOT call ensure_future.
-
-    When no_async(True) is set, the chain never checks iscoro(),
-    so even if a coroutine is returned, it is NOT wrapped in a Task.
-    """
-    result = Chain(10).then(async_double).no_async(True).config(autorun=True).run()
-    # The result is a raw coroutine, not a Task
-    IsolatedAsyncioTestCase.assertFalse(
-      self, isinstance(result, asyncio.Task)
-    )
-    IsolatedAsyncioTestCase.assertTrue(self, inspect.iscoroutine(result))
-    result.close()
-
   async def test_b11_exception_in_task_still_cleans_registry(self):
     """Task that raises an exception is still cleaned from registry."""
     initial = _get_registry_size()
@@ -538,7 +467,7 @@ class TaskRegistryTests(MyTestCase):
 # C. Autorun Behavior (8+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AutorunBehaviorTests(MyTestCase):
+class AutorunBehaviorTests(IsolatedAsyncioTestCase):
   """Tests for autorun=True behavior across different paths."""
 
   async def test_c01_autorun_true_coroutine_from_run(self):
@@ -561,15 +490,6 @@ class AutorunBehaviorTests(MyTestCase):
     IsolatedAsyncioTestCase.assertIsInstance(self, task, asyncio.Task)
     result = await task
     IsolatedAsyncioTestCase.assertEqual(self, result, 6)
-
-  async def test_c04_autorun_true_is_sync_no_ensure_future(self):
-    """autorun=True + is_sync=True — does not check for coroutines."""
-    result = Chain(10).then(async_double).no_async(True).config(autorun=True).run()
-    # is_sync=True means coroutines are not detected, so autorun check in
-    # run() (line 555) also fails because _is_sync short-circuits
-    IsolatedAsyncioTestCase.assertFalse(self, isinstance(result, asyncio.Task))
-    IsolatedAsyncioTestCase.assertTrue(self, inspect.iscoroutine(result))
-    result.close()
 
   async def test_c05_autorun_sync_root_async_body(self):
     """autorun=True with sync root that goes async in body.
@@ -642,7 +562,7 @@ class AutorunBehaviorTests(MyTestCase):
 # D. Concurrent Execution (8+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class ConcurrentExecutionTests(MyTestCase):
+class ConcurrentExecutionTests(IsolatedAsyncioTestCase):
   """Tests for concurrent chain execution safety."""
 
   async def test_d01_clone_executed_concurrently(self):
@@ -659,13 +579,13 @@ class ConcurrentExecutionTests(MyTestCase):
       self, sorted(results), sorted([i * 2 for i in range(50)])
     )
 
-  async def test_d02_frozen_chain_executed_concurrently(self):
-    """FrozenChain executed concurrently — should be safe.
+  async def test_d02_chain_executed_concurrently(self):
+    """Chain executed concurrently -- should be safe.
 
-    freeze() creates an immutable snapshot that can be safely reused.
+    Chain can be safely reused across concurrent executions.
     """
-    frozen = Chain().then(async_double).freeze()
-    coros = [frozen(i) for i in range(100)]
+    c = Chain().then(async_double)
+    coros = [c(i) for i in range(100)]
     results = await asyncio.gather(*coros)
     IsolatedAsyncioTestCase.assertEqual(
       self, sorted(results), sorted([i * 2 for i in range(100)])
@@ -702,8 +622,8 @@ class ConcurrentExecutionTests(MyTestCase):
       await asyncio.sleep(0)
       return v
 
-    frozen = Chain().then(slow_identity).then(sync_add_one).freeze()
-    coros = [frozen(i) for i in range(100)]
+    c = Chain().then(slow_identity).then(sync_add_one)
+    coros = [c(i) for i in range(100)]
     results = await asyncio.gather(*coros)
     expected = [i + 1 for i in range(100)]
     IsolatedAsyncioTestCase.assertEqual(self, sorted(results), sorted(expected))
@@ -740,14 +660,14 @@ class ConcurrentExecutionTests(MyTestCase):
     for i, result in enumerate(results):
       IsolatedAsyncioTestCase.assertEqual(self, result, [i + 1, i * 2])
 
-  async def test_d08_frozen_chain_with_debug_concurrent(self):
-    """Frozen chain with debug mode executed concurrently.
+  async def test_d08_chain_with_debug_concurrent(self):
+    """Chain with debug mode executed concurrently.
 
-    Debug mode creates link_results dicts per execution — these are
+    Debug mode creates link_results dicts per execution -- these are
     local to each _run call due to _ExecCtx isolation.
     """
-    frozen = Chain().then(async_identity).config(debug=True).freeze()
-    coros = [frozen(i) for i in range(50)]
+    c = Chain().then(async_identity).config(debug=True)
+    coros = [c(i) for i in range(50)]
     results = await asyncio.gather(*coros)
     IsolatedAsyncioTestCase.assertEqual(
       self, sorted(results), list(range(50))
@@ -758,7 +678,7 @@ class ConcurrentExecutionTests(MyTestCase):
 # E. Mixed Sync/Async Patterns (8+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class MixedSyncAsyncPatternTests(MyTestCase):
+class MixedSyncAsyncPatternTests(IsolatedAsyncioTestCase):
   """Tests for mixed sync and async patterns in chains."""
 
   async def test_e01_sync_function_returning_coroutine_object(self):
@@ -774,7 +694,7 @@ class MixedSyncAsyncPatternTests(MyTestCase):
       return real_coro(v)
 
     result = await Chain(10).then(sync_that_returns_coro).run()
-    await self.assertEqual(result, 30)
+    self.assertEqual(result, 30)
 
   async def test_e02_async_function_completes_immediately(self):
     """Async function that completes immediately (no await)."""
@@ -782,7 +702,7 @@ class MixedSyncAsyncPatternTests(MyTestCase):
       return v + 1
 
     result = await Chain(5).then(immediate).run()
-    await self.assertEqual(result, 6)
+    self.assertEqual(result, 6)
 
   async def test_e03_first_n_sync_then_async_then_sync(self):
     """Chain where first N links are sync, then one async, then more sync."""
@@ -797,7 +717,7 @@ class MixedSyncAsyncPatternTests(MyTestCase):
       .run()
     )
     # 1+1+1+1=4 -> 4 -> 40+1=41
-    await self.assertEqual(result, 41)
+    self.assertEqual(result, 41)
 
   async def test_e04_sync_link_accesses_event_loop(self):
     """Chain with sync link that calls asyncio.get_running_loop().
@@ -811,19 +731,8 @@ class MixedSyncAsyncPatternTests(MyTestCase):
       return v
 
     result = await Chain(aempty, 42).then(capture_loop).run()
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
     IsolatedAsyncioTestCase.assertIsNotNone(self, captured_loop.get('loop'))
-
-  async def test_e05_no_async_coroutines_returned_as_objects(self):
-    """Chain in sync mode (no_async()) with async functions.
-
-    Coroutines are returned as raw objects, not awaited.
-    """
-    c = Chain(10).then(async_double).then(lambda v: type(v).__name__).no_async(True)
-    result = c.run()
-    # The second .then() receives the coroutine object from async_double
-    # and calls type(coroutine).__name__
-    IsolatedAsyncioTestCase.assertEqual(self, result, 'coroutine')
 
   async def test_e06_functools_partial_wrapping_async(self):
     """Chain with functools.partial wrapping async function."""
@@ -832,13 +741,13 @@ class MixedSyncAsyncPatternTests(MyTestCase):
 
     partial_add_10 = functools.partial(add, n=10)
     result = await Chain(5).then(partial_add_10).run()
-    await self.assertEqual(result, 15)
+    self.assertEqual(result, 15)
 
   async def test_e07_callable_class_with_async_call(self):
     """Chain with callable class with async __call__."""
     multiplier = AsyncCallableClass(3)
     result = await Chain(7).then(multiplier).run()
-    await self.assertEqual(result, 21)
+    self.assertEqual(result, 21)
 
   async def test_e08_sync_callable_class(self):
     """Chain with callable class with sync __call__."""
@@ -859,14 +768,14 @@ class MixedSyncAsyncPatternTests(MyTestCase):
       .then(async_identity)     # 12
       .run()
     )
-    await self.assertEqual(result, 12)
+    self.assertEqual(result, 12)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # F. Async Exception Paths (10+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AsyncExceptionPathTests(MyTestCase):
+class AsyncExceptionPathTests(IsolatedAsyncioTestCase):
   """Tests for exception handling in async chain paths."""
 
   async def test_f01_exception_in_run_async_continuation(self):
@@ -883,7 +792,7 @@ class AsyncExceptionPathTests(MyTestCase):
       .except_(lambda v: 'caught', reraise=False)
       .run()
     )
-    await self.assertEqual(result, 'caught')
+    self.assertEqual(result, 'caught')
 
   async def test_f02_exception_handler_returns_coroutine_async(self):
     """Exception handler returns coroutine in async path (awaited).
@@ -901,7 +810,7 @@ class AsyncExceptionPathTests(MyTestCase):
       .except_(async_handler, reraise=False)
       .run()
     )
-    await self.assertEqual(result, 'async_recovery')
+    self.assertEqual(result, 'async_recovery')
 
   async def test_f03_exception_handler_reraise_true_async(self):
     """Exception handler with reraise=True in async path.
@@ -939,7 +848,7 @@ class AsyncExceptionPathTests(MyTestCase):
       .then(trigger_return)
       .run()
     )
-    await self.assertEqual(result, 99)
+    self.assertEqual(result, 99)
 
   async def test_f05_break_in_async_non_nested_raises(self):
     """_Break in async exception path (non-nested) raises QuentException.
@@ -975,7 +884,7 @@ class AsyncExceptionPathTests(MyTestCase):
       .foreach(trigger_break_at_3)
       .run()
     )
-    await self.assertEqual(result, [1, 2])
+    self.assertEqual(result, [1, 2])
 
   async def test_f07_exception_in_async_simple_path(self):
     """Exception in async simple path (_run_async_simple).
@@ -991,18 +900,6 @@ class AsyncExceptionPathTests(MyTestCase):
         .run()
       )
 
-  async def test_f08_exception_in_async_simple_path_cascade(self):
-    """Exception in async simple path with Cascade.
-
-    Cascade + simple path + async = _run_async_simple with is_cascade.
-    """
-    with self.assertRaises(TestExc):
-      await (
-        Cascade(aempty, 42)
-        .then(lambda v: (_ for _ in ()).throw(TestExc('cascade boom')))
-        .run()
-      )
-
   async def test_f09_return_in_async_simple_path(self):
     """_Return in async simple path.
 
@@ -1015,7 +912,7 @@ class AsyncExceptionPathTests(MyTestCase):
       .then(lambda v: v + 100)
       .run()
     )
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
   async def test_f10_break_in_async_simple_non_nested_raises(self):
     """_Break in async simple path (non-nested) raises QuentException.
@@ -1053,7 +950,7 @@ class AsyncExceptionPathTests(MyTestCase):
 # G. Async Finally Paths (6+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AsyncFinallyPathTests(MyTestCase):
+class AsyncFinallyPathTests(IsolatedAsyncioTestCase):
   """Tests for finally_ handler behavior in async chains."""
 
   async def test_g01_async_chain_finally_success_awaited(self):
@@ -1073,7 +970,7 @@ class AsyncFinallyPathTests(MyTestCase):
       .finally_(async_finally)
       .run()
     )
-    await self.assertEqual(result, 84)
+    self.assertEqual(result, 84)
     IsolatedAsyncioTestCase.assertTrue(self, finally_called['value'])
 
   async def test_g02_async_finally_handler_raises(self):
@@ -1200,81 +1097,10 @@ class AsyncFinallyPathTests(MyTestCase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# H. Sleep and ToThread (6+ tests)
-# ═══════════════════════════════════════════════════════════════════════════
-
-class SleepAndToThreadTests(MyTestCase):
-  """Tests for _Sleep and _ToThread operators."""
-
-  async def test_h01_sleep_async_context(self):
-    """sleep() in async context -> uses asyncio.sleep.
-
-    _Sleep checks for running event loop and returns asyncio.sleep coroutine.
-    """
-    start = time.monotonic()
-    result = await Chain(42).sleep(0.01).run()
-    elapsed = time.monotonic() - start
-    await self.assertEqual(result, 42)
-    IsolatedAsyncioTestCase.assertGreaterEqual(self, elapsed, 0.005)
-
-  async def test_h02_sleep_zero_delay(self):
-    """sleep(0) — zero delay, yields to event loop in async context."""
-    result = await Chain(99).sleep(0).run()
-    await self.assertEqual(result, 99)
-
-  async def test_h03_sleep_preserves_value(self):
-    """sleep() has ignore_result=True, value passes through unchanged."""
-    sentinel = object()
-    result = await Chain(sentinel).sleep(0.001).run()
-    await self.assertIs(result, sentinel)
-
-  async def test_h04_to_thread_async_context(self):
-    """to_thread() in async context -> uses asyncio.to_thread.
-
-    _ToThread detects running event loop and delegates to asyncio.to_thread.
-    """
-    import threading
-    main_tid = threading.get_ident()
-    captured = {}
-
-    def worker(v):
-      captured['tid'] = threading.get_ident()
-      return v * 2
-
-    result = await await_(Chain(aempty, 5).to_thread(worker).run())
-    IsolatedAsyncioTestCase.assertEqual(self, result, 10)
-    IsolatedAsyncioTestCase.assertNotEqual(self, captured['tid'], main_tid)
-
-  async def test_h05_to_thread_value_propagation(self):
-    """to_thread() result propagates through chain."""
-    result = await await_(
-      Chain(aempty, 3).to_thread(lambda v: v + 7).then(lambda v: v * 2).run()
-    )
-    IsolatedAsyncioTestCase.assertEqual(self, result, 20)
-
-  async def test_h06_multiple_sleeps_in_chain(self):
-    """Multiple sleep() calls in a chain."""
-    result = await (
-      Chain(1)
-      .sleep(0.001)
-      .then(lambda v: v + 1)
-      .sleep(0.001)
-      .then(lambda v: v * 3)
-      .run()
-    )
-    await self.assertEqual(result, 6)
-
-  async def test_h07_sleep_in_cascade(self):
-    """sleep() in Cascade — value (root) preserved."""
-    result = await Cascade(42).sleep(0.001).then(lambda v: 'ignored').run()
-    await self.assertEqual(result, 42)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
 # I. Async Iteration Edge Cases (10+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AsyncIterationTests(MyTestCase):
+class AsyncIterationTests(IsolatedAsyncioTestCase):
   """Tests for foreach, filter, gather with async transitions."""
 
   async def test_i01_foreach_first_element_async_transition(self):
@@ -1287,7 +1113,7 @@ class AsyncIterationTests(MyTestCase):
       return v ** 2
 
     result = await Chain([1, 2, 3]).foreach(async_square).run()
-    await self.assertEqual(result, [1, 4, 9])
+    self.assertEqual(result, [1, 4, 9])
 
   async def test_i02_foreach_middle_element_async_transition(self):
     """foreach where fn returns coroutine on MIDDLE element.
@@ -1305,7 +1131,7 @@ class AsyncIterationTests(MyTestCase):
 
     call_count['n'] = 0
     result = await Chain([1, 2, 3, 4, 5]).foreach(sometimes_async).run()
-    await self.assertEqual(result, [10, 20, 30, 40, 50])
+    self.assertEqual(result, [10, 20, 30, 40, 50])
 
   async def test_i03_foreach_last_element_async_transition(self):
     """foreach where fn returns coroutine on LAST element."""
@@ -1320,7 +1146,7 @@ class AsyncIterationTests(MyTestCase):
 
     call_count['n'] = 0
     result = await Chain(list(range(1, total + 1))).foreach(async_on_last).run()
-    await self.assertEqual(result, [10, 20, 30, 40, 50])
+    self.assertEqual(result, [10, 20, 30, 40, 50])
 
   async def test_i04_foreach_async_iterable(self):
     """foreach with async iterable (__aiter__) -> _foreach_full_async.
@@ -1333,7 +1159,7 @@ class AsyncIterationTests(MyTestCase):
 
     ait = AsyncIterable([1, 2, 3, 4])
     result = await Chain(ait).foreach(async_square).run()
-    await self.assertEqual(result, [1, 4, 9, 16])
+    self.assertEqual(result, [1, 4, 9, 16])
 
   async def test_i05_filter_predicate_returns_coroutine(self):
     """filter where predicate returns coroutine -> _filter_to_async.
@@ -1345,7 +1171,7 @@ class AsyncIterationTests(MyTestCase):
       return v % 2 == 0
 
     result = await Chain([1, 2, 3, 4, 5, 6]).filter(async_is_even).run()
-    await self.assertEqual(result, [2, 4, 6])
+    self.assertEqual(result, [2, 4, 6])
 
   async def test_i06_filter_async_iterable(self):
     """filter with async iterable -> _filter_full_async.
@@ -1358,7 +1184,7 @@ class AsyncIterationTests(MyTestCase):
 
     ait = AsyncIterable([-2, -1, 0, 1, 2, 3])
     result = await Chain(ait).filter(async_is_positive).run()
-    await self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_i07_gather_all_sync(self):
     """gather with all sync functions — returns list directly."""
@@ -1385,7 +1211,7 @@ class AsyncIterationTests(MyTestCase):
       return v ** 2
 
     result = await Chain(5).gather(fn_a, fn_b, fn_c).run()
-    await self.assertEqual(result, [6, 10, 25])
+    self.assertEqual(result, [6, 10, 25])
 
   async def test_i09_gather_mixed_sync_async(self):
     """gather with mix of sync and async functions.
@@ -1401,18 +1227,7 @@ class AsyncIterationTests(MyTestCase):
       async_add,
       lambda v: v * 2,
     ).run()
-    await self.assertEqual(result, [4, 103, 6])
-
-  async def test_i10_foreach_indexed_async_transition(self):
-    """foreach_indexed with async transition.
-
-    fn(idx, el) returns coroutine, triggering _foreach_indexed_to_async.
-    """
-    async def async_indexed_fn(idx, el):
-      return (idx, el * 2)
-
-    result = await Chain([10, 20, 30]).foreach(async_indexed_fn, with_index=True).run()
-    await self.assertEqual(result, [(0, 20), (1, 40), (2, 60)])
+    self.assertEqual(result, [4, 103, 6])
 
   async def test_i11_foreach_async_iterable_with_sync_fn(self):
     """foreach with async iterable but sync mapping function.
@@ -1422,7 +1237,7 @@ class AsyncIterationTests(MyTestCase):
     """
     ait = AsyncIterable([1, 2, 3])
     result = await Chain(ait).foreach(lambda v: v * 10).run()
-    await self.assertEqual(result, [10, 20, 30])
+    self.assertEqual(result, [10, 20, 30])
 
   async def test_i12_filter_sync_predicate_on_sync_iterable(self):
     """filter with sync predicate on sync iterable — no async transition."""
@@ -1437,27 +1252,14 @@ class AsyncIterationTests(MyTestCase):
       return v * 10
 
     result = await Chain([1, 2, 3, 4, 5]).foreach(break_at_3).run()
-    await self.assertEqual(result, [10, 20])
-
-  async def test_i14_foreach_indexed_async_iterable(self):
-    """foreach_indexed with async iterable.
-
-    _ForeachIndexed detects __aiter__ and delegates to
-    _foreach_indexed_full_async.
-    """
-    async def indexed_fn(idx, el):
-      return f'{idx}:{el}'
-
-    ait = AsyncIterable(['a', 'b', 'c'])
-    result = await Chain(ait).foreach(indexed_fn, with_index=True).run()
-    await self.assertEqual(result, ['0:a', '1:b', '2:c'])
+    self.assertEqual(result, [10, 20])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # J. Async Generator Edge Cases (5+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AsyncGeneratorTests(MyTestCase):
+class AsyncGeneratorTests(IsolatedAsyncioTestCase):
   """Tests for async generator behavior via iterate()."""
 
   async def test_j01_async_generator_chain_returns_coroutine(self):
@@ -1549,7 +1351,7 @@ class AsyncGeneratorTests(MyTestCase):
 # K. Async Context Manager Edge Cases (5+ tests)
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AsyncContextManagerTests(MyTestCase):
+class AsyncContextManagerTests(IsolatedAsyncioTestCase):
   """Tests for async context manager handling via with_()."""
 
   async def test_k01_aenter_triggers_with_full_async(self):
@@ -1560,7 +1362,7 @@ class AsyncContextManagerTests(MyTestCase):
     """
     cm = AsyncCM(value='async_val')
     result = await Chain(cm).with_(lambda ctx: ctx + '_body').run()
-    await self.assertEqual(result, 'async_val_body')
+    self.assertEqual(result, 'async_val_body')
     IsolatedAsyncioTestCase.assertTrue(self, cm.entered)
     IsolatedAsyncioTestCase.assertTrue(self, cm.exited)
 
@@ -1576,7 +1378,7 @@ class AsyncContextManagerTests(MyTestCase):
       return ctx * 3
 
     result = await Chain(cm).with_(async_body).run()
-    await self.assertEqual(result, 30)
+    self.assertEqual(result, 30)
     IsolatedAsyncioTestCase.assertTrue(self, cm.entered)
     IsolatedAsyncioTestCase.assertTrue(self, cm.exited)
 
@@ -1625,7 +1427,7 @@ class AsyncContextManagerTests(MyTestCase):
       return ctx * 4
 
     result = await Chain(cm).with_(async_body).run()
-    await self.assertEqual(result, 20)
+    self.assertEqual(result, 20)
     IsolatedAsyncioTestCase.assertTrue(self, cm.entered)
     IsolatedAsyncioTestCase.assertTrue(self, cm.exited)
 
@@ -1656,7 +1458,7 @@ class AsyncContextManagerTests(MyTestCase):
     cm = AsyncCM(value=10)
 
     result = await Chain(cm).with_(lambda ctx: ctx + 5).run()
-    await self.assertEqual(result, 15)
+    self.assertEqual(result, 15)
     IsolatedAsyncioTestCase.assertTrue(self, cm.entered)
     IsolatedAsyncioTestCase.assertTrue(self, cm.exited)
 
@@ -1681,48 +1483,8 @@ class AsyncContextManagerTests(MyTestCase):
 # Additional Edge Cases and Integration
 # ═══════════════════════════════════════════════════════════════════════════
 
-class AsyncChainIntegrationEdgeCases(MyTestCase):
+class AsyncChainIntegrationEdgeCases(IsolatedAsyncioTestCase):
   """Integration tests combining multiple async features."""
-
-  async def test_int01_chain_with_sleep_foreach_gather(self):
-    """Chain combining sleep, foreach, and gather."""
-    async def async_square(v):
-      return v ** 2
-
-    async def async_add_10(v):
-      return v + 10
-
-    result = await (
-      Chain([1, 2, 3])
-      .sleep(0.001)
-      .foreach(async_square)
-      .then(lambda lst: lst[0])
-      .gather(async_identity, async_add_10)
-      .run()
-    )
-    await self.assertEqual(result, [1, 11])
-
-  async def test_int02_cascade_with_async_do_and_finally(self):
-    """Cascade with async .do() and finally_."""
-    side_effects = []
-    finally_called = {'value': False}
-
-    async def async_side(v):
-      side_effects.append(v)
-
-    async def async_finally(v=None):
-      finally_called['value'] = True
-
-    result = await (
-      Cascade(aempty, 42)
-      .do(async_side)
-      .then(lambda v: 'ignored')
-      .finally_(async_finally)
-      .run()
-    )
-    await self.assertEqual(result, 42)
-    IsolatedAsyncioTestCase.assertEqual(self, side_effects, [42])
-    IsolatedAsyncioTestCase.assertTrue(self, finally_called['value'])
 
   async def test_int03_nested_async_chains(self):
     """Deeply nested async chains."""
@@ -1731,10 +1493,10 @@ class AsyncChainIntegrationEdgeCases(MyTestCase):
     outer = Chain(5).then(middle).then(sync_add_one).run()
     result = await outer
     # 5 -> (5+1=6 -> 6*2=12) -> 12+1=13
-    await self.assertEqual(result, 13)
+    self.assertEqual(result, 13)
 
-  async def test_int04_frozen_chain_with_except_finally(self):
-    """Frozen chain with except_ and finally_ in async path."""
+  async def test_int04_chain_with_except_finally(self):
+    """Chain with except_ and finally_ in async path."""
     handler_called = {'value': False}
     finally_called = {'value': False}
 
@@ -1745,15 +1507,14 @@ class AsyncChainIntegrationEdgeCases(MyTestCase):
     async def async_finally(v=None):
       finally_called['value'] = True
 
-    frozen = (
+    c = (
       Chain()
       .then(async_raise_test)
       .except_(async_handler, reraise=False)
       .finally_(async_finally)
-      .freeze()
     )
 
-    result = await frozen(1)
+    result = await c(1)
     IsolatedAsyncioTestCase.assertEqual(self, result, 'recovered')
     IsolatedAsyncioTestCase.assertTrue(self, handler_called['value'])
     IsolatedAsyncioTestCase.assertTrue(self, finally_called['value'])
@@ -1761,7 +1522,7 @@ class AsyncChainIntegrationEdgeCases(MyTestCase):
   async def test_int05_void_chain_async_root_override(self):
     """Void chain with async root override via run(async_fn)."""
     result = await Chain().then(sync_double).then(sync_add_one).run(aempty, 10)
-    await self.assertEqual(result, 21)
+    self.assertEqual(result, 21)
 
   async def test_int06_chain_return_none_vs_null(self):
     """Chain distinguishes between returning None and Null.
@@ -1797,38 +1558,14 @@ class AsyncChainIntegrationEdgeCases(MyTestCase):
         .config(debug=True)
         .run()
       )
-      await self.assertEqual(result, 3)
+      self.assertEqual(result, 3)
     finally:
       logger.removeHandler(handler)
 
   async def test_int08_chain_pipe_syntax_async(self):
     """Pipe syntax with async functions."""
-    result = await (Chain(aempty, 5) | async_double | sync_add_one | run())
-    await self.assertEqual(result, 11)
-
-  async def test_int09_cascade_async_root_all_links_receive_root(self):
-    """Cascade with async root: all links receive root value, return root."""
-    captured = []
-
-    def capture(v):
-      captured.append(v)
-      return 'ignored'
-
-    async def async_capture(v):
-      captured.append(('async', v))
-      return 'ignored'
-
-    result = await (
-      Cascade(aempty, 42)
-      .then(capture)
-      .then(async_capture)
-      .then(capture)
-      .run()
-    )
-    await self.assertEqual(result, 42)
-    IsolatedAsyncioTestCase.assertEqual(
-      self, captured, [42, ('async', 42), 42]
-    )
+    result = await Chain(aempty, 5).then(async_double).then(sync_add_one).run()
+    self.assertEqual(result, 11)
 
   async def test_int10_autorun_with_nested_chains(self):
     """Autorun with nested async chains."""
@@ -1846,7 +1583,7 @@ class AsyncChainIntegrationEdgeCases(MyTestCase):
     IsolatedAsyncioTestCase.assertEqual(self, result, 11)
 
 
-class AsyncDoIgnoreResultTests(MyTestCase):
+class AsyncDoIgnoreResultTests(IsolatedAsyncioTestCase):
   """Tests for .do() with async functions — result ignored."""
 
   async def test_do01_async_do_ignores_result(self):
@@ -1857,7 +1594,7 @@ class AsyncDoIgnoreResultTests(MyTestCase):
       .then(sync_double)
       .run()
     )
-    await self.assertEqual(result, 20)
+    self.assertEqual(result, 20)
 
   async def test_do02_async_do_side_effect_executes(self):
     """Async .do() side effect actually executes."""
@@ -1867,7 +1604,7 @@ class AsyncDoIgnoreResultTests(MyTestCase):
       side_effects.append(v)
 
     result = await Chain(42).do(side_effect).run()
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
     IsolatedAsyncioTestCase.assertEqual(self, side_effects, [42])
 
   async def test_do03_multiple_async_do_in_chain(self):
@@ -1886,47 +1623,11 @@ class AsyncDoIgnoreResultTests(MyTestCase):
       .do(log_fn)
       .run()
     )
-    await self.assertEqual(result, 6)
+    self.assertEqual(result, 6)
     IsolatedAsyncioTestCase.assertEqual(self, log, [1, 2, 6])
 
 
-class AsyncWithRootTests(MyTestCase):
-  """Tests for is_with_root behavior in async chains (Cascade)."""
-
-  async def test_wr01_cascade_async_links_all_get_root(self):
-    """Cascade: each link gets root_value, not previous result."""
-    results = []
-
-    async def collect(v):
-      results.append(v)
-      return v * 100  # This value should be ignored by next link
-
-    result = await (
-      Cascade(aempty, 5)
-      .then(collect)
-      .then(collect)
-      .then(collect)
-      .run()
-    )
-    await self.assertEqual(result, 5)
-    IsolatedAsyncioTestCase.assertEqual(self, results, [5, 5, 5])
-
-  async def test_wr02_cascade_simple_async_path(self):
-    """Cascade on simple path (only .then()) with async transition.
-
-    Loop 3 in _run_simple (lines 396-402): async, cascade mode.
-    """
-    sentinel = object()
-    result = await (
-      Cascade(sentinel)
-      .then(async_identity)
-      .then(lambda v: 'discarded')
-      .run()
-    )
-    await self.assertIs(result, sentinel)
-
-
-class AsyncNullHandlingTests(MyTestCase):
+class AsyncNullHandlingTests(IsolatedAsyncioTestCase):
   """Tests for Null sentinel handling in async paths."""
 
   async def test_null01_void_chain_async_root_update(self):
@@ -1936,7 +1637,7 @@ class AsyncNullHandlingTests(MyTestCase):
     root_value = current_value.
     """
     result = await Chain().then(sync_double).run(aempty, 21)
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
   async def test_null02_async_simple_root_value_update(self):
     """In _run_async_simple: root_value updated from Null after await.
@@ -1945,7 +1646,7 @@ class AsyncNullHandlingTests(MyTestCase):
     root_value = current_value.
     """
     result = await Chain().then(sync_add_one).run(aempty, 10)
-    await self.assertEqual(result, 11)
+    self.assertEqual(result, 11)
 
   async def test_null03_current_value_null_returns_none(self):
     """When current_value is Null at end, _run returns None."""

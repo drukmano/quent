@@ -1,6 +1,6 @@
 """Tests for ignore_result=True code paths in _iteration.pxi and _control_flow.pxi.
 
-Covers the internal ignore_result flag on _Foreach, _ForeachIndexed, _With, and
+Covers the internal ignore_result flag on _Foreach, _With, and
 _Generator / sync_generator / async_generator. These paths are not reachable
 through the public Chain API (which always passes ignore_result=False), so
 tests construct internal objects directly.
@@ -10,9 +10,6 @@ Coverage targets (line references are to the .pxi source files):
     - _Foreach.__call__         lines 57-58   (sync ignore_result branch)
     - _foreach_to_async         lines 84-85   (async continuation branch)
     - _foreach_full_async       lines 113-114 (fully async branch)
-    - _ForeachIndexed.__call__  lines 309-310 (sync ignore_result branch)
-    - _foreach_indexed_to_async lines 335-336 (async continuation branch)
-    - _foreach_indexed_full_async lines 366-367 (fully async branch)
 
   _control_flow.pxi:
     - _With.__call__            lines 94-95   (sync ignore_result branch)
@@ -22,9 +19,9 @@ Coverage targets (line references are to the .pxi source files):
     - async_generator           lines 193-194 (async generator aiter path)
     - async_generator           lines 205-206 (async generator sync iter path)
 """
-from tests.utils import MyTestCase
+from unittest import IsolatedAsyncioTestCase
 from quent.quent import (
-  _Foreach, _ForeachIndexed, _With, _Generator,
+  _Foreach, _With, _Generator,
   Link, sync_generator, async_generator,
 )
 
@@ -81,33 +78,33 @@ class AsyncCM:
     return False
 
 
-def _make_link(fn, fn_name='test'):
+def _make_link(fn):
   """Create a Link for error context in internal objects."""
-  return Link(fn, (), {}, fn_name=fn_name)
+  return Link(fn, (), {})
 
 
 # ---------------------------------------------------------------------------
 # ForeachIgnoreResultTests
 # ---------------------------------------------------------------------------
-class ForeachIgnoreResultTests(MyTestCase):
+class ForeachIgnoreResultTests(IsolatedAsyncioTestCase):
   """Test _Foreach with ignore_result=True across all three execution paths."""
 
   async def test_sync_foreach_ignore_result_preserves_elements(self):
     """_Foreach.__call__ sync path: when ignore_result=True, appends original
     elements instead of mapped results (lines 57-58 of _iteration.pxi)."""
     fn = lambda x: x * 100
-    link = _make_link(fn, 'foreach')
+    link = _make_link(fn)
     fe = _Foreach(fn, True, link)
     result = fe([1, 2, 3])
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_sync_foreach_ignore_result_false_returns_mapped(self):
     """Baseline: ignore_result=False returns fn results."""
     fn = lambda x: x * 100
-    link = _make_link(fn, 'foreach')
+    link = _make_link(fn)
     fe = _Foreach(fn, False, link)
     result = fe([1, 2, 3])
-    super(MyTestCase, self).assertEqual(result, [100, 200, 300])
+    self.assertEqual(result, [100, 200, 300])
 
   async def test_async_continuation_foreach_ignore_result(self):
     """_foreach_to_async: when fn returns a coroutine mid-iteration,
@@ -116,40 +113,40 @@ class ForeachIgnoreResultTests(MyTestCase):
     async def async_fn(x):
       return x * 100
 
-    link = _make_link(async_fn, 'foreach')
+    link = _make_link(async_fn)
     fe = _Foreach(async_fn, True, link)
     result = fe([10, 20, 30])
     # fn is async so __call__ returns a coroutine
     result = await result
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
+    self.assertEqual(result, [10, 20, 30])
 
   async def test_async_continuation_foreach_ignore_result_false(self):
     """Baseline: async continuation with ignore_result=False returns fn results."""
     async def async_fn(x):
       return x * 100
 
-    link = _make_link(async_fn, 'foreach')
+    link = _make_link(async_fn)
     fe = _Foreach(async_fn, False, link)
     result = await fe([10, 20, 30])
-    super(MyTestCase, self).assertEqual(result, [1000, 2000, 3000])
+    self.assertEqual(result, [1000, 2000, 3000])
 
   async def test_full_async_foreach_ignore_result(self):
     """_foreach_full_async: when input is an async iterable,
     appends original elements when ignore_result=True
     (lines 113-114 of _iteration.pxi)."""
     fn = lambda x: x * 100
-    link = _make_link(fn, 'foreach')
+    link = _make_link(fn)
     fe = _Foreach(fn, True, link)
     result = await fe(AsyncIter([5, 6, 7]))
-    super(MyTestCase, self).assertEqual(result, [5, 6, 7])
+    self.assertEqual(result, [5, 6, 7])
 
   async def test_full_async_foreach_ignore_result_false(self):
     """Baseline: fully async foreach with ignore_result=False returns fn results."""
     fn = lambda x: x * 100
-    link = _make_link(fn, 'foreach')
+    link = _make_link(fn)
     fe = _Foreach(fn, False, link)
     result = await fe(AsyncIter([5, 6, 7]))
-    super(MyTestCase, self).assertEqual(result, [500, 600, 700])
+    self.assertEqual(result, [500, 600, 700])
 
   async def test_full_async_foreach_async_fn_ignore_result(self):
     """_foreach_full_async with async fn: coroutine results are awaited but
@@ -157,136 +154,52 @@ class ForeachIgnoreResultTests(MyTestCase):
     async def async_fn(x):
       return x * 100
 
-    link = _make_link(async_fn, 'foreach')
+    link = _make_link(async_fn)
     fe = _Foreach(async_fn, True, link)
     result = await fe(AsyncIter([5, 6, 7]))
-    super(MyTestCase, self).assertEqual(result, [5, 6, 7])
+    self.assertEqual(result, [5, 6, 7])
 
   async def test_sync_foreach_empty_iterable(self):
     """ignore_result=True with empty iterable returns empty list."""
     fn = lambda x: x * 100
-    link = _make_link(fn, 'foreach')
+    link = _make_link(fn)
     fe = _Foreach(fn, True, link)
     result = fe([])
-    super(MyTestCase, self).assertEqual(result, [])
-
-
-# ---------------------------------------------------------------------------
-# ForeachIndexedIgnoreResultTests
-# ---------------------------------------------------------------------------
-class ForeachIndexedIgnoreResultTests(MyTestCase):
-  """Test _ForeachIndexed with ignore_result=True across all three execution paths."""
-
-  async def test_sync_foreach_indexed_ignore_result(self):
-    """_ForeachIndexed.__call__ sync path: when ignore_result=True, appends
-    original elements instead of fn(idx, el) results
-    (lines 309-310 of _iteration.pxi)."""
-    fn = lambda i, x: (i, x * 100)
-    link = _make_link(fn, 'foreach')
-    fi = _ForeachIndexed(fn, True, link)
-    result = fi([10, 20, 30])
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
-
-  async def test_sync_foreach_indexed_ignore_result_false(self):
-    """Baseline: ignore_result=False returns fn(idx, el) results."""
-    fn = lambda i, x: (i, x * 100)
-    link = _make_link(fn, 'foreach')
-    fi = _ForeachIndexed(fn, False, link)
-    result = fi([10, 20, 30])
-    super(MyTestCase, self).assertEqual(result, [(0, 1000), (1, 2000), (2, 3000)])
-
-  async def test_async_continuation_foreach_indexed_ignore_result(self):
-    """_foreach_indexed_to_async: async fn triggers continuation, which
-    preserves original elements when ignore_result=True
-    (lines 335-336 of _iteration.pxi)."""
-    async def async_fn(i, x):
-      return (i, x * 100)
-
-    link = _make_link(async_fn, 'foreach')
-    fi = _ForeachIndexed(async_fn, True, link)
-    result = await fi([10, 20, 30])
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
-
-  async def test_async_continuation_foreach_indexed_ignore_result_false(self):
-    """Baseline: async continuation with ignore_result=False returns fn results."""
-    async def async_fn(i, x):
-      return (i, x * 100)
-
-    link = _make_link(async_fn, 'foreach')
-    fi = _ForeachIndexed(async_fn, False, link)
-    result = await fi([10, 20, 30])
-    super(MyTestCase, self).assertEqual(result, [(0, 1000), (1, 2000), (2, 3000)])
-
-  async def test_full_async_foreach_indexed_ignore_result(self):
-    """_foreach_indexed_full_async: async iterable path preserves original
-    elements when ignore_result=True
-    (lines 366-367 of _iteration.pxi)."""
-    fn = lambda i, x: (i, x * 100)
-    link = _make_link(fn, 'foreach')
-    fi = _ForeachIndexed(fn, True, link)
-    result = await fi(AsyncIter([10, 20, 30]))
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
-
-  async def test_full_async_foreach_indexed_ignore_result_false(self):
-    """Baseline: fully async indexed foreach with ignore_result=False returns fn results."""
-    fn = lambda i, x: (i, x * 100)
-    link = _make_link(fn, 'foreach')
-    fi = _ForeachIndexed(fn, False, link)
-    result = await fi(AsyncIter([10, 20, 30]))
-    super(MyTestCase, self).assertEqual(result, [(0, 1000), (1, 2000), (2, 3000)])
-
-  async def test_full_async_foreach_indexed_async_fn_ignore_result(self):
-    """_foreach_indexed_full_async with async fn: coroutine results are awaited
-    but original elements are still preserved when ignore_result=True."""
-    async def async_fn(i, x):
-      return (i, x * 100)
-
-    link = _make_link(async_fn, 'foreach')
-    fi = _ForeachIndexed(async_fn, True, link)
-    result = await fi(AsyncIter([10, 20, 30]))
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
-
-  async def test_sync_foreach_indexed_empty_iterable(self):
-    """ignore_result=True with empty iterable returns empty list."""
-    fn = lambda i, x: (i, x)
-    link = _make_link(fn, 'foreach')
-    fi = _ForeachIndexed(fn, True, link)
-    result = fi([])
-    super(MyTestCase, self).assertEqual(result, [])
+    self.assertEqual(result, [])
 
 
 # ---------------------------------------------------------------------------
 # WithIgnoreResultTests
 # ---------------------------------------------------------------------------
-class WithIgnoreResultTests(MyTestCase):
+class WithIgnoreResultTests(IsolatedAsyncioTestCase):
   """Test _With with ignore_result=True across all three execution paths."""
 
   async def test_sync_with_ignore_result_returns_outer_value(self):
     """_With.__call__ sync path: when ignore_result=True, returns the original
     context manager (outer_value) instead of the body result
     (lines 94-95 of _control_flow.pxi)."""
-    body_link = Link(lambda ctx: ctx.upper(), (), {}, fn_name='with_')
+    body_link = Link(lambda ctx: ctx.upper(), (), {})
     w = _With(body_link, True, (), {})
     cm = SimpleCM('hello')
     result = w(cm)
-    super(MyTestCase, self).assertIs(result, cm)
+    self.assertIs(result, cm)
 
   async def test_sync_with_ignore_result_false_returns_body_result(self):
     """Baseline: ignore_result=False returns the body fn result."""
-    body_link = Link(lambda ctx: ctx.upper(), (), {}, fn_name='with_')
+    body_link = Link(lambda ctx: ctx.upper(), (), {})
     w = _With(body_link, False, (), {})
     cm = SimpleCM('hello')
     result = w(cm)
-    super(MyTestCase, self).assertEqual(result, 'HELLO')
+    self.assertEqual(result, 'HELLO')
 
   async def test_sync_with_ignore_result_cm_lifecycle(self):
     """_With with ignore_result=True still enters and exits the CM."""
-    body_link = Link(lambda ctx: ctx.upper(), (), {}, fn_name='with_')
+    body_link = Link(lambda ctx: ctx.upper(), (), {})
     w = _With(body_link, True, (), {})
     cm = SimpleCM('val')
     w(cm)
-    super(MyTestCase, self).assertTrue(cm.entered)
-    super(MyTestCase, self).assertTrue(cm.exited)
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
 
   async def test_async_continuation_with_ignore_result(self):
     """_with_to_async: when sync CM body returns a coroutine and
@@ -295,61 +208,61 @@ class WithIgnoreResultTests(MyTestCase):
     async def async_body(ctx):
       return ctx.upper()
 
-    body_link = Link(async_body, (), {}, fn_name='with_')
+    body_link = Link(async_body, (), {})
     w = _With(body_link, True, (), {})
     cm = SimpleCM('hello')
     result = await w(cm)
-    super(MyTestCase, self).assertIs(result, cm)
+    self.assertIs(result, cm)
 
   async def test_async_continuation_with_ignore_result_false(self):
     """Baseline: async continuation with ignore_result=False returns body result."""
     async def async_body(ctx):
       return ctx.upper()
 
-    body_link = Link(async_body, (), {}, fn_name='with_')
+    body_link = Link(async_body, (), {})
     w = _With(body_link, False, (), {})
     cm = SimpleCM('hello')
     result = await w(cm)
-    super(MyTestCase, self).assertEqual(result, 'HELLO')
+    self.assertEqual(result, 'HELLO')
 
   async def test_async_continuation_with_ignore_result_cm_lifecycle(self):
     """Sync CM with async body and ignore_result=True still enters and exits."""
     async def async_body(ctx):
       return 'whatever'
 
-    body_link = Link(async_body, (), {}, fn_name='with_')
+    body_link = Link(async_body, (), {})
     w = _With(body_link, True, (), {})
     cm = SimpleCM('val')
     await w(cm)
-    super(MyTestCase, self).assertTrue(cm.entered)
-    super(MyTestCase, self).assertTrue(cm.exited)
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
 
   async def test_full_async_with_ignore_result(self):
     """_with_full_async: when CM has __aenter__, ignore_result=True returns
     the async CM (outer_value) instead of the body result
     (lines 150-151 of _control_flow.pxi)."""
-    body_link = Link(lambda ctx: ctx.upper(), (), {}, fn_name='with_')
+    body_link = Link(lambda ctx: ctx.upper(), (), {})
     w = _With(body_link, True, (), {})
     cm = AsyncCM('hello')
     result = await w(cm)
-    super(MyTestCase, self).assertIs(result, cm)
+    self.assertIs(result, cm)
 
   async def test_full_async_with_ignore_result_false(self):
     """Baseline: fully async with and ignore_result=False returns body result."""
-    body_link = Link(lambda ctx: ctx.upper(), (), {}, fn_name='with_')
+    body_link = Link(lambda ctx: ctx.upper(), (), {})
     w = _With(body_link, False, (), {})
     cm = AsyncCM('hello')
     result = await w(cm)
-    super(MyTestCase, self).assertEqual(result, 'HELLO')
+    self.assertEqual(result, 'HELLO')
 
   async def test_full_async_with_ignore_result_cm_lifecycle(self):
     """Async CM with ignore_result=True still enters and exits."""
-    body_link = Link(lambda ctx: 'whatever', (), {}, fn_name='with_')
+    body_link = Link(lambda ctx: 'whatever', (), {})
     w = _With(body_link, True, (), {})
     cm = AsyncCM('val')
     await w(cm)
-    super(MyTestCase, self).assertTrue(cm.entered)
-    super(MyTestCase, self).assertTrue(cm.exited)
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
 
   async def test_full_async_with_async_body_ignore_result(self):
     """_with_full_async with async body fn: coroutine is awaited but
@@ -357,17 +270,17 @@ class WithIgnoreResultTests(MyTestCase):
     async def async_body(ctx):
       return ctx.upper()
 
-    body_link = Link(async_body, (), {}, fn_name='with_')
+    body_link = Link(async_body, (), {})
     w = _With(body_link, True, (), {})
     cm = AsyncCM('hello')
     result = await w(cm)
-    super(MyTestCase, self).assertIs(result, cm)
+    self.assertIs(result, cm)
 
 
 # ---------------------------------------------------------------------------
 # GeneratorIgnoreResultTests
 # ---------------------------------------------------------------------------
-class GeneratorIgnoreResultTests(MyTestCase):
+class GeneratorIgnoreResultTests(IsolatedAsyncioTestCase):
   """Test sync_generator and async_generator with ignore_result=True."""
 
   async def test_sync_generator_ignore_result(self):
@@ -378,7 +291,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
       return [1, 2, 3]
 
     result = list(sync_generator(get_iter, (), lambda x: x * 100, True))
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_sync_generator_ignore_result_false(self):
     """Baseline: sync_generator with ignore_result=False returns fn results."""
@@ -386,7 +299,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
       return [1, 2, 3]
 
     result = list(sync_generator(get_iter, (), lambda x: x * 100, False))
-    super(MyTestCase, self).assertEqual(result, [100, 200, 300])
+    self.assertEqual(result, [100, 200, 300])
 
   async def test_sync_generator_ignore_result_no_fn(self):
     """sync_generator with fn=None yields elements regardless of ignore_result."""
@@ -394,7 +307,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
       return [10, 20, 30]
 
     result = list(sync_generator(get_iter, (), None, True))
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
+    self.assertEqual(result, [10, 20, 30])
 
   async def test_async_generator_sync_iter_ignore_result(self):
     """async_generator with sync iterable: when ignore_result=True, yields
@@ -405,7 +318,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_iter, (), lambda x: x * 100, True):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_async_generator_sync_iter_ignore_result_false(self):
     """Baseline: async_generator sync iter with ignore_result=False."""
@@ -415,7 +328,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_iter, (), lambda x: x * 100, False):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [100, 200, 300])
+    self.assertEqual(result, [100, 200, 300])
 
   async def test_async_generator_sync_iter_async_fn_ignore_result(self):
     """async_generator with sync iter and async fn: coroutine is awaited
@@ -429,7 +342,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_iter, (), async_fn, True):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_async_generator_aiter_ignore_result(self):
     """async_generator with async iterable: when ignore_result=True, yields
@@ -440,7 +353,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_aiter, (), lambda x: x * 100, True):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_async_generator_aiter_ignore_result_false(self):
     """Baseline: async_generator aiter with ignore_result=False."""
@@ -450,7 +363,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_aiter, (), lambda x: x * 100, False):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [100, 200, 300])
+    self.assertEqual(result, [100, 200, 300])
 
   async def test_async_generator_aiter_async_fn_ignore_result(self):
     """async_generator with async iterable and async fn: coroutine is awaited
@@ -464,7 +377,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_aiter, (), async_fn, True):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_async_generator_aiter_no_fn(self):
     """async_generator with fn=None yields elements regardless of ignore_result."""
@@ -474,7 +387,7 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(get_aiter, (), None, True):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [10, 20, 30])
+    self.assertEqual(result, [10, 20, 30])
 
   async def test_async_generator_coroutine_iterator_getter(self):
     """async_generator where iterator_getter returns a coroutine that
@@ -485,13 +398,13 @@ class GeneratorIgnoreResultTests(MyTestCase):
     result = []
     async for item in async_generator(async_getter, (), lambda x: x * 10, True):
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [4, 5, 6])
+    self.assertEqual(result, [4, 5, 6])
 
 
 # ---------------------------------------------------------------------------
 # GeneratorObjectIgnoreResultTests
 # ---------------------------------------------------------------------------
-class GeneratorObjectIgnoreResultTests(MyTestCase):
+class GeneratorObjectIgnoreResultTests(IsolatedAsyncioTestCase):
   """Test _Generator wrapper with _ignore_result=True."""
 
   async def test_generator_sync_iteration_ignore_result(self):
@@ -501,7 +414,7 @@ class GeneratorObjectIgnoreResultTests(MyTestCase):
 
     gen = _Generator(fake_run, lambda x: x * 10, _ignore_result=True)
     result = list(gen)
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_generator_async_iteration_ignore_result(self):
     """_Generator.__aiter__ with _ignore_result=True yields original elements."""
@@ -512,7 +425,7 @@ class GeneratorObjectIgnoreResultTests(MyTestCase):
     result = []
     async for item in gen:
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_generator_call_preserves_ignore_result(self):
     """Calling a _Generator returns a new instance that preserves _ignore_result."""
@@ -522,7 +435,7 @@ class GeneratorObjectIgnoreResultTests(MyTestCase):
     gen = _Generator(fake_run, lambda x: x * 5, _ignore_result=True)
     nested = gen()
     result = list(nested)
-    super(MyTestCase, self).assertEqual(result, [10, 20])
+    self.assertEqual(result, [10, 20])
 
   async def test_generator_reuse_with_ignore_result(self):
     """A _Generator with _ignore_result=True can be iterated multiple times."""
@@ -532,8 +445,8 @@ class GeneratorObjectIgnoreResultTests(MyTestCase):
     gen = _Generator(fake_run, lambda x: x + 1000, _ignore_result=True)
     r1 = list(gen)
     r2 = list(gen)
-    super(MyTestCase, self).assertEqual(r1, [7, 8, 9])
-    super(MyTestCase, self).assertEqual(r2, [7, 8, 9])
+    self.assertEqual(r1, [7, 8, 9])
+    self.assertEqual(r2, [7, 8, 9])
 
   async def test_generator_async_iter_source_ignore_result(self):
     """_Generator.__aiter__ with async iterable source and _ignore_result=True."""
@@ -544,7 +457,7 @@ class GeneratorObjectIgnoreResultTests(MyTestCase):
     result = []
     async for item in gen:
       result.append(item)
-    super(MyTestCase, self).assertEqual(result, [100, 200, 300])
+    self.assertEqual(result, [100, 200, 300])
 
   async def test_generator_empty_source_ignore_result(self):
     """_Generator with empty iterable and _ignore_result=True yields nothing."""
@@ -553,7 +466,7 @@ class GeneratorObjectIgnoreResultTests(MyTestCase):
 
     gen = _Generator(fake_run, lambda x: x * 10, _ignore_result=True)
     result = list(gen)
-    super(MyTestCase, self).assertEqual(result, [])
+    self.assertEqual(result, [])
 
 
 if __name__ == '__main__':

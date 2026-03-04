@@ -1,6 +1,6 @@
 import asyncio
 from unittest import TestCase, IsolatedAsyncioTestCase
-from quent import Chain, Cascade
+from quent import Chain
 
 
 class CloneBasicTests(TestCase):
@@ -220,34 +220,6 @@ class CloneNestedChainTests(TestCase):
     c = Chain(5).then(step1).then(step2)
     c2 = c.clone()
     self.assertEqual(c2.run(), 18)
-
-
-class CloneCascadeTests(TestCase):
-  """Test cloning Cascade chains."""
-
-  def test_clone_cascade(self):
-    """Clone of a Cascade preserves cascade behavior."""
-    log = []
-    c = Cascade(10).do(lambda v: log.append(v)).do(lambda v: log.append(v * 2))
-    c2 = c.clone()
-    log.clear()
-    result = c2.run()
-    self.assertEqual(result, 10)
-    self.assertEqual(log, [10, 20])
-
-  def test_clone_cascade_type(self):
-    """Clone of a Cascade returns a Cascade instance."""
-    c = Cascade(1)
-    c2 = c.clone()
-    self.assertIsInstance(c2, Cascade)
-
-  def test_clone_cascade_independence(self):
-    """Modifying original Cascade doesn't affect clone."""
-    c = Cascade(1).do(lambda v: None)
-    c2 = c.clone()
-    c.do(lambda v: None).do(lambda v: None)
-    # Clone should still work as the original 2-link chain
-    self.assertEqual(c2.run(), 1)
 
 
 class CloneAsyncTests(IsolatedAsyncioTestCase):

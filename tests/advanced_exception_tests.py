@@ -14,10 +14,11 @@ import asyncio
 import sys
 import traceback
 import warnings
+from itertools import product
 from unittest import IsolatedAsyncioTestCase
 
 from tests.utils import empty, aempty, await_
-from quent import Chain, Cascade, QuentException, run
+from quent import Chain, QuentException
 
 
 # ---------------------------------------------------------------------------
@@ -52,18 +53,6 @@ class ValidationError(Exception):
 class CustomBaseException(BaseException):
   """Custom BaseException subclass."""
   pass
-
-
-# ---------------------------------------------------------------------------
-# Base test class
-# ---------------------------------------------------------------------------
-
-class BaseExcTestCase(IsolatedAsyncioTestCase):
-  """Base class providing with_fn helper for sync/async test variants."""
-
-  def with_fn(self):
-    for fn in [empty, aempty]:
-      yield fn, self.subTest(fn=fn)
 
 
 # ---------------------------------------------------------------------------
@@ -123,13 +112,13 @@ async def async_raise_type_error(v=None):
 # 1. Exception Type Matching (18 tests)
 # ---------------------------------------------------------------------------
 
-class ExceptionTypeMatchingTests(BaseExcTestCase):
+class ExceptionTypeMatchingTests(IsolatedAsyncioTestCase):
   """Tests for .except_(handler, exceptions=...) matching behavior."""
 
   async def test_default_catches_exception(self):
     """except_(handler) catches Exception by default."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -145,8 +134,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_catches_only_value_error(self):
     """except_(handler, exceptions=ValueError) catches only ValueError."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -162,8 +151,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_catches_only_type_error(self):
     """except_(handler, exceptions=TypeError) catches only TypeError."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -179,8 +168,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_catches_list_of_exceptions(self):
     """except_(handler, exceptions=[ValueError, TypeError]) catches either."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         # Test ValueError
         called = {'value': False}
         def handler(v=None):
@@ -209,8 +198,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_catches_tuple_of_exceptions(self):
     """except_(handler, exceptions=(KeyError, IndexError)) catches either."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -237,8 +226,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_exception_subclass_matching(self):
     """If exceptions=Exception, catches ValueError (a subclass)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -254,8 +243,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_exception_not_matching(self):
     """exceptions=ValueError but TypeError raised -- handler NOT called."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -271,8 +260,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_multiple_except_handlers_different_types(self):
     """Multiple except handlers with different exception types; first match wins."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False}
         def handler1(v=None):
           calls['h1'] = True
@@ -293,8 +282,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_first_matching_handler_wins(self):
     """When multiple handlers match, the first matching one wins."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False}
         def handler1(v=None):
           calls['h1'] = True
@@ -315,8 +304,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_non_matching_handlers_skipped(self):
     """Handlers that don't match the exception type are skipped."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False, 'h3': False}
         def handler1(v=None):
           calls['h1'] = True
@@ -341,8 +330,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_base_exception_catches_system_exit(self):
     """except_(handler, exceptions=BaseException) catches SystemExit."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -360,8 +349,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_default_except_does_not_catch_system_exit(self):
     """Default except_ (exceptions=Exception) does NOT catch SystemExit."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -379,8 +368,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_default_except_does_not_catch_keyboard_interrupt(self):
     """Default except_ does NOT catch KeyboardInterrupt."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -405,8 +394,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_custom_exception_hierarchy_parent_child(self):
     """Parent exception type catches child exceptions."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -422,8 +411,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_custom_exception_hierarchy_grandchild(self):
     """Grandparent exception type catches grandchild exceptions."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -439,8 +428,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_child_exception_type_does_not_catch_parent(self):
     """Child exception type does NOT catch parent exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -456,8 +445,8 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 
   async def test_sibling_exception_types_no_cross_matching(self):
     """Sibling exception types don't cross-match."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -476,13 +465,13 @@ class ExceptionTypeMatchingTests(BaseExcTestCase):
 # 2. Reraise Behavior (11 tests)
 # ---------------------------------------------------------------------------
 
-class ReraiseBehaviorTests(BaseExcTestCase):
+class ReraiseBehaviorTests(IsolatedAsyncioTestCase):
   """Tests for reraise=True/False in except_ handlers."""
 
   async def test_reraise_true_default(self):
     """reraise=True (default): handler runs, exception re-raised."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -497,8 +486,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 
   async def test_reraise_false_returns_handler_result(self):
     """reraise=False: handler runs, handler result returned."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           return 'recovered'
         result = await await_(
@@ -541,8 +530,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 
   async def test_handler_returns_none_with_reraise_false(self):
     """Handler that returns None with reraise=False: chain returns None."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           return None
         result = await await_(
@@ -554,8 +543,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 
   async def test_handler_return_value_ignored_with_reraise_true(self):
     """Handler that returns a value with reraise=True: value ignored, exception re-raised."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           return 'this_should_be_ignored'
         with self.assertRaises(ValueError):
@@ -567,8 +556,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 
   async def test_multiple_handlers_first_match_reraise_true(self):
     """Multiple handlers, first match has reraise=True: runs, re-raises, second NOT run."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False}
         def handler1(v=None):
           calls['h1'] = True
@@ -587,8 +576,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 
   async def test_multiple_handlers_first_match_reraise_false(self):
     """Multiple handlers, first match has reraise=False: result returned, second NOT run."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False}
         def handler1(v=None):
           calls['h1'] = True
@@ -609,8 +598,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 
   async def test_handler_receives_root_value(self):
     """Handler receives root_value as argument (via evaluate_value)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         received = {'value': None}
         def handler(v=None):
           received['value'] = v
@@ -627,8 +616,8 @@ class ReraiseBehaviorTests(BaseExcTestCase):
   async def test_reraise_false_specific_return_value(self):
     """Handler with reraise=False returns a specific object."""
     sentinel = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           return sentinel
         result = await await_(
@@ -653,13 +642,13 @@ class ReraiseBehaviorTests(BaseExcTestCase):
 # 3. Exception Handler Raises (10 tests)
 # ---------------------------------------------------------------------------
 
-class ExceptionHandlerRaisesTests(BaseExcTestCase):
+class ExceptionHandlerRaisesTests(IsolatedAsyncioTestCase):
   """Tests for when the exception handler itself raises an exception."""
 
   async def test_handler_raises_new_exception_chained(self):
     """Handler raises a new exception: results in `raise exc_ from exc` chaining."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler error')
 
@@ -676,8 +665,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_handler_raises_same_exception_type(self):
     """Handler raises same exception type as original."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise ValueError('handler value error')
 
@@ -695,8 +684,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_handler_raises_different_exception_type(self):
     """Handler raises different exception type from original."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise TypeError('handler type error')
 
@@ -727,8 +716,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_handler_raises_with_reraise_true(self):
     """Handler raises with reraise=True -- the handler exception propagates (raise from)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler error in reraise')
 
@@ -745,8 +734,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_handler_raises_with_reraise_false(self):
     """Handler raises with reraise=False -- handler's new exception propagates."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise TypeError('handler type error')
 
@@ -763,8 +752,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_cause_chain_is_correct(self):
     """The __cause__ chain: original exc -> handler exc."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('from handler')
 
@@ -782,8 +771,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_context_is_preserved(self):
     """The __context__/__cause__ is set when handler raises."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('from handler')
 
@@ -800,8 +789,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_handler_raises_type_error_original_value_error(self):
     """Handler raises TypeError, original was ValueError -- final is TypeError from ValueError."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise TypeError('handler')
 
@@ -819,8 +808,8 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 
   async def test_nested_chain_handler_raises_outer_catches(self):
     """Nested chain: inner handler raises, outer chain catches the new exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         def inner_handler(v=None):
           raise RuntimeError('inner handler error')
 
@@ -829,11 +818,11 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
           outer_called['value'] = True
           return 'outer_recovered'
 
-        inner = Chain().then(fn).then(raise_value_error) \
+        inner = Chain().then(fn1).then(raise_value_error) \
           .except_(inner_handler, reraise=False)
 
         result = await await_(
-          Chain(fn).then(inner, ...)
+          Chain(fn2).then(inner, ...)
           .except_(outer_handler, exceptions=RuntimeError, reraise=False)
           .run()
         )
@@ -845,13 +834,13 @@ class ExceptionHandlerRaisesTests(BaseExcTestCase):
 # 4. Finally Handler Edge Cases (16 tests)
 # ---------------------------------------------------------------------------
 
-class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
+class FinallyHandlerEdgeCaseTests(IsolatedAsyncioTestCase):
   """Tests for finally_ handler edge cases."""
 
   async def test_finally_runs_on_success(self):
     """Finally runs on success."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def on_finally(v=None):
           called['value'] = True
@@ -865,8 +854,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_runs_on_exception_with_except(self):
     """Finally runs on exception (with except handler)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'exc': False, 'fin': False}
         def on_except(v=None):
           calls['exc'] = True
@@ -886,8 +875,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_runs_on_exception_without_except(self):
     """Finally runs on exception (without except handler)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def on_finally(v=None):
           called['value'] = True
@@ -903,8 +892,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_handler_receives_root_value(self):
     """Finally handler receives root_value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         received = {'value': None}
         def on_finally(v=None):
           received['value'] = v
@@ -918,8 +907,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_return_value_ignored_on_success(self):
     """Finally handler return value is ignored on success."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def on_finally(v=None):
           return 'finally_result'
         result = await await_(
@@ -931,8 +920,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_that_raises_overrides_original_exception(self):
     """Finally handler that raises -- overrides original exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def on_finally(v=None):
           raise RuntimeError('finally error')
 
@@ -948,8 +937,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_that_raises_on_success(self):
     """Finally handler that raises on success -- raises the finally exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def on_finally(v=None):
           raise RuntimeError('finally error on success')
 
@@ -984,8 +973,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_with_control_flow_raises_quent_exception(self):
     """Finally handler with control flow signals (return_/break_) -- QuentException."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def on_finally_return(v=None):
           Chain.return_('should not work')
 
@@ -1011,20 +1000,6 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
     Chain().finally_(on_finally).run()
     self.assertIsNone(received['value'])
 
-  async def test_finally_on_cascade(self):
-    """Finally on cascade -- receives root_value."""
-    received = {'value': None}
-    def on_finally(v=None):
-      received['value'] = v
-    result = await await_(
-      Cascade(42)
-      .then(lambda v: v * 2)
-      .finally_(on_finally)
-      .run()
-    )
-    self.assertEqual(result, 42)
-    self.assertEqual(received['value'], 42)
-
   async def test_finally_on_async_chain_properly_awaited(self):
     """Finally on async chain -- properly awaited."""
     called = {'value': False}
@@ -1039,8 +1014,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_after_except_reraise_true(self):
     """Finally after except(reraise=True) -- runs after re-raise."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'exc': False, 'fin': False}
         def on_except(v=None):
           calls['exc'] = True
@@ -1059,8 +1034,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_after_except_reraise_false(self):
     """Finally after except(reraise=False) -- runs after handler result."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'exc': False, 'fin': False}
         def on_except(v=None):
           calls['exc'] = True
@@ -1080,8 +1055,8 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 
   async def test_finally_handler_does_not_alter_success_result(self):
     """Finally handler does not alter the successful chain result."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         sentinel = object()
         def on_finally(v=None):
           return 'not_this'
@@ -1097,13 +1072,13 @@ class FinallyHandlerEdgeCaseTests(BaseExcTestCase):
 # 5. Exception Chaining (__cause__ / __context__) (10 tests)
 # ---------------------------------------------------------------------------
 
-class ExceptionChainingTests(BaseExcTestCase):
+class ExceptionChainingTests(IsolatedAsyncioTestCase):
   """Tests for exception chaining behavior (__cause__, __context__)."""
 
   async def test_explicit_chaining_raise_from(self):
     """Explicit chaining: handler `raise X from Y`."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler') from ValueError('original')
 
@@ -1119,8 +1094,8 @@ class ExceptionChainingTests(BaseExcTestCase):
 
   async def test_implicit_chaining_context(self):
     """Implicit chaining: handler `raise X` while Y is active -> __context__."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('implicit chain')
 
@@ -1137,8 +1112,8 @@ class ExceptionChainingTests(BaseExcTestCase):
 
   async def test_suppress_context_flag(self):
     """__suppress_context__ flag works correctly."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           exc = RuntimeError('suppressed')
           exc.__suppress_context__ = True
@@ -1156,8 +1131,8 @@ class ExceptionChainingTests(BaseExcTestCase):
 
   async def test_deep_chaining(self):
     """Deep chaining: A -> B -> C through nested handlers."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         def raise_a(v=None):
           raise ValueError('A')
         def handler_a_to_b(v=None):
@@ -1165,11 +1140,11 @@ class ExceptionChainingTests(BaseExcTestCase):
         def handler_b_to_c(v=None):
           raise RuntimeError('C')
 
-        inner = Chain().then(fn).then(raise_a) \
+        inner = Chain().then(fn1).then(raise_a) \
           .except_(handler_a_to_b, reraise=False)
         try:
           await await_(
-            Chain(fn).then(inner, ...)
+            Chain(fn2).then(inner, ...)
             .except_(handler_b_to_c, exceptions=TypeError, reraise=False)
             .run()
           )
@@ -1181,26 +1156,26 @@ class ExceptionChainingTests(BaseExcTestCase):
 
   async def test_chained_exceptions_through_nested_chains(self):
     """Chained exceptions through nested chains."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         def inner_raise(v=None):
           raise ValueError('inner')
         def inner_handler(v=None):
           raise TypeError('from inner handler')
 
-        inner_chain = Chain().then(fn).then(inner_raise) \
+        inner_chain = Chain().then(fn1).then(inner_raise) \
           .except_(inner_handler, reraise=False)
 
         try:
-          await await_(Chain(fn).then(inner_chain, ...).run())
+          await await_(Chain(fn2).then(inner_chain, ...).run())
           self.fail('Should have raised')
         except TypeError as e:
           self.assertIsInstance(e.__cause__, ValueError)
 
   async def test_except_handler_chains_via_raise_from(self):
     """except handler's exception chains with original via `raise exc_ from exc`."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler exc')
 
@@ -1231,28 +1206,10 @@ class ExceptionChainingTests(BaseExcTestCase):
     except RuntimeError as e:
       self.assertIsInstance(e.__cause__, ValueError)
 
-  async def test_cascade_exception_chaining(self):
-    """Cascade exception chaining."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        def handler(v=None):
-          raise RuntimeError('cascade handler')
-
-        try:
-          await await_(
-            Cascade(fn, 42)
-            .then(raise_value_error)
-            .except_(handler, reraise=False)
-            .run()
-          )
-          self.fail('Should have raised')
-        except RuntimeError as e:
-          self.assertIsInstance(e.__cause__, ValueError)
-
   async def test_exception_from_then_has_no_false_context(self):
     """Exception from .then() raised after a previous successful .then()."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def step1(v=None):
           return 'step1_result'
         def step2(v=None):
@@ -1268,8 +1225,8 @@ class ExceptionChainingTests(BaseExcTestCase):
 
   async def test_cause_chain_preserved_through_reraise(self):
     """__cause__ chain preserved when handler raises with reraise=True."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler raises')
 
@@ -1288,13 +1245,13 @@ class ExceptionChainingTests(BaseExcTestCase):
 # 6. Traceback Augmentation (10 tests)
 # ---------------------------------------------------------------------------
 
-class TracebackAugmentationTests(BaseExcTestCase):
+class TracebackAugmentationTests(IsolatedAsyncioTestCase):
   """Tests for traceback augmentation with <quent> frames."""
 
   async def test_exception_has_quent_frame(self):
     """Exception in chain has <quent> frame in traceback."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         try:
           await await_(Chain(fn).then(raise_value_error).run())
           self.fail('Should have raised')
@@ -1310,8 +1267,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_quent_frame_shows_chain_visualization(self):
     """<quent> frame shows chain visualization in co_name."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         try:
           await await_(Chain(fn).then(raise_value_error).run())
           self.fail('Should have raised')
@@ -1330,8 +1287,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_source_arrow_points_to_failing_link(self):
     """Source arrow (<----) points to failing link."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         try:
           await await_(
             Chain(fn).then(lambda v: v).then(raise_value_error).run()
@@ -1352,8 +1309,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_debug_mode_shows_intermediate_results(self):
     """Debug mode: intermediate results shown in traceback."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         try:
           await await_(
             Chain(fn, 10)
@@ -1378,8 +1335,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_no_quent_internal_frames_leaked(self):
     """No quent-internal frames leaked to user (only <quent> viz frames)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         try:
           await await_(Chain(fn).then(raise_value_error).run())
           self.fail('Should have raised')
@@ -1395,8 +1352,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_user_code_frames_preserved(self):
     """User code frames preserved in traceback."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def my_user_function(v=None):
           raise ValueError('user error')
 
@@ -1418,8 +1375,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_custom_exception_preserves_message(self):
     """Custom exception types preserve their message."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def raise_custom(v=None):
           raise AppError('custom message')
 
@@ -1433,8 +1390,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_exception_in_handler_modified_traceback(self):
     """Exception in except handler: modified traceback includes handler info."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler error')
 
@@ -1451,12 +1408,12 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_nested_chain_traceback_visualization(self):
     """Nested chain: visualization shows nesting."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        inner = Chain().then(fn).then(raise_value_error)
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
+        inner = Chain().then(fn1).then(raise_value_error)
         try:
           await await_(
-            Chain(fn).then(inner, ...).run()
+            Chain(fn2).then(inner, ...).run()
           )
           self.fail('Should have raised')
         except ValueError as e:
@@ -1470,8 +1427,8 @@ class TracebackAugmentationTests(BaseExcTestCase):
 
   async def test_chained_exceptions_cleaned_tracebacks(self):
     """Chained exceptions also have cleaned tracebacks."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise RuntimeError('handler')
 
@@ -1492,13 +1449,13 @@ class TracebackAugmentationTests(BaseExcTestCase):
 # 7. Complex Multi-Handler Scenarios (11 tests)
 # ---------------------------------------------------------------------------
 
-class ComplexMultiHandlerTests(BaseExcTestCase):
+class ComplexMultiHandlerTests(IsolatedAsyncioTestCase):
   """Tests for complex scenarios with multiple exception handlers."""
 
   async def test_three_handlers_matches_second(self):
     """3 except handlers, exception matches 2nd."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False, 'h3': False}
         def h1(v=None):
           calls['h1'] = True
@@ -1521,8 +1478,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_three_handlers_matches_none_propagates(self):
     """3 except handlers, exception matches none -- propagates."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False, 'h3': False}
         def h1(v=None):
           calls['h1'] = True
@@ -1545,8 +1502,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_reraise_true_second_handler_not_run(self):
     """except handler with reraise=True + another handler after -- second never runs."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'h1': False, 'h2': False}
         def h1(v=None):
           calls['h1'] = True
@@ -1565,8 +1522,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_reraise_false_returns_result(self):
     """except handler with reraise=False: result returned."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def h1(v=None):
           return 'swallowed'
 
@@ -1579,8 +1536,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_except_and_finally_swallows(self):
     """except and finally combination: except swallows, finally runs."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'exc': False, 'fin': False}
         def on_except(v=None):
           calls['exc'] = True
@@ -1600,8 +1557,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_except_and_finally_reraises(self):
     """except and finally combination: except re-raises, finally runs, exception propagates."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'exc': False, 'fin': False}
         def on_except(v=None):
           calls['exc'] = True
@@ -1620,8 +1577,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_finally_raises_overrides_except_result(self):
     """except and finally: finally raises, overrides except result."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def on_except(v=None):
           return 'recovered'
         def on_finally(v=None):
@@ -1640,8 +1597,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_two_different_exception_types_two_handlers(self):
     """Two different exception types in same chain, two handlers."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         # ValueError with ValueError handler
         calls = {'h1': False, 'h2': False}
         def h1(v=None):
@@ -1673,8 +1630,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_wildcard_handler_as_last_resort(self):
     """Wildcard handler (exceptions=Exception) as last resort."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'specific': False, 'wildcard': False}
         def specific_handler(v=None):
           calls['specific'] = True
@@ -1693,8 +1650,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_base_exception_handler_as_absolute_last(self):
     """BaseException handler as absolute last resort."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'exc': False, 'base': False}
         def exc_handler(v=None):
           calls['exc'] = True
@@ -1716,8 +1673,8 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 
   async def test_handler_with_reraise_false_returns_value(self):
     """Handler with reraise=False returns a specific value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         sentinel = object()
         def handler(v=None):
           return sentinel
@@ -1734,13 +1691,13 @@ class ComplexMultiHandlerTests(BaseExcTestCase):
 # 8. Exception in Various Operations (12 tests)
 # ---------------------------------------------------------------------------
 
-class ExceptionInOperationsTests(BaseExcTestCase):
+class ExceptionInOperationsTests(IsolatedAsyncioTestCase):
   """Tests for exceptions in various chain operations."""
 
   async def test_exception_in_foreach_body(self):
     """Exception in foreach body is caught by except handler."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -1761,8 +1718,8 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 
   async def test_exception_in_filter_predicate(self):
     """Exception in filter predicate is caught by except handler."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -1783,8 +1740,8 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 
   async def test_exception_in_gather_function(self):
     """Exception in gather function is caught."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -1803,8 +1760,8 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 
   async def test_exception_in_context_manager_enter(self):
     """Exception in context manager __enter__."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -1826,8 +1783,8 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 
   async def test_exception_in_context_manager_exit(self):
     """Exception in context manager __exit__."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -1849,8 +1806,8 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 
   async def test_exception_in_context_manager_body(self):
     """Exception in context manager body."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         exited = {'value': False}
         def handler(v=None):
@@ -1876,26 +1833,10 @@ class ExceptionInOperationsTests(BaseExcTestCase):
         self.assertTrue(called['value'])
         self.assertTrue(exited['value'])
 
-  async def test_exception_in_to_thread_function(self):
-    """Exception in to_thread function."""
-    called = {'value': False}
-    def handler(v=None):
-      called['value'] = True
-
-    def fail_in_thread(v):
-      raise ValueError('thread error')
-
-    with self.assertRaises(ValueError):
-      await Chain(aempty, 42) \
-        .to_thread(fail_in_thread) \
-        .except_(handler) \
-        .run()
-    self.assertTrue(called['value'])
-
   async def test_exception_in_chain_root_evaluation(self):
     """Exception in chain root evaluation."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -1914,11 +1855,11 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 
   async def test_exception_in_pipe_operator(self):
     """Exception in pipe operator."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(ValueError):
           await await_(
-            (Chain(fn) | raise_value_error | run())
+            Chain(fn).then(raise_value_error).run()
           )
 
   async def test_exception_in_async_foreach(self):
@@ -1978,7 +1919,7 @@ class ExceptionInOperationsTests(BaseExcTestCase):
 # Additional Edge Cases
 # ---------------------------------------------------------------------------
 
-class ExceptHandlerArgumentTests(BaseExcTestCase):
+class ExceptHandlerArgumentTests(IsolatedAsyncioTestCase):
   """Tests for except handler receiving correct arguments."""
 
   async def test_handler_receives_root_value_void_chain(self):
@@ -1998,8 +1939,8 @@ class ExceptHandlerArgumentTests(BaseExcTestCase):
 
   async def test_handler_receives_root_value_with_value(self):
     """Handler receives the root value when chain has a root."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         received = {'value': None}
         def handler(v=None):
           received['value'] = v
@@ -2020,8 +1961,8 @@ class ExceptHandlerArgumentTests(BaseExcTestCase):
     handler('extra') via EVAL_CALL_WITH_EXPLICIT_ARGS -- the explicit
     args replace the root_value argument.
     """
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = []
         def handler(extra_arg):
           calls.append(extra_arg)
@@ -2035,22 +1976,6 @@ class ExceptHandlerArgumentTests(BaseExcTestCase):
         self.assertEqual(result, 'handled')
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0], 'extra')
-
-  async def test_cascade_handler_receives_root(self):
-    """Cascade except handler receives root value."""
-    received = {'value': None}
-    def handler(v=None):
-      received['value'] = v
-      return 'recovered'
-
-    result = await await_(
-      Cascade(42).then(raise_value_error)
-      .except_(handler, reraise=False)
-      .run()
-    )
-    self.assertEqual(result, 'recovered')
-    self.assertEqual(received['value'], 42)
-
 
 class AsyncExceptionHandlingTests(IsolatedAsyncioTestCase):
   """Tests for async-specific exception handling scenarios."""
@@ -2149,13 +2074,13 @@ class AsyncExceptionHandlingTests(IsolatedAsyncioTestCase):
     self.assertTrue(calls['async'])
 
 
-class ExceptionWithDebugModeTests(BaseExcTestCase):
+class ExceptionWithDebugModeTests(IsolatedAsyncioTestCase):
   """Tests for exceptions when debug mode is enabled."""
 
   async def test_debug_mode_exception_has_results(self):
     """Debug mode exception traceback includes intermediate results."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         try:
           await await_(
             Chain(fn, 5)
@@ -2170,8 +2095,8 @@ class ExceptionWithDebugModeTests(BaseExcTestCase):
 
   async def test_debug_mode_with_except_handler(self):
     """Debug mode with except handler works correctly."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
@@ -2190,8 +2115,8 @@ class ExceptionWithDebugModeTests(BaseExcTestCase):
 
   async def test_debug_mode_with_finally(self):
     """Debug mode with finally handler works correctly."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'fin': False}
         def on_finally(v=None):
           calls['fin'] = True
@@ -2209,87 +2134,45 @@ class ExceptionWithDebugModeTests(BaseExcTestCase):
         self.assertTrue(calls['fin'])
 
 
-class NoAsyncModeExceptionTests(BaseExcTestCase):
-  """Tests for exceptions when no_async mode is set."""
+class ChainReuseExceptionTests(IsolatedAsyncioTestCase):
+  """Tests for exceptions in reused chains."""
 
-  async def test_no_async_exception_handling(self):
-    """Exception handling works in no_async mode."""
-    called = {'value': False}
-    def handler(v=None):
-      called['value'] = True
-      return 'recovered'
-
-    result = Chain(42) \
-      .no_async(True) \
-      .then(raise_value_error) \
-      .except_(handler, reraise=False) \
-      .run()
-    self.assertEqual(result, 'recovered')
-    self.assertTrue(called['value'])
-
-  async def test_no_async_finally_handler(self):
-    """Finally handler works in no_async mode."""
-    called = {'value': False}
-    def on_finally(v=None):
-      called['value'] = True
-
-    result = Chain(42) \
-      .no_async(True) \
-      .finally_(on_finally) \
-      .run()
-    self.assertEqual(result, 42)
-    self.assertTrue(called['value'])
-
-  async def test_no_async_exception_propagation(self):
-    """Exception propagation works in no_async mode."""
-    with self.assertRaises(ValueError):
-      Chain(42) \
-        .no_async(True) \
-        .then(raise_value_error) \
-        .run()
-
-
-class FrozenChainExceptionTests(BaseExcTestCase):
-  """Tests for exceptions in frozen chains."""
-
-  async def test_frozen_chain_exception_handling(self):
-    """Exception handling works in frozen chains."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+  async def test_chain_reuse_exception_handling(self):
+    """Exception handling works in reused chains."""
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
 
-        frozen = Chain().then(fn).then(raise_value_error) \
-          .except_(handler) \
-          .freeze()
+        c = Chain().then(fn).then(raise_value_error) \
+          .except_(handler)
         with self.assertRaises(ValueError):
-          await await_(frozen.run(42))
+          await await_(c.run(42))
         self.assertTrue(called['value'])
 
-  async def test_frozen_chain_finally_handler(self):
-    """Finally handler works in frozen chains."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+  async def test_chain_reuse_finally_handler(self):
+    """Finally handler works in reused chains."""
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = {'value': False}
         def on_finally(v=None):
           called['value'] = True
 
-        frozen = Chain().then(fn) \
-          .finally_(on_finally) \
-          .freeze()
-        result = await await_(frozen.run(42))
+        c = Chain().then(fn) \
+          .finally_(on_finally)
+        result = await await_(c.run(42))
         self.assertEqual(result, 42)
         self.assertTrue(called['value'])
 
 
-class ClonedChainExceptionTests(BaseExcTestCase):
+class ClonedChainExceptionTests(IsolatedAsyncioTestCase):
   """Tests for exceptions in cloned chains."""
 
   async def test_cloned_chain_except_handler_independent(self):
     """Cloned chain has independent except handler execution."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls_orig = {'value': False}
         def handler_orig(v=None):
           calls_orig['value'] = True
@@ -2305,8 +2188,8 @@ class ClonedChainExceptionTests(BaseExcTestCase):
 
   async def test_cloned_chain_finally_independent(self):
     """Cloned chain has independent finally handler execution."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         calls = {'orig': False, 'clone': False}
 
         original = Chain(fn, 42) \
@@ -2317,21 +2200,21 @@ class ClonedChainExceptionTests(BaseExcTestCase):
         self.assertTrue(calls['orig'])
 
 
-class ExceptionInChainOfChains(BaseExcTestCase):
+class ExceptionInChainOfChains(IsolatedAsyncioTestCase):
   """Tests for exceptions in chains that contain other chains."""
 
   async def test_inner_chain_exception_propagates_to_outer(self):
     """Inner chain exception propagates to outer chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
 
-        inner = Chain().then(fn).then(raise_value_error)
+        inner = Chain().then(fn1).then(raise_value_error)
         with self.assertRaises(ValueError):
           await await_(
-            Chain(fn, 42)
+            Chain(fn2, 42)
             .then(inner, ...)
             .except_(handler)
             .run()
@@ -2340,14 +2223,14 @@ class ExceptionInChainOfChains(BaseExcTestCase):
 
   async def test_outer_handler_catches_inner_exception(self):
     """Outer handler catches inner chain's exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         def handler(v=None):
           return 'outer_caught'
 
-        inner = Chain().then(fn).then(raise_value_error)
+        inner = Chain().then(fn1).then(raise_value_error)
         result = await await_(
-          Chain(fn, 42)
+          Chain(fn2, 42)
           .then(inner, ...)
           .except_(handler, reraise=False)
           .run()
@@ -2356,19 +2239,19 @@ class ExceptionInChainOfChains(BaseExcTestCase):
 
   async def test_deeply_nested_exception_propagation(self):
     """Exception propagates through deeply nested chains."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2, fn3, fn4 in product([empty, aempty], repeat=4):
+      with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3, fn4=fn4):
         called = {'value': False}
         def handler(v=None):
           called['value'] = True
 
-        inner3 = Chain().then(fn).then(raise_value_error)
-        inner2 = Chain().then(fn).then(inner3, ...)
-        inner1 = Chain().then(fn).then(inner2, ...)
+        inner3 = Chain().then(fn1).then(raise_value_error)
+        inner2 = Chain().then(fn2).then(inner3, ...)
+        inner1 = Chain().then(fn3).then(inner2, ...)
 
         with self.assertRaises(ValueError):
           await await_(
-            Chain(fn, 42)
+            Chain(fn4, 42)
             .then(inner1, ...)
             .except_(handler)
             .run()
@@ -2377,17 +2260,17 @@ class ExceptionInChainOfChains(BaseExcTestCase):
 
   async def test_inner_except_swallows_outer_doesnt_see(self):
     """If inner chain swallows exception, outer doesn't see it."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         outer_called = {'value': False}
         def outer_handler(v=None):
           outer_called['value'] = True
 
-        inner = Chain().then(fn).then(raise_value_error) \
+        inner = Chain().then(fn1).then(raise_value_error) \
           .except_(lambda v=None: 'inner_recovered', reraise=False)
 
         result = await await_(
-          Chain(fn, 42)
+          Chain(fn2, 42)
           .then(inner, ...)
           .except_(outer_handler, reraise=False)
           .run()
@@ -2397,13 +2280,13 @@ class ExceptionInChainOfChains(BaseExcTestCase):
         self.assertFalse(outer_called['value'])
 
 
-class PipeOperatorExceptionTests(BaseExcTestCase):
+class PipeOperatorExceptionTests(IsolatedAsyncioTestCase):
   """Tests for exceptions in the pipe (|) operator."""
 
   async def test_pipe_exception_propagation(self):
     """Exception in pipe operation propagates."""
     with self.assertRaises(ValueError):
-      Chain(42) | raise_value_error | run()
+      Chain(42).then(raise_value_error).run()
 
   async def test_pipe_with_except_handler(self):
     """Exception handler registered before pipe works when chain is evaluated."""
@@ -2413,15 +2296,15 @@ class PipeOperatorExceptionTests(BaseExcTestCase):
 
     # The except_ is on the chain, and raise_value_error is added via pipe
     with self.assertRaises(ValueError):
-      Chain(42).except_(handler) | raise_value_error | run()
+      Chain(42).except_(handler).then(raise_value_error).run()
 
   async def test_pipe_exception_in_first_operation(self):
     """Exception in first pipe operation."""
     with self.assertRaises(ValueError):
-      Chain(raise_value_error) | (lambda v: v) | run()
+      Chain(raise_value_error).then(lambda v: v).run()
 
 
-class ContextManagerExceptionTests(BaseExcTestCase):
+class ContextManagerExceptionTests(IsolatedAsyncioTestCase):
   """Tests for exceptions with async context managers."""
 
   async def test_async_context_manager_enter_exception(self):
@@ -2489,13 +2372,13 @@ class ContextManagerExceptionTests(BaseExcTestCase):
     self.assertTrue(called['value'])
 
 
-class ExceptHandlerConditionalBehaviorTests(BaseExcTestCase):
+class ExceptHandlerConditionalBehaviorTests(IsolatedAsyncioTestCase):
   """Tests for conditional behavior inside except handlers."""
 
   async def test_handler_conditionally_re_raises(self):
     """Handler can conditionally re-raise via `raise`."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler_reraises(v):
           if v:
             raise
@@ -2510,8 +2393,8 @@ class ExceptHandlerConditionalBehaviorTests(BaseExcTestCase):
 
   async def test_handler_conditionally_does_not_re_raise(self):
     """Handler can conditionally not re-raise."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler_swallows(v):
           if v:
             raise
@@ -2526,8 +2409,8 @@ class ExceptHandlerConditionalBehaviorTests(BaseExcTestCase):
 
   async def test_handler_returns_fallback_value(self):
     """Handler can return a fallback value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           return 'fallback_value'
 
@@ -2537,86 +2420,6 @@ class ExceptHandlerConditionalBehaviorTests(BaseExcTestCase):
           .run()
         )
         self.assertEqual(result, 'fallback_value')
-
-
-class CascadeExceptionTests(BaseExcTestCase):
-  """Tests for exceptions specific to Cascade mode."""
-
-  async def test_cascade_except_handler_receives_root(self):
-    """Cascade except handler receives root value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = {'value': None}
-        def handler(v=None):
-          received['value'] = v
-          return 'cascade_recovered'
-
-        result = await await_(
-          Cascade(fn, 'root')
-          .then(raise_value_error)
-          .except_(handler, reraise=False)
-          .run()
-        )
-        self.assertEqual(result, 'cascade_recovered')
-        self.assertEqual(received['value'], 'root')
-
-  async def test_cascade_finally_receives_root(self):
-    """Cascade finally handler receives root value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        received = {'value': None}
-        def on_finally(v=None):
-          received['value'] = v
-
-        result = await await_(
-          Cascade(fn, 'root')
-          .then(lambda v: 'ignored')
-          .finally_(on_finally)
-          .run()
-        )
-        self.assertEqual(result, 'root')
-        self.assertEqual(received['value'], 'root')
-
-  async def test_cascade_exception_in_second_operation(self):
-    """Exception in second cascade operation is caught."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        called = {'value': False}
-        def handler(v=None):
-          called['value'] = True
-
-        with self.assertRaises(ValueError):
-          await await_(
-            Cascade(fn, 42)
-            .then(lambda v: v * 2)
-            .then(raise_value_error)
-            .except_(handler)
-            .run()
-          )
-        self.assertTrue(called['value'])
-
-  async def test_cascade_multiple_except_handlers(self):
-    """Multiple except handlers on cascade chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        calls = {'h1': False, 'h2': False}
-        def h1(v=None):
-          calls['h1'] = True
-          return 'h1_result'
-        def h2(v=None):
-          calls['h2'] = True
-          return 'h2_result'
-
-        result = await await_(
-          Cascade(fn, 42)
-          .then(raise_value_error)
-          .except_(h1, exceptions=TypeError, reraise=False)
-          .except_(h2, exceptions=ValueError, reraise=False)
-          .run()
-        )
-        self.assertFalse(calls['h1'])
-        self.assertTrue(calls['h2'])
-        self.assertEqual(result, 'h2_result')
 
 
 if __name__ == '__main__':

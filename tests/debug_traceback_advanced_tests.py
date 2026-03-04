@@ -1,8 +1,8 @@
 import traceback
 import logging
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade
+from unittest import TestCase, IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_
+from quent import Chain
 
 
 # ---------------------------------------------------------------------------
@@ -126,21 +126,13 @@ class DebugSyncPathTests(TestCase):
     finally:
       _cleanup_logs(logger, handler, old_level)
 
-  def test_debug_cascade_logs_root_value(self):
-    """Debug mode on a Cascade logs the root value."""
-    logger, handler, logs, old_level = _capture_logs()
-    try:
-      Cascade(99).then(lambda v: v + 1).config(debug=True).run()
-      self.assertTrue(any('99' in log for log in logs))
-    finally:
-      _cleanup_logs(logger, handler, old_level)
 
 
 # ---------------------------------------------------------------------------
 # DebugAsyncPathTests
 # ---------------------------------------------------------------------------
 
-class DebugAsyncPathTests(MyTestCase):
+class DebugAsyncPathTests(IsolatedAsyncioTestCase):
 
   async def test_debug_async_link_results_populated(self):
     """Debug mode logs root value on async chain (root logged in sync path)."""
@@ -149,9 +141,9 @@ class DebugAsyncPathTests(MyTestCase):
       result = await await_(
         Chain(7).then(aempty).then(_add_one).config(debug=True).run()
       )
-      super(MyTestCase, self).assertEqual(result, 8)
+      self.assertEqual(result, 8)
       # root=7 logged in sync path
-      super(MyTestCase, self).assertTrue(any('7' in log for log in logs))
+      self.assertTrue(any('7' in log for log in logs))
     finally:
       _cleanup_logs(logger, handler, old_level)
 
@@ -160,7 +152,7 @@ class DebugAsyncPathTests(MyTestCase):
     result = await await_(
       Chain(5).then(_async_double).then(_async_add_one).config(debug=True).run()
     )
-    super(MyTestCase, self).assertEqual(result, 11)
+    self.assertEqual(result, 11)
 
   async def test_debug_async_with_exception(self):
     """Debug mode on async chain that raises still propagates the exception."""
@@ -176,9 +168,9 @@ class DebugAsyncPathTests(MyTestCase):
       result = await await_(
         Chain(3).then(_async_double).then(_async_add_one).config(debug=True).run()
       )
-      super(MyTestCase, self).assertEqual(result, 7)
+      self.assertEqual(result, 7)
       # Root value 3 should appear
-      super(MyTestCase, self).assertTrue(any('3' in log for log in logs))
+      self.assertTrue(any('3' in log for log in logs))
     finally:
       _cleanup_logs(logger, handler, old_level)
 
@@ -376,11 +368,6 @@ class StringifyChainTests(TestCase):
     r = repr(outer)
     self.assertIn('\n', r)
     self.assertIn('Chain', r)
-
-  def test_repr_cascade_type_name(self):
-    """repr of a Cascade shows 'Cascade' as the class name."""
-    r = repr(Cascade())
-    self.assertIn('Cascade', r)
 
   def test_repr_chain_with_multiple_operations(self):
     """repr of a chain with many operations shows all of them."""

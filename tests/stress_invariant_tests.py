@@ -1,9 +1,9 @@
 import asyncio
 import gc
 import weakref
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade
+from unittest import TestCase, IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_
+from quent import Chain
 
 try:
   import hypothesis
@@ -21,13 +21,13 @@ class _Ref:
     self.obj = obj
 
 
-class StressTests(MyTestCase):
+class StressTests(IsolatedAsyncioTestCase):
 
   async def test_very_long_chain_1000_links(self):
     c = Chain(0)
     for _ in range(1000):
       c = c.then(lambda v: v + 1)
-    await self.assertEqual(c.run(), 1000)
+    self.assertEqual(c.run(), 1000)
 
   async def test_very_long_chain_1000_links_async(self):
     c = Chain(0)
@@ -36,61 +36,56 @@ class StressTests(MyTestCase):
         c = c.then(lambda v: aempty(v + 1))
       else:
         c = c.then(lambda v: v + 1)
-    await self.assertEqual(c.run(), 1000)
+    self.assertEqual(await c.run(), 1000)
 
   async def test_deeply_nested_chains_10_levels(self):
     inner = Chain(1)
     for _ in range(9):
       inner = Chain().then(inner)
-    await self.assertEqual(inner.run(), 1)
+    self.assertEqual(inner.run(), 1)
 
   async def test_deeply_nested_chains_20_levels(self):
     inner = Chain(1)
     for _ in range(19):
       inner = Chain().then(inner)
-    await self.assertEqual(inner.run(), 1)
+    self.assertEqual(inner.run(), 1)
 
-  async def test_concurrent_frozen_chain_1000_calls(self):
-    frozen = Chain().then(lambda v: v * 2).freeze()
-    tasks = [asyncio.ensure_future(await_(frozen.run(i))) for i in range(1000)]
+  async def test_concurrent_chain_reuse_1000_calls(self):
+    c = Chain().then(lambda v: v * 2)
+    tasks = [asyncio.ensure_future(await_(c.run(i))) for i in range(1000)]
     results = await asyncio.gather(*tasks)
     for i in range(1000):
-      super(MyTestCase, self).assertEqual(results[i], i * 2)
+      self.assertEqual(results[i], i * 2)
 
-  async def test_concurrent_frozen_chain_with_async_ops(self):
-    frozen = Chain().then(lambda v: aempty(v * 3)).freeze()
-    tasks = [asyncio.ensure_future(await_(frozen.run(i))) for i in range(500)]
+  async def test_concurrent_chain_reuse_with_async_ops(self):
+    c = Chain().then(lambda v: aempty(v * 3))
+    tasks = [asyncio.ensure_future(await_(c.run(i))) for i in range(500)]
     results = await asyncio.gather(*tasks)
     for i in range(500):
-      super(MyTestCase, self).assertEqual(results[i], i * 3)
+      self.assertEqual(results[i], i * 3)
 
   async def test_rapid_clone_stress(self):
     c = Chain(42).then(lambda v: v + 1).then(lambda v: v * 2)
     clones = [c.clone() for _ in range(1000)]
     for clone in clones:
-      await self.assertEqual(clone.run(), 86)
+      self.assertEqual(clone.run(), 86)
 
   async def test_memory_cleanup_after_chain(self):
     wrapper = _Ref(Chain(42).then(lambda v: v + 1))
     ref = weakref.ref(wrapper)
     result = wrapper.obj.run()
-    super(MyTestCase, self).assertEqual(result, 43)
+    self.assertEqual(result, 43)
     del wrapper
     gc.collect()
-    super(MyTestCase, self).assertIsNone(ref())
+    self.assertIsNone(ref())
 
 
-class AlgebraicPropertyTests(MyTestCase):
+class AlgebraicPropertyTests(IsolatedAsyncioTestCase):
 
   async def test_identity_chain(self):
     for v in [None, 0, False, '', 42, 'hello', [], {}]:
       with self.subTest(v=v):
-        await self.assertEqual(Chain(v).then(lambda v: v).run(), v)
-
-  async def test_identity_cascade(self):
-    for v in [1, 42, 'hello', [1, 2]]:
-      with self.subTest(v=v):
-        await self.assertEqual(Cascade(v).then(lambda v: str(v) + '_ignored').run(), v)
+        self.assertEqual(Chain(v).then(lambda v: v).run(), v)
 
   async def test_composition_associativity(self):
     f = lambda v: v + 1
@@ -99,12 +94,7 @@ class AlgebraicPropertyTests(MyTestCase):
       with self.subTest(v=v):
         result1 = await await_(Chain(v).then(f).then(g).run())
         result2 = await await_(Chain(v).then(lambda v: g(f(v))).run())
-        super(MyTestCase, self).assertEqual(result1, result2)
-
-  async def test_cascade_invariant(self):
-    root_val = 99
-    c = Cascade(root_val).then(lambda v: v + 1).then(lambda v: v * 100).then(lambda v: 'ignored')
-    await self.assertEqual(c.run(), root_val)
+        self.assertEqual(result1, result2)
 
   async def test_clone_equivalence(self):
     chains = [
@@ -117,28 +107,27 @@ class AlgebraicPropertyTests(MyTestCase):
       with self.subTest(chain=repr(c)):
         original_result = await await_(c.clone().run())
         clone_result = await await_(c.clone().run())
-        super(MyTestCase, self).assertEqual(original_result, clone_result)
+        self.assertEqual(original_result, clone_result)
 
-  async def test_freeze_equivalence(self):
+  async def test_chain_reuse_equivalence(self):
     c = Chain().then(lambda v: v * 2)
-    frozen = c.freeze()
     for v in [1, 5, 10, -3, 0]:
       with self.subTest(v=v):
-        frozen_result = await await_(frozen(v))
+        reuse_result = await await_(c.run(v))
         clone_result = await await_(c.clone().run(v))
-        super(MyTestCase, self).assertEqual(frozen_result, clone_result)
+        self.assertEqual(reuse_result, clone_result)
 
   async def test_foreach_map_equivalence(self):
     lst = [1, 2, 3, 4, 5]
     f = lambda x: x * 2
     result = await await_(Chain(lst).foreach(f).run())
-    super(MyTestCase, self).assertEqual(result, list(map(f, lst)))
+    self.assertEqual(result, list(map(f, lst)))
 
   async def test_filter_equivalence(self):
     lst = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     pred = lambda x: x % 2 == 0
     result = await await_(Chain(lst).filter(pred).run())
-    super(MyTestCase, self).assertEqual(result, list(filter(pred, lst)))
+    self.assertEqual(result, list(filter(pred, lst)))
 
 
 if HAS_HYPOTHESIS:
@@ -166,11 +155,6 @@ if HAS_HYPOTHESIS:
     @hyp_settings(suppress_health_check=[hypothesis.HealthCheck.too_slow])
     def test_chain_then_literal(self, a, b):
       self.assertEqual(Chain(a).then(b).run(), b)
-
-    @given(st.integers())
-    @hyp_settings(suppress_health_check=[hypothesis.HealthCheck.too_slow])
-    def test_cascade_returns_root(self, v):
-      self.assertEqual(Cascade(v).then(lambda v: v * 2).run(), v)
 
     @given(st.lists(st.integers()))
     @hyp_settings(suppress_health_check=[hypothesis.HealthCheck.too_slow])
@@ -211,7 +195,7 @@ class _SimpleContextManager:
     return False
 
 
-class EdgeCaseComboTests(MyTestCase):
+class EdgeCaseComboTests(IsolatedAsyncioTestCase):
 
   async def test_debug_with_except_finally(self):
     tracker = {'exc': False, 'fin': False}
@@ -228,16 +212,16 @@ class EdgeCaseComboTests(MyTestCase):
       .finally_(on_finally)
     )
     result = await await_(c.run())
-    super(MyTestCase, self).assertIsNone(result)
-    super(MyTestCase, self).assertTrue(tracker['exc'])
-    super(MyTestCase, self).assertTrue(tracker['fin'])
+    self.assertIsNone(result)
+    self.assertTrue(tracker['exc'])
+    self.assertTrue(tracker['fin'])
 
   async def test_filter_then_foreach(self):
     lst = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     result = await await_(
       Chain(lst).filter(lambda x: x % 2 == 0).foreach(lambda x: x * 10).run()
     )
-    super(MyTestCase, self).assertEqual(result, [20, 40, 60, 80, 100])
+    self.assertEqual(result, [20, 40, 60, 80, 100])
 
   async def test_with_then_except(self):
     tracker = {'exc': False}
@@ -254,14 +238,14 @@ class EdgeCaseComboTests(MyTestCase):
       .except_(on_except, exceptions=ValueError, reraise=False)
     )
     result = await await_(c.run())
-    super(MyTestCase, self).assertIsNone(result)
-    super(MyTestCase, self).assertTrue(tracker['exc'])
-    super(MyTestCase, self).assertTrue(cm.entered)
-    super(MyTestCase, self).assertTrue(cm.exited)
+    self.assertIsNone(result)
+    self.assertTrue(tracker['exc'])
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
 
   async def test_empty_gather(self):
     result = await await_(Chain(5).gather().run())
-    super(MyTestCase, self).assertEqual(result, [])
+    self.assertEqual(result, [])
 
 
 if __name__ == '__main__':

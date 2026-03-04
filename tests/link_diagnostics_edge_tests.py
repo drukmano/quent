@@ -2,9 +2,9 @@ import asyncio
 import functools
 import traceback
 import unittest
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from unittest import TestCase, IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException
 
 
 # ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ def _get_quent_entries(exc):
 # 1. _await_run exception path with chain+link context
 # ---------------------------------------------------------------------------
 
-class AwaitRunExceptionTests(MyTestCase):
+class AwaitRunExceptionTests(IsolatedAsyncioTestCase):
 
   async def test_await_run_exception_with_chain_and_link_context(self):
     """When an async except handler (reraise=False) itself raises,
@@ -45,10 +45,10 @@ class AwaitRunExceptionTests(MyTestCase):
     )
     task = c.run()
     # The result is a Task because the except handler returned a coro in sync mode
-    super(MyTestCase, self).assertIsInstance(task, asyncio.Task)
+    self.assertIsInstance(task, asyncio.Task)
     with self.assertRaises(ValueError) as cm:
       await task
-    super(MyTestCase, self).assertEqual(str(cm.exception), 'handler exploded')
+    self.assertEqual(str(cm.exception), 'handler exploded')
 
   async def test_await_run_exception_has_quent_traceback(self):
     """The exception from _await_run should have a <quent> frame injected
@@ -64,11 +64,11 @@ class AwaitRunExceptionTests(MyTestCase):
     task = c.run()
     try:
       await task
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
       # modify_traceback should have injected a <quent> frame
-      super(MyTestCase, self).assertGreater(
+      self.assertGreater(
         len(entries), 0,
         'Expected <quent> frame from modify_traceback in _await_run'
       )
@@ -87,7 +87,7 @@ class AwaitRunExceptionTests(MyTestCase):
       warnings.simplefilter('ignore', RuntimeWarning)
       result = c.run()
     # The finally handler's coro was scheduled as a task
-    super(MyTestCase, self).assertEqual(result, 42)
+    self.assertEqual(result, 42)
     # Give the task time to execute
     await asyncio.sleep(0.1)
 
@@ -96,7 +96,7 @@ class AwaitRunExceptionTests(MyTestCase):
 # 2. Nested chain with kwargs-only -> EVAL_CALL_WITHOUT_ARGS
 # ---------------------------------------------------------------------------
 
-class ChainKwargsOnlyTests(MyTestCase):
+class ChainKwargsOnlyTests(IsolatedAsyncioTestCase):
 
   async def test_nested_chain_kwargs_only_gets_null_root(self):
     """A nested chain passed with kwargs but no positional args triggers
@@ -105,7 +105,7 @@ class ChainKwargsOnlyTests(MyTestCase):
     inner = Chain().then(lambda v=None: 'null' if v is None else f'val_{v}')
     result = Chain(5).then(inner, key='ignored').run()
     # inner runs with Null root (kwargs are not forwarded to chains)
-    await self.assertEqual(result, 'null')
+    self.assertEqual(result, 'null')
 
   async def test_nested_chain_kwargs_only_vs_normal(self):
     """Contrast: a nested chain WITHOUT kwargs receives the current value
@@ -116,8 +116,8 @@ class ChainKwargsOnlyTests(MyTestCase):
     normal_result = Chain(42).then(inner_normal).run()
     kwargs_result = Chain(42).then(inner_kwargs, key='x').run()
 
-    await self.assertEqual(normal_result, 42)
-    await self.assertIsNone(kwargs_result)
+    self.assertEqual(normal_result, 42)
+    self.assertIsNone(kwargs_result)
 
   async def test_nested_chain_kwargs_only_repr(self):
     """repr of a chain with nested chain + kwargs-only shows the nested
@@ -125,12 +125,12 @@ class ChainKwargsOnlyTests(MyTestCase):
     inner = Chain().then(lambda v: v)
     c = Chain(1).then(inner, key='val')
     r = repr(c)
-    super(MyTestCase, self).assertIn('Chain', r)
-    super(MyTestCase, self).assertIn('.then', r)
+    self.assertIn('Chain', r)
+    self.assertIn('.then', r)
 
 
 # ---------------------------------------------------------------------------
-# 3. _FrozenChain.decorator with callable lacking __name__/__dict__
+# 3. Chain.decorator with callable lacking __name__/__dict__
 # ---------------------------------------------------------------------------
 
 class DecoratorNoNameTests(TestCase):
@@ -190,7 +190,7 @@ class DecoratorNoNameTests(TestCase):
 # 4. _handle_exception temp_args from foreach exception
 # ---------------------------------------------------------------------------
 
-class HandleExceptionTempArgsTests(MyTestCase):
+class HandleExceptionTempArgsTests(IsolatedAsyncioTestCase):
 
   async def test_foreach_sync_exception_sets_temp_args(self):
     """A sync foreach exception sets __quent_link_temp_args__ on the
@@ -204,14 +204,14 @@ class HandleExceptionTempArgsTests(MyTestCase):
 
     try:
       Chain([1, 2, 3, 4]).foreach(fail_on_3).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
       viz = entries[0].name
       # The visualization should include the failing element (3)
-      super(MyTestCase, self).assertIn('3', viz)
-      super(MyTestCase, self).assertIn('foreach', viz)
+      self.assertIn('3', viz)
+      self.assertIn('foreach', viz)
 
   async def test_foreach_async_exception_sets_temp_args(self):
     """An async foreach (sync-to-async transition) exception sets
@@ -253,12 +253,12 @@ class HandleExceptionTempArgsTests(MyTestCase):
 
     try:
       await Chain(AsyncIter([1, 2, 3])).foreach(fail_on_large).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
       viz = entries[0].name
-      super(MyTestCase, self).assertIn('3', viz)
+      self.assertIn('3', viz)
 
   async def test_filter_exception_async_sets_temp_args(self):
     """Exception in _filter_to_async sets __quent_link_temp_args__.

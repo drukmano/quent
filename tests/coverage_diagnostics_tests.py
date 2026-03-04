@@ -13,9 +13,9 @@ import os
 import traceback
 import asyncio
 import unittest
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException
+from unittest import TestCase, IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException
 from quent.quent import _clean_exc_chain, _quent_excepthook
 
 
@@ -264,7 +264,7 @@ class CleanChainedExceptionsTests(TestCase):
 # 3. remove_self_frames_from_traceback tests (line 66)
 # ---------------------------------------------------------------------------
 
-class RemoveSelfFramesTests(MyTestCase):
+class RemoveSelfFramesTests(IsolatedAsyncioTestCase):
   """Tests for remove_self_frames_from_traceback (line 66).
   This is called from _await_run when an async exception occurs.
   """
@@ -285,9 +285,9 @@ class RemoveSelfFramesTests(MyTestCase):
     task = c.run()
     try:
       await task
-      super(MyTestCase, self).fail('Expected TypeError')
+      self.fail('Expected TypeError')
     except TypeError as exc:
-      super(MyTestCase, self).assertTrue(
+      self.assertTrue(
         getattr(exc, '__quent__', False),
         'Exception should have __quent__ attribute set to True'
       )
@@ -303,13 +303,13 @@ class RemoveSelfFramesTests(MyTestCase):
 
     try:
       await Chain(1).then(async_raiser).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
       for fn in filenames:
         if fn == '<quent>':
           continue
-        super(MyTestCase, self).assertFalse(
+        self.assertFalse(
           fn.startswith(quent_pkg_dir),
           f'Internal frame should be cleaned: {fn}'
         )
@@ -327,10 +327,10 @@ class RemoveSelfFramesTests(MyTestCase):
       await Chain(1).then(async_raiser).except_(
         async_handler, reraise=False
       ).run()
-      super(MyTestCase, self).fail('Expected TypeError')
+      self.fail('Expected TypeError')
     except TypeError as exc:
       cause = exc.__cause__
-      super(MyTestCase, self).assertIsInstance(cause, ValueError)
+      self.assertIsInstance(cause, ValueError)
 
   async def test_async_exception_in_nested_chain(self):
     """remove_self_frames_from_traceback with nested chain exception.
@@ -342,11 +342,11 @@ class RemoveSelfFramesTests(MyTestCase):
     inner = Chain().then(inner_raiser)
     try:
       await Chain(5).then(inner).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       # The exception should have a cleaned traceback with <quent> frame
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
 
 
 # ---------------------------------------------------------------------------
@@ -737,11 +737,6 @@ class StringifyChainTests(TestCase):
     self.assertIn('_add_one', r)
     self.assertIn('_double', r)
 
-  def test_repr_cascade(self):
-    """stringify_chain for Cascade shows 'Cascade'."""
-    r = repr(Cascade())
-    self.assertIn('Cascade', r)
-
   def test_repr_chain_with_finally(self):
     """stringify_chain includes finally link (lines 205-210)."""
     r = repr(Chain(1).then(_add_one).finally_(_double))
@@ -895,8 +890,8 @@ class FormatLinkTests(TestCase):
     self.assertIn('.then', r)
     self.assertIn('_add_one', r)
 
-  def test_format_link_with_fn_name(self):
-    """format_link shows fn_name prefix (line 273-274)."""
+  def test_format_link_with_operation_label(self):
+    """format_link shows operation label prefix (e.g. .then, .do)."""
     r = repr(Chain(1).then(_add_one).do(_double))
     self.assertIn('.then', r)
     self.assertIn('.do', r)
@@ -1010,12 +1005,6 @@ class GetObjNameTests(TestCase):
     inner = Chain().then(_add_one)
     r = repr(Chain(1).then(inner))
     self.assertIn('Chain', r)
-
-  def test_get_obj_name_cascade(self):
-    """get_obj_name returns 'Cascade' for Cascade instances."""
-    inner = Cascade().then(_add_one)
-    r = repr(Chain(1).then(inner))
-    self.assertIn('Cascade', r)
 
   def test_get_obj_name_literal(self):
     """get_obj_name returns repr() for non-callable, non-chain objects
@@ -1193,17 +1182,6 @@ class DiagnosticsIntegrationTests(TestCase):
       viz = entries[0].name
       self.assertIn('99', viz)
 
-  def test_cascade_exception_visualization(self):
-    """Exception in Cascade shows Cascade in visualization."""
-    try:
-      Cascade(1).then(_add_one).then(_raise_value_error).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      entries = _get_quent_entries(exc)
-      self.assertGreater(len(entries), 0)
-      viz = entries[0].name
-      self.assertIn('Cascade', viz)
-
   def test_chain_with_do_and_exception(self):
     """Exception after .do() link exercises format_link with
     ignore_result link."""
@@ -1242,7 +1220,7 @@ class DiagnosticsIntegrationTests(TestCase):
 # 14. Async diagnostics integration
 # ---------------------------------------------------------------------------
 
-class AsyncDiagnosticsTests(MyTestCase):
+class AsyncDiagnosticsTests(IsolatedAsyncioTestCase):
   """Async tests for _diagnostics.pxi paths."""
 
   async def test_async_chain_exception_has_quent_frame(self):
@@ -1252,10 +1230,10 @@ class AsyncDiagnosticsTests(MyTestCase):
 
     try:
       await Chain(1).then(async_raiser).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
 
   async def test_async_nested_chain_exception(self):
     """Async nested chain exception exercises modify_traceback with
@@ -1266,10 +1244,10 @@ class AsyncDiagnosticsTests(MyTestCase):
     inner = Chain().then(inner_raiser)
     try:
       await Chain(5).then(inner).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
 
   async def test_async_foreach_exception_temp_args(self):
     """Async foreach exception sets __quent_link_temp_args__ which
@@ -1298,7 +1276,7 @@ class AsyncDiagnosticsTests(MyTestCase):
       .except_(bad_handler, reraise=False)
     )
     task = c.run()
-    super(MyTestCase, self).assertIsInstance(task, asyncio.Task)
+    self.assertIsInstance(task, asyncio.Task)
     with self.assertRaises(RuntimeError):
       await task
 
@@ -1315,17 +1293,17 @@ class AsyncDiagnosticsTests(MyTestCase):
       await Chain(5).then(async_double).then(
         async_raiser
       ).config(debug=True).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
 
 
 # ---------------------------------------------------------------------------
 # 15. foreach / filter temp_args in format_link (lines 248-249)
 # ---------------------------------------------------------------------------
 
-class ForeachFilterTempArgsTests(MyTestCase):
+class ForeachFilterTempArgsTests(IsolatedAsyncioTestCase):
   """Tests specifically targeting the link_temp_args paths in
   format_link (lines 247-249 of _diagnostics.pxi).
   """
@@ -1362,12 +1340,12 @@ class ForeachFilterTempArgsTests(MyTestCase):
     counter['n'] = 0
     try:
       await await_(Chain([100, 200, 300]).foreach(fn).run())
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
       viz = entries[0].name
-      super(MyTestCase, self).assertIn('200', viz)
+      self.assertIn('200', viz)
 
   def test_sync_filter_exception_temp_args(self):
     """Sync filter exception sets temp_args on the link."""
@@ -1429,13 +1407,13 @@ class ForeachFilterTempArgsTests(MyTestCase):
       await Chain(AsyncIter([10, 20, 30])).foreach(fail_on_big).except_(
         lambda v=None: None, reraise=True
       ).run()
-      super(MyTestCase, self).fail('Expected ValueError')
+      self.fail('Expected ValueError')
     except ValueError as exc:
       entries = _get_quent_entries(exc)
-      super(MyTestCase, self).assertGreater(len(entries), 0)
+      self.assertGreater(len(entries), 0)
       viz = entries[0].name
       # The temp_args should show the failing element
-      super(MyTestCase, self).assertIn('30', viz)
+      self.assertIn('30', viz)
 
 
 # ---------------------------------------------------------------------------
@@ -1483,15 +1461,6 @@ class FormatLinkChainBranchTests(TestCase):
     r = repr(c)
     self.assertIn('Chain', r)
 
-  def test_nested_cascade_with_args_repr(self):
-    """Nested Cascade with args in repr."""
-    inner = Cascade().then(lambda v: v)
-    c = Chain(1).then(inner, 'cascade_arg')
-    r = repr(c)
-    self.assertIn('Cascade', r)
-    self.assertIn('cascade_arg', r)
-
-
 # ---------------------------------------------------------------------------
 # 17. repr with except/finally and source arrow interaction
 # ---------------------------------------------------------------------------
@@ -1525,11 +1494,6 @@ class ReprExceptFinallyTests(TestCase):
     except ValueError as exc:
       entries = _get_quent_entries(exc)
       self.assertGreater(len(entries), 0)
-
-  def test_repr_with_sleep_link(self):
-    """repr shows sleep link."""
-    r = repr(Chain(1).then(_add_one).sleep(0.1))
-    self.assertIn('sleep', r)
 
   def test_repr_with_foreach_link(self):
     """repr shows foreach link structure."""

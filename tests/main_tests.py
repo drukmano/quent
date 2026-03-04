@@ -1,17 +1,11 @@
 import asyncio
+from itertools import product
 from typing import *
+from unittest import IsolatedAsyncioTestCase
 from tests.except_tests import ExceptFinallyCheckSync, raise_, ExceptFinallyCheckAsync, Exc1
 from tests.flex_context import FlexContext, AsyncFlexContext
-from tests.utils import empty, aempty, await_, MyTestCase as _BaseTestCase
-from quent import Chain, Cascade, QuentException, run
-
-
-class MyTestCase(_BaseTestCase):
-  async def assertIsObj(self, expr1: object, msg: Any = None) -> None:
-    return super().assertIs(await await_(expr1), FlexContext.get(obj=object()), msg)
-
-  async def assertIsNotObj(self, expr1: object, msg: Any = None) -> None:
-    return super().assertIsNot(await await_(expr1), FlexContext.get(obj=object()), msg)
+from tests.utils import empty, aempty, await_
+from quent import Chain, QuentException
 
 
 class SyncIterator:
@@ -41,7 +35,7 @@ class AsyncIterator:
       raise StopAsyncIteration
 
 
-class SingleTest(MyTestCase):
+class SingleTest(IsolatedAsyncioTestCase):
   async def test_quent_exceptions(self):
     # override root value
     efc = ExceptFinallyCheckSync()
@@ -49,7 +43,7 @@ class SingleTest(MyTestCase):
       Chain(True).run(True)
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
 
     # non function value
     efc = ExceptFinallyCheckSync()
@@ -58,7 +52,7 @@ class SingleTest(MyTestCase):
       Chain(None).do(True).run()
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
 
     # multiple finally callbacks
     efc = ExceptFinallyCheckSync()
@@ -66,7 +60,7 @@ class SingleTest(MyTestCase):
       Chain(True).finally_(lambda v: v).finally_(lambda v: v)
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
 
     # using Chain.return_() inside .iterate()
     efc = ExceptFinallyCheckSync()
@@ -75,7 +69,7 @@ class SingleTest(MyTestCase):
         pass
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
     #
     efc = ExceptFinallyCheckSync()
     try:
@@ -83,7 +77,7 @@ class SingleTest(MyTestCase):
         pass
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
 
     # using Chain.break_() outside of loops
     efc = ExceptFinallyCheckSync()
@@ -91,14 +85,14 @@ class SingleTest(MyTestCase):
       Chain().then(Chain.break_).run()
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
     #
     efc = ExceptFinallyCheckAsync()
     try:
       await Chain(aempty).then(Chain.break_).run()
     except QuentException:
       await efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
 
     # directly running a nested chain
     efc = ExceptFinallyCheckSync()
@@ -108,62 +102,60 @@ class SingleTest(MyTestCase):
       c.run()
     except QuentException:
       efc.on_except()
-    await self.assertTrue(efc.ran_exc)
+    self.assertTrue(efc.ran_exc)
 
   async def test_base(self):
-    await self.assertIsNone((Cascade().run()))
-
     obj_ = object()
     with FlexContext(obj=obj_):
-      for fn, ctx in self.with_fn():
-        with ctx:
-          await self.assertIsNone((Chain().run()))
-          await self.assertIsObj((Chain().then(fn, obj_).run()))
+      for fn1, fn2, fn3, fn4, fn5, fn6 in product([empty, aempty], repeat=6):
+        with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3, fn4=fn4, fn5=fn5, fn6=fn6):
+          self.assertIsNone(Chain().run())
+          self.assertIs(await await_(Chain().then(fn1, obj_).run()), obj_)
 
-          await self.assertIsObj(Chain(fn, obj_).run())
-          await self.assertIsObj(Chain().run(fn, obj_))
-          await self.assertIsObj(Chain(fn, obj_)())
-          await self.assertIsObj(Chain()(fn, obj_))
+          self.assertIs(await await_(Chain(fn2, obj_).run()), obj_)
+          self.assertIs(await await_(Chain().run(fn3, obj_)), obj_)
+          self.assertIs(await await_(Chain(fn4, obj_)()), obj_)
+          self.assertIs(await await_(Chain()(fn5, obj_)), obj_)
 
           for obj in [(obj_,), (lambda v=None: obj_,), (lambda: obj_, ...)]:
             with self.subTest(obj=obj):
-              await self.assertIsObj(Chain().then(*obj).run())
-              await self.assertIsObj(Chain(*obj).run())
-              await self.assertIsObj(Chain().run(*obj))
+              self.assertIs(await await_(Chain().then(*obj).run()), obj_)
+              self.assertIs(await await_(Chain(*obj).run()), obj_)
+              self.assertIs(await await_(Chain().run(*obj)), obj_)
 
-              for obj1, obj2 in [(obj, (fn,)), ((fn,), obj)]:
+              for obj1, obj2 in [(obj, (fn6,)), ((fn6,), obj)]:
                 with self.subTest(obj1=obj1, obj2=obj2):
-                  await self.assertIsObj(Chain().then(*obj1).then(*obj2).run())
+                  self.assertIs(await await_(Chain().then(*obj1).then(*obj2).run()), obj_)
 
-                  await self.assertIsObj(Chain(*obj1).then(*obj2).run())
-                  await self.assertIsObj(Chain().then(*obj2).run(*obj1))
+                  self.assertIs(await await_(Chain(*obj1).then(*obj2).run()), obj_)
+                  self.assertIs(await await_(Chain().then(*obj2).run(*obj1)), obj_)
 
-                  await self.assertIsObj(Chain(*obj1).then(*obj1).then(*obj2).run())
-                  await self.assertIsObj(Chain().then(*obj1).then(*obj2).run(*obj1))
+                  self.assertIs(await await_(Chain(*obj1).then(*obj1).then(*obj2).run()), obj_)
+                  self.assertIs(await await_(Chain().then(*obj1).then(*obj2).run(*obj1)), obj_)
 
-                  await self.assertIsObj(Chain(*obj1).then(*obj2).then(*obj1).run())
-                  await self.assertIsObj(Chain().then(*obj2).then(*obj1).run(*obj1))
+                  self.assertIs(await await_(Chain(*obj1).then(*obj2).then(*obj1).run()), obj_)
+                  self.assertIs(await await_(Chain().then(*obj2).then(*obj1).run(*obj1)), obj_)
 
-                  await self.assertIsNotObj(Chain(*obj1).then(*obj2).then(*obj1).then(*obj2).then(object()).run())
-                  await self.assertIsNotObj(Chain().then(*obj2).then(*obj1).then(*obj2).then(object()).run(*obj1))
+                  self.assertIsNot(await await_(Chain(*obj1).then(*obj2).then(*obj1).then(*obj2).then(object()).run()), obj_)
+                  self.assertIsNot(await await_(Chain().then(*obj2).then(*obj1).then(*obj2).then(object()).run(*obj1)), obj_)
 
                   # nesting chains
-                  await self.assertIsObj(Chain(*obj1).then(Chain().then(*obj2).then(Chain().then(*obj1))).run())
-                  await self.assertIsObj(Chain(*obj1).then(Chain().then(*obj2).then(Chain().then(*obj1)), object()).run())
-                  await self.assertIsObj(Chain(*obj1).then(Chain().then(*obj2).then(Chain(*obj1).then(*obj2), ...)).run())
+                  self.assertIs(await await_(Chain(*obj1).then(Chain().then(*obj2).then(Chain().then(*obj1))).run()), obj_)
+                  self.assertIs(await await_(Chain(*obj1).then(Chain().then(*obj2).then(Chain().then(*obj1)), object()).run()), obj_)
+                  self.assertIs(await await_(Chain(*obj1).then(Chain().then(*obj2).then(Chain(*obj1).then(*obj2), ...)).run()), obj_)
 
   async def test_do(self):
     obj_ = object()
     with FlexContext(obj=obj_):
-      for fn, ctx in self.with_fn():
-        with ctx:
+      for fn1, fn2, fn3, fn4, fn5, fn6, fn7 in product([empty, aempty], repeat=7):
+        with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3, fn4=fn4, fn5=fn5, fn6=fn6, fn7=fn7):
           for obj in [(obj_,), (lambda v=None: obj_,), (lambda: obj_, ...)]:
             with self.subTest(obj=obj):
-              await self.assertIsObj(Chain(*obj).do(fn, None).run())
-              await self.assertIsObj(Chain(*obj).do(fn, None).do(lambda: object(), ...).then(fn).run())
-              await self.assertIsObj(Chain(*obj).do(lambda: object(), ...).then(fn).run())
-              await self.assertIsObj(Chain(*obj).then(fn).do(lambda: object(), ...).run())
-              await self.assertIsNotObj(Chain(object()).then(fn).do(lambda v: obj_).then(fn).run())
+              self.assertIs(await await_(Chain(*obj).do(fn1, None).run()), obj_)
+              self.assertIs(await await_(Chain(*obj).do(fn2, None).do(lambda: object(), ...).then(fn3).run()), obj_)
+              self.assertIs(await await_(Chain(*obj).do(lambda: object(), ...).then(fn4).run()), obj_)
+              self.assertIs(await await_(Chain(*obj).then(fn5).do(lambda: object(), ...).run()), obj_)
+              self.assertIsNot(await await_(Chain(object()).then(fn6).do(lambda v: obj_).then(fn7).run()), obj_)
 
   async def test_autorun_config(self):
     # an object that can have dynamic attributes set
@@ -171,58 +163,58 @@ class SingleTest(MyTestCase):
     def f():
       obj._v = True
 
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2 in product([empty, aempty], repeat=2):
+      with self.subTest(fn1=fn1, fn2=fn2):
         obj._v = False
-        coro = Chain(fn).then(asyncio.sleep, 0.1).then(f, ...).config(autorun=False).run()
-        await self.assertFalse(obj._v)
+        coro = Chain(fn1).then(asyncio.sleep, 0.1).then(f, ...).config(autorun=False).run()
+        self.assertFalse(obj._v)
         await asyncio.sleep(0.2)
-        await self.assertFalse(obj._v)
+        self.assertFalse(obj._v)
         await coro
 
         obj._v = False
-        coro = Chain(fn).then(asyncio.sleep, 0.1).then(f, ...).config(autorun=True).run()
-        await self.assertFalse(obj._v)
+        coro = Chain(fn2).then(asyncio.sleep, 0.1).then(f, ...).config(autorun=True).run()
+        self.assertFalse(obj._v)
         await asyncio.sleep(0.2)
-        await self.assertTrue(obj._v)
+        self.assertTrue(obj._v)
         await coro
 
-  async def test_freeze(self):
+  async def test_chain_reuse_and_decorator(self):
     obj = object()
     with FlexContext(obj=obj):
-      for fn, ctx in self.with_fn():
-        with ctx:
-          chain = Chain(obj).then(fn).freeze()
-          await self.assertIsObj(chain.run())
-          await self.assertIsObj(chain())
+      for fn1, fn2, fn3 in product([empty, aempty], repeat=3):
+        with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3):
+          chain = Chain(obj).then(fn1)
+          self.assertIs(await await_(chain.run()), obj)
+          self.assertIs(await await_(chain()), obj)
 
-          @Chain().then(fn).then(lambda v: v**2).decorator()
+          @Chain().then(fn2).then(lambda v: v**2).decorator()
           def f1(v):
             return v*2
-          await self.assertEqual(f1(2), 16)
-          @Chain().then(fn).then(lambda v: v**2).decorator()
+          self.assertEqual(await await_(f1(2)), 16)
+          @Chain().then(fn3).then(lambda v: v**2).decorator()
           async def f1(v):
             return v*2
-          await self.assertEqual(f1(2), 16)
+          self.assertEqual(await await_(f1(2)), 16)
 
   async def test_return(self):
     obj_ = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIsNone(Chain(Chain(fn).then(raise_, Exc1).except_(Chain.return_, ..., exceptions=Exc1)).then(object()).run())
+    for fn1, fn2, fn3, fn4, fn5, fn6, fn7, fn8 in product([empty, aempty], repeat=8):
+      with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3, fn4=fn4, fn5=fn5, fn6=fn6, fn7=fn7, fn8=fn8):
+        self.assertIsNone(await await_(Chain(Chain(fn1).then(raise_, Exc1).except_(Chain.return_, ..., exceptions=Exc1)).then(object()).run()))
 
-        for obj in [(obj_,), ((lambda: fn(obj_)),), (fn, obj_)]:
+        for obj in [(obj_,), ((lambda: fn2(obj_)),), (fn3, obj_)]:
           with self.subTest(obj=obj):
-            await self.assertIs(Chain(Chain().then(Chain.return_, *obj)).then(object()).run(), obj_)
-            await self.assertIs(Chain(Chain(fn).then(Chain.return_, *obj)).then(object()).run(), obj_)
-            await self.assertIs(Chain(Chain(fn).then(raise_, Exc1).except_(Chain.return_, *obj, exceptions=Exc1)).then(object()).run(), obj_)
+            self.assertIs(await await_(Chain(Chain().then(Chain.return_, *obj)).then(object()).run()), obj_)
+            self.assertIs(await await_(Chain(Chain(fn4).then(Chain.return_, *obj)).then(object()).run()), obj_)
+            self.assertIs(await await_(Chain(Chain(fn5).then(raise_, Exc1).except_(Chain.return_, *obj, exceptions=Exc1)).then(object()).run()), obj_)
 
             def on_except(return_=True):
               if return_:
                 return Chain.return_(*obj)
-            await self.assertIs(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, True, exceptions=Exc1)).then(object()).run(), obj_)
-            await self.assertIs(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, reraise=False)).then(obj_).run(), obj_)
-            await self.assertIsNot(Chain(Chain(fn, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, reraise=False)).then(object()).run(), obj_)
+            self.assertIs(await await_(Chain(Chain(fn6, object()).then(raise_, Exc1).except_(on_except, True, exceptions=Exc1)).then(object()).run()), obj_)
+            self.assertIs(await await_(Chain(Chain(fn7, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, reraise=False)).then(obj_).run()), obj_)
+            self.assertIsNot(await await_(Chain(Chain(fn8, object()).then(raise_, Exc1).except_(on_except, False, exceptions=Exc1, reraise=False)).then(object()).run()), obj_)
 
   async def test_iterate(self):
     A, B = SyncIterator, AsyncIterator
@@ -231,53 +223,53 @@ class SingleTest(MyTestCase):
     r = []
     for i in Chain(A).iterate(lambda i: i*2):
       r.append(i)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
     r = []
     for i in Chain(A).iterate():
       r.append(i*2)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
     r = []
     async for i in Chain(A).iterate():
       r.append(i*2)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
 
     r = []
     async for i in Chain(B).iterate(lambda i: i*2):
       r.append(i)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
     r = []
     async for i in Chain(B).iterate():
       r.append(i*2)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
 
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2, fn3 in product([empty, aempty], repeat=3):
+      with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3):
         r = []
-        async for i in Chain(A).then(fn).iterate(lambda i: aempty(i*2)):
+        async for i in Chain(A).then(fn1).iterate(lambda i: aempty(i*2)):
           r.append(i)
-        await self.assertEqual(r, rb)
+        self.assertEqual(r, rb)
         r = []
-        async for i in Chain(B).iterate(lambda i: fn(i*2)):
+        async for i in Chain(B).iterate(lambda i: fn2(i*2)):
           r.append(i)
-        await self.assertEqual(r, rb)
+        self.assertEqual(r, rb)
         r = []
-        async for i in Chain(B).then(fn).iterate(lambda i: i*2):
+        async for i in Chain(B).then(fn3).iterate(lambda i: i*2):
           r.append(i)
-        await self.assertEqual(r, rb)
+        self.assertEqual(r, rb)
 
     # test nesting
     r = []
     for i in Chain(A).then(Chain().iterate(lambda i: i*2)).run():
       r.append(i)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
     r = []
     async for i in Chain(A).then(Chain().iterate(lambda i: i*2)).run():
       r.append(i)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
     r = []
     async for i in Chain(B).then(Chain().iterate(lambda i: i*2)).run():
       r.append(i)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
 
     rb = [i*2 for i in range(9)]
     # test break
@@ -288,10 +280,10 @@ class SingleTest(MyTestCase):
     r = []
     for i in Chain(A).iterate(f):
       r.append(i)
-    await self.assertEqual(r, rb)
+    self.assertEqual(r, rb)
 
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def f(i):
           if i == 9:
             return Chain.break_()
@@ -299,76 +291,82 @@ class SingleTest(MyTestCase):
         r = []
         async for i in Chain(A).iterate(f):
           r.append(i)
-        await self.assertEqual(r, rb)
+        self.assertEqual(r, rb)
         r = []
         async for i in Chain(B).iterate(f):
           r.append(i)
-        await self.assertEqual(r, rb)
+        self.assertEqual(r, rb)
 
   async def test_foreach(self):
     A, B = SyncIterator, AsyncIterator
     rb = [i*2 for i in range(10)]
 
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2, fn3, fn4, fn5, fn6, fn7 in product([empty, aempty], repeat=7):
+      with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3, fn4=fn4, fn5=fn5, fn6=fn6, fn7=fn7):
         for iterator in [A, B]:
           with self.subTest(iterator=iterator):
-            await self.assertEqual(Chain(iterator).foreach(lambda i: fn(i*2)).run(), rb)
+            self.assertEqual(await await_(Chain(iterator).foreach(lambda i: fn1(i*2)).run()), rb)
             for fn1 in [empty, aempty]:
               with self.subTest(fn1=fn1):
-                await self.assertEqual(Chain(iterator).then(fn).foreach(lambda i: fn1(i*2)).run(), rb)
-                await self.assertEqual(Chain(fn).then(iterator, ...).foreach(lambda i: fn1(i*2)).run(), rb)
+                self.assertEqual(await await_(Chain(iterator).then(fn2).foreach(lambda i: fn1(i*2)).run()), rb)
+                self.assertEqual(await await_(Chain(fn3).then(iterator, ...).foreach(lambda i: fn1(i*2)).run()), rb)
 
             rb_break = [i*2 for i in range(9)]
             # test break
             def f(i):
               if i == 9:
                 return Chain.break_()
-              return fn(i*2)
-            await self.assertEqual(Chain(iterator).foreach(f).run(), rb_break)
+              return fn4(i*2)
+            self.assertEqual(await await_(Chain(iterator).foreach(f).run()), rb_break)
 
             obj = object()
-            for break_arg in [(obj,), (lambda: fn(obj),), (fn, obj)]:
+            for break_arg in [(obj,), (lambda: fn5(obj),), (fn6, obj)]:
               with self.subTest(break_arg=break_arg):
                 def f(i):
                   if i == 9:
                     return Chain.break_(*break_arg)
-                  return fn(i*2)
-                await self.assertIs(Chain(iterator).foreach(f).run(), obj)
+                  return fn7(i*2)
+                self.assertIs(await await_(Chain(iterator).foreach(f).run()), obj)
 
   async def test_with(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn1, fn2, fn3, fn4, fn5 in product([empty, aempty], repeat=5):
+      with self.subTest(fn1=fn1, fn2=fn2, fn3=fn3, fn4=fn4, fn5=fn5):
         for flx_ctx in [FlexContext, AsyncFlexContext]:
           with self.subTest(flx_ctx=flx_ctx):
-            await self.assertEqual(Chain(flx_ctx(v=1)).then(fn).with_(flx_ctx.get, v=0).run(), 1)
-            await self.assertEqual(Chain(flx_ctx(v=1)).then(fn).then(flx_ctx.get, v=0).run(), 0)
+            self.assertEqual(await await_(Chain(flx_ctx(v=1)).then(fn1).with_(flx_ctx.get, v=0).run()), 1)
+            self.assertEqual(await await_(Chain(flx_ctx(v=1)).then(fn2).then(flx_ctx.get, v=0).run()), 0)
             for fn1 in [empty, aempty]:
               with self.subTest(fn1=fn1):
-                await self.assertEqual(
-                  Chain(flx_ctx(v=1)).then(fn)
-                  .with_(Chain().then(fn1).then(flx_ctx.get, v=0))
-                  .do(lambda: super(_BaseTestCase, self).assertEqual(flx_ctx.get(v=0), 0), ...)
-                  .run(), 1
+                self.assertEqual(
+                  await await_(
+                    Chain(flx_ctx(v=1)).then(fn3)
+                    .with_(Chain().then(fn1).then(flx_ctx.get, v=0))
+                    .do(lambda: self.assertEqual(flx_ctx.get(v=0), 0), ...)
+                    .run()
+                  ), 1
                 )
-                await self.assertEqual(
-                  Chain(flx_ctx(v=1)).then(fn)
-                  .with_(lambda flx: flx)
-                  .with_(Chain().then(fn1).then(lambda flx: flx.get(v=0)))
-                  .run(), 1
+                self.assertEqual(
+                  await await_(
+                    Chain(flx_ctx(v=1)).then(fn4)
+                    .with_(lambda flx: flx)
+                    .with_(Chain().then(fn1).then(lambda flx: flx.get(v=0)))
+                    .run()
+                  ), 1
                 )
-                await self.assertEqual(
-                  Chain(flx_ctx(v=1)).then(fn)
-                  .with_(Chain().then(fn1).then(flx_ctx, v=2))
-                  .with_(Chain().then(fn1).then(lambda flx: flx.get(v=0)))
-                  .run(), 2
+                self.assertEqual(
+                  await await_(
+                    Chain(flx_ctx(v=1)).then(fn5)
+                    .with_(Chain().then(fn1).then(flx_ctx, v=2))
+                    .with_(Chain().then(fn1).then(lambda flx: flx.get(v=0)))
+                    .run()
+                  ), 2
                 )
 
   async def test_null_repr(self):
     """Test __repr__ of _Null class to hit line 29."""
     from quent.quent import PyNull
     result = repr(PyNull)
-    await self.assertEqual(result, '<Null>')
+    self.assertEqual(result, '<Null>')
 
   async def test_traceback_modification(self):
     """Test traceback modification to hit lines 62, 69-71."""
@@ -381,14 +379,14 @@ class SingleTest(MyTestCase):
     # Test sync traceback modification (line 62)
     try:
       await await_(Chain(sync_error).run())
-      await self.assertTrue(False)  # Should not reach here
+      self.assertTrue(False)  # Should not reach here
     except RuntimeError:
       pass  # Expected
 
     # Test async traceback modification (lines 69-71)
     try:
       await await_(Chain(async_error).run())
-      await self.assertTrue(False)  # Should not reach here
+      self.assertTrue(False)  # Should not reach here
     except RuntimeError:
       pass  # Expected
 
@@ -413,9 +411,9 @@ class SingleTest(MyTestCase):
     # Test normal execution (line 303)
     cm1 = TestContextManager()
     result = await await_(Chain(cm1).with_(lambda x: f"processed_{x}").run())
-    await self.assertEqual(result, "processed_context_value")
-    await self.assertTrue(cm1.entered)
-    await self.assertTrue(cm1.exited)
+    self.assertEqual(result, "processed_context_value")
+    self.assertTrue(cm1.entered)
+    self.assertTrue(cm1.exited)
 
     # Test with exception (line 312 for async case)
     class AsyncTestContextManager:
@@ -437,9 +435,9 @@ class SingleTest(MyTestCase):
     async_cm = AsyncTestContextManager()
     try:
       await await_(Chain(async_cm).with_(async_error_in_context).run())
-      await self.assertTrue(False)  # Should not reach here
+      self.assertTrue(False)  # Should not reach here
     except ValueError:
       pass  # Expected
 
-    await self.assertTrue(async_cm.entered)
-    await self.assertTrue(async_cm.exited)
+    self.assertTrue(async_cm.entered)
+    self.assertTrue(async_cm.exited)

@@ -250,15 +250,15 @@ Raise `exc` if the current value is falsy. Alias for `.else_raise()`.
 #### .foreach()
 
 ```python
-.foreach(fn, with_index=False) -> Self
+.foreach(fn) -> Self
 ```
 
-Apply `fn` to each item in the current value (which must be iterable). The result of iterating is passed forward. If `with_index=True`, `fn` receives `(index, item)`.
+Apply `fn` to each item in the current value (which must be iterable). The result of iterating is passed forward.
 
 #### .foreach_do()
 
 ```python
-.foreach_do(fn, with_index=False) -> Self
+.foreach_do(fn) -> Self
 ```
 
 Apply `fn` to each item as a side effect. The current value remains unchanged.

@@ -2,8 +2,8 @@ import asyncio
 import sys
 import traceback
 import warnings
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
+from tests.utils import empty, aempty, await_, TestExc
 from quent import Chain, QuentException
 
 
@@ -35,12 +35,12 @@ def raise_exc(exc_type=TestExc):
 # Class 1: ExceptBasicTests
 # ---------------------------------------------------------------------------
 
-class ExceptBasicTests(MyTestCase):
+class ExceptBasicTests(IsolatedAsyncioTestCase):
 
   async def test_except_catches_matching(self):
     """except_(handler, exceptions=ValueError) catches ValueError."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -52,12 +52,12 @@ class ExceptBasicTests(MyTestCase):
           )
         except ValueError:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_except_skips_nonmatching(self):
     """except_(handler, exceptions=TypeError) does not catch ValueError."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -67,12 +67,12 @@ class ExceptBasicTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raiser).except_(handler, exceptions=TypeError).run()
           )
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertFalse(called[0])
 
   async def test_except_default_catches_exception(self):
     """except_(handler) catches any Exception subclass."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -84,12 +84,12 @@ class ExceptBasicTests(MyTestCase):
           )
         except RuntimeError:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_except_default_does_not_catch_base_exception(self):
     """except_(handler) does NOT catch BaseException subclasses like CustomBaseExc."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -99,12 +99,12 @@ class ExceptBasicTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raiser).except_(handler).run()
           )
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertFalse(called[0])
 
   async def test_except_with_iterable_of_exceptions(self):
     """except_(handler, exceptions=[ValueError, TypeError]) catches both."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         for exc_type in [ValueError, TypeError]:
           called = [False]
           def handler(v=None):
@@ -117,7 +117,7 @@ class ExceptBasicTests(MyTestCase):
             )
           except (ValueError, TypeError):
             pass
-          super(MyTestCase, self).assertTrue(called[0])
+          self.assertTrue(called[0])
 
   async def test_except_with_string_raises_type_error(self):
     """except_(handler, exceptions='ValueError') raises TypeError."""
@@ -126,8 +126,8 @@ class ExceptBasicTests(MyTestCase):
 
   async def test_except_reraise_true_default(self):
     """Handler runs, then exception re-raised (reraise=True is default)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -137,12 +137,12 @@ class ExceptBasicTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raiser).except_(handler).run()
           )
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_except_reraise_false_suppresses(self):
     """Handler runs, exception suppressed (reraise=False)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -153,13 +153,13 @@ class ExceptBasicTests(MyTestCase):
             Chain(fn, 1).then(raiser).except_(handler, reraise=False).run()
           )
         except TestExc:
-          super(MyTestCase, self).fail('Exception should have been suppressed')
-        super(MyTestCase, self).assertTrue(called[0])
+          self.fail('Exception should have been suppressed')
+        self.assertTrue(called[0])
 
   async def test_except_return_value_with_noraise(self):
     """except_(handler, obj, reraise=False) returns obj as chain result."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         sentinel = object()
         called = [False]
         def handler(v=None):
@@ -170,13 +170,13 @@ class ExceptBasicTests(MyTestCase):
         result = await await_(
           Chain(fn, 1).then(raiser).except_(handler, sentinel, reraise=False).run()
         )
-        super(MyTestCase, self).assertIs(result, sentinel)
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertIs(result, sentinel)
+        self.assertTrue(called[0])
 
   async def test_except_handler_receives_root_value(self):
     """Handler is called with root value, not exception."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         received = [None]
         root_obj = object()
         def handler(v=None):
@@ -189,32 +189,32 @@ class ExceptBasicTests(MyTestCase):
           )
         except TestExc:
           pass
-        super(MyTestCase, self).assertIs(received[0], root_obj)
+        self.assertIs(received[0], root_obj)
 
   async def test_except_no_exception_handler_not_called(self):
     """Handler not invoked when chain succeeds."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
         result = await await_(
           Chain(fn, 42).then(lambda v: v + 1).except_(handler).run()
         )
-        super(MyTestCase, self).assertEqual(result, 43)
-        super(MyTestCase, self).assertFalse(called[0])
+        self.assertEqual(result, 43)
+        self.assertFalse(called[0])
 
 
 # ---------------------------------------------------------------------------
 # Class 2: ExceptMultipleHandlersTests
 # ---------------------------------------------------------------------------
 
-class ExceptMultipleHandlersTests(MyTestCase):
+class ExceptMultipleHandlersTests(IsolatedAsyncioTestCase):
 
   async def test_multiple_handlers_first_match_wins(self):
     """Multiple except_ links, first matching one executes."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called1 = [False]
         called2 = [False]
         def handler1(v=None):
@@ -232,13 +232,13 @@ class ExceptMultipleHandlersTests(MyTestCase):
           )
         except TestExc:
           pass
-        super(MyTestCase, self).assertTrue(called1[0])
-        super(MyTestCase, self).assertFalse(called2[0])
+        self.assertTrue(called1[0])
+        self.assertFalse(called2[0])
 
   async def test_multiple_handlers_skip_nonmatching(self):
     """Non-matching handlers skipped, matching one executes."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called1 = [False]
         called2 = [False]
         called3 = [False]
@@ -260,21 +260,21 @@ class ExceptMultipleHandlersTests(MyTestCase):
           )
         except TestExc:
           pass
-        super(MyTestCase, self).assertFalse(called1[0])
-        super(MyTestCase, self).assertTrue(called2[0])
-        super(MyTestCase, self).assertFalse(called3[0])
+        self.assertFalse(called1[0])
+        self.assertTrue(called2[0])
+        self.assertFalse(called3[0])
 
 
 # ---------------------------------------------------------------------------
 # Class 3: ExceptHandlerRaisesTests
 # ---------------------------------------------------------------------------
 
-class ExceptHandlerRaisesTests(MyTestCase):
+class ExceptHandlerRaisesTests(IsolatedAsyncioTestCase):
 
   async def test_handler_raises_with_noraise(self):
     """Handler raises TypeError, reraise=False -> TypeError propagates with original as __cause__."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise TypeError('handler error')
         def raiser(v=None):
@@ -283,12 +283,12 @@ class ExceptHandlerRaisesTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raiser).except_(handler, reraise=False).run()
           )
-        super(MyTestCase, self).assertIsInstance(cm.exception.__cause__, Exc1)
+        self.assertIsInstance(cm.exception.__cause__, Exc1)
 
   async def test_handler_raises_with_reraise(self):
     """Handler raises TypeError, reraise=True -> TypeError propagates with original as __cause__."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def handler(v=None):
           raise TypeError('handler error')
         def raiser(v=None):
@@ -297,7 +297,7 @@ class ExceptHandlerRaisesTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raiser).except_(handler, reraise=True).run()
           )
-        super(MyTestCase, self).assertIsInstance(cm.exception.__cause__, Exc1)
+        self.assertIsInstance(cm.exception.__cause__, Exc1)
 
   async def test_async_handler_on_sync_chain_reraise_warns(self):
     """Async except handler on sync chain with reraise=True -> RuntimeWarning."""
@@ -310,7 +310,7 @@ class ExceptHandlerRaisesTests(MyTestCase):
       except TestExc:
         pass
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
     await asyncio.sleep(0.1)
 
 
@@ -318,22 +318,22 @@ class ExceptHandlerRaisesTests(MyTestCase):
 # Class 4: FinallyTests
 # ---------------------------------------------------------------------------
 
-class FinallyTests(MyTestCase):
+class FinallyTests(IsolatedAsyncioTestCase):
 
   async def test_finally_runs_on_success(self):
     """Finally callback invoked after successful chain."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
         await await_(Chain(fn, 42).finally_(handler).run())
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_finally_runs_on_exception(self):
     """Finally callback invoked even when exception occurs."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         called = [False]
         def handler(v=None):
           called[0] = True
@@ -343,18 +343,18 @@ class FinallyTests(MyTestCase):
           await await_(Chain(fn, 1).then(raiser).finally_(handler).run())
         except TestExc:
           pass
-        super(MyTestCase, self).assertTrue(called[0])
+        self.assertTrue(called[0])
 
   async def test_finally_receives_root_value(self):
     """Finally called with root value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         received = [None]
         root_obj = object()
         def handler(v=None):
           received[0] = v
         await await_(Chain(fn, root_obj).finally_(handler).run())
-        super(MyTestCase, self).assertIs(received[0], root_obj)
+        self.assertIs(received[0], root_obj)
 
   async def test_finally_duplicate_raises(self):
     """Two finally_() calls raise QuentException."""
@@ -363,18 +363,18 @@ class FinallyTests(MyTestCase):
 
   async def test_finally_raises_overrides_success(self):
     """Chain succeeds, finally raises -> finally's exception propagates."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def finally_raises(v=None):
           raise RuntimeError('finally error')
         with self.assertRaises(RuntimeError) as cm:
           await await_(Chain(fn, 42).finally_(finally_raises).run())
-        super(MyTestCase, self).assertEqual(str(cm.exception), 'finally error')
+        self.assertEqual(str(cm.exception), 'finally error')
 
   async def test_finally_raises_overrides_chain_exception(self):
     """Chain raises, finally raises -> finally's exception propagates."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         def finally_raises(v=None):
           raise RuntimeError('finally override')
         def raiser(v=None):
@@ -383,18 +383,18 @@ class FinallyTests(MyTestCase):
           await await_(
             Chain(fn, 1).then(raiser).finally_(finally_raises).run()
           )
-        super(MyTestCase, self).assertEqual(str(cm.exception), 'finally override')
-        super(MyTestCase, self).assertIsInstance(cm.exception.__context__, Exc1)
+        self.assertEqual(str(cm.exception), 'finally override')
+        self.assertIsInstance(cm.exception.__context__, Exc1)
 
   async def test_finally_with_internal_quent_exception(self):
     """Chain.return_() inside finally -> QuentException about control flow signals."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         with self.assertRaises(QuentException) as cm:
           await await_(
             Chain(fn, 1).finally_(Chain.return_, 99).run()
           )
-        super(MyTestCase, self).assertIn(
+        self.assertIn(
           'control flow signals', str(cm.exception).lower()
         )
 
@@ -406,7 +406,7 @@ class FinallyTests(MyTestCase):
       warnings.simplefilter("always")
       Chain(empty, 1).finally_(async_handler).run()
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
     await asyncio.sleep(0.1)
 
   async def test_finally_on_empty_chain(self):
@@ -415,8 +415,8 @@ class FinallyTests(MyTestCase):
     def handler(v=None):
       called[0] = True
     result = Chain().finally_(handler).run()
-    super(MyTestCase, self).assertIsNone(result)
-    super(MyTestCase, self).assertTrue(called[0])
+    self.assertIsNone(result)
+    self.assertTrue(called[0])
 
 
 # ---------------------------------------------------------------------------
@@ -586,7 +586,7 @@ class TracebackTests(TestCase):
 # Class 6: WarningTests
 # ---------------------------------------------------------------------------
 
-class WarningTests(MyTestCase):
+class WarningTests(IsolatedAsyncioTestCase):
 
   async def test_async_except_on_sync_chain_warns(self):
     """Async except handler on sync chain emits RuntimeWarning."""
@@ -599,7 +599,7 @@ class WarningTests(MyTestCase):
       except TestExc:
         pass
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
     await asyncio.sleep(0.1)
 
   async def test_async_finally_on_sync_chain_warns(self):
@@ -610,5 +610,5 @@ class WarningTests(MyTestCase):
       warnings.simplefilter("always")
       Chain(empty, 1).finally_(async_finally).run()
       runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-      super(MyTestCase, self).assertGreater(len(runtime_warnings), 0)
+      self.assertGreater(len(runtime_warnings), 0)
     await asyncio.sleep(0.1)

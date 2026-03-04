@@ -10,7 +10,7 @@ import contextlib
 import weakref
 from unittest import TestCase, IsolatedAsyncioTestCase
 
-from quent import Chain, Cascade, run, Null, QuentException
+from quent import Chain, Null, QuentException
 from quent.quent import _get_registry_size
 
 
@@ -83,15 +83,6 @@ class ChainReuseBasicTests(TestCase):
       assert c.run() == 43
     assert effects == [42] * 5
 
-  def test_s1_05_cascade_reuse(self):
-    """Cascade — run multiple times, root always passed."""
-    log = []
-    c = Cascade(99).do(lambda v: log.append(v)).then(lambda v: v * 2)
-    for _ in range(5):
-      result = c.run()
-      assert result == 99  # Cascade returns root
-    assert log == [99] * 5
-
   def test_s1_06_chain_with_literal_reuse(self):
     """Chain with literal value in then() — reuse returns same literal."""
     c = Chain(1).then(42)
@@ -159,12 +150,6 @@ class ChainReuseForeachTests(TestCase):
     assert c.run([1, 2, 3]) == [2, 4, 6]
     assert c.run([10, 20]) == [20, 40]
     assert c.run([]) == []
-
-  def test_s1_11_foreach_indexed_reuse(self):
-    """Chain with foreach(with_index=True) — reuse."""
-    c = Chain().foreach(lambda i, x: (i, x), with_index=True)
-    assert c.run(['a', 'b', 'c']) == [(0, 'a'), (1, 'b'), (2, 'c')]
-    assert c.run(['x']) == [(0, 'x')]
 
   def test_s1_12_filter_reuse(self):
     """Chain with filter — reuse with different lists."""
@@ -324,20 +309,20 @@ class StateIsolationAsyncTests(IsolatedAsyncioTestCase):
 
 
 # ===================================================================
-# SECTION 3: Frozen chain reuse
+# SECTION 3: Chain reuse
 # ===================================================================
 
-class FrozenChainReuseTests(TestCase):
-  """Test frozen chain (.freeze()) reuse patterns."""
+class ChainReuseTests(TestCase):
+  """Test chain reuse patterns."""
 
-  def test_s3_01_frozen_100_times_different_args(self):
-    """Frozen chain called 100 times with different args — correct each time."""
-    frozen = Chain().then(lambda v: v ** 2).freeze()
+  def test_s3_01_chain_100_times_different_args(self):
+    """Chain called 100 times with different args — correct each time."""
+    c = Chain().then(lambda v: v ** 2)
     for i in range(100):
-      assert frozen(i) == i ** 2
+      assert c(i) == i ** 2
 
-  def test_s3_02_frozen_with_except_reuse_after_error(self):
-    """Frozen chain with except_ — reuse after error."""
+  def test_s3_02_chain_with_except_reuse_after_error(self):
+    """Chain with except_ — reuse after error."""
     caught = [0]
 
     def maybe_fail(v):
@@ -345,56 +330,45 @@ class FrozenChainReuseTests(TestCase):
         raise ValueError('neg')
       return v * 2
 
-    frozen = Chain().then(maybe_fail).except_(
+    c = Chain().then(maybe_fail).except_(
       lambda v: caught.__setitem__(0, caught[0] + 1), reraise=False
-    ).freeze()
-    assert frozen(5) == 10
-    frozen(-1)
+    )
+    assert c(5) == 10
+    c(-1)
     assert caught[0] == 1
-    assert frozen(3) == 6
+    assert c(3) == 6
     assert caught[0] == 1
 
-  def test_s3_03_frozen_with_finally_reuse(self):
-    """Frozen chain with finally_ — cleanup runs each time."""
+  def test_s3_03_chain_with_finally_reuse(self):
+    """Chain with finally_ — cleanup runs each time."""
     cleanup_count = [0]
-    frozen = Chain().then(lambda v: v + 1).finally_(
+    c = Chain().then(lambda v: v + 1).finally_(
       lambda v: cleanup_count.__setitem__(0, cleanup_count[0] + 1)
-    ).freeze()
+    )
     for i in range(10):
-      assert frozen(i) == i + 1
+      assert c(i) == i + 1
     assert cleanup_count[0] == 10
 
-  def test_s3_04_frozen_with_foreach_reuse(self):
-    """Frozen chain with foreach — reuse with different iterables."""
-    frozen = Chain().foreach(lambda x: x * 2).freeze()
-    assert frozen([1, 2, 3]) == [2, 4, 6]
-    assert frozen([10]) == [20]
-    assert frozen([]) == []
-
-  def test_s3_05_frozen_from_cascade(self):
-    """Frozen chain from Cascade — preserves cascade semantics."""
-    log = []
-    frozen = Cascade().do(lambda v: log.append(v)).then(lambda v: v * 2).freeze()
-    result = frozen(10)
-    assert result == 10  # Cascade returns root
-    assert log == [10]
-    log.clear()
-    result = frozen(20)
-    assert result == 20
-    assert log == [20]
+  def test_s3_04_chain_with_foreach_reuse(self):
+    """Chain with foreach — reuse with different iterables."""
+    c = Chain().foreach(lambda x: x * 2)
+    assert c([1, 2, 3]) == [2, 4, 6]
+    assert c([10]) == [20]
+    assert c([]) == []
 
 
-class FrozenChainConcurrentTests(IsolatedAsyncioTestCase):
-  """Test frozen chains under concurrent async load."""
 
-  async def test_s3_06_frozen_concurrent_100(self):
-    """Frozen chain called concurrently (asyncio.gather of 100 calls)."""
+class ChainConcurrentTests(IsolatedAsyncioTestCase):
+  """Test chains under concurrent async load."""
+
+  async def test_s3_06_chain_concurrent_100(self):
+    """Chain called concurrently (asyncio.gather of 100 calls)."""
     async def add_one(v):
       await asyncio.sleep(0)
       return v + 1
 
-    frozen = Chain().then(add_one).freeze()
-    coros = [frozen(i) for i in range(100)]
+    c = Chain().then(add_one)
+    coros = [c(i) for i in range(100)]
     results = await asyncio.gather(*coros)
     assert sorted(results) == list(range(1, 101))
 
@@ -456,20 +430,6 @@ class CloneIndependenceTests(TestCase):
     assert c2.run() == 40   # (1+1)*20
     assert c3.run() == 60   # (1+1)*30
 
-  def test_s4_05_clone_cascade_independence(self):
-    """Clone a Cascade, modify independently."""
-    log1 = []
-    log2 = []
-    c = Cascade(10).do(lambda v: log1.append(v))
-    c2 = c.clone()
-    c2.do(lambda v: log2.append(v * 2))
-    c.run()
-    assert log1 == [10]
-    assert log2 == []  # clone hasn't run
-    log1.clear()
-    c2.run()
-    assert log1 == [10]  # shared callable logs to log1 too
-    assert log2 == [20]
 
 
 class CloneConcurrentTests(IsolatedAsyncioTestCase):
@@ -495,14 +455,14 @@ class CloneConcurrentTests(IsolatedAsyncioTestCase):
 class ConcurrentExecutionTests(IsolatedAsyncioTestCase):
   """Test concurrent async execution patterns."""
 
-  async def test_s5_01_frozen_gather_100(self):
-    """Same frozen chain via asyncio.gather(100 calls) — all correct values."""
+  async def test_s5_01_chain_gather_100(self):
+    """Same chain via asyncio.gather(100 calls) — all correct values."""
     async def square(v):
       await asyncio.sleep(0)
       return v * v
 
-    frozen = Chain().then(square).freeze()
-    coros = [frozen(i) for i in range(100)]
+    c = Chain().then(square)
+    coros = [c(i) for i in range(100)]
     results = await asyncio.gather(*coros)
     assert results == [i * i for i in range(100)]
 
@@ -521,8 +481,8 @@ class ConcurrentExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return v * 2
 
-    frozen = Chain().then(process).freeze()
-    coros = [frozen(i) for i in range(50)]
+    c = Chain().then(process)
+    coros = [c(i) for i in range(50)]
     results = await asyncio.gather(*coros)
     assert results == [i * 2 for i in range(50)]
 
@@ -532,11 +492,11 @@ class ConcurrentExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return x * 2
 
-    frozen = Chain().foreach(double).freeze()
+    c = Chain().foreach(double)
     r1, r2, r3 = await asyncio.gather(
-      frozen([1, 2]),
-      frozen([3, 4]),
-      frozen([5]),
+      c([1, 2]),
+      c([3, 4]),
+      c([5]),
     )
     assert r1 == [2, 4]
     assert r2 == [6, 8]
@@ -548,9 +508,9 @@ class ConcurrentExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return ctx + '!'
 
-    frozen = Chain().with_(body).freeze()
+    c = Chain().with_(body)
     cms = [AsyncTrackedCM(f'val{i}') for i in range(5)]
-    results = await asyncio.gather(*[frozen(cm) for cm in cms])
+    results = await asyncio.gather(*[c(cm) for cm in cms])
     for i, cm in enumerate(cms):
       assert results[i] == f'val{i}!'
       assert cm.entered
@@ -564,8 +524,8 @@ class ConcurrentExecutionTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0.01)
       return v
 
-    frozen = Chain().then(slow).freeze()
-    coros = [frozen(i) for i in range(20)]
+    c = Chain().then(slow)
+    coros = [c(i) for i in range(20)]
     results = await asyncio.gather(*coros)
     assert sorted(results) == list(range(20))
     # After gather completes, tasks should be cleaned up
@@ -692,18 +652,6 @@ class ConfigInteractionTests(TestCase):
     c = Chain(1).config(debug=True).then(lambda v: v + 1)
     assert c.run() == 2
 
-  def test_s7_02_config_no_async(self):
-    """config: no_async(True) — async fn result not awaited, stays sync."""
-    c = Chain(1).no_async(True).then(lambda v: v + 1)
-    result = c.run()
-    assert result == 2
-
-  def test_s7_03_config_debug_and_no_async(self):
-    """config(debug=True) + no_async — both active."""
-    c = Chain(1).config(debug=True).no_async(True).then(lambda v: v + 1)
-    result = c.run()
-    assert result == 2
-
   def test_s7_04_config_on_clone_independence(self):
     """config on clone — verify independence."""
     c = Chain(1).then(lambda v: v + 1)
@@ -713,28 +661,19 @@ class ConfigInteractionTests(TestCase):
     assert c.run() == 2
     assert c2.run() == 2
 
-  def test_s7_05_config_on_cascade(self):
-    """config on Cascade — preserved."""
-    c = Cascade(10).config(debug=True).then(lambda v: v * 2)
-    result = c.run()
-    assert result == 10  # Cascade returns root
-
   def test_s7_06_config_after_links(self):
     """Changing config after adding links — verify behavior."""
     c = Chain(1).then(lambda v: v + 1)
     c.config(debug=True)
     assert c.run() == 2
 
-  def test_s7_07_all_config_combos(self):
-    """All combinations of (debug, no_async): 4 combinations."""
+  def test_s7_07_config_debug_combos(self):
+    """Debug config combinations."""
     for debug in [True, False]:
-      for no_async in [True, False]:
-        c = Chain(1).then(lambda v: v + 1)
-        c.config(debug=debug)
-        if no_async:
-          c.no_async(True)
-        result = c.run()
-        assert result == 2, f"Failed with debug={debug}, no_async={no_async}"
+      c = Chain(1).then(lambda v: v + 1)
+      c.config(debug=debug)
+      result = c.run()
+      assert result == 2, f"Failed with debug={debug}"
 
 
 class ConfigAutorunTests(IsolatedAsyncioTestCase):
@@ -892,52 +831,6 @@ class MultipleExceptFinallyAsyncTests(IsolatedAsyncioTestCase):
 
 
 # ===================================================================
-# SECTION 9: Pipe operator chaining patterns
-# ===================================================================
-
-class PipeOperatorTests(TestCase):
-  """Test the | pipe operator patterns."""
-
-  def test_s9_01_pipe_value(self):
-    """chain | value — appends value as a then link."""
-    c = Chain(1) | (lambda v: v + 1)
-    assert c.run() == 2
-
-  def test_s9_02_pipe_chain_to_run(self):
-    """chain | fn | run() — executes via pipe."""
-    result = Chain(5) | (lambda v: v * 2) | run()
-    assert result == 10
-
-  def test_s9_03_pipe_with_run_args(self):
-    """Chain() | fn | run(value) — void chain with pipe and run args."""
-    result = Chain() | (lambda v: v * 3) | run(7)
-    assert result == 21
-
-  def test_s9_04_pipe_cascade(self):
-    """Using pipe with Cascade."""
-    log = []
-    result = Cascade(10) | (lambda v: log.append(v)) | run()
-    assert result == 10
-    assert log == [10]
-
-  def test_s9_05_pipe_falsy_values(self):
-    """Pipe with None, 0, False — falsy values through pipe."""
-    c = Chain(None) | (lambda v: v is None)
-    assert c.run() is True
-
-    c2 = Chain(0) | (lambda v: v + 1)
-    assert c2.run() == 1
-
-    c3 = Chain(False) | (lambda v: not v)
-    assert c3.run() is True
-
-  def test_s9_06_pipe_literal(self):
-    """Pipe a literal (non-callable) value."""
-    c = Chain(1) | 42
-    assert c.run() == 42
-
-
-# ===================================================================
 # SECTION 10: Generator/iterate reuse and isolation
 # ===================================================================
 
@@ -1054,8 +947,8 @@ class TaskRegistryCleanupTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0.01)
       return v
 
-    frozen = Chain().then(work).freeze()
-    tasks = [frozen(i) for i in range(10)]
+    c = Chain().then(work)
+    tasks = [c(i) for i in range(10)]
     await asyncio.gather(*tasks)
     await asyncio.sleep(0.05)
     assert _get_registry_size() == initial
@@ -1085,19 +978,16 @@ class InterleavedConstructionTests(TestCase):
       result = c.run()
       assert result == sum(range(i + 1))
 
-  def test_s12_03_freeze_then_modify_original(self):
-    """Chain().then(a) — freeze, add .then(b) to original, frozen doesn't see b."""
+  def test_s12_03_clone_then_modify_original(self):
+    """Chain().then(a) — clone, add .then(b) to original, clone doesn't see b."""
     c = Chain(1).then(lambda v: v + 1)
-    frozen = c.freeze()
+    c2 = c.clone()
     c.then(lambda v: v * 100)
-    # Frozen captures _run method, but _run uses the chain's current state
-    # which includes new links. This is by design — freeze captures _run reference.
-    frozen_result = frozen()
+    clone_result = c2.run()
     chain_result = c.run()
-    # Frozen calls self._run which IS the same chain object's _run method
-    # So frozen WILL see changes to the original chain
+    # Clone is independent — it does NOT see changes to the original chain
     assert chain_result == 200  # (1+1)*100
-    assert frozen_result == 200  # Same — freeze captures _run reference
+    assert clone_result == 2  # Clone is a snapshot: (1+1)
 
   def test_s12_04_build_interleaved_with_clone(self):
     """Chain building interleaved with clone — verify snapshot points."""
@@ -1141,22 +1031,22 @@ class ExceptFinallyReuseComboTests(TestCase):
       else:
         assert 'except' not in log
 
-  def test_s13_02_frozen_except_finally_reuse(self):
-    """Frozen chain with except_ and finally_ — reuse many times."""
+  def test_s13_02_chain_except_finally_reuse(self):
+    """Chain with except_ and finally_ — reuse many times."""
     except_count = [0]
     finally_count = [0]
 
     def fail(v):
       raise ValueError('always')
 
-    frozen = Chain().then(fail).except_(
+    c = Chain().then(fail).except_(
       lambda v: except_count.__setitem__(0, except_count[0] + 1), reraise=False
     ).finally_(
       lambda v: finally_count.__setitem__(0, finally_count[0] + 1)
-    ).freeze()
+    )
 
     for i in range(10):
-      frozen(i)
+      c(i)
     assert except_count[0] == 10
     assert finally_count[0] == 10
 
@@ -1183,29 +1073,6 @@ class ExceptFinallyReuseComboTests(TestCase):
     result = c.run('ok')
     assert result == 'ok'
     assert caught == ['type', 'val']  # no new catches
-
-
-class CascadeReuseTests(TestCase):
-  """Additional Cascade reuse tests."""
-
-  def test_s13_04_cascade_with_then_reuse(self):
-    """Cascade with then() — verify root always passed on reuse."""
-    results = []
-    c = Cascade().then(lambda v: results.append(v))
-    c.run(10)
-    c.run(20)
-    c.run(30)
-    assert results == [10, 20, 30]
-
-  def test_s13_05_cascade_clone_reuse(self):
-    """Cascade clone — reuse independently."""
-    c = Cascade(5).then(lambda v: v * 2)
-    c2 = c.clone()
-    assert c.run() == 5
-    assert c2.run() == 5
-    c2.do(lambda v: None)
-    assert c.run() == 5
-    assert c2.run() == 5
 
 
 class DoThenInteractionTests(TestCase):
@@ -1337,11 +1204,11 @@ class StressReuseTests(TestCase):
     for _ in range(1000):
       assert c.run() == 20  # 7*3-1 = 20
 
-  def test_s14_02_frozen_reuse_1000_times(self):
-    """Frozen chain called 1000 times — consistent."""
-    frozen = Chain().then(lambda v: v + 1).freeze()
+  def test_s14_02_chain_reuse_1000_times(self):
+    """Chain called 1000 times — consistent."""
+    c = Chain().then(lambda v: v + 1)
     for i in range(1000):
-      assert frozen(i) == i + 1
+      assert c(i) == i + 1
 
   def test_s14_03_clone_reuse_100_clones(self):
     """100 clones from same original — all independent."""
@@ -1358,28 +1225,28 @@ class StressReuseTests(TestCase):
 class StressConcurrentTests(IsolatedAsyncioTestCase):
   """Stress test concurrent patterns."""
 
-  async def test_s14_04_massive_concurrent_frozen(self):
-    """200 concurrent calls to same frozen chain."""
+  async def test_s14_04_massive_concurrent_chain(self):
+    """200 concurrent calls to same chain."""
     async def process(v):
       await asyncio.sleep(0)
       return v * v
 
-    frozen = Chain().then(process).freeze()
+    c = Chain().then(process)
     n = 200
-    coros = [frozen(i) for i in range(n)]
+    coros = [c(i) for i in range(n)]
     results = await asyncio.gather(*coros)
     assert results == [i * i for i in range(n)]
 
 
 # ===================================================================
-# SECTION 15: Frozen chain decorator pattern reuse
+# SECTION 15: Chain decorator pattern reuse
 # ===================================================================
 
-class FrozenDecoratorReuseTests(TestCase):
-  """Test frozen chain decorator pattern."""
+class DecoratorReuseTests(TestCase):
+  """Test chain decorator pattern."""
 
   def test_s15_01_decorator_reuse(self):
-    """Frozen chain as decorator — decorated fn reusable."""
+    """Chain as decorator — decorated fn reusable."""
     @Chain().then(lambda v: v * 2).decorator()
     def my_fn(x):
       return x + 1
@@ -1389,11 +1256,11 @@ class FrozenDecoratorReuseTests(TestCase):
     assert my_fn(0) == 2   # my_fn(0)=1, *2=2
 
 
-class FrozenDecoratorAsyncTests(IsolatedAsyncioTestCase):
-  """Test frozen chain decorator with async."""
+class DecoratorAsyncTests(IsolatedAsyncioTestCase):
+  """Test chain decorator with async."""
 
   async def test_s15_02_async_decorator_reuse(self):
-    """Frozen chain decorator with async fn — reusable."""
+    """Chain decorator with async fn — reusable."""
     async def add_one(v):
       return v + 1
 
@@ -1405,22 +1272,6 @@ class FrozenDecoratorAsyncTests(IsolatedAsyncioTestCase):
     assert r1 == 16
     r2 = await my_fn(10)  # 10*3=30, +1=31
     assert r2 == 31
-
-
-# ===================================================================
-# SECTION 16: Sleep reuse
-# ===================================================================
-
-class SleepReuseTests(IsolatedAsyncioTestCase):
-  """Test chain with sleep on reuse."""
-
-  async def test_s16_01_sleep_reuse(self):
-    """Chain with sleep — reuse multiple times."""
-    c = Chain().sleep(0.001).then(lambda v: v + 1)
-    r1 = await c.run(10)
-    assert r1 == 11
-    r2 = await c.run(20)
-    assert r2 == 21
 
 
 # ===================================================================
@@ -1483,12 +1334,12 @@ class NestedChainReuseTests(TestCase):
     assert level1.run(0) == 1
     assert level1.run(10) == 11
 
-  def test_s18_03_frozen_nested_chain_reuse(self):
-    """Frozen chain containing nested chain — reuse."""
+  def test_s18_03_nested_chain_reuse(self):
+    """Chain containing nested chain — reuse."""
     inner = Chain().then(lambda v: v * 2)
-    frozen = Chain().then(inner).then(lambda v: v + 1).freeze()
-    assert frozen(5) == 11   # 5*2+1
-    assert frozen(10) == 21  # 10*2+1
+    c = Chain().then(inner).then(lambda v: v + 1)
+    assert c(5) == 11   # 5*2+1
+    assert c(10) == 21  # 10*2+1
 
 
 # ===================================================================
@@ -1575,18 +1426,6 @@ class RealWorldPatternTests(TestCase):
     assert c.run('100') == 100
     assert c.run('xyz') == default
 
-  def test_s20_03_cascade_logging_pattern(self):
-    """Cascade for logging/monitoring pattern — reuse."""
-    log = []
-    c = Cascade().do(lambda v: log.append(f'received: {v}')).do(
-      lambda v: log.append(f'type: {type(v).__name__}')
-    )
-    c.run(42)
-    c.run('hello')
-    assert log == [
-      'received: 42', 'type: int',
-      'received: hello', 'type: str',
-    ]
 
 
 class RealWorldAsyncPatternTests(IsolatedAsyncioTestCase):
@@ -1609,7 +1448,7 @@ class RealWorldAsyncPatternTests(IsolatedAsyncioTestCase):
     assert r2 == 'DATA-URL2'
 
   async def test_s20_05_concurrent_pipelines(self):
-    """Multiple different frozen pipelines running concurrently."""
+    """Multiple different pipelines running concurrently."""
     async def add(v):
       await asyncio.sleep(0)
       return v + 1
@@ -1618,29 +1457,13 @@ class RealWorldAsyncPatternTests(IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       return v * 2
 
-    p1 = Chain().then(add).freeze()
-    p2 = Chain().then(mul).freeze()
+    p1 = Chain().then(add)
+    p2 = Chain().then(mul)
 
     results = await asyncio.gather(
       p1(10), p2(10), p1(20), p2(20), p1(30), p2(30)
     )
     assert results == [11, 20, 21, 40, 31, 60]
-
-
-# ===================================================================
-# SECTION 21: to_thread reuse
-# ===================================================================
-
-class ToThreadReuseTests(IsolatedAsyncioTestCase):
-  """Test to_thread reuse."""
-
-  async def test_s21_01_to_thread_reuse(self):
-    """Chain with to_thread — reuse."""
-    c = Chain().to_thread(lambda v: v * 2)
-    r1 = await c.run(5)
-    assert r1 == 10
-    r2 = await c.run(10)
-    assert r2 == 20
 
 
 # ===================================================================
@@ -1657,19 +1480,6 @@ class CloneConfigTests(TestCase):
     # Both should work with debug mode
     assert c.run() == 2
     assert c2.run() == 2
-
-  def test_s22_02_clone_preserves_no_async(self):
-    """Clone preserves no_async config."""
-    c = Chain(1).no_async(True).then(lambda v: v + 1)
-    c2 = c.clone()
-    assert c2.run() == 2
-
-  def test_s22_03_clone_preserves_cascade_type(self):
-    """Clone of Cascade is still a Cascade."""
-    c = Cascade(10).do(lambda v: None)
-    c2 = c.clone()
-    assert isinstance(c2, Cascade)
-    assert c2.run() == 10
 
   def test_s22_04_clone_finally_independence(self):
     """Clone's finally_ doesn't affect original."""
@@ -1851,36 +1661,6 @@ class ChainReuseExceptionEdgeCases(TestCase):
       c.run(1)
     with self.assertRaises(TypeError):
       c.run(2)
-
-
-class CascadeReuseEdgeCaseTests(TestCase):
-  """Additional Cascade reuse edge cases."""
-
-  def test_s25_08_cascade_with_foreach(self):
-    """Cascade with foreach — root passed to foreach."""
-    c = Cascade().foreach(lambda x: x * 2)
-    # Cascade passes root to each operation, so foreach gets the root
-    r = c.run([1, 2, 3])
-    assert r == [1, 2, 3]  # Cascade returns root
-
-  def test_s25_09_cascade_multiple_do(self):
-    """Cascade with multiple do() — all get root value."""
-    log = []
-    c = Cascade().do(lambda v: log.append(('do1', v))).do(
-      lambda v: log.append(('do2', v))
-    )
-    c.run(42)
-    c.run(99)
-    assert log == [
-      ('do1', 42), ('do2', 42),
-      ('do1', 99), ('do2', 99),
-    ]
-
-  def test_s25_10_cascade_then_value_ignored(self):
-    """Cascade then() result is discarded; root is returned."""
-    c = Cascade(100).then(lambda v: v * 999)
-    assert c.run() == 100
-    assert c.run() == 100
 
 
 class CloneReuseComboTests(TestCase):

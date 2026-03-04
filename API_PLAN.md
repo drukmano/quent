@@ -21,7 +21,7 @@ Every kept method must pass this test or be essential chain infrastructure (core
 | Bifurcation Solver | `sleep(seconds)` | Async-transparent sleep. `asyncio.sleep` in async, `time.sleep` in sync. | `time.sleep` vs `asyncio.sleep` is a direct bifurcation. |
 | Bifurcation Solver | `with_(fn, *args, **kwargs)` | Execute fn inside current value as async-transparent context manager. | `with` vs `async with` is a direct bifurcation. |
 | Bifurcation Solver | `gather(*fns)` | Execute multiple fns concurrently on current value. | `asyncio.gather` has no sync equivalent; gather provides one. |
-| Bifurcation Solver | `foreach(fn, with_index=False)` | Async-transparent iteration over elements. | `for` vs `async for` is a direct bifurcation. |
+| Bifurcation Solver | `foreach(fn)` | Async-transparent iteration over elements. | `for` vs `async for` is a direct bifurcation. |
 | Bifurcation Solver | `filter(fn, *args, **kwargs)` | Async-transparent filtering. | Filtering with async predicates requires `async for`; bifurcation. |
 | Bifurcation Solver | `iterate(fn=None)` | Yield chain results as sync or async generator. | `yield` vs `async yield` is a direct bifurcation. |
 | Bifurcation Solver | `to_thread(fn, *args, **kwargs)` | Run sync fn in thread pool when in async context; call directly in sync. | `asyncio.to_thread` has no sync equivalent; same pattern as `sleep`. |

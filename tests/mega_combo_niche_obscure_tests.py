@@ -13,8 +13,8 @@ import time
 import warnings
 from contextlib import contextmanager
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import TestExc, empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade, QuentException, run, Null
+from tests.utils import TestExc, empty, aempty, await_
+from quent import Chain, QuentException, Null
 
 
 # ---------------------------------------------------------------------------
@@ -251,100 +251,79 @@ class NoNameCallable:
 # Category 1: Chain as value INSIDE another chain
 # ---------------------------------------------------------------------------
 
-class ChainAsValueTests(MyTestCase):
+class ChainAsValueTests(IsolatedAsyncioTestCase):
 
   async def test_chain_holding_chain_as_root(self):
-    """Chain(Chain(10)) — inner chain is callable, outer chain calls it."""
-    inner = Chain(10).freeze()
+    """Chain(Chain(10)) -- inner chain is callable, outer chain calls it."""
+    inner = Chain(10)
     result = Chain(inner).run()
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
 
   async def test_then_returns_chain_object(self):
-    """then returns a frozen Chain; outer chain gets the frozen chain result."""
-    inner = Chain(99).freeze()
+    """then returns a chain result; outer chain gets the chain result."""
+    inner = Chain(99)
     result = Chain(1).then(lambda v: inner.run()).run()
-    await self.assertEqual(result, 99)
-
-  async def test_cascade_holding_frozen_chain(self):
-    """Cascade with frozen chain as root."""
-    inner = Chain(42).freeze()
-    result = Cascade(inner).then(lambda v: v).run()
-    await self.assertEqual(result, 42)
-
-  async def test_then_returns_cascade_result(self):
-    """then returns a Cascade execution result."""
-    inner = Cascade(100).then(lambda v: v + 1).freeze()
-    result = Chain(1).then(lambda v: inner.run()).run()
-    await self.assertEqual(result, 100)
+    self.assertEqual(result, 99)
 
   async def test_nested_chain_as_then_link(self):
     """Use a nested Chain directly as a then link."""
     inner = Chain().then(lambda v: v * 2)
     outer = Chain(5).then(inner)
-    await self.assertEqual(outer.run(), 10)
-
-  async def test_nested_cascade_as_then_link(self):
-    """Use a nested Cascade directly as a then link."""
-    inner = Cascade().then(lambda v: v * 3)
-    outer = Chain(7).then(inner)
-    await self.assertEqual(outer.run(), 7)
+    self.assertEqual(outer.run(), 10)
 
   async def test_deeply_nested_chains(self):
     """Chain within chain within chain — 3 levels deep."""
     c3 = Chain().then(lambda v: v + 1)
     c2 = Chain().then(c3)
     c1 = Chain(10).then(c2)
-    await self.assertEqual(c1.run(), 11)
+    self.assertEqual(c1.run(), 11)
 
-  async def test_frozen_chain_as_root_is_called(self):
-    """FrozenChain as root — it's callable, so Chain calls it, producing its result."""
-    inner = Chain(55).freeze()
+  async def test_chain_as_root_is_called(self):
+    """Chain as root -- it's callable, so outer Chain calls it, producing its result."""
+    inner = Chain(55)
     # Chain(inner) calls inner() which returns 55
     result = Chain(inner).then(lambda v: v + 1).run()
-    await self.assertEqual(result, 56)
+    self.assertEqual(result, 56)
 
 
 # ---------------------------------------------------------------------------
 # Category 2: Recursive chain patterns
 # ---------------------------------------------------------------------------
 
-class RecursiveChainTests(MyTestCase):
+class RecursiveChainTests(IsolatedAsyncioTestCase):
 
-  async def test_frozen_chain_recursive(self):
-    """Frozen chain that calls itself recursively."""
-    c = Chain().then(lambda v: fc(v - 1) if v > 0 else v).freeze()
-    fc = c
-    await self.assertEqual(c.run(5), 0)
+  async def test_chain_recursive(self):
+    """Chain that calls itself recursively."""
+    c = Chain().then(lambda v: c(v - 1) if v > 0 else v)
+    self.assertEqual(c.run(5), 0)
 
   async def test_recursive_chain_deep(self):
     """Recursive chain with deeper recursion."""
-    c = Chain().then(lambda v: fc(v - 1) if v > 0 else 'done').freeze()
-    fc = c
-    await self.assertEqual(c.run(10), 'done')
+    c = Chain().then(lambda v: c(v - 1) if v > 0 else 'done')
+    self.assertEqual(c.run(10), 'done')
 
   async def test_foreach_body_creates_chain(self):
     """foreach body creates and runs a new chain for each element."""
     def process(x):
       return Chain(x).then(lambda v: v ** 2).run()
     result = Chain([1, 2, 3]).foreach(process).run()
-    await self.assertEqual(result, [1, 4, 9])
+    self.assertEqual(result, [1, 4, 9])
 
-  async def test_async_recursive_frozen_chain(self):
-    """Async recursive frozen chain."""
+  async def test_async_recursive_chain(self):
+    """Async recursive chain."""
     async def body(v):
       if v > 0:
-        return await fc(v - 1)
+        return await c(v - 1)
       return v
-    c = Chain().then(body).freeze()
-    fc = c
-    await self.assertEqual(await c.run(3), 0)
+    c = Chain().then(body)
+    self.assertEqual(await c.run(3), 0)
 
 
 # ---------------------------------------------------------------------------
 # Category 3: Exception types as chain operations
 # ---------------------------------------------------------------------------
 
-class ExceptionAsOperationTests(MyTestCase):
+class ExceptionAsOperationTests(IsolatedAsyncioTestCase):
 
   async def test_exception_class_as_root_construct(self):
     """Chain(TypeError, 'message') — exception class called with arg as root."""
@@ -433,7 +412,7 @@ class ExceptionAsOperationTests(MyTestCase):
 # Category 4: Context manager edge cases
 # ---------------------------------------------------------------------------
 
-class ContextManagerEdgeTests(MyTestCase):
+class ContextManagerEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_cm_enter_raises_exit_not_called(self):
     """CM where __enter__ raises — __exit__ NOT called."""
@@ -466,7 +445,7 @@ class ContextManagerEdgeTests(MyTestCase):
     """CM where __enter__ returns None — body still works."""
     cm = NoneEnterCM()
     result = Chain(cm).with_(lambda ctx: 'body_result').run()
-    await self.assertEqual(result, 'body_result')
+    self.assertEqual(result, 'body_result')
     assert cm.entered
     assert cm.exited
 
@@ -492,13 +471,13 @@ class ContextManagerEdgeTests(MyTestCase):
     """with_ body that returns None."""
     cm = SyncCM('hello')
     result = Chain(cm).with_(lambda ctx: None).run()
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_async_cm(self):
     """Fully async context manager."""
     cm = AsyncCM('async_val')
     result = await Chain(cm).with_(lambda ctx: ctx).run()
-    await self.assertEqual(result, 'async_val')
+    self.assertEqual(result, 'async_val')
     assert cm.entered
     assert cm.exited
 
@@ -508,144 +487,138 @@ class ContextManagerEdgeTests(MyTestCase):
     async def body(ctx):
       return ctx + '_processed'
     result = await Chain(cm).with_(body).run()
-    await self.assertEqual(result, 'sync_val_processed')
+    self.assertEqual(result, 'sync_val_processed')
 
 
 # ---------------------------------------------------------------------------
 # Category 5: Iteration over unusual iterables
 # ---------------------------------------------------------------------------
 
-class UnusualIterableTests(MyTestCase):
+class UnusualIterableTests(IsolatedAsyncioTestCase):
 
   async def test_foreach_over_dict_iterates_keys(self):
     """foreach over a dict — iterates keys."""
     d = {'a': 1, 'b': 2, 'c': 3}
     result = Chain(d).foreach(lambda k: k.upper()).run()
-    await self.assertEqual(sorted(result), ['A', 'B', 'C'])
+    self.assertEqual(sorted(result), ['A', 'B', 'C'])
 
   async def test_foreach_over_string_iterates_chars(self):
     """foreach over a string — iterates characters."""
     result = Chain('abc').foreach(lambda c: c.upper()).run()
-    await self.assertEqual(result, ['A', 'B', 'C'])
+    self.assertEqual(result, ['A', 'B', 'C'])
 
   async def test_foreach_over_bytes_iterates_ints(self):
     """foreach over bytes — iterates ints."""
     result = Chain(b'\x01\x02\x03').foreach(lambda b: b * 2).run()
-    await self.assertEqual(result, [2, 4, 6])
+    self.assertEqual(result, [2, 4, 6])
 
   async def test_foreach_over_empty_range(self):
     """foreach over range(0) — empty range."""
     result = Chain(range(0)).foreach(lambda x: x).run()
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
   async def test_foreach_over_exhausted_generator(self):
     """foreach over a generator that's already exhausted."""
     gen = (x for x in [1, 2])
     list(gen)  # exhaust it
     result = Chain(gen).foreach(lambda x: x).run()
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
   async def test_foreach_over_iterator_with_next(self):
     """foreach over a SelfIterator (has __next__ and __iter__ returns self)."""
     it = SelfIterator([10, 20, 30])
     result = Chain(it).foreach(lambda x: x + 1).run()
-    await self.assertEqual(result, [11, 21, 31])
+    self.assertEqual(result, [11, 21, 31])
 
   async def test_foreach_over_itertools_chain(self):
     """foreach over itertools.chain."""
     result = Chain(itertools.chain([1, 2], [3, 4])).foreach(lambda x: x * 10).run()
-    await self.assertEqual(result, [10, 20, 30, 40])
+    self.assertEqual(result, [10, 20, 30, 40])
 
   async def test_foreach_over_zip(self):
     """foreach over zip."""
     result = Chain(zip([1, 2], [3, 4])).foreach(lambda t: t[0] + t[1]).run()
-    await self.assertEqual(result, [4, 6])
+    self.assertEqual(result, [4, 6])
 
   async def test_foreach_over_map(self):
     """foreach over map."""
     result = Chain(map(str, [1, 2, 3])).foreach(lambda s: s + '!').run()
-    await self.assertEqual(result, ['1!', '2!', '3!'])
+    self.assertEqual(result, ['1!', '2!', '3!'])
 
   async def test_foreach_over_filter_builtin(self):
     """foreach over filter (builtin)."""
     result = Chain(filter(lambda x: x > 2, [1, 2, 3, 4])).foreach(lambda x: x * 2).run()
-    await self.assertEqual(result, [6, 8])
+    self.assertEqual(result, [6, 8])
 
   async def test_foreach_single_element(self):
     """foreach over a single-element iterator."""
     result = Chain(iter([42])).foreach(lambda x: x + 1).run()
-    await self.assertEqual(result, [43])
+    self.assertEqual(result, [43])
 
   async def test_filter_over_dict(self):
     """filter over a dict — filters keys."""
     d = {'apple': 1, 'banana': 2, 'cherry': 3}
     result = Chain(d).filter(lambda k: k.startswith('b')).run()
-    await self.assertEqual(result, ['banana'])
-
-  async def test_foreach_indexed_over_generator(self):
-    """foreach_indexed over a generator."""
-    gen = (x * 10 for x in range(3))
-    result = Chain(gen).foreach(lambda idx, el: (idx, el), with_index=True).run()
-    await self.assertEqual(result, [(0, 0), (1, 10), (2, 20)])
+    self.assertEqual(result, ['banana'])
 
   async def test_gather_with_zero_functions(self):
     """gather with 0 functions."""
     result = Chain(1).gather().run()
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
   async def test_gather_with_one_function(self):
     """gather with 1 function."""
     result = Chain(10).gather(lambda v: v + 1).run()
-    await self.assertEqual(result, [11])
+    self.assertEqual(result, [11])
 
   async def test_gather_with_many_functions(self):
     """gather with 20 functions."""
     fns = [lambda v, i=i: v + i for i in range(20)]
     result = Chain(0).gather(*fns).run()
-    await self.assertEqual(result, list(range(20)))
+    self.assertEqual(result, list(range(20)))
 
   async def test_foreach_over_immediate_stop_iterator(self):
     """foreach over an iterator that immediately stops."""
     it = ImmediateStopIterator()
     result = Chain(it).foreach(lambda x: x).run()
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
   async def test_foreach_over_falsy_iterable(self):
     """foreach on a falsy-but-iterable object."""
     fi = FalsyIterable([1, 2, 3])
     assert not fi  # it's falsy
     result = Chain(fi).foreach(lambda x: x * 2).run()
-    await self.assertEqual(result, [2, 4, 6])
+    self.assertEqual(result, [2, 4, 6])
 
 
 # ---------------------------------------------------------------------------
 # Category 6: Ellipsis and Null sentinel interactions
 # ---------------------------------------------------------------------------
 
-class EllipsisNullTests(MyTestCase):
+class EllipsisNullTests(IsolatedAsyncioTestCase):
 
   async def test_ellipsis_as_then_arg_calls_without_args(self):
     """then(fn, ...) — ellipsis as first arg triggers EVAL_CALL_WITHOUT_ARGS."""
     result = Chain(99).then(lambda: 'no_args', ...).run()
-    await self.assertEqual(result, 'no_args')
+    self.assertEqual(result, 'no_args')
 
   async def test_null_root_then(self):
     """Chain(Null).then(fn) — Null root means no root, then gets called with no args."""
     # Null is the sentinel for "no value", so Chain(Null) == Chain()
     result = Chain(Null).then(lambda: 'from_null').run()
-    await self.assertEqual(result, 'from_null')
+    self.assertEqual(result, 'from_null')
 
   async def test_run_with_null(self):
     """Chain().run(Null) — Null means no override."""
     result = Chain().then(lambda: 'void').run(Null)
-    await self.assertEqual(result, 'void')
+    self.assertEqual(result, 'void')
 
   async def test_null_as_then_value(self):
     """Chain(1).then(Null) — Null is a non-callable literal, but then() allows literals."""
     # then() uses allow_literal=True, so Null is treated as EVAL_RETURN_AS_IS
     result = Chain(1).then(Null).run()
     # Null sentinel gets returned, but chain converts Null to None at the end
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_ellipsis_as_root(self):
     """Chain(...) — ellipsis as root value (literal, not callable)."""
@@ -655,7 +628,7 @@ class EllipsisNullTests(MyTestCase):
   async def test_chain_none_root(self):
     """Chain(None) — None is a valid literal root."""
     result = Chain(None).run()
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_then_with_ellipsis_on_callable(self):
     """then(callable, ...) calls callable with no args, ignoring current value."""
@@ -664,14 +637,14 @@ class EllipsisNullTests(MyTestCase):
       counter['n'] += 1
       return counter['n']
     result = Chain(999).then(inc, ...).run()
-    await self.assertEqual(result, 1)
+    self.assertEqual(result, 1)
 
 
 # ---------------------------------------------------------------------------
 # Category 7: Dynamic chain construction
 # ---------------------------------------------------------------------------
 
-class DynamicChainConstructionTests(MyTestCase):
+class DynamicChainConstructionTests(IsolatedAsyncioTestCase):
 
   async def test_chain_built_in_loop(self):
     """Build chain in a for loop with 100 then links."""
@@ -679,7 +652,7 @@ class DynamicChainConstructionTests(MyTestCase):
     for i in range(100):
       c.then(lambda v, i=i: v + i)
     result = c.run()
-    await self.assertEqual(result, sum(range(100)))
+    self.assertEqual(result, sum(range(100)))
 
   async def test_chain_built_conditionally(self):
     """Build chain conditionally."""
@@ -691,34 +664,21 @@ class DynamicChainConstructionTests(MyTestCase):
         c.then(lambda v: v + 10)
       result = c.run()
       if condition:
-        await self.assertEqual(result, 10)
+        self.assertEqual(result, 10)
       else:
-        await self.assertEqual(result, 11)
+        self.assertEqual(result, 11)
 
-  async def test_frozen_chain_immutable_after_freeze(self):
-    """Frozen chain is a snapshot — adding links after freeze doesn't affect it."""
+  async def test_chain_mutation_after_clone(self):
+    """Cloned chain is independent -- adding links to original doesn't affect clone."""
     c = Chain(1).then(lambda v: v + 1)
-    fc = c.freeze()
-    # Adding more links after freeze
+    c2 = c.clone()
+    # Adding more links after cloning
     c.then(lambda v: v * 100)
-    # The frozen chain should still give the original result
-    # (freeze captures _run reference, which shares the same links)
-    # Actually, freeze captures a reference to _run, so it WILL see new links
-    # because it references the same chain object. This is a known behavior.
-    result = fc.run()
-    # The frozen chain references the same internal chain, so mutations ARE visible
-    await self.assertEqual(result, 200)
-
-  async def test_chain_built_with_pipe_operator_only(self):
-    """Build chain using only pipe operator (no method calls)."""
-    result = Chain(1) | (lambda v: v + 1) | (lambda v: v * 3) | run()
-    await self.assertEqual(result, 6)
-
-  async def test_pipe_operator_with_run_override(self):
-    """Pipe operator with run(value) override."""
-    c = Chain() | (lambda v: v + 10)
-    result = c | run(5)
-    await self.assertEqual(result, 15)
+    # The clone should still give the original result
+    result = c2.run()
+    self.assertEqual(result, 2)
+    # The original chain sees the mutation
+    self.assertEqual(c.run(), 200)
 
   async def test_many_then_links_performance(self):
     """Chain with 1000 then links still produces correct result."""
@@ -726,21 +686,21 @@ class DynamicChainConstructionTests(MyTestCase):
     for _ in range(1000):
       c.then(lambda v: v + 1)
     result = c.run()
-    await self.assertEqual(result, 1000)
+    self.assertEqual(result, 1000)
 
 
 # ---------------------------------------------------------------------------
 # Category 8: Coroutine lifecycle edge cases
 # ---------------------------------------------------------------------------
 
-class CoroutineLifecycleTests(MyTestCase):
+class CoroutineLifecycleTests(IsolatedAsyncioTestCase):
 
   async def test_async_fn_returns_sync_value(self):
     """Async function that returns a regular (non-awaitable) value."""
     async def sync_return(v):
       return v + 1
     result = await Chain(1).then(sync_return).run()
-    await self.assertEqual(result, 2)
+    self.assertEqual(result, 2)
 
   async def test_async_fn_raises_before_first_await(self):
     """Async fn that raises before first await."""
@@ -758,7 +718,7 @@ class CoroutineLifecycleTests(MyTestCase):
       finally:
         log.append('finally')
     result = await Chain(1).then(fn_with_finally).run()
-    await self.assertEqual(result, 2)
+    self.assertEqual(result, 2)
     assert log == ['finally']
 
   async def test_two_chains_share_same_async_fn(self):
@@ -769,14 +729,8 @@ class CoroutineLifecycleTests(MyTestCase):
     c2 = Chain(5).then(shared_fn)
     r1 = await c1.run()
     r2 = await c2.run()
-    await self.assertEqual(r1, 6)
-    await self.assertEqual(r2, 10)
-
-  async def test_chain_no_async_mode(self):
-    """Chain with no_async() — coroutine check is disabled."""
-    c = Chain(1).no_async(True).then(lambda v: v + 1)
-    result = c.run()
-    await self.assertEqual(result, 2)
+    self.assertEqual(r1, 6)
+    self.assertEqual(r2, 10)
 
   async def test_chain_autorun_with_async(self):
     """Chain with autorun=True and async fn returns a Task."""
@@ -787,20 +741,20 @@ class CoroutineLifecycleTests(MyTestCase):
     # autorun should create a task
     assert asyncio.isfuture(result) or asyncio.iscoroutine(result) or hasattr(result, '__await__')
     final = await result
-    await self.assertEqual(final, 2)
+    self.assertEqual(final, 2)
 
 
 # ---------------------------------------------------------------------------
 # Category 9: Type coercion and duck typing
 # ---------------------------------------------------------------------------
 
-class DuckTypingTests(MyTestCase):
+class DuckTypingTests(IsolatedAsyncioTestCase):
 
   async def test_callable_and_iterable_in_then(self):
     """Object that's callable AND iterable — then() calls it."""
     obj = CallableAndIterable([1, 2, 3], 'called')
     result = Chain(1).then(obj).run()
-    await self.assertEqual(result, 'called')
+    self.assertEqual(result, 'called')
 
   async def test_callable_and_iterable_in_foreach(self):
     """Use callable-and-iterable as the iterable in foreach — must pass as literal."""
@@ -808,22 +762,22 @@ class DuckTypingTests(MyTestCase):
     # obj is callable, so Chain(obj) calls it. Use then() with literal to set it.
     # Since then() with allow_literal=True, we can pass the object as a root literal
     result = Chain([1, 2, 3]).foreach(lambda x: x * 2).run()
-    await self.assertEqual(result, [2, 4, 6])
+    self.assertEqual(result, [2, 4, 6])
     # Also test that the CallableAndIterable works as iterable via a lambda
     result2 = Chain(1).then(lambda v: obj).foreach(lambda x: x * 2).run()
-    await self.assertEqual(result2, [2, 4, 6])
+    self.assertEqual(result2, [2, 4, 6])
 
   async def test_self_iterator_in_foreach(self):
     """Object where __iter__ returns self (iterator, not iterable)."""
     it = SelfIterator([10, 20])
     result = Chain(it).foreach(lambda x: x + 1).run()
-    await self.assertEqual(result, [11, 21])
+    self.assertEqual(result, [11, 21])
 
   async def test_immediate_stop_iterator(self):
     """Object where __iter__/__next__ raises StopIteration immediately."""
     it = ImmediateStopIterator()
     result = Chain(it).foreach(lambda x: x).run()
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
   async def test_iter_raises_error(self):
     """Object where iteration raises a non-StopIteration exception."""
@@ -836,14 +790,14 @@ class DuckTypingTests(MyTestCase):
     fi = FalsyIterable([5, 10])
     assert not fi
     result = Chain(fi).foreach(lambda x: x * 3).run()
-    await self.assertEqual(result, [15, 30])
+    self.assertEqual(result, [15, 30])
 
 
 # ---------------------------------------------------------------------------
 # Category 10: Diagnostics edge cases
 # ---------------------------------------------------------------------------
 
-class DiagnosticsEdgeTests(MyTestCase):
+class DiagnosticsEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_chain_repr_with_no_name_callable(self):
     """Chain where fn has no standard __name__."""
@@ -887,17 +841,11 @@ class DiagnosticsEdgeTests(MyTestCase):
     assert 'Chain' in r
     assert len(r) > 100  # it should be fairly long
 
-  async def test_chain_repr_with_cascade(self):
-    """repr of Cascade."""
-    c = Cascade(1).then(lambda v: v)
-    r = repr(c)
-    assert 'Cascade' in r
-
   async def test_chain_debug_mode(self):
     """Chain with debug=True produces output without errors."""
     c = Chain(1).config(debug=True).then(lambda v: v + 1).then(lambda v: v * 2)
     result = c.run()
-    await self.assertEqual(result, 4)
+    self.assertEqual(result, 4)
 
   async def test_chain_debug_mode_with_exception(self):
     """Chain with debug=True that raises an exception."""
@@ -912,7 +860,7 @@ class DiagnosticsEdgeTests(MyTestCase):
 # Category 11: Multiple simultaneous features at maximum
 # ---------------------------------------------------------------------------
 
-class MaxFeaturesTests(MyTestCase):
+class MaxFeaturesTests(IsolatedAsyncioTestCase):
 
   async def test_chain_with_many_features(self):
     """Chain with root + then + do + except_ + finally_ + foreach + filter."""
@@ -936,23 +884,8 @@ class MaxFeaturesTests(MyTestCase):
       .finally_(cleanup)
       .run()
     )
-    await self.assertEqual(result, [32, 34])
+    self.assertEqual(result, [32, 34])
     assert 'do:15' in log
-    assert 'finally' in log
-
-  async def test_cascade_with_many_features(self):
-    """Cascade with multiple features — each op gets root value."""
-    log = []
-    result = (
-      Cascade(100)
-      .then(lambda v: log.append(f'then:{v}'))
-      .do(lambda v: log.append(f'do:{v}'))
-      .finally_(lambda v: log.append('finally'))
-      .run()
-    )
-    await self.assertEqual(result, 100)
-    assert 'then:100' in log
-    assert 'do:100' in log
     assert 'finally' in log
 
   async def test_chain_with_interleaved_then_and_do(self):
@@ -967,7 +900,7 @@ class MaxFeaturesTests(MyTestCase):
       .then(lambda v: v + 10)
       .run()
     )
-    await self.assertEqual(result, 16)
+    self.assertEqual(result, 16)
     assert log == [2, 6]
 
   async def test_all_async_links(self):
@@ -979,7 +912,7 @@ class MaxFeaturesTests(MyTestCase):
     async def sub3(v):
       return v - 3
     result = await Chain(10).then(add1).then(mul2).then(sub3).run()
-    await self.assertEqual(result, 19)
+    self.assertEqual(result, 19)
 
   async def test_chain_with_except_and_finally_no_error(self):
     """Chain with except_ and finally_ but no error — except_ not triggered."""
@@ -992,7 +925,7 @@ class MaxFeaturesTests(MyTestCase):
       .finally_(lambda v: fin_called.append(True))
       .run()
     )
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
     assert exc_called == []
     assert fin_called == [True]
 
@@ -1014,55 +947,50 @@ class MaxFeaturesTests(MyTestCase):
       pass
     assert 'h1' in results
 
-  async def test_chain_sleep_zero(self):
-    """Chain with sleep(0)."""
-    result = await Chain(1).sleep(0).then(lambda v: v + 1).run()
-    await self.assertEqual(result, 2)
-
   async def test_chain_with_return_in_nested(self):
     """Nested chain uses return_ to exit early."""
     inner = Chain().then(lambda v: Chain.return_(v * 10))
     result = Chain(5).then(inner).run()
-    await self.assertEqual(result, 50)
+    self.assertEqual(result, 50)
 
 
 # ---------------------------------------------------------------------------
 # Category 12: Edge cases in run()/call semantics
 # ---------------------------------------------------------------------------
 
-class RunCallSemanticsTests(MyTestCase):
+class RunCallSemanticsTests(IsolatedAsyncioTestCase):
 
   async def test_run_back_to_back(self):
     """chain.run() then chain.run() back-to-back."""
     c = Chain(1).then(lambda v: v + 1)
     r1 = c.run()
     r2 = c.run()
-    await self.assertEqual(r1, 2)
-    await self.assertEqual(r2, 2)
+    self.assertEqual(r1, 2)
+    self.assertEqual(r2, 2)
 
   async def test_run_different_override_values(self):
     """chain.run(1) then chain.run(2) — different override values."""
     c = Chain().then(lambda v: v * 10)
     r1 = c.run(1)
     r2 = c.run(2)
-    await self.assertEqual(r1, 10)
-    await self.assertEqual(r2, 20)
+    self.assertEqual(r1, 10)
+    self.assertEqual(r2, 20)
 
   async def test_call_vs_run_equivalence(self):
     """chain() vs chain.run() — verify equivalence."""
     c = Chain(42).then(lambda v: v + 1)
     r1 = c.run()
     r2 = c()
-    await self.assertEqual(r1, 43)
-    await self.assertEqual(r2, 43)
+    self.assertEqual(r1, 43)
+    self.assertEqual(r2, 43)
 
   async def test_call_with_override(self):
     """chain(1) equivalent to chain.run(1)."""
     c = Chain().then(lambda v: v * 5)
     r1 = c.run(3)
     r2 = c(3)
-    await self.assertEqual(r1, 15)
-    await self.assertEqual(r2, 15)
+    self.assertEqual(r1, 15)
+    self.assertEqual(r2, 15)
 
   async def test_run_with_callable_root_and_kwargs(self):
     """chain.run with a callable root override that accepts kwargs."""
@@ -1071,7 +999,7 @@ class RunCallSemanticsTests(MyTestCase):
     c = Chain().then(lambda v: v + 1)
     result = c.run(make_val, multiplier=3)
     # make_val(multiplier=3) = 15, then +1 = 16
-    await self.assertEqual(result, 16)
+    self.assertEqual(result, 16)
 
   async def test_cannot_override_root_value(self):
     """chain with root cannot be overridden — raises QuentException."""
@@ -1082,43 +1010,32 @@ class RunCallSemanticsTests(MyTestCase):
   async def test_empty_chain_run(self):
     """Empty chain run returns None."""
     result = Chain().run()
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_chain_run_with_callable_root_override(self):
     """run() with a callable as the override — callable gets called."""
     c = Chain().then(lambda v: v + 10)
     result = c.run(lambda: 5)
-    await self.assertEqual(result, 15)
+    self.assertEqual(result, 15)
 
-  async def test_frozen_chain_run_multiple_times(self):
-    """Frozen chain can be run multiple times with different values."""
-    fc = Chain().then(lambda v: v ** 2).freeze()
-    await self.assertEqual(fc.run(3), 9)
-    await self.assertEqual(fc.run(4), 16)
-    await self.assertEqual(fc.run(5), 25)
+  async def test_chain_run_multiple_times(self):
+    """Chain can be run multiple times with different values."""
+    c = Chain().then(lambda v: v ** 2)
+    self.assertEqual(c.run(3), 9)
+    self.assertEqual(c.run(4), 16)
+    self.assertEqual(c.run(5), 25)
 
-  async def test_frozen_chain_call_equivalence(self):
-    """Frozen chain: fc() == fc.run()."""
-    fc = Chain().then(lambda v: v + 100).freeze()
-    await self.assertEqual(fc.run(1), fc(1))
+  async def test_chain_call_equivalence(self):
+    """Chain: c() == c.run()."""
+    c = Chain().then(lambda v: v + 100)
+    self.assertEqual(c.run(1), c(1))
 
 
 # ---------------------------------------------------------------------------
 # Category 13: Python special method interactions
 # ---------------------------------------------------------------------------
 
-class SpecialMethodTests(MyTestCase):
-
-  async def test_pipe_operator(self):
-    """Chain | value appends to chain."""
-    c = Chain(1) | (lambda v: v + 1)
-    result = c | run()
-    await self.assertEqual(result, 2)
-
-  async def test_pipe_operator_chained(self):
-    """Multiple pipe operations."""
-    result = Chain(1) | (lambda v: v + 1) | (lambda v: v * 3) | run()
-    await self.assertEqual(result, 6)
+class SpecialMethodTests(IsolatedAsyncioTestCase):
 
   async def test_repr_chain(self):
     """Chain.__repr__() returns a string."""
@@ -1138,26 +1055,26 @@ class SpecialMethodTests(MyTestCase):
   async def test_call_is_run(self):
     """Chain.__call__(2) is equivalent to run(2)."""
     c = Chain().then(lambda v: v + 1)
-    await self.assertEqual(c(10), c.run(10))
+    self.assertEqual(c(10), c.run(10))
 
   async def test_pipe_with_non_callable(self):
     """Pipe operator with non-callable — treated as literal."""
-    c = Chain(1) | 42
-    result = c | run()
-    await self.assertEqual(result, 42)
+    c = Chain(1).then(42)
+    result = c.run()
+    self.assertEqual(result, 42)
 
   async def test_pipe_with_run_and_value(self):
     """Pipe with run(value) as terminator."""
-    c = Chain() | (lambda v: v * 2)
-    result = c | run(7)
-    await self.assertEqual(result, 14)
+    c = Chain().then(lambda v: v * 2)
+    result = c.run(7)
+    self.assertEqual(result, 14)
 
 
 # ---------------------------------------------------------------------------
 # Category 14: Timing and ordering guarantees
 # ---------------------------------------------------------------------------
 
-class OrderingTests(MyTestCase):
+class OrderingTests(IsolatedAsyncioTestCase):
 
   async def test_do_side_effects_order(self):
     """do() operations execute in order with observable side effects."""
@@ -1168,7 +1085,7 @@ class OrderingTests(MyTestCase):
   async def test_then_operations_order(self):
     """then() operations execute in order."""
     result = Chain(1).then(lambda v: v + 1).then(lambda v: v * 2).then(lambda v: v - 1).run()
-    await self.assertEqual(result, 3)
+    self.assertEqual(result, 3)
 
   async def test_async_ordering_preserved(self):
     """Async chain links execute sequentially, in order."""
@@ -1244,22 +1161,15 @@ class OrderingTests(MyTestCase):
 # Category 15: Clone edge cases
 # ---------------------------------------------------------------------------
 
-class CloneEdgeTests(MyTestCase):
+class CloneEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_clone_chain_independent(self):
     """Cloned chain is independent — modifications don't affect original."""
     c1 = Chain(1).then(lambda v: v + 1)
     c2 = c1.clone()
     c2.then(lambda v: v * 100)
-    await self.assertEqual(c1.run(), 2)
-    await self.assertEqual(c2.run(), 200)
-
-  async def test_clone_cascade(self):
-    """Clone a Cascade."""
-    c = Cascade(10).then(lambda v: v + 1)
-    c2 = c.clone()
-    await self.assertEqual(c.run(), 10)
-    await self.assertEqual(c2.run(), 10)
+    self.assertEqual(c1.run(), 2)
+    self.assertEqual(c2.run(), 200)
 
   async def test_clone_preserves_finally(self):
     """Cloned chain preserves finally_ handler."""
@@ -1273,7 +1183,7 @@ class CloneEdgeTests(MyTestCase):
     """Clone an empty chain."""
     c = Chain()
     c2 = c.clone()
-    await self.assertIsNone(c2.run())
+    self.assertIsNone(c2.run())
 
   async def test_clone_with_except(self):
     """Clone chain with except_ handler."""
@@ -1292,71 +1202,71 @@ class CloneEdgeTests(MyTestCase):
 # Category 16: Value types and edge cases
 # ---------------------------------------------------------------------------
 
-class ValueTypeEdgeTests(MyTestCase):
+class ValueTypeEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_none_root(self):
     """Chain(None) — None as root."""
-    await self.assertIsNone(Chain(None).run())
+    self.assertIsNone(Chain(None).run())
 
   async def test_zero_root(self):
     """Chain(0) — zero as root."""
-    await self.assertEqual(Chain(0).run(), 0)
+    self.assertEqual(Chain(0).run(), 0)
 
   async def test_false_root(self):
     """Chain(False) — False as root."""
-    await self.assertEqual(Chain(False).run(), False)
+    self.assertEqual(Chain(False).run(), False)
 
   async def test_empty_string_root(self):
     """Chain('') — empty string as root."""
-    await self.assertEqual(Chain('').run(), '')
+    self.assertEqual(Chain('').run(), '')
 
   async def test_empty_list_root(self):
     """Chain([]) — empty list as root."""
-    await self.assertEqual(Chain([]).run(), [])
+    self.assertEqual(Chain([]).run(), [])
 
   async def test_empty_dict_root(self):
     """Chain({}) — empty dict as root."""
-    await self.assertEqual(Chain({}).run(), {})
+    self.assertEqual(Chain({}).run(), {})
 
   async def test_tuple_root(self):
     """Chain((1,2,3)) — tuple as root."""
-    await self.assertEqual(Chain((1, 2, 3)).run(), (1, 2, 3))
+    self.assertEqual(Chain((1, 2, 3)).run(), (1, 2, 3))
 
   async def test_set_root(self):
     """Chain({1,2,3}) — set as root."""
-    await self.assertEqual(Chain({1, 2, 3}).run(), {1, 2, 3})
+    self.assertEqual(Chain({1, 2, 3}).run(), {1, 2, 3})
 
   async def test_class_as_root_callable(self):
     """Chain(int) — class as root (callable). Called with no args = int() = 0."""
-    await self.assertEqual(Chain(int).run(), 0)
+    self.assertEqual(Chain(int).run(), 0)
 
   async def test_lambda_as_root(self):
     """Chain(lambda: 42) — lambda as root, gets called."""
-    await self.assertEqual(Chain(lambda: 42).run(), 42)
+    self.assertEqual(Chain(lambda: 42).run(), 42)
 
   async def test_complex_number_root(self):
     """Chain(1+2j) — complex number as root."""
-    await self.assertEqual(Chain(1 + 2j).run(), 1 + 2j)
+    self.assertEqual(Chain(1 + 2j).run(), 1 + 2j)
 
   async def test_bytes_root(self):
     """Chain(b'hello') — bytes as root."""
-    await self.assertEqual(Chain(b'hello').run(), b'hello')
+    self.assertEqual(Chain(b'hello').run(), b'hello')
 
   async def test_frozenset_root(self):
     """Chain(frozenset()) — frozenset as root."""
-    await self.assertEqual(Chain(frozenset({1, 2})).run(), frozenset({1, 2}))
+    self.assertEqual(Chain(frozenset({1, 2})).run(), frozenset({1, 2}))
 
   async def test_large_integer_root(self):
     """Chain with very large integer."""
     big = 10 ** 1000
-    await self.assertEqual(Chain(big).run(), big)
+    self.assertEqual(Chain(big).run(), big)
 
 
 # ---------------------------------------------------------------------------
 # Category 17: Decorator pattern
 # ---------------------------------------------------------------------------
 
-class DecoratorPatternTests(MyTestCase):
+class DecoratorPatternTests(IsolatedAsyncioTestCase):
 
   async def test_chain_decorator(self):
     """Chain.decorator() creates a decorator."""
@@ -1367,64 +1277,40 @@ class DecoratorPatternTests(MyTestCase):
       return 21
 
     result = my_fn()
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
-  async def test_cascade_freeze_run(self):
-    """Cascade.freeze().run() works correctly."""
-    fc = Cascade().then(lambda v: v + 1).freeze()
-    await self.assertEqual(fc.run(10), 10)
-
-  async def test_frozen_chain_multiple_concurrent_calls(self):
-    """Frozen chain called concurrently with different values."""
-    fc = Chain().then(lambda v: v ** 2).freeze()
-    results = [fc.run(i) for i in range(10)]
+  async def test_chain_multiple_concurrent_calls(self):
+    """Chain called concurrently with different values."""
+    c = Chain().then(lambda v: v ** 2)
+    results = [c.run(i) for i in range(10)]
     expected = [i ** 2 for i in range(10)]
     for r, e in zip(results, expected):
-      await self.assertEqual(r, e)
-
-
-# ---------------------------------------------------------------------------
-# Category 18: to_thread edge cases
-# ---------------------------------------------------------------------------
-
-class ToThreadTests(MyTestCase):
-
-  async def test_to_thread_basic(self):
-    """to_thread runs function in a thread."""
-    result = await Chain(1).to_thread(lambda v: v + 1).run()
-    await self.assertEqual(result, 2)
-
-  async def test_to_thread_heavy_computation(self):
-    """to_thread with heavier sync work."""
-    def heavy(v):
-      return sum(range(v))
-    result = await Chain(1000).to_thread(heavy).run()
-    await self.assertEqual(result, 499500)
+      self.assertEqual(r, e)
 
 
 # ---------------------------------------------------------------------------
 # Category 19: Iterate / generator patterns
 # ---------------------------------------------------------------------------
 
-class GeneratorPatternTests(MyTestCase):
+class GeneratorPatternTests(IsolatedAsyncioTestCase):
 
   async def test_iterate_basic(self):
     """iterate() returns a generator."""
     c = Chain([1, 2, 3]).iterate()
     result = list(c)
-    await self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_iterate_with_transform(self):
     """iterate(fn) applies fn to each element."""
     c = Chain([1, 2, 3]).iterate(lambda x: x * 10)
     result = list(c)
-    await self.assertEqual(result, [10, 20, 30])
+    self.assertEqual(result, [10, 20, 30])
 
   async def test_iterate_empty(self):
     """iterate() on empty list."""
     c = Chain([]).iterate()
     result = list(c)
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
   async def test_async_iterate(self):
     """async iteration over chain results."""
@@ -1432,14 +1318,14 @@ class GeneratorPatternTests(MyTestCase):
     result = []
     async for item in c:
       result.append(item)
-    await self.assertEqual(result, [2, 3, 4])
+    self.assertEqual(result, [2, 3, 4])
 
 
 # ---------------------------------------------------------------------------
 # Category 20: Gather edge cases
 # ---------------------------------------------------------------------------
 
-class GatherEdgeTests(MyTestCase):
+class GatherEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_gather_async_functions(self):
     """gather with async functions."""
@@ -1448,7 +1334,7 @@ class GatherEdgeTests(MyTestCase):
     async def f2(v):
       return v + 2
     result = await Chain(10).gather(f1, f2).run()
-    await self.assertEqual(result, [11, 12])
+    self.assertEqual(result, [11, 12])
 
   async def test_gather_mixed_sync_async(self):
     """gather with mix of sync and async functions."""
@@ -1457,14 +1343,14 @@ class GatherEdgeTests(MyTestCase):
     def sf(v):
       return v * 3
     result = await Chain(5).gather(af, sf).run()
-    await self.assertEqual(result, [10, 15])
+    self.assertEqual(result, [10, 15])
 
   async def test_gather_single_async(self):
     """gather with a single async function."""
     async def af(v):
       return v + 100
     result = await Chain(1).gather(af).run()
-    await self.assertEqual(result, [101])
+    self.assertEqual(result, [101])
 
   async def test_gather_all_same_function(self):
     """gather with the same function repeated."""
@@ -1473,14 +1359,14 @@ class GatherEdgeTests(MyTestCase):
       counter['n'] += 1
       return counter['n']
     result = Chain(0).gather(inc, inc, inc).run()
-    await self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
 
 # ---------------------------------------------------------------------------
 # Category 21: Break in foreach
 # ---------------------------------------------------------------------------
 
-class BreakInForeachTests(MyTestCase):
+class BreakInForeachTests(IsolatedAsyncioTestCase):
 
   async def test_break_in_foreach(self):
     """break_ inside foreach exits early."""
@@ -1489,7 +1375,7 @@ class BreakInForeachTests(MyTestCase):
         Chain.break_()
       return x * 2
     result = Chain([1, 2, 3, 4, 5]).foreach(fn).run()
-    await self.assertEqual(result, [2, 4])
+    self.assertEqual(result, [2, 4])
 
   async def test_break_with_value_in_foreach(self):
     """break_ with a value in foreach returns that value."""
@@ -1498,7 +1384,7 @@ class BreakInForeachTests(MyTestCase):
         Chain.break_('stopped')
       return x
     result = Chain([1, 2, 3, 4]).foreach(fn).run()
-    await self.assertEqual(result, 'stopped')
+    self.assertEqual(result, 'stopped')
 
   async def test_break_outside_foreach_raises(self):
     """break_ outside of foreach raises QuentException."""
@@ -1510,33 +1396,33 @@ class BreakInForeachTests(MyTestCase):
 # Category 22: Return in nested chain
 # ---------------------------------------------------------------------------
 
-class ReturnInNestedTests(MyTestCase):
+class ReturnInNestedTests(IsolatedAsyncioTestCase):
 
   async def test_return_in_nested_chain(self):
     """return_ exits the nested chain early."""
     inner = Chain().then(lambda v: Chain.return_(v * 100))
     result = Chain(5).then(inner).run()
-    await self.assertEqual(result, 500)
+    self.assertEqual(result, 500)
 
   async def test_return_with_no_value(self):
     """return_() with no value returns None."""
     inner = Chain().then(lambda v: Chain.return_())
     result = Chain(5).then(inner).run()
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_return_propagates_through_nested(self):
     """return_ in deeply nested chain propagates."""
     c3 = Chain().then(lambda v: Chain.return_(v + 1))
     c2 = Chain().then(c3)
     c1 = Chain(10).then(c2)
-    await self.assertEqual(c1.run(), 11)
+    self.assertEqual(c1.run(), 11)
 
 
 # ---------------------------------------------------------------------------
 # Category 23: Nested chain cannot run directly
 # ---------------------------------------------------------------------------
 
-class NestedChainRestrictionTests(MyTestCase):
+class NestedChainRestrictionTests(IsolatedAsyncioTestCase):
 
   async def test_nested_chain_cannot_run_directly(self):
     """A chain marked as nested cannot be run directly."""
@@ -1550,42 +1436,42 @@ class NestedChainRestrictionTests(MyTestCase):
     """But the outer chain can run the nested chain."""
     inner = Chain().then(lambda v: v + 1)
     outer = Chain(10).then(inner)
-    await self.assertEqual(outer.run(), 11)
+    self.assertEqual(outer.run(), 11)
 
 
 # ---------------------------------------------------------------------------
 # Category 24: Chain with callable root + args
 # ---------------------------------------------------------------------------
 
-class CallableRootArgsTests(MyTestCase):
+class CallableRootArgsTests(IsolatedAsyncioTestCase):
 
   async def test_callable_root_with_args(self):
     """Chain(fn, arg1, arg2) — fn is called with args."""
     def add(a, b):
       return a + b
     result = Chain(add, 3, 4).run()
-    await self.assertEqual(result, 7)
+    self.assertEqual(result, 7)
 
   async def test_callable_root_with_kwargs(self):
     """Chain(fn, key=val) — fn called with kwargs."""
     def greet(name='world'):
       return f'hello {name}'
     result = Chain(greet, name='alice').run()
-    await self.assertEqual(result, 'hello alice')
+    self.assertEqual(result, 'hello alice')
 
   async def test_callable_root_with_mixed_args(self):
     """Chain(fn, arg, key=val)."""
     def combine(a, b=0):
       return a + b
     result = Chain(combine, 10, b=20).run()
-    await self.assertEqual(result, 30)
+    self.assertEqual(result, 30)
 
 
 # ---------------------------------------------------------------------------
 # Category 25: Edge cases with with_ (context manager in chain)
 # ---------------------------------------------------------------------------
 
-class WithEdgeCasesTests(MyTestCase):
+class WithEdgeCasesTests(IsolatedAsyncioTestCase):
 
   async def test_with_body_raises_exit_called(self):
     """with_ body raises — __exit__ is called with exception info."""
@@ -1602,20 +1488,20 @@ class WithEdgeCasesTests(MyTestCase):
     """with_ body returns a value — that becomes the chain value."""
     cm = SyncCM('ctx_val')
     result = Chain(cm).with_(lambda ctx: ctx + '_done').run()
-    await self.assertEqual(result, 'ctx_val_done')
+    self.assertEqual(result, 'ctx_val_done')
 
   async def test_with_on_iterable_cm(self):
     """with_ on an object that is both iterable and a context manager — with_ uses CM protocol."""
     obj = IterableAndCM([1, 2, 3])
     result = Chain(obj).with_(lambda ctx: ctx).run()
-    await self.assertEqual(result, 'cm_value')
+    self.assertEqual(result, 'cm_value')
 
 
 # ---------------------------------------------------------------------------
 # Category 26: Multiple except_ handlers
 # ---------------------------------------------------------------------------
 
-class MultipleExceptTests(MyTestCase):
+class MultipleExceptTests(IsolatedAsyncioTestCase):
 
   async def test_first_matching_except_wins(self):
     """When multiple except_ handlers match, the first one wins."""
@@ -1649,48 +1535,10 @@ class MultipleExceptTests(MyTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Category 27: Cascade-specific behaviors
-# ---------------------------------------------------------------------------
-
-class CascadeSpecificTests(MyTestCase):
-
-  async def test_cascade_then_receives_root(self):
-    """In Cascade, each then receives the root value."""
-    log = []
-    Cascade(42).then(lambda v: log.append(v)).then(lambda v: log.append(v)).run()
-    assert log == [42, 42]
-
-  async def test_cascade_do_receives_root(self):
-    """In Cascade, do also receives root."""
-    log = []
-    Cascade(99).do(lambda v: log.append(v)).run()
-    assert log == [99]
-
-  async def test_cascade_returns_root(self):
-    """Cascade always returns the root value."""
-    result = Cascade(100).then(lambda v: v + 1).then(lambda v: v * 2).run()
-    await self.assertEqual(result, 100)
-
-  async def test_cascade_with_override(self):
-    """Cascade with run override."""
-    log = []
-    c = Cascade().then(lambda v: log.append(v))
-    c.run(77)
-    assert log == [77]
-
-  async def test_cascade_async(self):
-    """Async Cascade."""
-    async def fn(v):
-      return v + 1
-    result = await Cascade(50).then(fn).run()
-    await self.assertEqual(result, 50)
-
-
-# ---------------------------------------------------------------------------
 # Category 28: Multiple finally_ restriction
 # ---------------------------------------------------------------------------
 
-class FinallyRestrictionTests(MyTestCase):
+class FinallyRestrictionTests(IsolatedAsyncioTestCase):
 
   async def test_cannot_register_two_finally(self):
     """Only one finally_ callback allowed."""
@@ -1719,7 +1567,7 @@ class FinallyRestrictionTests(MyTestCase):
 # Category 29: Config edge cases
 # ---------------------------------------------------------------------------
 
-class ConfigEdgeTests(MyTestCase):
+class ConfigEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_config_returns_chain(self):
     """config() returns the chain for method chaining."""
@@ -1727,36 +1575,12 @@ class ConfigEdgeTests(MyTestCase):
     result = c.config(autorun=False, debug=False)
     assert result is c
 
-  async def test_no_async_returns_chain(self):
-    """no_async() returns the chain."""
-    c = Chain(1)
-    result = c.no_async()
-    assert result is c
-
-  async def test_is_simple_flag(self):
-    """_is_simple is True for simple chains, False for complex ones."""
-    c1 = Chain(1).then(lambda v: v)
-    assert c1._is_simple
-    c2 = Chain(1).do(lambda v: v)
-    assert not c2._is_simple
-    c3 = Chain(1).except_(lambda v: v)
-    assert not c3._is_simple
-
-  async def test_is_sync_flag(self):
-    """_is_sync tracks no_async state."""
-    c = Chain(1)
-    assert not c._is_sync
-    c.no_async(True)
-    assert c._is_sync
-    c.no_async(False)
-    assert not c._is_sync
-
 
 # ---------------------------------------------------------------------------
 # Category 30: Async gather edge cases
 # ---------------------------------------------------------------------------
 
-class AsyncGatherEdgeTests(MyTestCase):
+class AsyncGatherEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_gather_all_async(self):
     """gather where all functions are async."""
@@ -1767,7 +1591,7 @@ class AsyncGatherEdgeTests(MyTestCase):
     async def f3(v):
       return v + 3
     result = await Chain(0).gather(f1, f2, f3).run()
-    await self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_gather_with_exception(self):
     """gather where one function raises."""
@@ -1783,21 +1607,21 @@ class AsyncGatherEdgeTests(MyTestCase):
     async def make_async(v):
       return v
     result = await Chain(1).then(make_async).gather().run()
-    await self.assertEqual(result, [])
+    self.assertEqual(result, [])
 
 
 # ---------------------------------------------------------------------------
 # Category 31: Async foreach edge cases
 # ---------------------------------------------------------------------------
 
-class AsyncForeachTests(MyTestCase):
+class AsyncForeachTests(IsolatedAsyncioTestCase):
 
   async def test_async_foreach_function(self):
     """foreach with an async function."""
     async def double(x):
       return x * 2
     result = await Chain([1, 2, 3]).foreach(double).run()
-    await self.assertEqual(result, [2, 4, 6])
+    self.assertEqual(result, [2, 4, 6])
 
   async def test_async_foreach_with_break(self):
     """Async foreach with break."""
@@ -1806,21 +1630,21 @@ class AsyncForeachTests(MyTestCase):
         Chain.break_()
       return x
     result = await Chain([1, 2, 3, 4]).foreach(fn).run()
-    await self.assertEqual(result, [1, 2])
+    self.assertEqual(result, [1, 2])
 
   async def test_async_filter(self):
     """filter with an async predicate."""
     async def is_even(x):
       return x % 2 == 0
     result = await Chain([1, 2, 3, 4, 5]).filter(is_even).run()
-    await self.assertEqual(result, [2, 4])
+    self.assertEqual(result, [2, 4])
 
 
 # ---------------------------------------------------------------------------
 # Category 32: Extreme nesting
 # ---------------------------------------------------------------------------
 
-class ExtremeNestingTests(MyTestCase):
+class ExtremeNestingTests(IsolatedAsyncioTestCase):
 
   async def test_10_level_nested_chains(self):
     """10 levels of nested chains, each adding 1."""
@@ -1833,34 +1657,34 @@ class ExtremeNestingTests(MyTestCase):
       return Chain().then(inner).then(lambda v: v + 1)
     c = build_chain(9)
     result = c.run(0)
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
 
   async def test_foreach_inside_foreach(self):
     """foreach whose function runs another chain with foreach."""
     def inner_foreach(lst):
       return Chain(lst).foreach(lambda x: x * 2).run()
     result = Chain([[1, 2], [3, 4]]).foreach(inner_foreach).run()
-    await self.assertEqual(result, [[2, 4], [6, 8]])
+    self.assertEqual(result, [[2, 4], [6, 8]])
 
   async def test_chain_in_chain_in_gather(self):
     """gather functions that themselves are chain runs."""
     f1 = lambda v: Chain(v).then(lambda x: x + 1).run()
     f2 = lambda v: Chain(v).then(lambda x: x * 2).run()
     result = Chain(10).gather(f1, f2).run()
-    await self.assertEqual(result, [11, 20])
+    self.assertEqual(result, [11, 20])
 
 
 # ---------------------------------------------------------------------------
 # Category 33: Async context manager edge cases
 # ---------------------------------------------------------------------------
 
-class AsyncCMEdgeTests(MyTestCase):
+class AsyncCMEdgeTests(IsolatedAsyncioTestCase):
 
   async def test_async_cm_basic(self):
     """Basic async context manager with with_."""
     cm = AsyncCM('aval')
     result = await Chain(cm).with_(lambda ctx: ctx + '_body').run()
-    await self.assertEqual(result, 'aval_body')
+    self.assertEqual(result, 'aval_body')
     assert cm.entered
     assert cm.exited
 
@@ -1870,7 +1694,7 @@ class AsyncCMEdgeTests(MyTestCase):
     async def body(ctx):
       return ctx + '_async_body'
     result = await Chain(cm).with_(body).run()
-    await self.assertEqual(result, 'aval_async_body')
+    self.assertEqual(result, 'aval_async_body')
 
   async def test_async_cm_body_raises(self):
     """Async CM where body raises."""
@@ -1887,7 +1711,7 @@ class AsyncCMEdgeTests(MyTestCase):
 # Category 34: Miscellaneous niche combinations
 # ---------------------------------------------------------------------------
 
-class MiscNicheTests(MyTestCase):
+class MiscNicheTests(IsolatedAsyncioTestCase):
 
   async def test_chain_with_generator_function_as_root(self):
     """Generator function as root — gets called, returns generator."""
@@ -1896,19 +1720,19 @@ class MiscNicheTests(MyTestCase):
       yield 2
       yield 3
     result = Chain(gen).foreach(lambda x: x * 10).run()
-    await self.assertEqual(result, [10, 20, 30])
+    self.assertEqual(result, [10, 20, 30])
 
   async def test_then_with_class_constructor(self):
     """then with a class (constructor) as the callable."""
     result = Chain('42').then(int).run()
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
   async def test_chain_with_staticmethod_like(self):
     """Chain with a plain function used like a static method."""
     def process(v):
       return v.upper()
     result = Chain('hello').then(process).run()
-    await self.assertEqual(result, 'HELLO')
+    self.assertEqual(result, 'HELLO')
 
   async def test_chain_result_is_chain_class_itself(self):
     """then returns the Chain class itself (not an instance)."""
@@ -1918,20 +1742,12 @@ class MiscNicheTests(MyTestCase):
   async def test_chain_with_type_as_root(self):
     """type as root — type is callable, type() returns <class 'type'>."""
     result = Chain(list).run()
-    await self.assertEqual(result, [])
-
-  async def test_cascade_with_foreach(self):
-    """Cascade with foreach — foreach receives root value."""
-    result = Cascade([1, 2, 3]).foreach(lambda x: x * 2).run()
-    # Cascade returns root, but foreach operates on root and the foreach result is discarded
-    # Actually, foreach is a then-like operation (ignore_result=False), so in cascade mode
-    # it receives root_value but the result is discarded because cascade returns root
-    await self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [])
 
   async def test_do_does_not_change_value(self):
     """do() discards its result — chain value unchanged."""
     result = Chain(10).do(lambda v: v * 999).run()
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
 
   async def test_chain_with_property_like_callable(self):
     """Using a callable class instance in then."""
@@ -1939,29 +1755,29 @@ class MiscNicheTests(MyTestCase):
       def __call__(self, v):
         return v * 2
     result = Chain(5).then(Doubler()).run()
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
 
   async def test_chain_with_builtin_functions(self):
     """Chain with builtin functions like abs, len, str."""
-    await self.assertEqual(Chain(-5).then(abs).run(), 5)
-    await self.assertEqual(Chain([1, 2, 3]).then(len).run(), 3)
-    await self.assertEqual(Chain(42).then(str).run(), '42')
+    self.assertEqual(Chain(-5).then(abs).run(), 5)
+    self.assertEqual(Chain([1, 2, 3]).then(len).run(), 3)
+    self.assertEqual(Chain(42).then(str).run(), '42')
 
   async def test_chain_with_method_reference(self):
     """Chain with bound method reference."""
     lst = [3, 1, 2]
     result = Chain(lst).then(sorted).run()
-    await self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(result, [1, 2, 3])
 
   async def test_chain_with_none_in_then_literal(self):
     """then(None) — None is a literal, then() allows it (allow_literal=True)."""
     result = Chain(1).then(None).run()
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_chain_with_integer_in_then_literal(self):
     """then(42) — integer as literal, replaces chain value."""
     result = Chain(1).then(42).run()
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
   async def test_do_with_non_callable_raises(self):
     """do(42) — non-callable not allowed in do()."""

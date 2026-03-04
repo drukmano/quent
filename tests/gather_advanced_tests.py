@@ -1,13 +1,13 @@
 import asyncio
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from unittest import TestCase, IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException
 
 
 # ---------------------------------------------------------------------------
 # GatherAsyncExceptionTests
 # ---------------------------------------------------------------------------
-class GatherAsyncExceptionTests(MyTestCase):
+class GatherAsyncExceptionTests(IsolatedAsyncioTestCase):
 
   async def test_single_async_fn_raises(self):
     """One async function raises; exception propagates from gather."""
@@ -65,23 +65,23 @@ class GatherAsyncExceptionTests(MyTestCase):
 
     with self.assertRaises(ValueError) as cm:
       await await_(Chain(10).gather(raiser).run())
-    super(MyTestCase, self).assertIn('specific message', str(cm.exception))
+    self.assertIn('specific message', str(cm.exception))
 
 
 # ---------------------------------------------------------------------------
 # GatherIndicesTests
 # ---------------------------------------------------------------------------
-class GatherIndicesTests(MyTestCase):
+class GatherIndicesTests(IsolatedAsyncioTestCase):
 
   async def test_all_sync_ordering(self):
     """All sync fns: results appear in function order."""
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         f1 = lambda v: 'a'
         f2 = lambda v: 'b'
         f3 = lambda v: 'c'
-        await self.assertEqual(
-          Chain(fn, 1).gather(f1, f2, f3).run(),
+        self.assertEqual(
+          await await_(Chain(fn, 1).gather(f1, f2, f3).run()),
           ['a', 'b', 'c']
         )
 
@@ -98,8 +98,8 @@ class GatherIndicesTests(MyTestCase):
       await asyncio.sleep(0.01)
       return 'medium'
 
-    await self.assertEqual(
-      Chain(1).gather(f1, f2, f3).run(),
+    self.assertEqual(
+      await Chain(1).gather(f1, f2, f3).run(),
       ['slow', 'fast', 'medium']
     )
 
@@ -120,8 +120,8 @@ class GatherIndicesTests(MyTestCase):
     def s5(v):
       return 5
 
-    await self.assertEqual(
-      Chain(0).gather(s1, a2, s3, a4, s5).run(),
+    self.assertEqual(
+      await Chain(0).gather(s1, a2, s3, a4, s5).run(),
       [1, 2, 3, 4, 5]
     )
 
@@ -139,8 +139,8 @@ class GatherIndicesTests(MyTestCase):
     def s4(v):
       return 'sync4'
 
-    await self.assertEqual(
-      Chain(0).gather(a1, a2, s3, s4).run(),
+    self.assertEqual(
+      await Chain(0).gather(a1, a2, s3, s4).run(),
       ['async1', 'async2', 'sync3', 'sync4']
     )
 
@@ -158,8 +158,8 @@ class GatherIndicesTests(MyTestCase):
     async def a4(v):
       return 'async4'
 
-    await self.assertEqual(
-      Chain(0).gather(s1, s2, a3, a4).run(),
+    self.assertEqual(
+      await Chain(0).gather(s1, s2, a3, a4).run(),
       ['sync1', 'sync2', 'async3', 'async4']
     )
 
@@ -171,8 +171,8 @@ class GatherIndicesTests(MyTestCase):
     async def a(v):
       return v * 10
 
-    await self.assertEqual(
-      Chain(1).gather(s, s, a, s, s).run(),
+    self.assertEqual(
+      await Chain(1).gather(s, s, a, s, s).run(),
       [1, 1, 10, 1, 1]
     )
 
@@ -189,22 +189,22 @@ class GatherIndicesTests(MyTestCase):
       return v
 
     received.clear()
-    await self.assertEqual(
-      Chain(99).gather(capture, async_capture, capture).run(),
+    self.assertEqual(
+      await Chain(99).gather(capture, async_capture, capture).run(),
       [99, 99, 99]
     )
-    super(MyTestCase, self).assertEqual(received, [99, 99, 99])
+    self.assertEqual(received, [99, 99, 99])
 
 
 # ---------------------------------------------------------------------------
 # GatherScaleTests
 # ---------------------------------------------------------------------------
-class GatherScaleTests(MyTestCase):
+class GatherScaleTests(IsolatedAsyncioTestCase):
 
   async def test_wide_gather_50_sync(self):
     """Gather with 50 sync functions produces correct ordered results."""
     fns = [lambda v, i=i: v + i for i in range(50)]
-    await self.assertEqual(
+    self.assertEqual(
       Chain(0).gather(*fns).run(),
       list(range(50))
     )
@@ -217,8 +217,8 @@ class GatherScaleTests(MyTestCase):
         return v + i
       fns.append(fn)
 
-    await self.assertEqual(
-      Chain(0).gather(*fns).run(),
+    self.assertEqual(
+      await Chain(0).gather(*fns).run(),
       list(range(50))
     )
 
@@ -233,37 +233,37 @@ class GatherScaleTests(MyTestCase):
           return i
         fns.append(fn)
 
-    await self.assertEqual(
-      Chain(0).gather(*fns).run(),
+    self.assertEqual(
+      await Chain(0).gather(*fns).run(),
       list(range(100))
     )
 
   async def test_gather_empty_fn_list(self):
     """Chain(5).gather().run() returns empty list."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 5).gather().run(),
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEqual(
+          await await_(Chain(fn, 5).gather().run()),
           []
         )
 
   async def test_gather_chained_with_then(self):
     """Gather result piped to further .then() operations."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 10).gather(
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEqual(
+          await await_(Chain(fn, 10).gather(
             lambda v: v + 1,
             lambda v: v + 2,
             lambda v: v + 3
-          ).then(lambda lst: sum(lst)).run(),
+          ).then(lambda lst: sum(lst)).run()),
           36
         )
 
   async def test_gather_async_chained_with_then(self):
     """Gather with async fns piped to further .then() operations."""
-    await self.assertEqual(
-      Chain(10).gather(
+    self.assertEqual(
+      await Chain(10).gather(
         lambda v: aempty(v + 1),
         lambda v: aempty(v + 2),
         lambda v: aempty(v + 3)

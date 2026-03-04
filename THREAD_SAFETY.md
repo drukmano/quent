@@ -25,7 +25,7 @@ All Chain and Link fields (`v`, `args`, `kwargs`, `eval_code`, `next_link`, etc.
 
 ## The One Caveat: `link.temp_args` (diagnostics only)
 
-`_Foreach`, `_Filter`, `_ForeachIndexed`, and `_With` all mutate `self.link.temp_args` during execution — a field on a **shared** Link object. This is used exclusively for traceback display ("which element was being processed when the error occurred"). Under concurrent execution, if two calls error simultaneously, one traceback might show the other's element.
+`_Foreach`, `_Filter`, and `_With` all mutate `self.link.temp_args` during execution — a field on a **shared** Link object. This is used exclusively for traceback display ("which element was being processed when the error occurred"). Under concurrent execution, if two calls error simultaneously, one traceback might show the other's element.
 
 **Impact: cosmetic only.** Computation results, exception types, and control flow are all correct. Only the "context" shown in error tracebacks may be wrong under concurrent error conditions.
 
@@ -33,7 +33,6 @@ All Chain and Link fields (`v`, `args`, `kwargs`, `eval_code`, `next_link`, etc.
 
 - `_iteration.pxi` — `_Foreach.__call__` lines 55, 66
 - `_iteration.pxi` — `_Filter.__call__` lines 168, 175
-- `_iteration.pxi` — `_ForeachIndexed.__call__` lines 307, 319
 - `_control_flow.pxi` — `_With.__call__` line 81
 - `_control_flow.pxi` — `_with_full_async` line 140
 

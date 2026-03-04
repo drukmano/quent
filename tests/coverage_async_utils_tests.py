@@ -17,8 +17,8 @@ import sys
 import asyncio
 import gc
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from tests.utils import empty, aempty, await_, TestExc
+from quent import Chain, QuentException
 from quent.quent import _get_registry_size
 
 
@@ -170,16 +170,6 @@ class EnsureFutureCoreTests(IsolatedAsyncioTestCase):
     self.assertIsInstance(task, asyncio.Task)
     result = await task
     self.assertEqual(result, 12)
-
-  async def test_ensure_future_cascade(self):
-    """ensure_future works with Cascade (returns root value)."""
-    async def async_side(v):
-      return 'ignored'
-
-    task = Cascade(aempty, 42).then(async_side).config(autorun=True).run()
-    self.assertIsInstance(task, asyncio.Task)
-    result = await task
-    self.assertEqual(result, 42)
 
   async def test_ensure_future_with_exception_in_chain(self):
     """ensure_future wraps a task that may raise; exception propagates."""

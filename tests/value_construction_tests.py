@@ -1,6 +1,6 @@
-from unittest import TestCase
-from tests.utils import empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade, QuentException
+from unittest import TestCase, IsolatedAsyncioTestCase
+from tests.utils import empty, aempty, await_
+from quent import Chain, QuentException
 from quent.quent import PyNull
 
 
@@ -89,9 +89,6 @@ class ChainConstructionTests(TestCase):
     self.assertTrue(bool(Chain(0)))
     self.assertTrue(bool(Chain(None)))
 
-  def test_cascade_bool_always_true(self):
-    self.assertTrue(bool(Cascade()))
-
   def test_chain_returns_self_from_then(self):
     c = Chain(1)
     result = c.then(lambda v: v)
@@ -101,33 +98,6 @@ class ChainConstructionTests(TestCase):
     c = Chain(1)
     result = c.do(lambda v: v)
     self.assertIs(result, c)
-
-
-class CascadeConstructionTests(TestCase):
-
-  def test_cascade_empty_returns_none(self):
-    result = Cascade().run()
-    self.assertIsNone(result)
-
-  def test_cascade_always_returns_root(self):
-    result = Cascade(10).then(lambda v: v * 2).then(lambda v: v + 5).run()
-    self.assertEqual(result, 10)
-
-  def test_cascade_with_callable_root(self):
-    result = Cascade(lambda: 42).then(lambda v: v * 2).run()
-    self.assertEqual(result, 42)
-
-  def test_cascade_root_override(self):
-    result = Cascade().then(lambda v: v * 2).run(10)
-    self.assertEqual(result, 10)
-
-  def test_cascade_double_root_raises(self):
-    with self.assertRaises(QuentException):
-      Cascade(1).run(2)
-
-  def test_cascade_none_root(self):
-    result = Cascade(None).then(lambda v: v).run()
-    self.assertIsNone(result)
 
 
 class EvalCodeEdgeCaseTests(TestCase):
@@ -152,36 +122,36 @@ class EvalCodeEdgeCaseTests(TestCase):
     self.assertEqual(result, 10)
 
 
-class ValuePassingTests(MyTestCase):
+class ValuePassingTests(IsolatedAsyncioTestCase):
 
   async def test_then_passes_result(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
         # fn is used as the root callable so that the chain runs in
         # sync mode (empty) or async mode (aempty).
-        result = Chain(fn, 1).then(lambda v: v + 1).then(lambda v: v * 3).run()
-        await self.assertEqual(result, 6)
+        result = await await_(Chain(fn, 1).then(lambda v: v + 1).then(lambda v: v * 3).run())
+        self.assertEqual(result, 6)
 
   async def test_do_discards_result(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        result = Chain(fn, 5).do(lambda v: 999).run()
-        await self.assertEqual(result, 5)
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        result = await await_(Chain(fn, 5).do(lambda v: 999).run())
+        self.assertEqual(result, 5)
 
   async def test_value_none_propagates(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        result = Chain(fn, None).then(lambda v: v).run()
-        await self.assertIsNone(result)
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        result = await await_(Chain(fn, None).then(lambda v: v).run())
+        self.assertIsNone(result)
 
   async def test_value_false_propagates(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        result = Chain(fn, False).then(lambda v: v).run()
-        await self.assertFalse(result)
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        result = await await_(Chain(fn, False).then(lambda v: v).run())
+        self.assertFalse(result)
 
   async def test_chain_with_class_root(self):
-    for fn, ctx in self.with_fn():
-      with ctx:
-        result = Chain(fn, dict(a=1)).run()
-        await self.assertEqual(result, {'a': 1})
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        result = await await_(Chain(fn, dict(a=1)).run())
+        self.assertEqual(result, {'a': 1})

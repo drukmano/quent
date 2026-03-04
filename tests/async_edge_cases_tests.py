@@ -7,12 +7,12 @@ import asyncio
 import logging
 import inspect
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from tests.utils import empty, aempty, await_
+from quent import Chain, QuentException
 from quent.quent import _get_registry_size
 
 
-class SyncToAsyncTransitionTests(MyTestCase):
+class SyncToAsyncTransitionTests(IsolatedAsyncioTestCase):
   """Test sync-to-async transitions in chain execution.
 
   The chain starts in _run/_run_simple (sync). When any link returns a
@@ -24,34 +24,34 @@ class SyncToAsyncTransitionTests(MyTestCase):
   async def test_sync_root_async_continuation(self):
     """Sync root, first .then() returns coroutine -> transitions to _run_async.
 
-    Uses .do() to force _is_simple=False, ensuring the non-simple path
+    Uses .do() to force the non-simple path, ensuring the non-simple path
     (_run -> _run_async) is taken.
     """
     async def async_double(v):
       return v * 2
 
     result = await Chain(10).do(lambda v: None).then(async_double).run()
-    await self.assertEqual(result, 20)
+    self.assertEqual(result, 20)
 
     # Also with except_ to force non-simple path
     result = await Chain(10).except_(lambda v: None).then(async_double).run()
-    await self.assertEqual(result, 20)
+    self.assertEqual(result, 20)
 
   async def test_sync_root_async_simple_continuation(self):
     """Same on simple path (only .then() links) -> _run_async_simple.
 
-    When _is_simple=True and no debug/finally/except, _run_simple is used.
+    When only .then() links exist and no debug/finally/except, _run_simple is used.
     An async .then() link triggers _run_async_simple.
     """
     async def async_add(v):
       return v + 5
 
     result = await Chain(10).then(async_add).run()
-    await self.assertEqual(result, 15)
+    self.assertEqual(result, 15)
 
     # Multiple .then()-only links keep simple path
     result = await Chain(1).then(lambda v: v + 1).then(async_add).run()
-    await self.assertEqual(result, 7)
+    self.assertEqual(result, 7)
 
   async def test_sync_links_then_async_link(self):
     """Multiple sync .then() links, then async link mid-chain.
@@ -65,7 +65,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
 
     result = await Chain(1).then(lambda v: v + 1).then(lambda v: v + 2).then(async_multiply).then(lambda v: v - 1).run()
     # 1 -> 2 -> 4 -> 12 -> 11
-    await self.assertEqual(result, 11)
+    self.assertEqual(result, 11)
 
   async def test_async_root_sync_continuation(self):
     """Async root (aempty), all subsequent links sync.
@@ -76,7 +76,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
     """
     obj = object()
     result = await Chain(aempty, obj).then(lambda v: v).run()
-    await self.assertIs(result, obj)
+    self.assertIs(result, obj)
 
   async def test_multiple_async_transitions(self):
     """Chain alternates between sync and async .then() links.
@@ -96,20 +96,7 @@ class SyncToAsyncTransitionTests(MyTestCase):
       .then(lambda v: v + 100)      # sync: 121
       .run()
     )
-    await self.assertEqual(result, 121)
-
-  async def test_cascade_async_simple_path(self):
-    """Cascade with async root -> _run_async_simple with is_cascade.
-
-    In cascade mode with simple path, _run_async_simple returns root_value
-    instead of the last link's result.
-    """
-    async def async_identity(v):
-      return v
-
-    sentinel = object()
-    result = await Cascade(async_identity, sentinel).then(lambda v: 'ignored').run()
-    await self.assertIs(result, sentinel)
+    self.assertEqual(result, 121)
 
   async def test_void_chain_async_root_value_update(self):
     """Void chain with async root override -> root_value updates from Null.
@@ -124,10 +111,10 @@ class SyncToAsyncTransitionTests(MyTestCase):
     # Void chain (no root), running with async root override
     # The root_value starts as Null, gets updated after await
     result = await Chain().then(lambda v: v + 8).run(async_return_42)
-    await self.assertEqual(result, 50)
+    self.assertEqual(result, 50)
 
 
-class TaskRegistryTests(MyTestCase):
+class TaskRegistryTests(IsolatedAsyncioTestCase):
   """Test task registry behavior for autorun chains.
 
   ensure_future() creates a task, adds it to task_registry, and attaches a
@@ -144,7 +131,7 @@ class TaskRegistryTests(MyTestCase):
 
     task = Chain(10).then(slow_fn).config(autorun=True).run()
     # Task should be in the registry now
-    IsolatedAsyncioTestCase.assertGreater(self, _get_registry_size(), initial_size)
+    self.assertGreater(_get_registry_size(), initial_size)
     # Clean up: await the task
     await task
 
@@ -160,7 +147,7 @@ class TaskRegistryTests(MyTestCase):
     await task
     # Give the event loop a tick for the done callback to fire
     await asyncio.sleep(0)
-    IsolatedAsyncioTestCase.assertEqual(self, _get_registry_size(), initial_size)
+    self.assertEqual(_get_registry_size(), initial_size)
 
   async def test_autorun_adds_to_registry(self):
     """chain.config(autorun=True).run() adds task to registry."""
@@ -172,9 +159,9 @@ class TaskRegistryTests(MyTestCase):
 
     task = Chain(5).then(wait_fn).config(autorun=True).run()
     current_size = _get_registry_size()
-    IsolatedAsyncioTestCase.assertGreater(self, current_size, initial_size)
+    self.assertGreater(current_size, initial_size)
     result = await task
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
 
   async def test_registry_prevents_gc(self):
     """Task is not garbage collected while in registry (verify task completes).
@@ -192,12 +179,12 @@ class TaskRegistryTests(MyTestCase):
 
     task = Chain(1).then(set_completed).config(autorun=True).run()
     # The task is in the registry holding a strong reference
-    IsolatedAsyncioTestCase.assertGreater(self, _get_registry_size(), 0)
+    self.assertGreater(_get_registry_size(), 0)
     await task
-    await self.assertTrue(completed["value"])
+    self.assertTrue(completed["value"])
 
 
-class CancelledErrorTests(MyTestCase):
+class CancelledErrorTests(IsolatedAsyncioTestCase):
   """Test CancelledError handling in chain execution.
 
   CancelledError is a BaseException (Python 3.9+). except_(handler)
@@ -222,7 +209,7 @@ class CancelledErrorTests(MyTestCase):
     with self.assertRaises(asyncio.CancelledError):
       await Chain(1).then(raise_cancelled).except_(handler).run()
 
-    await self.assertFalse(handler_called["value"])
+    self.assertFalse(handler_called["value"])
 
   async def test_finally_runs_on_cancellation(self):
     """Finally callback still runs when CancelledError occurs in the chain.
@@ -241,52 +228,10 @@ class CancelledErrorTests(MyTestCase):
     with self.assertRaises(asyncio.CancelledError):
       await Chain(1).then(raise_cancelled).finally_(on_finally).run()
 
-    await self.assertTrue(finally_called["value"])
+    self.assertTrue(finally_called["value"])
 
 
-class SleepBehaviorTests(MyTestCase):
-  """Test sleep behavior in chains.
-
-  _Sleep checks for a running event loop. If present, it returns asyncio.sleep
-  (a coroutine), triggering async transition. The sleep link has
-  ignore_result=True, so the value passes through unchanged.
-  """
-
-  async def test_sleep_in_async_context(self):
-    """Chain(1).sleep(0.01).run() uses asyncio.sleep in event loop.
-
-    In an async test, there is a running event loop. _Sleep detects this
-    and returns asyncio.sleep(delay), causing a sync-to-async transition.
-    """
-    import time
-    start = time.monotonic()
-    result = await Chain(42).sleep(0.01).run()
-    elapsed = time.monotonic() - start
-    await self.assertEqual(result, 42)
-    # Verify we actually slept (asyncio.sleep, not time.sleep which would block)
-    IsolatedAsyncioTestCase.assertGreaterEqual(self, elapsed, 0.005)
-
-  async def test_sleep_preserves_value(self):
-    """Sleep link has ignore_result=True, value passes through unchanged."""
-    sentinel = object()
-    result = await Chain(sentinel).sleep(0.001).run()
-    await self.assertIs(result, sentinel)
-
-  async def test_sleep_in_chain_sequence(self):
-    """Chain(1).then(fn).sleep(0.01).then(fn2).run() -- value flows correctly.
-
-    The sleep link sits between two .then() links. Since sleep has
-    ignore_result=True, the value from fn passes through the sleep to fn2.
-    """
-    for fn, ctx in self.with_fn():
-      with ctx:
-        result = await await_(
-          Chain(5).then(fn).sleep(0.001).then(lambda v: v * 3).run()
-        )
-        await self.assertEqual(result, 15)
-
-
-class ReturnAsyncTests(MyTestCase):
+class ReturnAsyncTests(IsolatedAsyncioTestCase):
   """Test Chain.return_() behavior in async chains.
 
   _Return is caught in _run_async: result = handle_return_exc(exc, self.is_nested).
@@ -303,7 +248,7 @@ class ReturnAsyncTests(MyTestCase):
       return 99
 
     result = await Chain(1).then(lambda v: Chain.return_(async_return_99)).run()
-    await self.assertEqual(result, 99)
+    self.assertEqual(result, 99)
 
   async def test_return_with_null_value(self):
     """Chain.return_() with no args -> returns None (exc._v is Null).
@@ -311,7 +256,7 @@ class ReturnAsyncTests(MyTestCase):
     handle_return_exc checks if exc._v is Null and returns None.
     """
     result = await Chain(aempty, 1).then(lambda v: Chain.return_()).run()
-    await self.assertIsNone(result)
+    self.assertIsNone(result)
 
   async def test_return_in_nested_async_chain(self):
     """_Return in nested async chain propagates to parent.
@@ -328,10 +273,10 @@ class ReturnAsyncTests(MyTestCase):
     result = await Chain(10).then(inner).then(lambda v: v + 100).run()
     # The inner chain raises _Return(42), which propagates to the parent.
     # The parent catches it and returns 42, skipping .then(v + 100).
-    await self.assertEqual(result, 42)
+    self.assertEqual(result, 42)
 
 
-class AsyncDebugTests(MyTestCase):
+class AsyncDebugTests(IsolatedAsyncioTestCase):
   """Test debug mode in async chain execution.
 
   When _debug=True, _run_async logs values via _logger.debug() and
@@ -357,11 +302,11 @@ class AsyncDebugTests(MyTestCase):
         return v * 2
 
       result = await Chain(5).then(async_double).config(debug=True).run()
-      await self.assertEqual(result, 10)
+      self.assertEqual(result, 10)
       # The root value (5) is logged in the sync _run path before
       # transitioning to _run_async
-      IsolatedAsyncioTestCase.assertGreaterEqual(self, len(logs), 1)
-      IsolatedAsyncioTestCase.assertTrue(self, any('5' in log for log in logs))
+      self.assertGreaterEqual(len(logs), 1)
+      self.assertTrue(any('5' in log for log in logs))
     finally:
       logger.removeHandler(handler)
 
@@ -392,10 +337,10 @@ class AsyncDebugTests(MyTestCase):
         .config(debug=True)
         .run()
       )
-      await self.assertEqual(result, 20)
+      self.assertEqual(result, 20)
       # Root value (1) is logged in the sync _run path
-      IsolatedAsyncioTestCase.assertGreaterEqual(self, len(logs), 1)
-      IsolatedAsyncioTestCase.assertTrue(self, any('1' in log for log in logs))
+      self.assertGreaterEqual(len(logs), 1)
+      self.assertTrue(any('1' in log for log in logs))
 
       # Verify that debug mode with multiple sync links before async
       # logs each sync link before the transition point
@@ -407,11 +352,11 @@ class AsyncDebugTests(MyTestCase):
         .config(debug=True)
         .run()
       )
-      await self.assertEqual(result, 6)
+      self.assertEqual(result, 6)
       # Root (2) and first sync link (5) are logged before async transition
-      IsolatedAsyncioTestCase.assertGreaterEqual(self, len(logs), 2)
-      IsolatedAsyncioTestCase.assertTrue(self, any('2' in log for log in logs))
-      IsolatedAsyncioTestCase.assertTrue(self, any('5' in log for log in logs))
+      self.assertGreaterEqual(len(logs), 2)
+      self.assertTrue(any('2' in log for log in logs))
+      self.assertTrue(any('5' in log for log in logs))
     finally:
       logger.removeHandler(handler)
 

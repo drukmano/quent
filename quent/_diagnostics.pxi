@@ -1,17 +1,3 @@
-# _diagnostics.pxi — Exception handling, traceback augmentation, and chain stringification
-#
-# Contains internal utilities for exception processing, traceback cleanup,
-# chain-execution context injection, and human-readable chain representation.
-# These support Chain's error reporting and the global exception hook.
-#
-# Key components:
-#   - clean_internal_frames / remove_self_frames_from_traceback: traceback cleanup
-#   - _handle_exception: exception handler dispatch for Chain.except_
-#   - modify_traceback: augments exceptions with chain execution context
-#   - get_true_source_link: finds the originating link for error reporting
-#   - stringify_chain / format_link / format_args: human-readable chain display
-#   - _quent_excepthook / _clean_exc_chain: global exception formatting
-
 import os as _os
 import inspect
 
@@ -22,10 +8,8 @@ cdef object _isclass = inspect.isclass
 _RAISE_CODE = compile('raise __exc__', '<quent>', 'exec')
 cdef bint _HAS_QUALNAME = sys.version_info >= (3, 11)
 
-# --- Traceback cleanup ---
 
 cdef object clean_internal_frames(object tb):
-  """Clean internal frames from a traceback while preserving <quent> frames"""
   cdef list stack = []
   cdef object tb_next = None
   cdef object new_tb
@@ -53,7 +37,6 @@ cdef object clean_internal_frames(object tb):
 
 
 cdef void _clean_chained_exceptions(object exc, set seen):
-  """Recursively clean tracebacks on __cause__ and __context__ chains."""
   if exc is None or id(exc) in seen:
     return
   seen.add(id(exc))
@@ -78,8 +61,6 @@ cdef object remove_self_frames_from_traceback():
   _clean_chained_exceptions(exc_value.__context__, seen)
 
   return exc_value.with_traceback(cleaned_tb)
-
-# --- Exception handler dispatch ---
 
 cdef Link _handle_exception(object exc, Chain chain, Link link, _ExecCtx ctx):
   cdef Link exc_link
@@ -152,8 +133,6 @@ cdef void modify_traceback(object exc, Chain chain, Link link, _ExecCtx ctx):
   _clean_chained_exceptions(exc.__cause__, seen)
   _clean_chained_exceptions(exc.__context__, seen)
 
-# --- Error source resolution ---
-
 cdef Link get_true_source_link(Link source_link, _ExecCtx ctx):
   """ retrieves the first non-chain link """
   cdef Chain chain
@@ -172,10 +151,26 @@ cdef Link get_true_source_link(Link source_link, _ExecCtx ctx):
       break
   return source_link
 
-# --- Chain stringification ---
-
 cdef str make_indent(int nest_lvl):
   return '\n' + ' ' * 4 * nest_lvl
+
+
+cdef str _get_link_name(Link link):
+  """Reconstruct a display name for a link from its type and flags (cold path only)."""
+  cdef type vt = type(link.v)
+  if vt is _Foreach:
+    return 'foreach'
+  if vt is _Filter:
+    return 'filter'
+  if vt is _Gather:
+    return 'gather'
+  if vt is _With:
+    return 'with_'
+  if link.is_exception_handler:
+    return 'except_'
+  if link.ignore_result:
+    return 'do'
+  return 'then'
 
 
 cdef tuple stringify_chain(Chain chain, _ExecCtx ctx, int nest_lvl = 0, Link source_link = None, bint found_source_link = False):
@@ -197,7 +192,7 @@ cdef tuple stringify_chain(Chain chain, _ExecCtx ctx, int nest_lvl = 0, Link sou
   link = chain.first_link
   while link is not None:
     output += make_indent(nest_lvl)
-    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link)
+    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link, method_name=_get_link_name(link))
     if not found_source_link and link is source_link:
       found_source_link = True
     link = link.next_link
@@ -205,7 +200,7 @@ cdef tuple stringify_chain(Chain chain, _ExecCtx ctx, int nest_lvl = 0, Link sou
   link = chain.on_finally_link
   if link is not None:
     output += make_indent(nest_lvl)
-    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link)
+    output += format_link(link, ctx, nest_lvl=nest_lvl, source_link=source_link, found_source_link=found_source_link, method_name='finally_')
     if not found_source_link and link is source_link:
       found_source_link = True
 
@@ -226,7 +221,7 @@ cdef str format_kwargs(dict kwargs):
   return ', ' + ', '.join([f'{k}={get_obj_name(v)}' for k, v in kwargs.items()])
 
 
-cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = None, bint found_source_link = False):
+cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = None, bint found_source_link = False, str method_name = None):
   cdef Link outer_link = link
   if isinstance(link.original_value, Link):
     link = link.original_value
@@ -261,7 +256,7 @@ cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = N
     if _temp_args or _temp_kwargs:
       _temp_v = _temp_args[0] if _temp_args else Null
       if _temp_v is not Null:
-        nested_ctx.temp_root_link = Link(_temp_v, _temp_args[1:], _temp_kwargs, True)
+        nested_ctx.temp_root_link = Link(_temp_v, _temp_args[1:], _temp_kwargs)
     args = kwargs = None
     link_v, found_source_link = stringify_chain(
       original_value, nested_ctx, nest_lvl=nest_lvl + 1, source_link=source_link, found_source_link=found_source_link
@@ -270,8 +265,8 @@ cdef str format_link(Link link, _ExecCtx ctx, int nest_lvl, Link source_link = N
   else:
     link_v = get_obj_name(original_value)
 
-  if link.fn_name is not None:
-    output += f'.{link.fn_name}'
+  if method_name is not None:
+    output += f'.{method_name}'
   if link.eval_code in {EVAL_CALL_WITHOUT_ARGS, EVAL_CALL_WITH_EXPLICIT_ARGS, EVAL_CALL_WITH_CURRENT_VALUE}:
     if is_chain:
       args_s = format_args(args)
@@ -317,7 +312,6 @@ cdef str get_obj_name(object obj):
   except Exception:
     return type(obj).__name__
 
-# --- Global exception formatting ---
 
 _original_excepthook = sys.excepthook
 

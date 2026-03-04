@@ -1,35 +1,18 @@
-"""Quent — a high-performance chain interface for Python.
-
-Provides transparent handling of both synchronous and asynchronous operations
-through a fluent API. Chains automatically detect and handle coroutines,
-wrapping them in Tasks without requiring explicit ``await`` statements.
-
-Core types:
-  Chain        — sequential pipeline where each operation receives the previous result
-  Cascade      — like Chain, but every operation receives the root value
-
-Control flow:
-  QuentException — base exception for chain-related errors
-  Null           — sentinel value indicating "no value provided"
-  run            — pipe syntax terminator (Chain(f1) | f2 | run())
-"""
 import importlib.metadata
 from typing import Awaitable, TypeVar, Union
-from .quent import Chain, Cascade, run, QuentException
+from .quent import Chain, QuentException
 from .quent import PyNull as Null
 
 try:
-  __version__ = importlib.metadata.version("quent")
+  __version__ = importlib.metadata.version('quent')
 except importlib.metadata.PackageNotFoundError:
-  __version__ = "0.0.0"
+  __version__ = '0.0.0'
 
 T = TypeVar('T')
 ResultOrAwaitable = Union[T, Awaitable[T]]
 
-
 __all__ = [
-  'Chain', 'Cascade', 'QuentException', 'run', 'ResultOrAwaitable', 'Null',
-  '__version__'
+  'Chain', 'QuentException', 'ResultOrAwaitable', 'Null', '__version__'
 ]
 
 # Patch TracebackException.__init__ to clean quent internal frames at display time.

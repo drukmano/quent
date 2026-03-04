@@ -1,9 +1,9 @@
 import io
 import logging
-from unittest import TestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 
-from tests.utils import empty, aempty, await_, MyTestCase
-from quent import Chain, Cascade, QuentException, run
+from tests.utils import empty, aempty, await_
+from quent import Chain, QuentException
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ class RootlessCloneWalkTests(TestCase):
 # ---------------------------------------------------------------------------
 # BreakNonNestedTests
 # ---------------------------------------------------------------------------
-class BreakNonNestedTests(MyTestCase):
+class BreakNonNestedTests(IsolatedAsyncioTestCase):
   """_Break in non-nested context raises QuentException.
 
   These tests cover the except _Break clauses in:
@@ -108,7 +108,7 @@ class BreakNonNestedTests(MyTestCase):
     """
     with self.assertRaises(QuentException) as cm:
       Chain(1).do(lambda v: None).then(Chain.break_).run()
-    super(MyTestCase, self).assertIn('_Break', str(cm.exception))
+    self.assertIn('_Break', str(cm.exception))
 
   async def test_break_non_nested_nonsimple_async(self):
     """_Break in non-nested, non-simple async path (_run_async lines 299-302).
@@ -118,7 +118,7 @@ class BreakNonNestedTests(MyTestCase):
     """
     with self.assertRaises(QuentException) as cm:
       await await_(Chain(1).do(aempty).then(Chain.break_).run())
-    super(MyTestCase, self).assertIn('_Break', str(cm.exception))
+    self.assertIn('_Break', str(cm.exception))
 
   async def test_break_non_nested_simple_sync(self):
     """_Break in non-nested, simple sync path (_run_simple lines 411-414).
@@ -142,7 +142,7 @@ class BreakNonNestedTests(MyTestCase):
 # ---------------------------------------------------------------------------
 # BreakNestedPropagationTests
 # ---------------------------------------------------------------------------
-class BreakNestedPropagationTests(MyTestCase):
+class BreakNestedPropagationTests(IsolatedAsyncioTestCase):
   """_Break in nested chains: re-raised if is_nested=True.
 
   When a nested chain catches _Break and is_nested=True, it re-raises
@@ -168,7 +168,7 @@ class BreakNestedPropagationTests(MyTestCase):
     inner = Chain().then(Chain.break_)
     with self.assertRaises(QuentException) as cm:
       Chain(1).then(inner).run()
-    super(MyTestCase, self).assertIn('_Break', str(cm.exception))
+    self.assertIn('_Break', str(cm.exception))
 
   async def test_break_nested_simple_async_propagates(self):
     """_Break re-raised from nested simple async chain (_run_async_simple line 460-461).
@@ -185,7 +185,7 @@ class BreakNestedPropagationTests(MyTestCase):
     inner = Chain().then(aempty).then(Chain.break_)
     with self.assertRaises(QuentException) as cm:
       await await_(Chain(1).then(inner).run())
-    super(MyTestCase, self).assertIn('_Break', str(cm.exception))
+    self.assertIn('_Break', str(cm.exception))
 
   async def test_break_nested_nonsimple_sync_propagates(self):
     """_Break re-raised from nested non-simple sync chain (_run lines 182-184).
@@ -196,7 +196,7 @@ class BreakNestedPropagationTests(MyTestCase):
     inner = Chain().do(empty).then(Chain.break_)
     with self.assertRaises(QuentException) as cm:
       Chain(1).then(inner).run()
-    super(MyTestCase, self).assertIn('_Break', str(cm.exception))
+    self.assertIn('_Break', str(cm.exception))
 
   async def test_break_nested_nonsimple_async_propagates(self):
     """_Break re-raised from nested non-simple async chain (_run_async lines 299-301).
@@ -207,7 +207,7 @@ class BreakNestedPropagationTests(MyTestCase):
     inner = Chain().do(aempty).then(Chain.break_)
     with self.assertRaises(QuentException) as cm:
       await await_(Chain(1).then(inner).run())
-    super(MyTestCase, self).assertIn('_Break', str(cm.exception))
+    self.assertIn('_Break', str(cm.exception))
 
   async def test_break_nested_propagates_through_foreach(self):
     """_Break from nested chain inside foreach stops iteration.
@@ -215,7 +215,7 @@ class BreakNestedPropagationTests(MyTestCase):
     When Chain.break_ is called directly in the foreach lambda (not via
     a nested chain), _Foreach catches _Break and returns partial results.
     """
-    await self.assertEqual(
+    self.assertEqual(
       Chain([1, 2, 3, 4]).foreach(
         lambda x: Chain.break_('stopped') if x == 3 else x
       ).run(),
@@ -226,7 +226,7 @@ class BreakNestedPropagationTests(MyTestCase):
 # ---------------------------------------------------------------------------
 # RootOverrideTests
 # ---------------------------------------------------------------------------
-class RootOverrideTests(MyTestCase):
+class RootOverrideTests(IsolatedAsyncioTestCase):
   """Root override error paths and temp_root_link creation.
 
   Covers:
@@ -242,13 +242,13 @@ class RootOverrideTests(MyTestCase):
     """
     with self.assertRaises(QuentException) as cm:
       Chain(1).do(lambda v: None).then(lambda v: v).run(2)
-    super(MyTestCase, self).assertIn('override', str(cm.exception).lower())
+    self.assertIn('override', str(cm.exception).lower())
 
   async def test_root_override_error_simple_sync(self):
     """Cannot override root in simple path (_run_simple line 353-355)."""
     with self.assertRaises(QuentException) as cm:
       Chain(1).then(lambda v: v).run(2)
-    super(MyTestCase, self).assertIn('override', str(cm.exception).lower())
+    self.assertIn('override', str(cm.exception).lower())
 
   async def test_temp_root_link_nonsimple(self):
     """Void chain with root override in non-simple path (_run lines 122-126).
@@ -259,25 +259,25 @@ class RootOverrideTests(MyTestCase):
     - Evaluates temp root (5), then evaluates the chain links
     """
     result = Chain().do(lambda v: None).then(lambda v: v * 2).run(5)
-    await self.assertEqual(result, 10)
+    self.assertEqual(result, 10)
 
   async def test_temp_root_link_nonsimple_with_args(self):
     """Void chain root override with callable + args in non-simple path."""
     result = Chain().do(lambda v: None).then(lambda v: v + 1).run(lambda a, b: a + b, 3, 7)
-    await self.assertEqual(result, 11)  # root = 3+7=10, then 10+1=11
+    self.assertEqual(result, 11)  # root = 3+7=10, then 10+1=11
 
   async def test_temp_root_link_nonsimple_async(self):
     """Void chain root override in non-simple async path."""
     result = await await_(
       Chain().do(aempty).then(lambda v: v * 3).run(5)
     )
-    await self.assertEqual(result, 15)
+    self.assertEqual(result, 15)
 
 
 # ---------------------------------------------------------------------------
 # DebugLazyInitTests
 # ---------------------------------------------------------------------------
-class DebugLazyInitTests(MyTestCase):
+class DebugLazyInitTests(IsolatedAsyncioTestCase):
   """Debug link_results lazy initialization.
 
   In _run, link_results starts as None. When _debug=True:
@@ -308,10 +308,10 @@ class DebugLazyInitTests(MyTestCase):
     logger.setLevel(logging.DEBUG)
     try:
       result = Chain().do(empty).then(lambda: 42).config(debug=True).run()
-      await self.assertEqual(result, 42)
+      self.assertEqual(result, 42)
       log_output = stream.getvalue()
       # Debug should have logged link evaluation results
-      super(MyTestCase, self).assertTrue(len(log_output) > 0)
+      self.assertTrue(len(log_output) > 0)
     finally:
       logger.removeHandler(handler)
       logger.setLevel(old_level)
@@ -332,7 +332,7 @@ class DebugLazyInitTests(MyTestCase):
     result = await await_(
       Chain().do(aempty).then(lambda: 99).config(debug=True).run()
     )
-    await self.assertEqual(result, 99)
+    self.assertEqual(result, 99)
 
   async def test_debug_with_root_initializes_link_results(self):
     """With a root, link_results is initialized at root eval (_run line 138-140).
@@ -348,10 +348,10 @@ class DebugLazyInitTests(MyTestCase):
     logger.setLevel(logging.DEBUG)
     try:
       result = Chain(10).do(lambda v: None).then(lambda v: v + 5).config(debug=True).run()
-      await self.assertEqual(result, 15)
+      self.assertEqual(result, 15)
       log_output = stream.getvalue()
       # Should log root value
-      super(MyTestCase, self).assertIn('10', log_output)
+      self.assertIn('10', log_output)
     finally:
       logger.removeHandler(handler)
       logger.setLevel(old_level)
@@ -360,7 +360,7 @@ class DebugLazyInitTests(MyTestCase):
 # ---------------------------------------------------------------------------
 # ReturnBreakClassmethodTests
 # ---------------------------------------------------------------------------
-class ReturnBreakClassmethodTests(MyTestCase):
+class ReturnBreakClassmethodTests(IsolatedAsyncioTestCase):
   """Tests for Chain.return_() and Chain.break_() classmethods.
 
   Covers lines 629-637 of _chain_core.pxi.
@@ -368,87 +368,67 @@ class ReturnBreakClassmethodTests(MyTestCase):
 
   async def test_return_with_value(self):
     """Chain.return_(value) exits the chain and returns the value."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 1).then(lambda v: Chain.return_(v * 10)).then(lambda v: v * 100).run(),
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEqual(
+          await await_(Chain(fn, 1).then(lambda v: Chain.return_(v * 10)).then(lambda v: v * 100).run()),
           10
         )
 
   async def test_return_without_value(self):
     """Chain.return_() with no value returns None."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIsNone(
-          Chain(fn, 1).then(lambda v: Chain.return_()).then(lambda v: v * 100).run()
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertIsNone(
+          await await_(Chain(fn, 1).then(lambda v: Chain.return_()).then(lambda v: v * 100).run())
         )
 
   async def test_return_with_callable_value(self):
     """Chain.return_(callable, args) evaluates the callable."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 1).then(lambda v: Chain.return_(lambda a, b: a + b, 3, 7)).run(),
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEqual(
+          await await_(Chain(fn, 1).then(lambda v: Chain.return_(lambda a, b: a + b, 3, 7)).run()),
           10
         )
 
   async def test_break_with_value_in_foreach(self):
     """Chain.break_(value) in foreach returns that value as the foreach result."""
     sentinel = object()
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertIs(
-          Chain(fn, [1, 2, 3]).foreach(
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertIs(
+          await await_(Chain(fn, [1, 2, 3]).foreach(
             lambda x: Chain.break_(sentinel) if x == 2 else x
-          ).run(),
+          ).run()),
           sentinel
         )
 
   async def test_break_without_value_in_foreach(self):
     """Chain.break_() with no value in foreach returns the accumulated list."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3, 4]).foreach(
+    for fn in [empty, aempty]:
+      with self.subTest(fn=fn):
+        self.assertEqual(
+          await await_(Chain(fn, [1, 2, 3, 4]).foreach(
             lambda x: Chain.break_() if x == 3 else x
-          ).run(),
+          ).run()),
           [1, 2]
         )
 
   async def test_break_with_callable_value_in_foreach(self):
     """Chain.break_(callable, args) evaluates the callable as the break value."""
-    await self.assertEqual(
+    self.assertEqual(
       Chain([1, 2, 3]).foreach(
         lambda x: Chain.break_(lambda a, b: a + b, 10, 20) if x == 2 else x
       ).run(),
       30
     )
 
-  async def test_return_classmethod_on_cascade(self):
-    """Cascade.return_() works the same as Chain.return_() (inherited classmethod)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, 5).then(lambda v: Cascade.return_(v * 2)).then(lambda v: 999).run(),
-          10
-        )
-
-  async def test_break_classmethod_on_cascade(self):
-    """Cascade.break_() works the same as Chain.break_() (inherited classmethod)."""
-    for fn, ctx in self.with_fn():
-      with ctx:
-        await self.assertEqual(
-          Chain(fn, [1, 2, 3]).foreach(
-            lambda x: Cascade.break_('done') if x == 2 else x
-          ).run(),
-          'done'
-        )
-
 
 # ---------------------------------------------------------------------------
 # NestedDirectRunTests
 # ---------------------------------------------------------------------------
-class NestedDirectRunTests(MyTestCase):
+class NestedDirectRunTests(IsolatedAsyncioTestCase):
   """Nested chain direct run prevention.
 
   When a chain is used as a nested sub-chain (is_nested=True), calling
@@ -468,7 +448,7 @@ class NestedDirectRunTests(MyTestCase):
     _outer = Chain(1).then(inner)  # This sets inner.is_nested = True
     with self.assertRaises(QuentException) as cm:
       inner.run(5)
-    super(MyTestCase, self).assertIn('nested', str(cm.exception).lower())
+    self.assertIn('nested', str(cm.exception).lower())
 
   async def test_nested_direct_run_nonsimple_path(self):
     """Directly running a nested non-simple chain raises QuentException (_run line 102-103).
@@ -480,7 +460,7 @@ class NestedDirectRunTests(MyTestCase):
     _outer = Chain(1).then(inner)  # sets inner.is_nested = True
     with self.assertRaises(QuentException) as cm:
       inner.run(5)
-    super(MyTestCase, self).assertIn('nested', str(cm.exception).lower())
+    self.assertIn('nested', str(cm.exception).lower())
 
   async def test_nested_direct_call_raises(self):
     """Directly calling a nested chain via __call__ also raises."""
@@ -498,4 +478,4 @@ class NestedDirectRunTests(MyTestCase):
       inner.run(5)
     # clone resets is_nested
     inner_clone = inner.clone()
-    await self.assertEqual(inner_clone.run(5), 10)
+    self.assertEqual(inner_clone.run(5), 10)

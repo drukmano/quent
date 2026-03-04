@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import dataclass
 
 from scripts.time_func import time_func, async_time_func
-from quent.quent import Chain, Cascade, run
+from quent.quent import Chain, run
 
 LOOPS = 100_000
 ITERATIONS = 10
@@ -14,7 +14,7 @@ class BenchResult:
   name: str
   plain_time: float
   quent_time: float
-  frozen_time: float | None = None
+  reuse_time: float | None = None
 
   @property
   def overhead_pct(self) -> float:
@@ -23,12 +23,12 @@ class BenchResult:
     return ((self.quent_time - self.plain_time) / self.plain_time) * 100
 
   @property
-  def frozen_overhead_pct(self) -> float | None:
-    if self.frozen_time is None:
+  def reuse_overhead_pct(self) -> float | None:
+    if self.reuse_time is None:
       return None
     if self.plain_time == 0:
       return float('inf')
-    return ((self.frozen_time - self.plain_time) / self.plain_time) * 100
+    return ((self.reuse_time - self.plain_time) / self.plain_time) * 100
 
 
 @dataclass
@@ -107,43 +107,43 @@ def print_result(r: BenchResult):
   print(f'  {r.name}:')
   print(f'    plain:   {r.plain_time:.6f}s')
   print(f'    quent:   {r.quent_time:.6f}s  ({r.overhead_pct:+.1f}%)')
-  if r.frozen_time is not None:
-    print(f'    frozen:  {r.frozen_time:.6f}s  ({r.frozen_overhead_pct:+.1f}%)')
+  if r.reuse_time is not None:
+    print(f'    reuse:   {r.reuse_time:.6f}s  ({r.reuse_overhead_pct:+.1f}%)')
 
 
-def run_bench(name, plain_fn, quent_fn, frozen_fn=None, loops=LOOPS):
+def run_bench(name, plain_fn, quent_fn, reuse_fn=None, loops=LOOPS):
   plain_total = 0.0
   quent_total = 0.0
-  frozen_total = 0.0
+  reuse_total = 0.0
   for _ in range(ITERATIONS):
     plain_total += time_func(loops, plain_fn)
     quent_total += time_func(loops, quent_fn)
-    if frozen_fn is not None:
-      frozen_total += time_func(loops, frozen_fn)
+    if reuse_fn is not None:
+      reuse_total += time_func(loops, reuse_fn)
   result = BenchResult(
     name=name,
     plain_time=plain_total / ITERATIONS,
     quent_time=quent_total / ITERATIONS,
-    frozen_time=frozen_total / ITERATIONS if frozen_fn is not None else None,
+    reuse_time=reuse_total / ITERATIONS if reuse_fn is not None else None,
   )
   print_result(result)
   return result
 
 
-async def async_run_bench(name, plain_fn, quent_fn, frozen_fn=None, loops=LOOPS):
+async def async_run_bench(name, plain_fn, quent_fn, reuse_fn=None, loops=LOOPS):
   plain_total = 0.0
   quent_total = 0.0
-  frozen_total = 0.0
+  reuse_total = 0.0
   for _ in range(ITERATIONS):
     plain_total += await async_time_func(loops, plain_fn)
     quent_total += await async_time_func(loops, quent_fn)
-    if frozen_fn is not None:
-      frozen_total += await async_time_func(loops, frozen_fn)
+    if reuse_fn is not None:
+      reuse_total += await async_time_func(loops, reuse_fn)
   result = BenchResult(
     name=name,
     plain_time=plain_total / ITERATIONS,
     quent_time=quent_total / ITERATIONS,
-    frozen_time=frozen_total / ITERATIONS if frozen_fn is not None else None,
+    reuse_time=reuse_total / ITERATIONS if reuse_fn is not None else None,
   )
   print_result(result)
   return result
@@ -198,8 +198,8 @@ def bench_simple_chain():
     return f_mul_10(1)
   def quent():
     return Chain(1).then(f_mul_10).run()
-  frozen = Chain(1).then(f_mul_10).freeze()
-  return run_bench('simple_chain (2 ops)', plain, quent, frozen.run)
+  c = Chain(1).then(f_mul_10)
+  return run_bench('simple_chain (2 ops)', plain, quent, c.run)
 
 
 def bench_medium_chain():
@@ -212,8 +212,8 @@ def bench_medium_chain():
     return v
   def quent():
     return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).run()
-  frozen = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).freeze()
-  return run_bench('medium_chain (5 ops)', plain, quent, frozen.run)
+  c = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double)
+  return run_bench('medium_chain (5 ops)', plain, quent, c.run)
 
 
 def bench_long_chain():
@@ -233,8 +233,8 @@ def bench_long_chain():
     return v
   def quent():
     return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).run()
-  frozen = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).freeze()
-  return run_bench('long_chain (12 ops)', plain, quent, frozen.run)
+  c = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double)
+  return run_bench('long_chain (12 ops)', plain, quent, c.run)
 
 
 def bench_do_side_effects():
@@ -245,8 +245,8 @@ def bench_do_side_effects():
     return f_mul_10(v)
   def quent():
     return Chain(10).do(side_effects.append).then(f_mul_10).run()
-  frozen = Chain(10).do(side_effects.append).then(f_mul_10).freeze()
-  return run_bench('do_side_effects', plain, quent, frozen.run)
+  c = Chain(10).do(side_effects.append).then(f_mul_10)
+  return run_bench('do_side_effects', plain, quent, c.run)
 
 
 def bench_foreach():
@@ -255,8 +255,8 @@ def bench_foreach():
     return [f_mul_10(x) for x in items]
   def quent():
     return Chain(items).foreach(f_mul_10).run()
-  frozen = Chain(items).foreach(f_mul_10).freeze()
-  return run_bench('foreach (100 items)', plain, quent, frozen.run, loops=FOREACH_LOOPS)
+  c = Chain(items).foreach(f_mul_10)
+  return run_bench('foreach (100 items)', plain, quent, c.run, loops=FOREACH_LOOPS)
 
 
 def bench_except_finally():
@@ -274,21 +274,8 @@ def bench_except_finally():
     return v
   def quent():
     return Chain(1).then(f_mul_10).except_(on_exc).finally_(on_finally).run()
-  frozen = Chain(1).then(f_mul_10).except_(on_exc).finally_(on_finally).freeze()
-  return run_bench('except_finally (happy path)', plain, quent, frozen.run)
-
-
-def bench_cascade():
-  results = []
-  def plain():
-    v = 10
-    results.append(v)
-    f_mul_10(v)
-    f_add_5(v)
-    return v
-  def quent():
-    return Cascade(10).do(results.append).then(f_mul_10).then(f_add_5).run()
-  return run_bench('cascade (3 ops)', plain, quent)
+  c = Chain(1).then(f_mul_10).except_(on_exc).finally_(on_finally)
+  return run_bench('except_finally (happy path)', plain, quent, c.run)
 
 
 def bench_pipe_syntax():
@@ -336,7 +323,7 @@ async def bench_async_medium():
   return await async_run_bench('async_medium (4 ops)', plain, quent)
 
 
-async def bench_async_frozen():
+async def bench_async_reuse():
   async def plain():
     v = 1
     v = await af_mul_10(v)
@@ -344,8 +331,8 @@ async def bench_async_frozen():
     return v
   def quent():
     return Chain(1).then(af_mul_10).then(af_add_5).run()
-  frozen = Chain(1).then(af_mul_10).then(af_add_5).freeze()
-  return await async_run_bench('async_frozen (2 ops)', plain, quent, frozen.run)
+  c = Chain(1).then(af_mul_10).then(af_add_5)
+  return await async_run_bench('async_reuse (2 ops)', plain, quent, c.run)
 
 
 async def bench_async_foreach():
@@ -358,102 +345,6 @@ async def bench_async_foreach():
 
 
 # ---------------------------------------------------------------------------
-# Simple vs Non-Simple Path benchmarks
-# ---------------------------------------------------------------------------
-
-def bench_simple_vs_nonsimple_short():
-  def simple():
-    return Chain(1).then(f_mul_10).run()
-  def nonsimple():
-    return Chain(1).then(f_mul_10).do(f_noop).run()
-  return run_comparison_bench('short (2 ops)', nonsimple, simple, 'nonsimple', 'simple')
-
-
-def bench_simple_vs_nonsimple_medium():
-  def simple():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).run()
-  def nonsimple():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).do(f_noop).run()
-  return run_comparison_bench('medium (5 ops)', nonsimple, simple, 'nonsimple', 'simple')
-
-
-def bench_simple_vs_nonsimple_long():
-  def simple():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).run()
-  def nonsimple():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).do(f_noop).run()
-  return run_comparison_bench('long (12 ops)', nonsimple, simple, 'nonsimple', 'simple')
-
-
-def bench_simple_frozen():
-  simple_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double)
-  nonsimple_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).do(f_noop)
-  simple_frozen = simple_chain.freeze()
-  nonsimple_frozen = nonsimple_chain.freeze()
-  return run_comparison_bench('frozen (5 ops)', nonsimple_frozen.run, simple_frozen.run, 'nonsimple', 'simple')
-
-
-def bench_simple_cascade():
-  def simple():
-    return Cascade(10).then(f_mul_10).then(f_add_5).run()
-  def nonsimple():
-    return Cascade(10).then(f_mul_10).then(f_add_5).do(f_noop).run()
-  return run_comparison_bench('cascade (3 ops)', nonsimple, simple, 'nonsimple', 'simple')
-
-
-async def bench_async_simple_vs_nonsimple():
-  def simple():
-    return Chain(1).then(af_mul_10).run()
-  def nonsimple():
-    return Chain(1).then(af_mul_10).do(f_noop).run()
-  return await async_run_comparison_bench('async_simple (2 ops)', nonsimple, simple, 'nonsimple', 'simple')
-
-
-async def bench_async_simple_medium():
-  def simple():
-    return Chain(1).then(af_mul_10).then(af_add_5).then(af_sub_3).then(af_double).run()
-  def nonsimple():
-    return Chain(1).then(af_mul_10).then(af_add_5).then(af_sub_3).then(af_double).do(f_noop).run()
-  return await async_run_comparison_bench('async_medium (5 ops)', nonsimple, simple, 'nonsimple', 'simple')
-
-
-# ---------------------------------------------------------------------------
-# no_async() benchmarks
-# ---------------------------------------------------------------------------
-
-def bench_sync_flag_short():
-  def default_fn():
-    return Chain(1).then(f_mul_10).run()
-  def sync_fn():
-    return Chain(1).then(f_mul_10).no_async().run()
-  return run_comparison_bench('sync_flag_short (2 ops)', default_fn, sync_fn, 'default', 'no_async')
-
-
-def bench_sync_flag_medium():
-  def default_fn():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).run()
-  def sync_fn():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).no_async().run()
-  return run_comparison_bench('sync_flag_medium (5 ops)', default_fn, sync_fn, 'default', 'no_async')
-
-
-def bench_sync_flag_long():
-  def default_fn():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).run()
-  def sync_fn():
-    return Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).then(f_square).then(f_mod_7).then(f_abs).then(f_plus_1).then(f_neg).then(f_abs).then(f_double).no_async().run()
-  return run_comparison_bench('sync_flag_long (12 ops)', default_fn, sync_fn, 'default', 'no_async')
-
-
-def bench_sync_flag_frozen():
-  default_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double)
-  sync_chain = Chain(1).then(f_mul_10).then(f_add_5).then(f_sub_3).then(f_double).no_async()
-  default_frozen = default_chain.freeze()
-  sync_frozen = sync_chain.freeze()
-  return run_comparison_bench('sync_flag_frozen (5 ops)', default_frozen.run, sync_frozen.run, 'default', 'no_async')
-
-
-# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -461,12 +352,12 @@ def print_summary(results):
   print('\n' + '=' * 80)
   print('SUMMARY')
   print('=' * 80)
-  print(f'{"Benchmark":<30} {"Plain":>10} {"Quent":>10} {"Overhead":>10} {"Frozen":>10} {"F.Overhead":>10}')
+  print(f'{"Benchmark":<30} {"Plain":>10} {"Quent":>10} {"Overhead":>10} {"Reuse":>10} {"R.Overhead":>10}')
   print('-' * 80)
   for r in results:
-    frozen_str = f'{r.frozen_time:.6f}' if r.frozen_time is not None else '-'
-    frozen_ovh = f'{r.frozen_overhead_pct:+.1f}%' if r.frozen_overhead_pct is not None else '-'
-    print(f'{r.name:<30} {r.plain_time:>10.6f} {r.quent_time:>10.6f} {r.overhead_pct:>+9.1f}% {frozen_str:>10} {frozen_ovh:>10}')
+    reuse_str = f'{r.reuse_time:.6f}' if r.reuse_time is not None else '-'
+    reuse_ovh = f'{r.reuse_overhead_pct:+.1f}%' if r.reuse_overhead_pct is not None else '-'
+    print(f'{r.name:<30} {r.plain_time:>10.6f} {r.quent_time:>10.6f} {r.overhead_pct:>+9.1f}% {reuse_str:>10} {reuse_ovh:>10}')
   print('=' * 80)
 
 
@@ -493,15 +384,8 @@ async def run_async_benchmarks():
   results = []
   results.append(await bench_async_simple())
   results.append(await bench_async_medium())
-  results.append(await bench_async_frozen())
+  results.append(await bench_async_reuse())
   results.append(await bench_async_foreach())
-  return results
-
-
-async def run_async_comparison_benchmarks():
-  results = []
-  results.append(await bench_async_simple_vs_nonsimple())
-  results.append(await bench_async_simple_medium())
   return results
 
 
@@ -519,7 +403,6 @@ def main():
   results.append(bench_do_side_effects())
   results.append(bench_foreach())
   results.append(bench_except_finally())
-  results.append(bench_cascade())
   results.append(bench_pipe_syntax())
   results.append(bench_nested_chains())
 
@@ -528,28 +411,7 @@ def main():
   async_results = asyncio.run(run_async_benchmarks())
   results.extend(async_results)
 
-  print()
-  print('Simple vs Non-Simple Path:')
-  comparison_results = []
-  comparison_results.append(bench_simple_vs_nonsimple_short())
-  comparison_results.append(bench_simple_vs_nonsimple_medium())
-  comparison_results.append(bench_simple_vs_nonsimple_long())
-  comparison_results.append(bench_simple_frozen())
-  comparison_results.append(bench_simple_cascade())
-  async_comparison = asyncio.run(run_async_comparison_benchmarks())
-  comparison_results.extend(async_comparison)
-
-  print()
-  print('no_async() Optimization:')
-  sync_flag_results = []
-  sync_flag_results.append(bench_sync_flag_short())
-  sync_flag_results.append(bench_sync_flag_medium())
-  sync_flag_results.append(bench_sync_flag_long())
-  sync_flag_results.append(bench_sync_flag_frozen())
-
   print_summary(results)
-  print_comparison_summary(comparison_results)
-  print_comparison_summary(sync_flag_results)
 
 
 if __name__ == '__main__':

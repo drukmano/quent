@@ -25,9 +25,9 @@ import functools
 import unittest
 from contextlib import contextmanager
 from unittest import IsolatedAsyncioTestCase
-from tests.utils import empty, aempty, await_, TestExc, MyTestCase
+from tests.utils import empty, aempty, await_, TestExc
 from tests.flex_context import FlexContext, AsyncFlexContext
-from quent import Chain, Cascade, QuentException, run, Null
+from quent import Chain, QuentException, Null
 from quent.quent import _clean_exc_chain, _quent_excepthook
 
 
@@ -360,36 +360,6 @@ class ModifyTracebackWithTests(_TC):
       self.assertIn('<quent>', filenames)
 
 
-class ModifyTracebackForeachIndexedTests(_TC):
-  """Verify traceback when error in foreach with_index=True."""
-
-  async def test_sync_foreach_indexed_raises(self):
-    def fail_on_index(idx, v):
-      if idx == 1:
-        raise ValueError(f'bad at index {idx}')
-      return v
-
-    try:
-      Chain([10, 20, 30]).foreach(fail_on_index, with_index=True).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-  async def test_async_foreach_indexed_raises(self):
-    async def fail_on_index(idx, v):
-      if idx == 2:
-        raise ValueError(f'async bad at index {idx}')
-      return v
-
-    try:
-      await Chain([10, 20, 30]).foreach(fail_on_index, with_index=True).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-
 class ModifyTracebackNestedChainTests(_TC):
   """Verify traceback shows nesting context when error in nested chain."""
 
@@ -418,42 +388,22 @@ class ModifyTracebackNestedChainTests(_TC):
       self.assertIn('<quent>', filenames)
 
 
-class ModifyTracebackCascadeTests(_TC):
-  """Verify traceback when error in Cascade chain."""
+class ModifyTracebackChainReuseTests(_TC):
+  """Verify traceback when error in reused chain."""
 
-  async def test_cascade_error(self):
+  async def test_chain_reuse_error(self):
+    c = Chain().then(_raise_value_error)
     try:
-      Cascade(1).then(_add_one).then(_raise_value_error).run()
+      c.run(1)
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
       self.assertIn('<quent>', filenames)
 
-  async def test_cascade_root_error(self):
+  async def test_chain_call_error(self):
+    c = Chain().then(_raise_value_error)
     try:
-      Cascade(_raise_value_error).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-
-class ModifyTracebackFrozenChainTests(_TC):
-  """Verify traceback when error in frozen chain."""
-
-  async def test_frozen_chain_error(self):
-    frozen = Chain().then(_raise_value_error).freeze()
-    try:
-      frozen.run(1)
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-  async def test_frozen_chain_call_error(self):
-    frozen = Chain().then(_raise_value_error).freeze()
-    try:
-      frozen(1)
+      c(1)
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
@@ -502,10 +452,6 @@ class StringifyChainTests(unittest.TestCase):
     r = repr(Chain(SimpleSyncCtx()).with_(_identity))
     self.assertIn('with_', r)
 
-  def test_chain_with_sleep(self):
-    r = repr(Chain(1).sleep(0.1))
-    self.assertIn('sleep', r)
-
   def test_chain_with_many_links(self):
     c = Chain(1)
     for i in range(20):
@@ -514,11 +460,6 @@ class StringifyChainTests(unittest.TestCase):
     self.assertIn('Chain', r)
     # Should show many then links
     self.assertGreaterEqual(r.count('then'), 20)
-
-  def test_cascade_repr(self):
-    r = repr(Cascade(1).then(_add_one))
-    self.assertIn('Cascade', r)
-    self.assertIn('then', r)
 
   def test_void_chain_repr(self):
     r = repr(Chain().then(_add_one))
@@ -777,15 +718,6 @@ class DebugModeNestedChainTests(unittest.TestCase):
     self.assertGreater(len(handler.messages), 0)
 
 
-class DebugModeCascadeTests(unittest.TestCase):
-  """Debug mode with Cascade."""
-
-  def test_debug_cascade_logs(self):
-    with capture_quent_logs() as handler:
-      Cascade(5).then(_add_one).then(_double).config(debug=True).run()
-    self.assertGreater(len(handler.messages), 0)
-
-
 class DebugModeAsyncTests(_TC):
   """Debug mode with async chains."""
 
@@ -950,23 +882,6 @@ class TempArgsAsyncWithTests(_TC):
 
     try:
       await Chain(SimpleAsyncCtx(42)).with_(body_raises).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-
-class TempArgsAsyncForeachIndexedTests(_TC):
-  """Async foreach_indexed sets __quent_link_temp_args__ on exceptions."""
-
-  async def test_async_foreach_indexed_sets_temp_args(self):
-    async def fail_on_index(idx, v):
-      if idx == 1:
-        raise ValueError(f'bad at index {idx}, value {v}')
-      return v
-
-    try:
-      await Chain([10, 20, 30]).foreach(fail_on_index, with_index=True).run()
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
@@ -1263,11 +1178,11 @@ class DiagnosticsReuseTests(_TC):
     result = c.run(5)
     self.assertEqual(result, 10)
 
-  async def test_frozen_chain_error_on_call(self):
-    """Frozen chain, error on call - verify traceback."""
-    frozen = Chain().then(_raise_value_error).freeze()
+  async def test_chain_reuse_error_on_call(self):
+    """Chain reuse, error on call - verify traceback."""
+    c = Chain().then(_raise_value_error)
     try:
-      frozen.run(1)
+      c.run(1)
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
@@ -1308,12 +1223,12 @@ class DiagnosticsReuseTests(_TC):
     # Second run should log different values
     self.assertTrue(any('10' in m for m in msgs2))
 
-  async def test_frozen_chain_multiple_errors(self):
-    """Frozen chain produces correct traceback on each call."""
-    frozen = Chain().then(_raise_value_error).freeze()
+  async def test_chain_multiple_errors(self):
+    """Chain produces correct traceback on each call."""
+    c = Chain().then(_raise_value_error)
     for _ in range(3):
       try:
-        frozen(1)
+        c(1)
       except ValueError as exc:
         filenames = _get_tb_filenames(exc)
         self.assertIn('<quent>', filenames)
@@ -1507,19 +1422,9 @@ class DiagnosticsFinallyHandlerExceptionTests(_TC):
 # Additional comprehensive combination tests
 # ==========================================================================
 
-class TracebackComboCascadeForeachTests(_TC):
-  """Combine Cascade + foreach + error."""
+class TracebackComboChainForeachTests(_TC):
+  """Combine Chain + foreach + error."""
 
-  async def test_cascade_foreach_error(self):
-    def fail_fn(v):
-      raise ValueError(f'cascade foreach fail: {v}')
-
-    try:
-      Cascade([1, 2]).then(_identity).foreach(fail_fn).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
 
 
 class TracebackComboFilterGatherTests(_TC):
@@ -1545,33 +1450,6 @@ class TracebackComboWithForeachTests(_TC):
 
     try:
       Chain(SimpleSyncCtx([1, 2, 3])).with_(lambda v: Chain(v).foreach(fail_in_foreach).run()).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-
-class TracebackComboNestedCascadeTests(_TC):
-  """Nested chain inside Cascade with error."""
-
-  async def test_nested_chain_in_cascade_error(self):
-    inner = Chain().then(_raise_value_error)
-    try:
-      Cascade(1).then(inner).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-
-class TracebackComboSleepTests(_TC):
-  """Chain with sleep + error."""
-
-  async def test_sleep_then_error(self):
-    # sleep(0) in an async context returns a coroutine (asyncio.sleep),
-    # so the chain becomes async and needs await.
-    try:
-      await Chain(1).sleep(0).then(_raise_value_error).run()
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
@@ -1650,7 +1528,7 @@ class TracebackPipeOperatorTests(_TC):
 
   async def test_pipe_error_has_quent_frame(self):
     try:
-      Chain(1) | _add_one | _raise_value_error | run()
+      Chain(1).then(_add_one).then(_raise_value_error).run()
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
@@ -1658,7 +1536,7 @@ class TracebackPipeOperatorTests(_TC):
 
 
 class TracebackDecoratorTests(_TC):
-  """Verify traceback with decorator/frozen chain patterns."""
+  """Verify traceback with decorator/chain patterns."""
 
   async def test_decorator_error(self):
     @Chain().then(_raise_value_error).decorator()
@@ -1766,14 +1644,6 @@ class AsyncTracebackComboTests(_TC):
       filenames = _get_tb_filenames(exc)
       self.assertIn('<quent>', filenames)
 
-  async def test_async_cascade_error(self):
-    try:
-      await Cascade(1).then(_async_add_one).then(_async_raise_value_error).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
   async def test_async_nested_chain_error(self):
     inner = Chain().then(_async_raise_value_error)
     try:
@@ -1783,10 +1653,10 @@ class AsyncTracebackComboTests(_TC):
       filenames = _get_tb_filenames(exc)
       self.assertIn('<quent>', filenames)
 
-  async def test_async_frozen_chain_error(self):
-    frozen = Chain().then(_async_raise_value_error).freeze()
+  async def test_async_chain_reuse_error(self):
+    c = Chain().then(_async_raise_value_error)
     try:
-      await frozen.run(1)
+      await c.run(1)
       self.fail('Expected ValueError')
     except ValueError as exc:
       filenames = _get_tb_filenames(exc)
@@ -1843,12 +1713,6 @@ class ReprAfterOperationTests(unittest.TestCase):
     r2 = repr(cloned)
     self.assertEqual(r1, r2)
 
-  def test_repr_cascade_vs_chain_different(self):
-    r1 = repr(Chain(1).then(_add_one))
-    r2 = repr(Cascade(1).then(_add_one))
-    self.assertIn('Chain', r1)
-    self.assertIn('Cascade', r2)
-    self.assertNotEqual(r1, r2)
 
 
 class ExceptHookDirectTests(unittest.TestCase):
@@ -1921,26 +1785,6 @@ class StringifyComplexArgsTests(unittest.TestCase):
   def test_root_with_args(self):
     r = repr(Chain(dict, a=1))
     self.assertIn('dict', r)
-
-
-class NoAsyncDiagnosticsTests(unittest.TestCase):
-  """Test diagnostics with no_async mode."""
-
-  def test_no_async_error_has_traceback(self):
-    try:
-      Chain(1).no_async(True).then(_raise_value_error).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
-
-  def test_no_async_cascade_error(self):
-    try:
-      Cascade(1).no_async(True).then(_raise_value_error).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      filenames = _get_tb_filenames(exc)
-      self.assertIn('<quent>', filenames)
 
 
 class VoidChainDiagnosticsTests(_TC):
