@@ -10,15 +10,20 @@ cdef class _Foreach:
     if hasattr(current_value, '__aiter__'):
       return _async_foreach_fn(current_value, self.fn, self.ignore_result, self.link)
     cdef list lst = []
-    cdef object el, result
-    current_value = current_value.__iter__()
+    cdef object el = None, result = None
+    cdef object it = iter(current_value)
+    cdef PyObject* _raw
     try:
       while True:
-        el = current_value.__next__()
+        _raw = PyIter_Next(it)
+        if _raw is NULL:
+          return lst
+        el = <object>_raw
+        Py_DECREF(el)
         result = self.fn(el)
         if iscoro(result):
           self.link.temp_args = (el,)
-          return _foreach_async_fn(current_value, self.fn, el, result, lst, self.ignore_result, self.link)
+          return _foreach_async_fn(it, self.fn, el, result, lst, self.ignore_result, self.link)
         if self.ignore_result:
           lst.append(el)
         else:
@@ -33,11 +38,12 @@ cdef class _Foreach:
 
 
 cdef Link foreach(object fn, bint ignore_result):
-  cdef Link link = Link(fn, (), {})
+  cdef Link link = Link(fn, EMPTY_TUPLE, EMPTY_DICT)
   return Link(_Foreach(fn, ignore_result, link), original_value=link)
 
 
 async def _foreach_to_async(object current_value, object fn, object el, object result, list lst, bint ignore_result, Link link):
+  cdef PyObject* _raw
   try:
     while True:
       if iscoro(result):
@@ -46,7 +52,11 @@ async def _foreach_to_async(object current_value, object fn, object el, object r
         lst.append(el)
       else:
         lst.append(result)
-      el = current_value.__next__()
+      _raw = PyIter_Next(current_value)
+      if _raw is NULL:
+        return lst
+      el = <object>_raw
+      Py_DECREF(el)
       result = fn(el)
   except _Break as exc:
     result = handle_break_exc(exc, lst)
@@ -58,13 +68,13 @@ async def _foreach_to_async(object current_value, object fn, object el, object r
   except BaseException as exc:
     if not hasattr(exc, '__quent_link_temp_args__'):
       exc.__quent_link_temp_args__ = {}
-    exc.__quent_link_temp_args__[id(link)] = (el,)
+    exc.__quent_link_temp_args__[<uintptr_t><void*>link] = (el,)
     raise
 
 
 async def _foreach_full_async(object current_value, object fn, bint ignore_result, Link link):
   cdef list lst = []
-  cdef object el, result
+  cdef object el = None, result = None
   try:
     async for el in current_value:
       result = fn(el)
@@ -83,7 +93,7 @@ async def _foreach_full_async(object current_value, object fn, bint ignore_resul
   except BaseException as exc:
     if not hasattr(exc, '__quent_link_temp_args__'):
       exc.__quent_link_temp_args__ = {}
-    exc.__quent_link_temp_args__[id(link)] = (el,)
+    exc.__quent_link_temp_args__[<uintptr_t><void*>link] = (el,)
     raise
 
 

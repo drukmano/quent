@@ -23,4 +23,4 @@ cdef class _DescriptorWrapper:
   def __get__(self, obj, objtype):
     if obj is None:
       return self
-    return types.MethodType(self, obj)
+    return _MethodType(self, obj)

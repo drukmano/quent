@@ -25,6 +25,7 @@ PyNull = Null
 
 cdef tuple EMPTY_TUPLE = ()
 cdef dict EMPTY_DICT = {}
+cdef object _MethodType = types.MethodType
 
 # same impl. of types.CoroutineType but for Cython coroutines.
 async def _py_coro(): pass
@@ -133,15 +134,18 @@ cdef bint _HAS_EAGER_START = sys.version_info >= (3, 14)
 # "... the asyncio loop avoids creating hard references (just weak) to the tasks,
 # and when it is under heavy load, it may just "drop" tasks that are not referenced somewhere else."
 cdef set task_registry = set()
+cdef object _registry_discard = task_registry.discard
+
+cdef object _create_task_fn
+if _HAS_EAGER_START:
+  _create_task_fn = lambda coro: _create_task(coro, eager_start=True)
+else:
+  _create_task_fn = _create_task
 
 cdef object ensure_future(object coro):
-  cdef object task
-  if _HAS_EAGER_START:
-    task = _create_task(coro, eager_start=True)
-  else:
-    task = _create_task(coro)
-  task_registry.add(task)
-  task.add_done_callback(task_registry.discard)
+  cdef object task = _create_task_fn(coro)
+  PySet_Add(task_registry, task)
+  task.add_done_callback(_registry_discard)
   return task
 
 def _get_registry_size():

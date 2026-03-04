@@ -23,7 +23,7 @@ cdef class _With:
         return _with_async_fn(current_value, result, self.link, entered, self.ignore_result, outer_value)
     except BaseException as exc:
       if entered:
-        if not current_value.__exit__(type(exc), exc, exc.__traceback__):
+        if not current_value.__exit__(type(exc), exc, PyException_GetTraceback(exc)):
           raise
       else:
         raise
@@ -45,7 +45,7 @@ async def _with_to_async(object current_value, object body_result, Link link, bi
     body_result = await body_result
   except BaseException as exc:
     if entered:
-      exit_result = current_value.__exit__(type(exc), exc, exc.__traceback__)
+      exit_result = current_value.__exit__(type(exc), exc, PyException_GetTraceback(exc))
       if iscoro(exit_result):
         exit_result = await exit_result
       if not exit_result:
@@ -74,7 +74,7 @@ async def _with_full_async(Link link, object current_value, bint ignore_result =
     except BaseException as exc:
       if not hasattr(exc, '__quent_link_temp_args__'):
         exc.__quent_link_temp_args__ = {}
-      exc.__quent_link_temp_args__[id(link)] = (ctx,)
+      exc.__quent_link_temp_args__[<uintptr_t><void*>link] = (ctx,)
       raise
     if ignore_result:
       return outer_value

@@ -1,5 +1,12 @@
 from cpython.object cimport PyCallable_Check
+from cpython.ref cimport PyObject, Py_DECREF
+from cpython.set cimport PySet_Add
+from libc.stdint cimport uintptr_t
 cimport cython
+
+cdef extern from "Python.h":
+    PyObject* PyIter_Next(object) except? NULL
+    object PyException_GetTraceback(object)
 
 # --- Core types (quent.pyx) ---
 

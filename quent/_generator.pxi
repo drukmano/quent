@@ -1,3 +1,5 @@
+cdef tuple _DEFAULT_RUN_ARGS = (Null, EMPTY_TUPLE, EMPTY_DICT, False)
+
 def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
   cdef object el, result
   try:
@@ -61,7 +63,7 @@ cdef class _Generator:
     self._chain_run = _chain_run
     self._fn = _fn
     self._ignore_result = _ignore_result
-    self._run_args = (Null, (), {}, False)
+    self._run_args = _DEFAULT_RUN_ARGS
 
   def __call__(self, object __v = Null, *args, **kwargs):
     cdef _Generator g = _Generator.__new__(_Generator)

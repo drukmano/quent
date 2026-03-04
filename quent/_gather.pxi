@@ -20,7 +20,7 @@ cdef class _Gather:
 
 
 cdef Link gather_(tuple fns):
-  cdef Link link = Link(None, (), {})
+  cdef Link link = Link(None, EMPTY_TUPLE, EMPTY_DICT)
   return Link(_Gather(fns, link), original_value=link)
 
 
