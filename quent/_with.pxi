@@ -1,3 +1,5 @@
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(4) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(4)
 cdef class _With:
@@ -23,6 +25,7 @@ cdef class _With:
         return _with_async_fn(current_value, result, self.link, entered, self.ignore_result, outer_value)
     except BaseException as exc:
       if entered:
+        # PERF: PyException_GetTraceback — C API avoids exc.__traceback__ attribute lookup.
         if not current_value.__exit__(type(exc), exc, PyException_GetTraceback(exc)):
           raise
       else:
@@ -74,6 +77,7 @@ async def _with_full_async(Link link, object current_value, bint ignore_result =
     except BaseException as exc:
       if not hasattr(exc, '__quent_link_temp_args__'):
         exc.__quent_link_temp_args__ = {}
+      # PERF: C-level pointer-to-int cast replaces Python id() call. See PERFORMANCE.md #32.
       exc.__quent_link_temp_args__[<uintptr_t><void*>link] = (ctx,)
       raise
     if ignore_result:
@@ -81,5 +85,7 @@ async def _with_full_async(Link link, object current_value, bint ignore_result =
     return result
 
 
+# PERF: Function aliases — cdef object references avoid module-level global dict lookups.
+# See PERFORMANCE.md #19.
 cdef object _async_with_fn = _with_full_async
 cdef object _with_async_fn = _with_to_async

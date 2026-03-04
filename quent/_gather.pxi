@@ -1,3 +1,5 @@
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(4) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(4)
 cdef class _Gather:
@@ -20,6 +22,7 @@ cdef class _Gather:
 
 
 cdef Link gather_(tuple fns):
+  # PERF: EMPTY_TUPLE/EMPTY_DICT avoid per-call empty container allocation. See PERFORMANCE.md #31.
   cdef Link link = _create_link(None, EMPTY_TUPLE, EMPTY_DICT)
   return _create_link(_Gather(fns, link), None, None, False, link)
 
@@ -38,5 +41,8 @@ async def _gather_to_async(list results):
   return results
 
 
+# PERF: Function aliases — cdef object references avoid module-level global dict lookups.
+# _asyncio_gather_fn caches asyncio.gather to avoid module attribute lookup per call.
+# See PERFORMANCE.md #19.
 cdef object _gather_async_fn = _gather_to_async
 cdef object _asyncio_gather_fn = asyncio.gather

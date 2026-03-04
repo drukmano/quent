@@ -1,3 +1,4 @@
+# PERF: Pre-built default args tuple avoids per-call allocation. See PERFORMANCE.md #6.
 cdef tuple _DEFAULT_RUN_ARGS = (Null, EMPTY_TUPLE, EMPTY_DICT, False)
 
 def sync_generator(object iterator_getter, tuple run_args, object fn, bint ignore_result):
@@ -56,6 +57,8 @@ async def async_generator(object iterator_getter, tuple run_args, object fn, bin
     raise QuentException('Using `.return_()` inside an iterator is not allowed.')
 
 
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(4) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(4)
 cdef class _Generator:
@@ -84,5 +87,7 @@ cdef class _Generator:
     return '<_Generator>'
 
 
+# PERF: Function aliases — cdef object references avoid module-level global dict lookups.
+# See PERFORMANCE.md #19.
 cdef object _sync_generator_fn = sync_generator
 cdef object _async_generator_fn = async_generator

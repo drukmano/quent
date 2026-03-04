@@ -3,9 +3,11 @@
 # - Sequential memory access via PyTuple_GET_ITEM (CPU prefetcher friendly)
 # - No pointer-chasing through next_link
 # - _all_simple fast path that skips evaluate_value dispatch entirely
-# See PHASE-4-DATA-STRUCTURES.md for design rationale.
+# See PERFORMANCE.md #37, #38.
 
 
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(4) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(4)
 cdef class _FrozenChain:
@@ -147,6 +149,7 @@ cdef object _frozen_run(_FrozenChain fc, object v, tuple args, dict kwargs):
   try:
     if is_root_value_override:
       # PERF: Inline root evaluation — avoids Link allocation for the common sync case.
+      # See PERFORMANCE.md #35.
       has_root_value = True
       result = _eval_signal_value(v, args, kwargs)
       if iscoro(result):
@@ -182,10 +185,11 @@ cdef object _frozen_run(_FrozenChain fc, object v, tuple args, dict kwargs):
 
     # PERF: Tuple-based iteration — sequential memory access via PyTuple_GET_ITEM.
     # Replaces linked-list pointer chasing (link = link.next_link).
+    # See PERFORMANCE.md #37.
     if fc._all_simple:
       # PERF: Ultra-fast path — all links are simple callables
       # (EVAL_CALL_WITH_CURRENT_VALUE, not is_chain, not ignore_result).
-      # Skips evaluate_value dispatch entirely.
+      # Skips evaluate_value dispatch entirely. See PERFORMANCE.md #38.
       for i in range(n):
         link = <Link>fc._links[i]
         if current_value is Null:
@@ -267,6 +271,8 @@ cdef object _frozen_run(_FrozenChain fc, object v, tuple args, dict kwargs):
     return result
 
   finally:
+    # PERF: ignore_finally prevents double-execution during sync-to-async transition.
+    # See PERFORMANCE.md #22.
     if not ignore_finally and chain.on_finally_link is not None:
       try:
         result = evaluate_value(chain.on_finally_link, root_value)

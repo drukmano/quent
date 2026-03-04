@@ -1,3 +1,4 @@
+# PERF: @cython.final enables direct C dispatch. See PERFORMANCE.md #1.
 @cython.final
 cdef class _ChainCallWrapper:
   def __init__(self, Chain chain, object fn):
@@ -10,6 +11,8 @@ cdef class _ChainCallWrapper:
       raise QuentException(str(exc)) from None
 
 
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(8) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(8)
 cdef class _DescriptorWrapper:
@@ -23,4 +26,5 @@ cdef class _DescriptorWrapper:
   def __get__(self, obj, objtype):
     if obj is None:
       return self
+    # PERF: Cached _MethodType avoids types.MethodType attribute lookup. See PERFORMANCE.md #28.
     return _MethodType(self, obj)

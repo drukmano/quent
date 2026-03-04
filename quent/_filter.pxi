@@ -1,3 +1,5 @@
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(8) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(8)
 cdef class _Filter:
@@ -9,11 +11,14 @@ cdef class _Filter:
     if hasattr(current_value, '__aiter__'):
       return _async_filter_fn(current_value, self.fn, self.link)
     cdef list lst = []
+    # PERF: Initialized to None to avoid __Pyx_RaiseUnboundLocalError checks. See PERFORMANCE.md #40.
     cdef object el = None, result = None
     cdef object it = iter(current_value)
     cdef PyObject* _raw
     try:
       while True:
+        # PERF: PyIter_Next (C-slot tp_iternext) — NULL on exhaustion, no StopIteration overhead.
+        # See PERFORMANCE.md #27.
         _raw = PyIter_Next(it)
         if _raw is NULL:
           return lst
@@ -33,6 +38,7 @@ cdef class _Filter:
 
 
 cdef Link filter_(object fn):
+  # PERF: EMPTY_TUPLE/EMPTY_DICT avoid per-call empty container allocation. See PERFORMANCE.md #31.
   cdef Link link = _create_link(fn, EMPTY_TUPLE, EMPTY_DICT)
   return _create_link(_Filter(fn, link), None, None, False, link)
 
@@ -56,6 +62,7 @@ async def _filter_to_async(object current_value, object fn, object el, object re
   except BaseException as exc:
     if not hasattr(exc, '__quent_link_temp_args__'):
       exc.__quent_link_temp_args__ = {}
+    # PERF: C-level pointer-to-int cast replaces Python id() call. See PERFORMANCE.md #32.
     exc.__quent_link_temp_args__[<uintptr_t><void*>link] = (el,)
     raise
 
@@ -78,5 +85,7 @@ async def _filter_full_async(object current_value, object fn, Link link):
     raise
 
 
+# PERF: Function aliases — cdef object references avoid module-level global dict lookups.
+# See PERFORMANCE.md #19.
 cdef object _filter_async_fn = _filter_to_async
 cdef object _async_filter_fn = _filter_full_async

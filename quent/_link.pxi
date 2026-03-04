@@ -1,3 +1,6 @@
+# PERF: inline + noexcept — inlined at call sites, no exception-state check overhead.
+# Pre-computes evaluation strategy as a C int enum at Link construction time.
+# See PERFORMANCE.md #20.
 cdef inline int _determine_eval_code(
   Link link, object v, tuple args, dict kwargs,
 ) noexcept:
@@ -24,6 +27,8 @@ cdef inline int _determine_eval_code(
       return EVAL_CALL_WITH_EXPLICIT_ARGS
 
 
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(64) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(64)
 cdef class Link:
@@ -49,6 +54,7 @@ cdef class Link:
     self.eval_code = _determine_eval_code(self, v, args, kwargs)
     # PERF: Pre-split args for nested chain links at construction time.
     # Avoids tuple slice link.args[1:] (score 20) on every evaluate_value call.
+    # See PERFORMANCE.md #36.
     if is_chain_type and self.eval_code == EVAL_CALL_WITH_EXPLICIT_ARGS and self.args:
       self.temp_args = self.args[1:] if len(self.args) > 1 else EMPTY_TUPLE
 
@@ -97,7 +103,7 @@ cdef Link _make_temp_link(object v, tuple args, dict kwargs):
 
 # PERF: cdef factory bypasses Link.__init__ Python argument parsing overhead (score 27).
 # All internal code paths use this instead of Link(v, args, kwargs).
-# Link.__init__ is kept for external API compatibility.
+# Link.__init__ is kept for external API compatibility. See PERFORMANCE.md #34.
 cdef Link _create_link(object v, tuple args, dict kwargs, bint ignore_result=False, object original_value=None):
   cdef Link link = Link.__new__(Link)
   cdef bint is_chain_type = type(v) is Chain
@@ -121,7 +127,8 @@ cdef Link _create_link(object v, tuple args, dict kwargs, bint ignore_result=Fal
 
 
 cdef object evaluate_value(Link link, object current_value):
-  # Fast path for most common case: simple callable with single argument
+  # PERF: Fast path for most common case — single branch before full dispatch.
+  # See PERFORMANCE.md #20.
   if link.eval_code == EVAL_CALL_WITH_CURRENT_VALUE and not link.is_chain:
     if current_value is Null:
       return link.v()
@@ -138,6 +145,7 @@ cdef object evaluate_value(Link link, object current_value):
         # a NULL PyObject* when unpacking them, causing a segfault at the C level.
         return (<Chain>link.v)._run(Null, None, None, True)
       # PERF: Use pre-split temp_args instead of link.args[1:] (avoids tuple allocation per call).
+      # See PERFORMANCE.md #36.
       return (<Chain>link.v)._run(link.args[0], link.temp_args, link.kwargs, True)
     elif link.eval_code == EVAL_CALL_WITHOUT_ARGS:
       return (<Chain>link.v)._run(Null, None, None, True)
@@ -153,6 +161,8 @@ cdef object evaluate_value(Link link, object current_value):
         # Safety: when args/kwargs are None (not just empty), Cython would dereference
         # a NULL PyObject* when unpacking them, causing a segfault at the C level.
         return link.v()
+      # PERF: Identity check against EMPTY_DICT sentinel skips **kwargs unpacking overhead.
+      # See PERFORMANCE.md #6.
       if link.kwargs is EMPTY_DICT:
         return link.v(*link.args)
       return link.v(*link.args, **link.kwargs)

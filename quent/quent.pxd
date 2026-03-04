@@ -1,6 +1,11 @@
+# PERF: Direct C API imports bypass Python method dispatch overhead.
+# PyCallable_Check (#21), PySet_Add (#39), PyIter_Next (#27), PyException_GetTraceback.
+# See PERFORMANCE.md for details.
 from cpython.object cimport PyCallable_Check
 from cpython.ref cimport PyObject, Py_DECREF
 from cpython.set cimport PySet_Add
+# PERF: uintptr_t for C-level pointer-to-int casts, replacing Python id() calls.
+# See PERFORMANCE.md #32.
 from libc.stdint cimport uintptr_t
 cimport cython
 
@@ -22,9 +27,14 @@ cdef:
   type _PyCoroType
   type _CyCoroType
 
+# PERF: Inline C-level coroutine type check — two pointer comparisons, no Python call.
+# noexcept eliminates Cython's automatic exception-state checking. See PERFORMANCE.md #4.
 cdef inline bint iscoro(object obj) noexcept:
   return type(obj) is _PyCoroType or type(obj) is _CyCoroType
 
+# PERF: C-level integer enum for evaluation dispatch, pre-computed at Link construction.
+# Avoids re-checking callable/args/kwargs conditions on every evaluate_value call.
+# See PERFORMANCE.md #20.
 cdef enum EvalCode:
   EVAL_CALL_WITH_EXPLICIT_ARGS = 1001
   EVAL_CALL_WITHOUT_ARGS = 1002
@@ -33,6 +43,8 @@ cdef enum EvalCode:
 
 # --- Link (_link.pxi) ---
 
+# PERF: Fields ordered by access frequency (hot/warm/cold) for CPU cache locality.
+# See PERFORMANCE.md #5.
 cdef class Link:
   # Hot fields (accessed every iteration)
   cdef object v
@@ -69,7 +81,7 @@ cdef class _ExecCtx:
   cdef dict link_temp_args
   # PERF: Async transition state — packing these into _ExecCtx reduces _run_async
   # from 8 parameters to 3 (self, ctx, awaitable), eliminating Python argument
-  # parsing overhead and bint→PyBool boxing.
+  # parsing overhead and bint->PyBool boxing. See PERFORMANCE.md #33.
   cdef Link async_link
   cdef object current_value
   cdef object root_value

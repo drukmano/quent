@@ -16,17 +16,25 @@ def build_extensions(file_ext, path='./quent', *, tests=False):
         if tests:
           macros.append(('CYTHON_TRACE_NOGIL', 1))
           macros.append(('CYTHON_USE_SYS_MONITORING', 0))
+        # PERF: -O3 enables maximum C compiler optimization (inlining, vectorization, loop transforms).
+        # See PERFORMANCE.md #14.
         compile_args = ['-O3', '-Wno-unreachable-code', '-Wno-unused-function']
         link_args = []
+        # PERF: LTO (Link-Time Optimization) enables cross-file inlining and dead code elimination.
+        # See PERFORMANCE.md #15.
         if lto:
           compile_args.append('-flto')
           link_args.append('-flto')
+        # PERF: PGO (Profile-Guided Optimization) uses runtime data for branch prediction and layout.
+        # See PERFORMANCE.md #16.
         if pgo == 'generate':
           compile_args.append('-fprofile-generate')
           link_args.append('-fprofile-generate')
         elif pgo == 'use':
           compile_args.extend(['-fprofile-use', '-fprofile-correction'])
           link_args.extend(['-fprofile-use', '-fprofile-correction'])
+        # PERF: -march=native (CPU-specific instructions), -funroll-loops (loop unrolling),
+        # -fomit-frame-pointer (frees rbp register). See PERFORMANCE.md #24, #25, #26.
         if native:
           compile_args.extend(['-march=native', '-funroll-loops', '-fomit-frame-pointer'])
         extensions.append(Extension(module_name, sources=[file_path], extra_compile_args=compile_args, extra_link_args=link_args, define_macros=macros))

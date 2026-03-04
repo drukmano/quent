@@ -1,3 +1,5 @@
+# PERF: @cython.final enables direct C dispatch. @cython.freelist(32) pools allocations.
+# See PERFORMANCE.md #1, #2.
 @cython.final
 @cython.freelist(32)
 cdef class Chain:
@@ -49,6 +51,7 @@ cdef class Chain:
       if is_root_value_override:
         # PERF: Inline root evaluation — avoids Link allocation for the common sync case.
         # _eval_signal_value replicates evaluate_value dispatch without creating a Link.
+        # See PERFORMANCE.md #35.
         has_root_value = True
         result = _eval_signal_value(v, args, kwargs)
         if iscoro(result):
@@ -88,11 +91,15 @@ cdef class Chain:
       else:
         link = self.first_link
 
+      # PERF: Sync-first evaluation — runs synchronously until a coroutine is detected,
+      # then transitions to async. No coroutine overhead for purely sync chains.
+      # See PERFORMANCE.md #17.
       while link is not None:
         result = evaluate_value(link, current_value)
         if iscoro(result):
           ignore_finally = True
           # PERF: Pack async transition state into _ExecCtx instead of passing 7 args.
+          # See PERFORMANCE.md #33.
           ctx = _ExecCtx.__new__(_ExecCtx)
           ctx.temp_root_link = temp_root_link
           ctx.link_results = link_results
@@ -154,6 +161,8 @@ cdef class Chain:
       return result
 
     finally:
+      # PERF: ignore_finally prevents double-execution during sync-to-async transition.
+      # See PERFORMANCE.md #22.
       if not ignore_finally and self.on_finally_link is not None:
         try:
           result = evaluate_value(self.on_finally_link, root_value)
@@ -182,6 +191,7 @@ cdef class Chain:
 
   # PERF: Reduced from 8 parameters to 3 by packing state into _ExecCtx.
   # Eliminates Python argument parsing overhead and bint->PyBool boxing.
+  # See PERFORMANCE.md #33.
   async def _run_async(self, _ExecCtx ctx, object awaitable):
     cdef:
       dict exc_temp_args
@@ -281,6 +291,7 @@ cdef class Chain:
     return _FrozenChain(self)
 
   def then(self, object __v, *args, **kwargs):
+    # PERF: _create_link cdef factory bypasses Link.__init__ overhead. See PERFORMANCE.md #34.
     self._then(_create_link(__v, args, kwargs))
     return self
 
