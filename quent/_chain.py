@@ -18,7 +18,7 @@ from ._ops import _Generator, _make_with, _make_foreach, _make_filter, _make_gat
 from ._traceback import _modify_traceback, _remove_self_frames
 
 
-async def _await_run(result: Any, chain: Chain | None = None, link: Link | None = None, temp_root_link: Link | None = None) -> Any:
+async def _await_run(result: Any, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None) -> Any:
   """Await a coroutine with traceback support for fire-and-forget paths.
 
   Used when a sync handler (except/finally) returns a coroutine that gets
@@ -29,13 +29,13 @@ async def _await_run(result: Any, chain: Chain | None = None, link: Link | None 
     return await result
   except BaseException as exc:
     if chain is not None and link is not None:
-      _modify_traceback(exc, chain, link, temp_root_link)
+      _modify_traceback(exc, chain, link, root_link)
     raise _remove_self_frames()
 
 
-def _except_handler_body(exc: BaseException, chain: Chain, link: Link, temp_root_link: Link | None) -> Any:
+def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link: Link | None) -> Any:
   """Shared except handler logic: modify traceback, evaluate handler, return result."""
-  _modify_traceback(exc, chain, link, temp_root_link)
+  _modify_traceback(exc, chain, link, root_link)
   if chain.on_except_link is None or not isinstance(exc, chain.on_except_exceptions):
     raise exc
   try:
@@ -43,19 +43,19 @@ def _except_handler_body(exc: BaseException, chain: Chain, link: Link, temp_root
   except _ControlFlowSignal:
     raise QuentException('Using control flow signals inside except handlers is not allowed.')
   except BaseException as exc_:
-    _modify_traceback(exc_, chain, chain.on_except_link, temp_root_link)
+    _modify_traceback(exc_, chain, chain.on_except_link, root_link)
     raise exc_ from exc
   return result
 
 
-def _finally_handler_body(chain: Chain, root_value: Any, temp_root_link: Link | None) -> Any:
+def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None) -> Any:
   """Shared finally handler logic: evaluate handler, return result."""
   try:
     return _evaluate_value(chain.on_finally_link, root_value)
   except _ControlFlowSignal:
     raise QuentException('Using control flow signals inside finally handlers is not allowed.')
   except BaseException as exc_:
-    _modify_traceback(exc_, chain, chain.on_finally_link, temp_root_link)
+    _modify_traceback(exc_, chain, chain.on_finally_link, root_link)
     raise exc_
 
 
@@ -69,6 +69,8 @@ class Chain:
     'current_link', 'on_except_exceptions', 'is_nested'
   )
 
+  # TODO rename `v` globally to a more appropriate term. there must be a term
+  #  for something that can be multiple things (a value, a function, or a class, for example).
   def __init__(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> None:
     self.is_nested = False
     self.root_link = Link(v, args, kwargs) if v is not Null else None
@@ -100,10 +102,6 @@ class Chain:
     has_root_value = has_run_value or link is not None
     ignore_finally = False
     set_initial_values = False
-
-    if has_run_value and has_root_value:
-      # TODO allow this override - make sure all logic is fine. we allow running a nested chain directly. it is a chain, after all.
-      raise QuentException('Cannot override the root value of a Chain.')
 
     try:
       if has_run_value:
@@ -148,7 +146,7 @@ class Chain:
         try:
           result = _ensure_future(_await_run(result, self, self.on_except_link, root_link))
         except RuntimeError:
-          result.close()  # TODO sure its not .cancel()?
+          result.close()
           raise QuentException(
             'An except handler returned a coroutine but no event loop is running.'
           ) from exc
@@ -238,6 +236,7 @@ class Chain:
         try:
           return chain._run(fn, args, kwargs)
         except _ControlFlowSignal:
+          # TODO is that even possible?
           raise QuentException('A control flow signal escaped the chain.') from None
       return _wrapper
     return _decorator
@@ -247,6 +246,7 @@ class Chain:
     try:
       return self._run(v, args, kwargs)
     except _ControlFlowSignal:
+      # TODO is that even possible?
       raise QuentException('A control flow signal escaped the chain.') from None
 
   def then(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
@@ -292,7 +292,9 @@ class Chain:
 
   def foreach(self, fn: Callable[[Any], Any], /) -> Chain:
     """Apply fn to each element of the current iterable value."""
-    # TODO explain the purpose of original_value=inner, and why not use original_value=fn?
+    # original_value must be the inner Link (not fn directly) so that:
+    # 1) the traceback formatter can drill through via isinstance(original_value, Link)
+    # 2) _set_link_temp_args keys by id(inner), which the formatter matches after drill-through
     inner = Link(fn)
     return self._then(Link(_make_foreach(inner, False), original_value=inner))
 
@@ -374,5 +376,4 @@ class _FrozenChain:
     return True
 
   def __repr__(self) -> str:
-    # TODO why not chain.repr?
-    return '<FrozenChain>'
+    return f'Frozen({repr(self._chain)})'

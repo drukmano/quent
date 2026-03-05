@@ -132,10 +132,12 @@ def _get_true_source_link(source_link: Link | None, root_link: Link | None) -> L
       chain = source_link.original_value
     else:
       break
-    if root_link is not None:
-      source_link = root_link
+    if chain.root_link is not None:
+      source_link = chain.root_link
     else:
       break
+  if source_link is None:
+    source_link = root_link
   return source_link
 
 
@@ -195,7 +197,7 @@ def _format_kwargs(kwargs: dict[str, Any] | None) -> str:
   return ', ' + ', '.join([f'{k}={_get_obj_name(v)}' for k, v in kwargs.items()])
 
 
-def _stringify_chain(chain: Chain, nest_lvl: int = 0, temp_root_link: Link | None = None, link_temp_args: dict[int, tuple[Any, ...]] | None = None,
+def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, link_temp_args: dict[int, tuple[Any, ...]] | None = None,
                      source_link: Link | None = None, found_source_link: bool = False) -> tuple[str, bool]:
   """Build a string visualization of a chain for traceback display.
 
@@ -203,8 +205,8 @@ def _stringify_chain(chain: Chain, nest_lvl: int = 0, temp_root_link: Link | Non
   """
   output = ''
   root = chain.root_link
-  if root is None and temp_root_link is not None:
-    root = temp_root_link
+  if root is None and root_link is not None:
+    root = root_link
 
   if nest_lvl > 0:
     output += _make_indent(nest_lvl)
@@ -269,13 +271,13 @@ def _format_link(link: Link, nest_lvl: int, link_temp_args: dict[int, tuple[Any,
   if original_value is None:
     original_value = link.v
   if link.is_chain or getattr(original_value, '_is_chain', False):
-    nested_temp_root_link = None
+    nested_root_link = None
     _temp_args = args or ()
     _temp_kwargs = kwargs or {}
     if _temp_args or _temp_kwargs:
       _temp_v = _temp_args[0] if _temp_args else Null
       if _temp_v is not Null:
-        nested_temp_root_link = Link(
+        nested_root_link = Link(
           _temp_v,
           args=_temp_args[1:] if len(_temp_args) > 1 else None,
           kwargs=_temp_kwargs or None,
@@ -283,7 +285,7 @@ def _format_link(link: Link, nest_lvl: int, link_temp_args: dict[int, tuple[Any,
     args = kwargs = None
     link_v, found_source_link = _stringify_chain(
       original_value, nest_lvl=nest_lvl + 1,
-      temp_root_link=nested_temp_root_link, link_temp_args=None,
+      root_link=nested_root_link, link_temp_args=None,
       source_link=source_link, found_source_link=found_source_link,
     )
     is_chain = True
