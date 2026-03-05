@@ -1,5 +1,5 @@
 site_name: Quent
-site_description: "High-performance Python pipeline library with transparent sync/async handling"
+site_description: "Python pipeline library with transparent sync/async handling"
 site_url: https://quent.readthedocs.io
 repo_url: https://github.com/drukmano/quent
 repo_name: drukmano/quent
@@ -44,14 +44,10 @@ nav:
   - Home: index.md
   - Getting Started: getting-started.md
   - Guide:
-    - Chains & Cascades: guide/chains.md
+    - Chains: guide/chains.md
     - Async Handling: guide/async.md
-    - Resilience: guide/resilience.md
     - Error Handling: guide/error-handling.md
-    - Context Propagation: guide/context.md
     - Reuse & Patterns: guide/reuse.md
   - Comparisons:
     - vs unasync: comparisons/vs-unasync.md
-    - vs tenacity: comparisons/vs-tenacity.md
-    - vs pipe: comparisons/vs-pipe.md
   - API Reference: reference.md

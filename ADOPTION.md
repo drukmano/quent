@@ -37,7 +37,7 @@ The following items have been completed as part of the adoption foundation work:
 
 1. **pyproject.toml updated**
    - SEO-optimized description replacing the old "Yet Another Chain Interface" tagline
-   - Expanded keywords list targeting relevant search terms (pipeline, sync, asyncio, coroutine, await, retry, timeout, resilience, cython, performance, function-composition, middleware)
+   - Expanded keywords list targeting relevant search terms (pipeline, sync, asyncio, coroutine, await, fluent-interface, function-composition, middleware)
    - Added PyPI classifiers including `Framework :: AsyncIO` and `Topic :: Software Development :: Libraries`
    - Added structured project URLs (Homepage, Documentation, Repository, Changelog, Issues)
 
@@ -52,15 +52,13 @@ The following items have been completed as part of the adoption foundation work:
 
 5. **CITATION.cff created** -- Academic citation file enabling GitHub's "Cite this repository" button, with author information, keywords, and license metadata
 
-6. **MkDocs documentation site scaffolded** -- 12 pages across the docs structure:
+6. **MkDocs documentation site scaffolded** -- 10 pages across the docs structure:
    - `docs/index.md` -- Overview with canonical description and quick start
    - `docs/getting-started.md` -- Installation, first chain, first async chain
-   - `docs/guide/chains.md` -- Chain and Cascade in depth
+   - `docs/guide/chains.md` -- Chain in depth
    - `docs/guide/async.md` -- Transparent async handling explained
-   - `docs/guide/resilience.md` -- Retry, timeout, safe_run
    - `docs/guide/error-handling.md` -- except_, finally_, enhanced stack traces
-   - `docs/guide/context.md` -- Context propagation with contextvars
-   - `docs/guide/reuse.md` -- clone, freeze, FrozenChain, decorator
+   - `docs/guide/reuse.md` -- freeze, FrozenChain, decorator
    - `docs/comparisons/vs-unasync.md` -- Quent vs unasync
    - `docs/comparisons/vs-tenacity.md` -- Quent vs tenacity
    - `docs/comparisons/vs-pipe.md` -- Quent vs pipe
@@ -69,8 +67,8 @@ The following items have been completed as part of the adoption foundation work:
 7. **.readthedocs.yml created** for ReadTheDocs deployment configuration
 
 8. **GitHub repository metadata updated**:
-   - Repository description set to: "High-performance fluent chain interface for Python with transparent sync/async handling. Retry, timeout, context propagation -- all composable in one chain. Cython-compiled."
-   - 16 GitHub topics added: python, async, asyncio, sync, pipeline, chain, fluent-interface, cython, retry, timeout, resilience, function-composition, pipe-operator, coroutine, middleware, python-library
+   - Repository description set to: "Pure Python fluent chain interface with transparent sync/async handling. Error handling, enhanced tracebacks -- all composable in one chain."
+   - GitHub topics added: python, async, asyncio, sync, pipeline, chain, fluent-interface, function-composition, coroutine, middleware, python-library
 
 ---
 
@@ -93,8 +91,6 @@ These are one-time infrastructure tasks that need to be completed before or alon
    - Create a benchmark script that compares:
      - Chain overhead: direct function calls vs Quent chain vs Quent frozen chain
      - Async transition overhead: native async/await vs Quent async chain
-     - Retry comparison: tenacity decorator vs Quent `.retry()` (performance and lines of code)
-     - Real-world scenario: HTTP client with retry + timeout, sync and async variants
    - Publish results in the docs and reference them in blog posts
 
 4. **Create 2-3 GitHub Issues with descriptive titles**
@@ -141,7 +137,7 @@ General timing advice:
 
 **Title:**
 ```
-Show HN: Quent -- Transparent sync/async pipelines for Python, compiled with Cython
+Show HN: Quent -- Transparent sync/async pipelines for Python
 ```
 
 **Alternative title:**
@@ -153,7 +149,7 @@ Show HN: Quent -- Write Python pipelines once, run them sync or async automatica
 
 ---
 
-Show HN: Quent -- Transparent sync/async pipelines for Python, compiled with Cython
+Show HN: Quent -- Transparent sync/async pipelines for Python
 
 ---
 
@@ -182,27 +178,26 @@ result = await process(async_db)
 
 No code generation, no runtime thread bridges. The chain starts synchronous and only transitions to async at the exact point where a coroutine is first encountered.
 
-It also includes retry, timeout, and context propagation composed directly in the chain -- no separate decorators:
+It also includes error handling and enhanced tracebacks composed directly in the chain:
 
 ```python
 result = (
   Chain(call_api, request)
-  .retry(3, delay=0.5, exceptions=(ConnectionError, TimeoutError))
-  .timeout(10.0)
   .then(parse_response)
   .except_(log_error, reraise=False)
+  .finally_(cleanup)
   .run()
 )
 ```
 
-The core is Cython-compiled with C-level coroutine detection. Benchmarks show negligible overhead vs direct function calls (~0.01s per 100k calls). Frozen chains can actually be faster than direct calls due to pre-built link structures.
+Pure Python, zero dependencies, minimal overhead. The chain machinery adds negligible cost on top of the functions it wraps.
 
-Requires Python 3.14+. Zero runtime dependencies. MIT licensed.
+Requires Python 3.10+. Zero runtime dependencies. MIT licensed.
 
 GitHub: https://github.com/drukmano/quent
 PyPI: `pip install quent`
 
-Happy to answer questions about the Cython implementation, the async detection mechanism, or the design decisions.
+Happy to answer questions about the async detection mechanism or the design decisions.
 
 ---
 
@@ -218,28 +213,27 @@ Happy to answer questions about the Cython implementation, the async detection m
 
 **Title:**
 ```
-I built a Cython-compiled chain library that handles sync and async transparently -- no code generation, no runtime bridges
+I built a pure Python chain library that handles sync and async transparently -- no code generation, no runtime bridges
 ```
 
 **Full Draft Post:**
 
-# I built a Cython-compiled chain library that handles sync and async transparently -- no code generation, no runtime bridges
+# I built a pure Python chain library that handles sync and async transparently -- no code generation, no runtime bridges
 
 **Quent** is a fluent chain interface library for Python that lets you write pipeline code once and have it work for both synchronous and asynchronous callers -- no `await` boilerplate, no dual implementations, no code generation.
 
 ## Key Features
 
 - **Transparent sync/async**: Write one chain. If any function in it returns a coroutine, Quent detects it at runtime and transitions to async execution from that point. Sync callers get a result; async callers get an awaitable Task.
-- **Fluent chaining API**: `Chain(fetch).then(validate).then(save).run()` -- or use pipe syntax: `Chain(fetch) | validate | save | run()`
-- **Built-in retry**: `.retry(3, delay=1.0, exceptions=(ConnectionError,))` composed directly in the chain. Raises `ExceptionGroup` when all attempts fail.
-- **Built-in timeout**: `.timeout(5.0)` to enforce async execution time limits.
+- **Fluent chaining API**: `Chain(fetch).then(validate).then(save).run()`
 - **Enhanced stack traces**: When an error occurs, Quent annotates the exception with a visualization of the entire chain state and marks the exact operation that failed.
-- **Context propagation**: Pass metadata across chain boundaries with `.with_context()` and `Chain.get_context()`, backed by contextvars.
-- **Reusable chains**: `.clone()` for deep copies, `.freeze()` for immutable callable snapshots, `.safe_run()` for thread-safe concurrent execution.
-- **Cython performance**: Core compiled to C extensions. Benchmarks show ~0.01s overhead per 100k chain executions vs direct function calls. Frozen chains can be faster than direct calls.
-- **Zero runtime dependencies**: Just Quent and the standard library.
+- **Error handling**: `.except_()` and `.finally_()` compose error handling directly into the pipeline.
+- **Iteration and filtering**: `.foreach()`, `.filter()`, `.gather()` for processing collections within chains.
+- **Context managers**: `.with_()` executes operations inside a context manager as part of the chain.
+- **Reusable chains**: `.freeze()` for immutable callable snapshots, `.decorator()` for wrapping functions.
+- **Pure Python, zero dependencies**: Just Quent and the standard library. Minimal overhead.
 
-## Practical Example: Resilient API Client
+## Practical Example: API Client
 
 ```python
 from quent import Chain
@@ -247,9 +241,6 @@ from quent import Chain
 def api_request(method, url, **kwargs):
   return (
     Chain(http_client.request, method, url, **kwargs)
-    .with_context(method=method, url=url)
-    .retry(3, delay=0.5, exceptions=(ConnectionError, TimeoutError))
-    .timeout(10.0)
     .then(validate_response)
     .then(parse_json)
     .except_(log_api_error, reraise=False)
@@ -257,9 +248,8 @@ def api_request(method, url, **kwargs):
   )
 
 def validate_response(response):
-  ctx = Chain.get_context()
   if response.status >= 400:
-    raise ValueError(f"{ctx['method']} {ctx['url']} returned {response.status}")
+    raise ValueError(f"{method} {url} returned {response.status}")
   return response
 
 # Works for both sync and async HTTP clients
@@ -272,18 +262,17 @@ user = await api_request("GET", "/users/1")         # async -- same code
 | Feature | Quent | pipe | toolz | tenacity | unasync | asyncer |
 |---------|-------|------|-------|----------|---------|---------|
 | Sync/async transparency | Yes | No | No | No | Code generation | Runtime wrappers |
-| Retry/timeout built-in | Yes (in-chain) | No | No | Retry only (decorators) | No | No |
-| Cython performance | Yes | No | No | No | No | No |
 | Fluent chaining API | Yes | Partial (pipe only) | Partial | No | No | No |
 | Error handling (except/finally) | Yes | No | No | No | No | No |
-| Context propagation | Yes | No | No | No | No | No |
+| Enhanced stack traces | Yes | No | No | No | No | No |
 | Zero dependencies | Yes | Yes | No | No | No | No |
+| Pure Python | Yes | Yes | Yes (cytoolz is Cython) | Yes | Yes | Yes |
 
 ## Links
 
 - **GitHub**: https://github.com/drukmano/quent
 - **PyPI**: `pip install quent`
-- **Requires**: Python 3.14+, no runtime dependencies
+- **Requires**: Python 3.10+, no runtime dependencies
 
 ---
 
@@ -304,11 +293,11 @@ This is a project I've been working on for a while. It came out of frustration w
 
 **Full Draft Thread:**
 
-**1/5** [268 chars, text only]
+**1/5** [text only]
 
 What if your Python code worked the same whether sync or async?
 
-I built Quent -- a Cython-compiled chain interface that detects coroutines at runtime and transitions automatically.
+I built Quent -- a pure Python chain interface that detects coroutines at runtime and transitions automatically.
 
 One pipeline. Both worlds. No code generation. No await boilerplate.
 
@@ -331,39 +320,39 @@ result = await process(async_db)  # returns Task
 
 Same function. Sync or async. Quent handles it.
 
-**3/5** [178 chars text + code screenshot attachment]
+**3/5** [text + code screenshot attachment]
 
-Resilience is built into the chain, not bolted on with decorators:
+Error handling is built into the chain, not bolted on with wrappers:
 
 [Attach screenshot of this code:]
 ```python
 Chain(call_api, req)
-  .retry(3, delay=0.5)
-  .timeout(10.0)
-  .except_(handle_error)
+  .then(parse_response)
+  .except_(handle_error, reraise=False)
+  .finally_(cleanup)
   .run()
 ```
 
-Retry, timeout, error handling -- all composable in one pipeline. No tenacity. No wrappers.
+Error handling, cleanup, enhanced tracebacks -- all composable in one pipeline.
 
-**4/5** [249 chars, text only]
+**4/5** [text only]
 
-Performance matters when you're wrapping every function call.
+Pure Python. Zero dependencies. Minimal overhead.
 
-Quent is Cython-compiled with C-level coroutine detection. Benchmarks: ~0.01s overhead per 100k chain executions vs direct calls.
+Quent detects coroutines at runtime via isawaitable(). The chain machinery adds negligible cost on top of the functions it wraps.
 
-Frozen chains can actually be faster than calling functions directly.
+Frozen chains skip construction overhead entirely.
 
-**5/5** [246 chars, text only]
+**5/5** [text only]
 
-Quent is MIT licensed, zero dependencies, Python 3.14+.
+Quent is MIT licensed, zero dependencies, Python 3.10+.
 
 GitHub: https://github.com/drukmano/quent
 PyPI: https://pypi.org/project/quent/
 
 Star if useful. Issues, PRs, and feedback all welcome.
 
-#Python #OpenSource #AsyncIO #Cython #DevTools
+#Python #OpenSource #AsyncIO #DevTools
 
 ---
 
@@ -466,7 +455,7 @@ It is more ergonomic than raw `asgiref`, but the fundamental approach is the sam
 
 What if instead of generating code, bridging threads, or maintaining two implementations, the pipeline itself could detect whether it is dealing with sync or async operations and adapt?
 
-This is the approach that Quent takes. Quent is a Cython-compiled chain interface library that inspects return values at runtime. When a function in the chain returns a coroutine, the chain transitions to async execution from that point forward. When all functions return regular values, the chain stays synchronous.
+This is the approach that Quent takes. Quent is a pure Python chain interface library that inspects return values at runtime. When a function in the chain returns a coroutine, the chain transitions to async execution from that point forward. When all functions return regular values, the chain stays synchronous.
 
 ```python
 from quent import Chain
@@ -489,9 +478,9 @@ The key insight is that the decision happens at the individual operation level, 
 
 ### How It Works Under the Hood
 
-At the Cython level, Quent performs exact type identity checks on return values -- not `isinstance` calls, but C-level pointer comparisons against the coroutine type. This makes the detection negligible in cost.
+Quent uses `inspect.isawaitable()` to check each return value at runtime. This is a lightweight check that adds negligible cost per operation.
 
-When a coroutine is detected, Quent calls `asyncio.create_task()` with `eager_start=True` (available in Python 3.12+). Eager task creation means that if the coroutine completes synchronously (common for cached results, in-memory operations, or already-resolved futures), it executes immediately without a round-trip through the event loop. This gives Quent's async chains a 2-5x speed advantage over standard task scheduling for sync-completing coroutines.
+When a coroutine is detected, the chain transitions to async execution. The remaining links in the chain run inside an async context, awaiting each result as needed. The caller decides whether to `await` the final result based on their own execution context.
 
 ### A Real-World Example
 
@@ -516,9 +505,9 @@ When `self.r` is an async Redis client, `pipe.execute()` returns a coroutine, th
 
 One implementation. Zero duplication. The caller's context determines the execution mode.
 
-### Resilience in the Chain
+### Error Handling in the Chain
 
-Beyond sync/async transparency, Quent composes resilience directly into the pipeline:
+Beyond sync/async transparency, Quent composes error handling directly into the pipeline:
 
 ```python
 from quent import Chain
@@ -526,33 +515,23 @@ from quent import Chain
 def api_request(method, url, **kwargs):
   return (
     Chain(http_client.request, method, url, **kwargs)
-    .with_context(method=method, url=url)
-    .retry(3, delay=0.5, exceptions=(ConnectionError, TimeoutError))
-    .timeout(10.0)
     .then(validate_response)
     .then(parse_json)
     .except_(log_api_error, reraise=False)
+    .finally_(cleanup)
     .run()
   )
 ```
 
-Retry, timeout, context propagation, and error handling are all part of the chain definition. There are no separate decorators to import and stack, no wrapper functions to write. The pipeline is self-describing.
+Error handling and cleanup are part of the chain definition. There are no separate decorators to import and stack, no wrapper functions to write. The pipeline is self-describing. When something fails, Quent's enhanced tracebacks show the entire chain state with a marker on the exact operation that failed.
 
 ## Performance Considerations
 
 The obvious question: does runtime detection add overhead?
 
-Quent's benchmarks show negligible cost:
+Quent is pure Python with minimal overhead. The chain machinery -- link traversal, coroutine detection via `isawaitable()`, and value passing -- adds negligible cost on top of the functions it wraps. The overhead is dominated by the Python function call overhead of the functions *in* the chain, not the chain machinery itself.
 
-| Scenario | Time (100k iterations) |
-|----------|----------------------|
-| Direct function call | 1.19s |
-| Quent chain | 1.20s |
-| Quent frozen chain | 1.06s |
-
-The ~0.01s difference across 100,000 calls comes from the chain object construction and link traversal. Frozen chains (pre-built immutable chains) eliminate even that cost and can be faster than direct calls due to reduced Python-level overhead in the call path.
-
-The Cython compilation is critical here. The core evaluation loop, coroutine detection, and link traversal all run as C extensions with `boundscheck=False` and `wraparound=False` optimizations. The chain overhead is dominated by the Python function call overhead of the functions *in* the chain, not the chain machinery itself.
+Frozen chains (pre-built immutable chains) skip construction overhead entirely, making them well-suited for high-throughput use cases where the same pipeline runs many times.
 
 ## When This Approach Falls Short
 
@@ -561,7 +540,7 @@ Runtime detection is not universally superior. There are real cases where other 
 - **Static analysis and type checking**: Code generation tools like unasync produce standard Python files that type checkers and IDEs understand natively. Quent's chains are opaque to static analysis -- the type of `chain.run()` depends on runtime behavior.
 - **Purely synchronous codebases**: If you never deal with async, adding Quent is unnecessary complexity. The `pipe` library or plain function composition is simpler.
 - **Distributed execution**: Quent evaluates eagerly and locally. If you need DAGs, distributed scheduling, or lazy evaluation, tools like Prefect, Airflow, or Dask are the right choice.
-- **Python version constraints**: Quent requires Python 3.14+. If you need to support older Python versions, this is a non-starter.
+- **Python version constraints**: Quent requires Python >= 3.10. If you need to support older Python versions, this is a non-starter.
 
 ## Conclusion
 
@@ -573,14 +552,14 @@ If this approach interests you, Quent is MIT-licensed and available on PyPI:
 
 - **GitHub**: [github.com/drukmano/quent](https://github.com/drukmano/quent)
 - **Install**: `pip install quent`
-- **Requires**: Python 3.14+, zero runtime dependencies
+- **Requires**: Python 3.10+, zero runtime dependencies
 
 ---
 
 ### Blog Post: Library Comparison
 
 **Platform:** dev.to (primary), cross-post to Hashnode with canonical_url pointing to dev.to
-**Target audience:** Python developers evaluating pipeline/chaining/retry libraries
+**Target audience:** Python developers evaluating pipeline/chaining libraries
 **dev.to tags:** python, async, opensource, comparison
 **Notes:**
 - Tone must be fair and balanced -- acknowledge strengths of alternatives honestly
@@ -594,7 +573,7 @@ If this approach interests you, Quent is MIT-licensed and available on PyPI:
 
 The Python ecosystem has no shortage of libraries for function composition, retry logic, and async bridging. But they each solve different parts of the problem, and picking the right one depends on what you actually need.
 
-This post compares six libraries across the dimensions that matter most for pipeline-oriented code: how they handle sync/async, whether they include resilience features, their performance characteristics, and the learning curve involved.
+This post compares six libraries across the dimensions that matter most for pipeline-oriented code: how they handle sync/async, their error handling capabilities, their performance characteristics, and the learning curve involved.
 
 ## The Libraries
 
@@ -686,7 +665,7 @@ asyncer's `asyncify()` wraps a sync function to run it in a worker thread, preve
 
 ### Quent
 
-[Quent](https://github.com/drukmano/quent) is a Cython-compiled chain interface that detects coroutines at runtime and transitions between sync and async execution automatically.
+[Quent](https://github.com/drukmano/quent) is a pure Python chain interface that detects coroutines at runtime and transitions between sync and async execution automatically.
 
 ```python
 from quent import Chain
@@ -696,14 +675,13 @@ result = (
   .then(validate)
   .then(transform)
   .then(save)
-  .retry(3, delay=0.5)
-  .timeout(10.0)
   .except_(handle_error)
+  .finally_(cleanup)
   .run()
 )
 ```
 
-Quent combines function chaining, sync/async transparency, and resilience (retry, timeout) in a single API. The chain inspects each return value and transitions to async only when a coroutine is encountered. It requires Python 3.14+ and has zero runtime dependencies.
+Quent combines function chaining, sync/async transparency, and error handling in a single API. The chain inspects each return value and transitions to async only when a coroutine is encountered. It requires Python 3.10+ and has zero runtime dependencies.
 
 ## Comparison Table
 
@@ -711,17 +689,14 @@ Quent combines function chaining, sync/async transparency, and resilience (retry
 |---------|-------|------|-------|----------|---------|---------|
 | **Primary purpose** | Fluent pipelines with sync/async | Iterable piping | Functional programming toolkit | Retry logic | Async-to-sync code gen | Sync-to-async bridging |
 | **Sync/async transparency** | Runtime detection | No async support | No async support | Separate interfaces | Build-time transformation | One-direction bridge |
-| **Retry** | Built-in (`.retry()`) | No | No | Yes (decorators) | No | No |
-| **Timeout** | Built-in (`.timeout()`) | No | No | No | No | No |
 | **Error handling** | `.except_()`, `.finally_()` | No | No | Callbacks via `retry` | No | No |
-| **Context propagation** | `.with_context()` | No | No | No | No | No |
 | **Enhanced stack traces** | Chain visualization on error | No | No | No | No | No |
-| **Reusable chains** | `.clone()`, `.freeze()`, `.safe_run()` | No | `compose()` creates reusable fns | Decorator is reusable | N/A | N/A |
-| **Performance** | Cython-compiled C extension | Pure Python | Pure Python (cytoolz available) | Pure Python | N/A (build-time) | Pure Python + AnyIO |
+| **Reusable chains** | `.freeze()`, `.decorator()` | No | `compose()` creates reusable fns | Decorator is reusable | N/A | N/A |
+| **Performance** | Pure Python, minimal overhead | Pure Python | Pure Python (cytoolz available) | Pure Python | N/A (build-time) | Pure Python + AnyIO |
 | **Dependencies** | None | None | None (toolz), Cython (cytoolz) | None | None | AnyIO |
-| **Python version** | 3.14+ | 3.8+ | 3.9+ | 3.10+ | 3.7+ | 3.8+ |
+| **Python version** | 3.10+ | 3.8+ | 3.9+ | 3.10+ | 3.7+ | 3.8+ |
 | **Maturity** | Newer | Established | Established | Established | Established | Newer |
-| **API style** | Method chaining / pipe operator | Pipe operator | Function calls | Decorators | Build tool | Function wrappers |
+| **API style** | Method chaining | Pipe operator | Function calls | Decorators | Build tool | Function wrappers |
 | **Learning curve** | Moderate | Low | Low-Moderate | Low | Low | Low |
 
 ## The Same Task in Three Libraries
@@ -802,50 +777,7 @@ pipe and toolz are excellent for synchronous data transformations. They are more
 Quent's advantage appears when:
 1. The data source might be sync or async (both pipe and toolz require the data to be available synchronously).
 2. You want error handling composed into the pipeline rather than wrapping it externally.
-3. You need retry, timeout, or context propagation as part of the same definition.
-
-### Adding Retry: Quent vs tenacity
-
-Now suppose the data fetch is unreliable and needs retry logic.
-
-**With Quent:**
-
-```python
-from quent import Chain
-
-result = (
-  Chain(fetch_users)
-  .retry(3, delay=1.0, exceptions=(ConnectionError,))
-  .then(lambda users: [u for u in users if u["active"]])
-  .then(lambda users: sorted(users, key=lambda u: u["name"]))
-  .except_(lambda e: print(f"All retries failed: {e}") or [])
-  .run()
-)
-```
-
-**With tenacity + manual pipeline:**
-
-```python
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
-
-@retry(
-  stop=stop_after_attempt(3),
-  wait=wait_fixed(1.0),
-  retry=retry_if_exception_type(ConnectionError),
-)
-def fetch_with_retry():
-  return fetch_users()
-
-try:
-  users = fetch_with_retry()
-  active = [u for u in users if u["active"]]
-  result = sorted(active, key=lambda u: u["name"])
-except Exception as e:
-  print(f"All retries failed: {e}")
-  result = []
-```
-
-tenacity's decorator is more configurable for retry-specific options (exponential backoff, jitter, custom retry conditions). Quent's `.retry()` is simpler but sufficient for common cases, and it composes directly into the pipeline without requiring a separate decorated function.
+3. You want enhanced tracebacks that show the exact chain operation that failed.
 
 ## Decision Tree
 
@@ -866,7 +798,7 @@ Consider **unasync** if you want build-time code generation with full static ana
 **"I need to call sync blocking functions from async code without blocking the event loop."**
 Use **asyncer** or `asyncio.to_thread()`.
 
-**"I need function chaining that works with both sync and async, with retry, timeout, and error handling built in."**
+**"I need function chaining that works with both sync and async, with error handling and enhanced tracebacks built in."**
 Use **Quent**. This is its specific niche -- no other library combines all of these.
 
 **"I need distributed pipeline execution, DAGs, or workflow orchestration."**
@@ -874,7 +806,7 @@ None of the above. Use **Prefect**, **Airflow**, or **Dask**.
 
 ## Conclusion
 
-These libraries are not competitors in the traditional sense -- they occupy different points in the design space. pipe and toolz are functional composition tools. tenacity is a retry library. unasync and asyncer solve the sync/async bridge problem from opposite directions. Quent combines chaining, sync/async detection, and resilience in a single interface.
+These libraries are not competitors in the traditional sense -- they occupy different points in the design space. pipe and toolz are functional composition tools. tenacity is a retry library. unasync and asyncer solve the sync/async bridge problem from opposite directions. Quent combines chaining, sync/async detection, and error handling in a single interface.
 
 The Python ecosystem benefits from having all of them. Pick the one that matches your actual requirements, and do not hesitate to combine them -- tenacity and toolz, for example, work perfectly well together.
 
@@ -882,7 +814,7 @@ If the sync/async pipeline combination is what you need, Quent is worth evaluati
 
 - **GitHub**: [github.com/drukmano/quent](https://github.com/drukmano/quent)
 - **PyPI**: `pip install quent`
-- **Requires**: Python 3.14+, zero runtime dependencies
+- **Requires**: Python 3.10+, zero runtime dependencies
 
 ---
 
@@ -899,15 +831,15 @@ If the sync/async pipeline combination is what you need, Quent is worth evaluati
 
 **Full Draft:**
 
-# Building a Resilient API Client with Quent: A Step-by-Step Tutorial
+# Building an API Client with Quent: A Step-by-Step Tutorial
 
-Every non-trivial backend application talks to external APIs. And every external API is, at some point, unreliable. Timeouts happen. Connections drop. Rate limits kick in. Building a resilient API client means handling all of this while keeping the code readable and maintainable.
+Every non-trivial backend application talks to external APIs. And every external API can fail. Building an API client means handling errors gracefully while keeping the code readable and maintainable.
 
-In this tutorial, we will build an API client step by step using [Quent](https://github.com/drukmano/quent), a Cython-compiled chain interface library for Python. We will start with a basic fetch-parse-transform pipeline and progressively add error handling, retry logic, timeouts, and chain reuse. The same code will work for both synchronous and asynchronous HTTP clients.
+In this tutorial, we will build an API client step by step using [Quent](https://github.com/drukmano/quent), a pure Python chain interface library. We will start with a basic fetch-parse-transform pipeline and progressively add error handling and chain reuse. The same code will work for both synchronous and asynchronous HTTP clients.
 
 ## Prerequisites
 
-You will need Python 3.14+ and two packages:
+You will need Python 3.10+ and two packages:
 
 ```bash
 pip install quent httpx
@@ -1023,92 +955,27 @@ def get_user(client, user_id):
 
 Quent matches exceptions in order -- the first handler whose `exceptions` filter matches will be invoked.
 
-## Step 3: Add Retry and Timeout for Resilience
+## Step 3: Add a Finally Block
 
-Now let us make the client resilient to transient failures. We want to retry on connection errors and enforce a timeout so we do not wait forever.
-
-```python
-def get_user(client, user_id):
-  return (
-    Chain(client.get, f"https://jsonplaceholder.typicode.com/users/{user_id}")
-    .retry(3, delay=1.0, exceptions=(httpx.RequestError,))
-    .timeout(10.0)
-    .then(parse_response)
-    .then(extract_user)
-    .except_(handle_api_error, reraise=False)
-    .run()
-  )
-```
-
-`.retry(3, delay=1.0, exceptions=(httpx.RequestError,))` retries the chain up to 3 times with a 1-second delay between attempts, but only when an `httpx.RequestError` (connection errors, timeouts) is raised. If all 3 attempts fail, Quent raises an `ExceptionGroup` containing every individual failure.
-
-`.timeout(10.0)` enforces a 10-second time limit on the entire async chain execution. If the chain takes longer than 10 seconds, an `asyncio.TimeoutError` is raised. Note that timeout only applies when the chain is executing asynchronously -- in synchronous mode, there is no event loop to enforce a timeout.
-
-The `.except_` handler at the end catches failures from either the retries or the timeout.
-
-You can also handle the retry exhaustion explicitly:
+Sometimes you need cleanup logic that runs regardless of success or failure. Quent's `.finally_()` composes this into the chain:
 
 ```python
 def get_user(client, user_id):
   return (
     Chain(client.get, f"https://jsonplaceholder.typicode.com/users/{user_id}")
-    .retry(3, delay=1.0, exceptions=(httpx.RequestError,))
-    .timeout(10.0)
     .then(parse_response)
     .then(extract_user)
-    .except_(
-      lambda eg: print(f"All {len(eg.exceptions)} attempts failed"),
-      exceptions=ExceptionGroup,
-      reraise=False,
-    )
     .except_(handle_api_error, reraise=False)
+    .finally_(lambda: print("Request complete"))
     .run()
   )
 ```
 
-## Step 4: Add Context Propagation
+The `.finally_()` handler runs after the chain completes, whether it succeeded or failed -- just like a `try/finally` block, but composed into the pipeline.
 
-For logging, tracing, and debugging, it is useful to propagate metadata through the chain. Quent supports this via `.with_context()` and `Chain.get_context()`, backed by contextvars.
+## Step 4: Make It Async (It Already Is)
 
-```python
-def parse_response(response):
-  response.raise_for_status()
-  return response.json()
-
-def extract_user(data):
-  ctx = Chain.get_context()
-  print(f"[{ctx['request_id']}] Extracting user {data['id']}")
-  return {
-    "id": data["id"],
-    "name": data["name"],
-    "email": data["email"],
-  }
-
-def handle_api_error(exc):
-  ctx = Chain.get_context()
-  print(f"[{ctx['request_id']}] API error: {exc}")
-  return None
-
-def get_user(client, user_id, request_id="default"):
-  return (
-    Chain(client.get, f"https://jsonplaceholder.typicode.com/users/{user_id}")
-    .with_context(request_id=request_id, user_id=user_id)
-    .retry(3, delay=1.0, exceptions=(httpx.RequestError,))
-    .timeout(10.0)
-    .then(parse_response)
-    .then(extract_user)
-    .except_(handle_api_error, reraise=False)
-    .run()
-  )
-```
-
-`.with_context(request_id=request_id, user_id=user_id)` attaches key-value metadata to the chain. Any function in the chain can retrieve it by calling `Chain.get_context()`. The context is isolated per chain execution and works correctly across async boundaries.
-
-This is useful for logging, distributed tracing, and debugging -- the context follows the data through every step without passing it as a function argument.
-
-## Step 5: Make It Async (It Already Is)
-
-This is the key point of the tutorial. Go back and read the `get_user` function from Step 4. There is no `async def`. There is no `await`. There are no async-specific imports.
+This is the key point of the tutorial. Go back and read the `get_user` function from Step 3. There is no `async def`. There is no `await`. There are no async-specific imports.
 
 That function already works with async clients:
 
@@ -1118,7 +985,7 @@ import asyncio
 async def main():
   async with httpx.AsyncClient() as client:
     # Fetch multiple users concurrently
-    tasks = [get_user(client, i, request_id=f"req-{i}") for i in range(1, 6)]
+    tasks = [get_user(client, i) for i in range(1, 6)]
     users = await asyncio.gather(*tasks)
     for user in users:
       if user:
@@ -1127,21 +994,21 @@ async def main():
 asyncio.run(main())
 ```
 
-Each `get_user()` call returns a Task (because `httpx.AsyncClient.get()` returns a coroutine). `asyncio.gather()` runs them concurrently. The retry, timeout, error handling, and context propagation all work identically in async mode.
+Each `get_user()` call returns a Task (because `httpx.AsyncClient.get()` returns a coroutine). `asyncio.gather()` runs them concurrently. The error handling works identically in async mode.
 
 The same function also works synchronously:
 
 ```python
 with httpx.Client() as client:
   for i in range(1, 6):
-    user = get_user(client, i, request_id=f"req-{i}")
+    user = get_user(client, i)
     if user:
       print(f"{user['name']} ({user['email']})")
 ```
 
 No changes. No conditional logic. The chain adapts to whatever it receives.
 
-## Step 6: Freeze and Reuse the Chain
+## Step 5: Freeze and Reuse the Chain
 
 So far, every call to `get_user` builds a new chain. If you are calling this function thousands of times (e.g., in a batch job or a high-throughput service), you can freeze the chain into an immutable, reusable callable.
 
@@ -1162,32 +1029,7 @@ def get_user(client, user_id, request_id="default"):
 
 `.freeze()` creates a `FrozenChain` -- an immutable snapshot of the chain that can be called like a function. Each call creates an independent execution; there is no shared state between invocations.
 
-Frozen chains also skip the chain construction overhead on each call. Quent's benchmarks show that frozen chains can actually be faster than direct function calls due to pre-built link structures:
-
-| Scenario | Time (100k iterations) |
-|----------|----------------------|
-| Direct function call | 1.19s |
-| Quent chain | 1.20s |
-| Quent frozen chain | 1.06s |
-
-For an even more integrated approach, you can use `.safe_run()` for thread-safe execution without manual freezing:
-
-```python
-# Define the chain template
-api_chain = (
-  Chain()
-  .then(parse_response)
-  .then(extract_user)
-  .retry(3, delay=1.0, exceptions=(httpx.RequestError,))
-  .except_(handle_api_error, reraise=False)
-)
-
-# safe_run automatically clones the chain for each invocation
-# making it safe for concurrent use from multiple threads
-def get_user(client, user_id):
-  response = client.get(f"https://jsonplaceholder.typicode.com/users/{user_id}")
-  return api_chain.safe_run(response)
-```
+Frozen chains also skip the chain construction overhead on each call, making them well-suited for high-throughput use cases.
 
 ## Complete Code
 
@@ -1206,8 +1048,6 @@ def parse_response(response):
 
 def extract_user(data):
   """Extract relevant user fields from API response data."""
-  ctx = Chain.get_context()
-  print(f"[{ctx.get('request_id', 'n/a')}] Extracting user {data['id']}")
   return {
     "id": data["id"],
     "name": data["name"],
@@ -1218,30 +1058,24 @@ def extract_user(data):
 
 def handle_api_error(exc):
   """Log API errors and return None instead of crashing."""
-  ctx = Chain.get_context()
-  request_id = ctx.get("request_id", "n/a")
-
-  if isinstance(exc, ExceptionGroup):
-    print(f"[{request_id}] All retry attempts failed ({len(exc.exceptions)} failures)")
-  elif isinstance(exc, httpx.HTTPStatusError):
-    print(f"[{request_id}] HTTP error: {exc.response.status_code}")
+  if isinstance(exc, httpx.HTTPStatusError):
+    print(f"HTTP error: {exc.response.status_code}")
   elif isinstance(exc, httpx.RequestError):
-    print(f"[{request_id}] Request failed: {exc}")
+    print(f"Request failed: {exc}")
   else:
-    print(f"[{request_id}] Unexpected error: {exc}")
+    print(f"Unexpected error: {exc}")
   return None
 
 # --- API client ---
 
 BASE_URL = "https://jsonplaceholder.typicode.com"
 
-def get_user(client, user_id, request_id="default"):
+def get_user(client, user_id):
   """Fetch a user by ID. Works with both sync and async httpx clients.
 
   Args:
     client: httpx.Client or httpx.AsyncClient
     user_id: The user ID to fetch
-    request_id: Optional request ID for tracing
 
   Returns:
     dict with user fields, or None on failure.
@@ -1249,12 +1083,10 @@ def get_user(client, user_id, request_id="default"):
   """
   return (
     Chain(client.get, f"{BASE_URL}/users/{user_id}")
-    .with_context(request_id=request_id, user_id=user_id)
-    .retry(3, delay=1.0, exceptions=(httpx.RequestError,))
-    .timeout(10.0)
     .then(parse_response)
     .then(extract_user)
     .except_(handle_api_error, reraise=False)
+    .finally_(lambda: print(f"Request for user {user_id} complete"))
     .run()
   )
 
@@ -1263,7 +1095,7 @@ def get_user(client, user_id, request_id="default"):
 def main_sync():
   with httpx.Client() as client:
     for i in range(1, 4):
-      user = get_user(client, i, request_id=f"sync-{i}")
+      user = get_user(client, i)
       if user:
         print(f"  -> {user['name']} ({user['email']})")
 
@@ -1273,7 +1105,7 @@ import asyncio
 
 async def main_async():
   async with httpx.AsyncClient() as client:
-    tasks = [get_user(client, i, request_id=f"async-{i}") for i in range(1, 4)]
+    tasks = [get_user(client, i) for i in range(1, 4)]
     users = await asyncio.gather(*tasks)
     for user in users:
       if user:
@@ -1291,27 +1123,26 @@ if __name__ == "__main__":
 
 ## What We Built
 
-In roughly 50 lines of core logic, we built an API client that:
+In roughly 40 lines of core logic, we built an API client that:
 
 1. **Fetches, parses, and transforms** API responses through a readable pipeline
 2. **Handles errors** gracefully with typed exception handlers
-3. **Retries** on transient connection failures with configurable delay
-4. **Enforces timeouts** on async execution
-5. **Propagates context** (request IDs, metadata) through the chain without extra function parameters
-6. **Works identically** for sync and async HTTP clients -- same function, no duplication
+3. **Runs cleanup** via `.finally_()` regardless of success or failure
+4. **Works identically** for sync and async HTTP clients -- same function, no duplication
 
-The chain reads top to bottom, each step clearly named. The resilience and error handling are part of the pipeline definition, not scattered across decorators and try/except blocks.
+The chain reads top to bottom, each step clearly named. The error handling is part of the pipeline definition, not scattered across try/except blocks.
 
 ## Next Steps
 
 Once you are comfortable with the basics, Quent offers more tools for building pipelines:
 
-- **`Cascade`**: Every operation receives the root value instead of the previous result -- useful for fan-out patterns
-- **`ChainAttr`**: Dynamic attribute access via `__getattr__`, so `ChainAttr(obj).method().property.run()` works naturally
-- **`.foreach()`**: Iterate over items and apply a function to each one
-- **`.with_()`**: Execute operations inside a context manager
-- **`.clone()`**: Deep-copy a chain template for independent reuse
-- **Pipe syntax**: `Chain(fetch) | validate | transform | save | run()` as an alternative to `.then()` chaining
+- **`.foreach()` / `.foreach_do()`**: Iterate over items and apply a function to each one
+- **`.filter()`**: Filter items in a collection within the chain
+- **`.gather()`**: Run multiple operations concurrently
+- **`.with_()` / `.with_do()`**: Execute operations inside a context manager
+- **`.iterate()` / `.iterate_do()`**: Iterate over an async or sync iterator
+- **`.freeze()`**: Create an immutable, reusable snapshot of the chain
+- **`.decorator()`**: Wrap a function with the chain as a decorator
 
 Full API reference and more examples are available in the [README](https://github.com/drukmano/quent).
 
@@ -1319,7 +1150,7 @@ Full API reference and more examples are available in the [README](https://githu
 
 - **GitHub**: [github.com/drukmano/quent](https://github.com/drukmano/quent)
 - **PyPI**: `pip install quent`
-- **Requires**: Python 3.14+, zero runtime dependencies
+- **Requires**: Python 3.10+, zero runtime dependencies
 - **License**: MIT
 
 ---
@@ -1335,10 +1166,9 @@ This is described as the highest-leverage activity per hour spent. Stack Overflo
 **Target question categories** (search for these, find unanswered or poorly answered questions):
 
 1. "How to write a Python function that works both sync and async" -- answer with the general problem, then show Quent as one solution
-2. "Python retry with async support" -- answer with tenacity for simple cases, mention Quent for chain-composable retry
-3. "Python pipe operator / function chaining library" -- answer with pipe for simple cases, mention Quent for async-aware chaining
-4. "Python function coloring problem workaround" -- educational answer with Quent as one tool
-5. "How to avoid writing async and sync versions of the same Python code" -- direct hit for Quent's primary value prop
+2. "Python pipe operator / function chaining library" -- answer with pipe for simple cases, mention Quent for async-aware chaining
+3. "Python function coloring problem workaround" -- educational answer with Quent as one tool
+4. "How to avoid writing async and sync versions of the same Python code" -- direct hit for Quent's primary value prop
 
 **Rules for Stack Overflow:**
 - Answer the question fully and correctly first. Mention Quent as one option among several. Never post a Quent-only answer.
@@ -1351,12 +1181,10 @@ This is described as the highest-leverage activity per hour spent. Stack Overflo
 
 Create a benchmark script in the repo (`benchmarks/` directory) that compares:
 
-1. **Chain overhead**: Direct function calls vs Quent chain vs Quent frozen chain (already in README -- formalize it)
+1. **Chain overhead**: Direct function calls vs Quent chain vs Quent frozen chain
 2. **Async transition overhead**: Native async/await vs Quent async chain
-3. **Retry comparison**: tenacity decorator vs Quent `.retry()` in terms of both performance and lines of code
-4. **Real-world scenario**: HTTP client with retry + timeout, sync and async variants, measuring total code complexity (LoC, cyclomatic complexity) alongside performance
 
-Publish benchmark results in the docs and reference them in blog posts. Concrete numbers are cited 30-40% more often by LLMs than qualitative claims.
+Publish benchmark results in the docs and reference them in blog posts.
 
 ### Framework Integrations
 
@@ -1373,8 +1201,7 @@ from quent import Chain
 async def get_user(user_id: int, db = Depends(get_db)):
   return await Chain(db.fetch_user, user_id) \
     .then(validate_permissions) \
-    .retry(3, delay=0.5) \
-    .timeout(5.0) \
+    .except_(handle_db_error, reraise=False) \
     .run()
 ```
 
@@ -1403,7 +1230,7 @@ The Redis example already in the README is compelling. Create a standalone examp
 Create 2-3 small, standalone example repositories on GitHub that use Quent in realistic scenarios:
 
 1. `quent-fastapi-example` -- FastAPI app with Quent-powered service layer
-2. `quent-http-client` -- Resilient HTTP client built with Quent (retry, timeout, context)
+2. `quent-http-client` -- HTTP client built with Quent demonstrating sync/async transparency
 3. `quent-redis-wrapper` -- Redis client wrapper demonstrating sync/async transparency
 
 These repos serve multiple purposes:
@@ -1424,7 +1251,7 @@ These repos serve multiple purposes:
 **Submission strategy:**
 - Submit under the "Hidden Gem" category
 - Justify placement under an existing category (candidates: "Functional Programming", or propose an "Async Utilities" subcategory)
-- PR description should emphasize the unique niche: "The only Python library that combines fluent chaining, transparent sync/async, and built-in resilience"
+- PR description should emphasize the unique niche: "The only Python library that combines fluent chaining, transparent sync/async, and built-in error handling with enhanced tracebacks"
 
 **Alternative lists to submit to earlier** (lower bar):
 - [best-of-python](https://github.com/ml-tooling/best-of-python) -- automated, lower star threshold, accepts PRs to `projects.yaml`
@@ -1442,7 +1269,7 @@ These repos serve multiple purposes:
 **Python Bytes** (secondary target):
 - Hosts: Michael Kennedy and Brian Okken
 - This is a news/discovery show, not deep dives. The goal is to get Quent mentioned as a "notable new library" in a weekly episode.
-- Submit via pythonbytes.fm or email. Frame it as a news item: "New Cython-compiled library that solves the sync/async dual implementation problem."
+- Submit via pythonbytes.fm or email. Frame it as a news item: "New pure Python library that solves the sync/async dual implementation problem."
 - Best timing: right after a visible launch (Show HN front page, r/Python post with traction).
 
 **Realistic expectation**: Getting on Talk Python requires some demonstrated community interest (stars, downloads, discussion threads). Python Bytes has a lower bar -- they mention interesting new tools frequently. Target Python Bytes first.
@@ -1453,7 +1280,7 @@ These repos serve multiple purposes:
 
 **Talk proposal:**
 - Title: "One Codebase, Both Worlds: Solving Python's Sync/Async Duplication Problem"
-- Abstract: The function coloring problem forces Python library authors to maintain separate sync and async codebases. unasync generates code. greenlet bridges threads. What if we could detect coroutines at runtime and transition a pipeline between sync and async on the fly? This talk explores the approaches, trade-offs, and a Cython-based implementation.
+- Abstract: The function coloring problem forces Python library authors to maintain separate sync and async codebases. unasync generates code. greenlet bridges threads. What if we could detect coroutines at runtime and transition a pipeline between sync and async on the fly? This talk explores the approaches, trade-offs, and a pure Python implementation.
 - The talk is about the problem space, not just Quent. Conference program committees reject product pitches. Frame it as an educational talk about async patterns that happens to demonstrate a specific implementation.
 
 **Realistic timeline:** CFPs for major conferences typically close 4-6 months before the event. PyCon US 2027 CFP will likely open October-November 2026. Start with local meetups or virtual talks to refine the presentation.
@@ -1476,8 +1303,7 @@ These repos serve multiple purposes:
 Every 2-4 weeks, test whether AI assistants recommend Quent by asking:
 - "What Python library can I use for both sync and async function chaining?"
 - "How do I avoid writing separate sync and async implementations in Python?"
-- "What's a good alternative to tenacity that works in a chain/pipeline?"
-- "Python library for fluent interface with retry and timeout"
+- "Python library for fluent interface with sync/async support"
 
 Test on: ChatGPT, Claude, Perplexity, Copilot Chat, Cursor. Record results. This is the leading indicator for whether the textual footprint strategy is working.
 
@@ -1509,9 +1335,8 @@ Modern AI assistants (ChatGPT, Claude, Perplexity) perform web searches at infer
 **Target queries:**
 - "python library that works with both sync and async"
 - "python function chaining with async support"
-- "python pipe operator async"
 - "alternative to unasync python"
-- "python fluent interface retry timeout"
+- "python fluent interface async"
 - "python sync async dual implementation library"
 
 **How to rank:**
@@ -1526,34 +1351,34 @@ Modern AI assistants (ChatGPT, Claude, Perplexity) perform web searches at infer
 
 Use this exact paragraph everywhere -- PyPI long description intro, GitHub repo "About" field, blog posts, Reddit posts, conference bios:
 
-> **Quent** is a Cython-compiled chain interface library for Python that transparently handles both synchronous and asynchronous operations. You write your pipeline code once using a fluent API -- `Chain(fetch).then(validate).then(save).run()` -- and Quent automatically detects coroutines at runtime, transitioning to async execution only when needed. It includes built-in retry, timeout, context propagation, and enhanced stack traces, all composable within the chain. No code generation, no runtime bridges, no dual implementations. One codebase, both worlds.
+> **Quent** is a pure Python chain interface library that transparently handles both synchronous and asynchronous operations. You write your pipeline code once using a fluent API -- `Chain(fetch).then(validate).then(save).run()` -- and Quent automatically detects coroutines at runtime, transitioning to async execution only when needed. It includes built-in error handling and enhanced stack traces, all composable within the chain. Zero dependencies. No code generation, no runtime bridges, no dual implementations. One codebase, both worlds.
 
 #### PyPI Description (for `pyproject.toml`)
 
 ```
-High-performance fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in retry, timeout, and context propagation. Cython-compiled, zero dependencies.
+Pure Python fluent chain interface with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in error handling and enhanced tracebacks. Zero dependencies.
 ```
 
 #### GitHub About Description
 
 ```
-High-performance fluent chain interface for Python with transparent sync/async handling. Retry, timeout, context propagation -- all composable in one chain. Cython-compiled.
+Pure Python fluent chain interface with transparent sync/async handling. Error handling, enhanced tracebacks -- all composable in one chain. Zero dependencies.
 ```
 
 #### Show HN Title
 
 ```
-Show HN: Quent -- A Cython-compiled chain interface for Python with transparent sync/async handling
+Show HN: Quent -- A pure Python chain interface with transparent sync/async handling
 ```
 
 #### r/Python Post Title
 
 ```
-I built a Cython-compiled chain library that handles sync and async transparently -- no code generation, no runtime bridges
+I built a pure Python chain library that handles sync and async transparently -- no code generation, no runtime bridges
 ```
 
 #### GitHub Topics
 
 ```
-python, async, asyncio, sync, pipeline, chain, fluent-interface, cython, retry, timeout, resilience, function-composition, pipe-operator, coroutine, middleware, python-library
+python, async, asyncio, sync, pipeline, chain, fluent-interface, function-composition, coroutine, middleware, python-library
 ```

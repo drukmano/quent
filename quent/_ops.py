@@ -1,15 +1,22 @@
 """Chain operations: context managers, iteration, filtering, gathering."""
+
 from __future__ import annotations
 
-from typing import Any
-from collections.abc import Callable, Iterator, AsyncIterator
 import asyncio
+from collections.abc import AsyncIterator, Callable, Iterator
 from inspect import isawaitable
+from typing import Any
 
 from ._core import (
-  Null, _evaluate_value, _handle_break_exc,
-  _set_link_temp_args, _ControlFlowSignal, _Break, _Return,
-  QuentException, Link,
+  Link,
+  Null,
+  QuentException,
+  _Break,
+  _ControlFlowSignal,
+  _evaluate_value,
+  _handle_break_exc,
+  _Return,
+  _set_link_temp_args,
 )
 
 
@@ -68,15 +75,17 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
         return outer_value
       return result
 
-  _with_op._quent_op = 'with'
-  _with_op._ignore_result = ignore_result
+  _with_op._quent_op = 'with'  # type: ignore[attr-defined]
+  _with_op._ignore_result = ignore_result  # type: ignore[attr-defined]
   return _with_op
 
 
 # Defined as module-level functions (not methods) because Python generator functions
 # create generator objects at call time — a method would bind `self` unnecessarily
 # and complicate the generator's closure. Keeping them external is cleaner.
-def _sync_generator(chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool) -> Iterator[Any]:
+def _sync_generator(
+  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool
+) -> Iterator[Any]:
   """Synchronous generator over chain output."""
   try:
     for item in chain_run(*run_args):
@@ -91,7 +100,7 @@ def _sync_generator(chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn
   except _Break:
     return
   except _Return:
-    raise QuentException('Using .return_() inside an iterator is not allowed.')
+    raise QuentException('Using .return_() inside an iterator is not allowed.') from None
 
 
 async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
@@ -100,7 +109,9 @@ async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
     yield item
 
 
-async def _async_generator(chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool) -> AsyncIterator[Any]:
+async def _async_generator(
+  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool
+) -> AsyncIterator[Any]:
   """Asynchronous generator over chain output."""
   iterator = chain_run(*run_args)
   if isawaitable(iterator):
@@ -122,7 +133,7 @@ async def _async_generator(chain_run: Callable[..., Any], run_args: tuple[Any, .
   except _Break:
     return
   except _Return:
-    raise QuentException('Using .return_() inside an iterator is not allowed.')
+    raise QuentException('Using .return_() inside an iterator is not allowed.') from None
 
 
 class _Generator:
@@ -131,13 +142,14 @@ class _Generator:
   Created by Chain.iterate(). Supports both __iter__ and __aiter__,
   choosing the appropriate generator at iteration time.
   """
+
   __slots__ = ('_chain_run', '_fn', '_ignore_result', '_run_args')
 
   def __init__(self, chain_run: Callable[..., Any], fn: Callable[[Any], Any] | None, ignore_result: bool) -> None:
     self._chain_run = chain_run
     self._fn = fn
     self._ignore_result = ignore_result
-    self._run_args = (Null, (), {})
+    self._run_args: tuple[Any, tuple[Any, ...], dict[str, Any]] = (Null, (), {})
 
   def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> _Generator:
     g = _Generator(self._chain_run, self._fn, self._ignore_result)
@@ -181,8 +193,8 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     except _Break as exc:
       result = _handle_break_exc(exc, lst)
       if isawaitable(result):
-        return await result
-      return result
+        return await result  # type: ignore[no-any-return]
+      return result  # type: ignore[no-any-return]
     except StopIteration:
       return lst
     except _ControlFlowSignal:
@@ -207,8 +219,8 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     except _Break as exc:
       result = _handle_break_exc(exc, lst)
       if isawaitable(result):
-        return await result
-      return result
+        return await result  # type: ignore[no-any-return]
+      return result  # type: ignore[no-any-return]
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
@@ -218,7 +230,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   def _foreach_op(current_value: Any) -> Any:
     if hasattr(current_value, '__aiter__'):
       return _full_async(current_value)
-    lst = []
+    lst: list[Any] = []
     it = iter(current_value)
     item = Null
     try:
@@ -243,8 +255,8 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
 
   # Attach metadata as function attributes — a Python hack that lets the traceback
   # formatter identify the operation type without needing a class wrapper.
-  _foreach_op._quent_op = 'foreach'
-  _foreach_op._ignore_result = ignore_result
+  _foreach_op._quent_op = 'foreach'  # type: ignore[attr-defined]
+  _foreach_op._ignore_result = ignore_result  # type: ignore[attr-defined]
   return _foreach_op
 
 
@@ -289,7 +301,7 @@ def _make_filter(link: Link) -> Callable[[Any], Any]:
   def _filter_op(current_value: Any) -> Any:
     if hasattr(current_value, '__aiter__'):
       return _full_async(current_value)
-    lst = []
+    lst: list[Any] = []
     it = iter(current_value)
     item = Null
     try:
@@ -308,7 +320,7 @@ def _make_filter(link: Link) -> Callable[[Any], Any]:
       _set_link_temp_args(exc, link, item)
       raise
 
-  _filter_op._quent_op = 'filter'
+  _filter_op._quent_op = 'filter'  # type: ignore[attr-defined]
   return _filter_op
 
 
@@ -347,5 +359,5 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
       return _to_async(results)
     return results
 
-  _gather_op._quent_op = 'gather'
+  _gather_op._quent_op = 'gather'  # type: ignore[attr-defined]
   return _gather_op

@@ -1,29 +1,6 @@
 # Reuse & Patterns
 
-Quent provides several mechanisms for reusing chains across your codebase: cloning, freezing into immutable callables, and using chains as decorators.
-
-## clone
-
-Create a deep copy of a chain for independent reuse. The cloned chain is a separate object -- modifying one does not affect the other.
-
-```python
-from quent import Chain
-
-base = Chain().then(validate).then(normalize)
-
-chain_a = base.clone().then(save_to_db)
-chain_b = base.clone().then(send_to_api)
-```
-
-This pattern is useful when you have a shared pipeline prefix and want to fork it into different variants.
-
-### Parameters
-
-```python
-.clone() -> Self
-```
-
-Returns a new chain with the same operations and configuration as the original.
+Quent provides mechanisms for reusing chains across your codebase: freezing into immutable callables, and using chains as decorators.
 
 ## freeze and FrozenChain
 
@@ -42,9 +19,8 @@ for item in items:
 ### FrozenChain API
 
 ```python
-frozen.run(v=None, *args, **kwargs)   # execute the frozen chain
-frozen(v=None, *args, **kwargs)        # alias for .run()
-frozen.decorator()                     # use as a function decorator
+frozen.run(v=Null, *args, **kwargs)   # execute the frozen chain
+frozen(v=Null, *args, **kwargs)        # alias for .run()
 ```
 
 A `FrozenChain` is inherently thread-safe because each call operates on a fresh execution state.
@@ -54,7 +30,7 @@ A `FrozenChain` is inherently thread-safe because each call operates on a fresh 
 Freeze a chain when:
 
 - You want to reuse it as a callable without risk of accidental modification
-- You need thread-safe reuse without the overhead of `.safe_run()` cloning every time
+- You need thread-safe reuse across concurrent calls
 - You want to store a chain in a module-level variable or pass it around as a function
 
 ## decorator
@@ -71,8 +47,6 @@ def process(data):
 
 When `process(data)` is called, the chain executes with `data` (the return value of the decorated function) as the root value, then passes it through `validate`, `normalize`, and `save`.
 
-The `.decorator()` method is available on both `Chain` and `FrozenChain`:
-
 ```python
 # From a chain
 @Chain().then(validate).then(save).decorator()
@@ -82,7 +56,7 @@ def process(data):
 # From a frozen chain
 pipeline = Chain().then(validate).then(save).freeze()
 
-@pipeline.decorator()
+@pipeline.run
 def process(data):
   return data
 ```
@@ -125,14 +99,12 @@ email_validator = (
   Chain()
   .then(lambda s: s.strip())
   .then(lambda s: s.lower())
-  .then(lambda s: s if "@" in s else None)
-  .else_raise(ValueError("Invalid email"))
+  .then(lambda s: s if '@' in s else (_ for _ in ()).throw(ValueError('Invalid email')))
   .freeze()
 )
 
 # Reuse across your codebase
-email = email_validator("Alice@Example.COM")  # "alice@example.com"
-email = email_validator("not-an-email")        # raises ValueError
+email = email_validator('Alice@Example.COM')  # 'alice@example.com'
 ```
 
 ### Data Transformation Pipeline
@@ -151,47 +123,14 @@ normalize = (
 )
 
 # Apply to a single record
-clean = normalize({"Name": "Alice ", "Email": "alice@example.com", "Phone": None})
-# {"name": "Alice", "email": "alice@example.com"}
+clean = normalize({'Name': 'Alice ', 'Email': 'alice@example.com', 'Phone': None})
+# {'name': 'Alice', 'email': 'alice@example.com'}
 
 # Apply to a collection
 Chain(get_records).foreach(normalize).then(save_batch).run()
 ```
 
-### Template Chain with safe_run
-
-When you need a reusable chain that is safe for concurrent use:
-
-```python
-from quent import Chain
-
-template = Chain().then(validate).then(transform).then(save)
-
-# Thread-safe: each call clones before execution
-import threading
-
-for data in work_items:
-  threading.Thread(target=template.safe_run, args=(data,)).start()
-```
-
-### compose
-
-Combine multiple chains into a single chain using `Chain.compose()`:
-
-```python
-from quent import Chain
-
-step1 = Chain().then(fetch).then(validate)
-step2 = Chain().then(transform).then(enrich)
-step3 = Chain().then(save).then(notify)
-
-# Compose into a single pipeline
-full_pipeline = Chain.compose(step1, step2, step3)
-result = full_pipeline.run(initial_data)
-```
-
 ## Further Reading
 
-- [Chains & Cascades](chains.md) -- Core chain operations
-- [Resilience](resilience.md) -- safe_run for thread-safe execution
-- [API Reference](../reference.md) -- Full method signatures for clone, freeze, decorator
+- [Chains](chains.md) -- Core chain operations
+- [API Reference](../reference.md) -- Full method signatures for freeze and decorator

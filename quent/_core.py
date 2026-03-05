@@ -1,15 +1,17 @@
 """Core types, evaluation primitives, and async helpers."""
+
 from __future__ import annotations
 
-from typing import Any
-from collections.abc import Coroutine
-import sys
 import asyncio
 import functools
+import sys
+from collections.abc import Coroutine
+from typing import Any
 
 
 class _Null:
   """Sentinel for 'no value provided'. Distinct from None, which is a valid chain value."""
+
   __slots__ = ()
 
   def __repr__(self) -> str:
@@ -21,6 +23,7 @@ Null = _Null()
 
 class QuentException(Exception):
   """Public exception type for quent-specific errors."""
+
   __slots__ = ()
 
 
@@ -32,7 +35,8 @@ class _ControlFlowSignal(Exception):
   Both carry an optional value (with args/kwargs) that is lazily evaluated
   when the exception is caught.
   """
-  __slots__ = ('value', 'args_', 'kwargs_')
+
+  __slots__ = ('args_', 'kwargs_', 'value')
 
   # Intentionally skips super().__init__() — avoids the overhead of building
   # an args tuple and message string, since these are internal control-flow
@@ -45,17 +49,20 @@ class _ControlFlowSignal(Exception):
 
 class _Return(_ControlFlowSignal):
   """Signal early return from a chain with an optional value."""
+
   __slots__ = ()
 
 
 class _Break(_ControlFlowSignal):
   """Signal break from a foreach/filter iteration with an optional value."""
+
   __slots__ = ()
 
 
 # Convention: passing Ellipsis (...) as the first argument to a chain operation
 # means "call this callable with no arguments", overriding the default behavior
 # of passing the current chain value as the first argument.
+
 
 def _resolve_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> Any:
   """Resolve a value per calling conventions."""
@@ -92,10 +99,10 @@ def _set_link_temp_args(exc: BaseException, link: Link, value: Any) -> None:
   actual arguments in the chain visualization.
   """
   if not hasattr(exc, '__quent_link_temp_args__'):
-    exc.__quent_link_temp_args__ = {}
+    exc.__quent_link_temp_args__ = {}  # type: ignore[attr-defined]
   # Keyed by id(link) so _traceback._format_link can match the right args
   # to the right link when rendering the chain visualization.
-  exc.__quent_link_temp_args__[id(link)] = (value,)
+  exc.__quent_link_temp_args__[id(link)] = (value,)  # type: ignore[attr-defined]
 
 
 # Eager task start (Python 3.14+) avoids event loop scheduling overhead.
@@ -130,10 +137,24 @@ class Link:
     original_value: The original value before wrapping (for traceback display).
     temp_args: Temporary arguments set during evaluation (for traceback display).
   """
+
   __slots__ = (
-    'v', 'next_link', 'is_chain', 'ignore_result',
-    'args', 'kwargs', 'original_value',
+    'args',
+    'ignore_result',
+    'is_chain',
+    'kwargs',
+    'next_link',
+    'original_value',
+    'v',
   )
+
+  v: Any
+  next_link: Link | None
+  ignore_result: bool
+  args: tuple[Any, ...] | None
+  kwargs: dict[str, Any] | None
+  original_value: Any
+  is_chain: bool
 
   def __init__(
     self,

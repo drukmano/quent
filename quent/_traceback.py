@@ -1,14 +1,14 @@
 """Traceback rewriting: injects readable chain visualizations into exception tracebacks."""
+
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
-
-import sys
 import os
-import types
+import sys
 import traceback
+import types
+from typing import TYPE_CHECKING, Any
 
-from ._core import Null, Link
+from ._core import Link, Null
 
 if TYPE_CHECKING:
   from ._chain import Chain
@@ -29,7 +29,9 @@ _TracebackType: type[types.TracebackType] = types.TracebackType
 
 class _Ctx:
   """Shared context threaded through chain stringification."""
-  __slots__ = ('source_link', 'link_temp_args', 'found')
+
+  __slots__ = ('found', 'link_temp_args', 'source_link')
+
   def __init__(self, source_link: Link | None, link_temp_args: dict[int, tuple[Any, ...]] | None) -> None:
     self.source_link = source_link
     self.link_temp_args = link_temp_args
@@ -68,17 +70,19 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
   _clean_chained_exceptions(exc.__context__, seen)
 
 
-def _modify_traceback(exc: BaseException, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None) -> BaseException:
+def _modify_traceback(
+  exc: BaseException, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None
+) -> BaseException:
   """Inject chain visualization or just strip internal frames.
   Always returns the exception for use in `raise` expressions.
   """
   if getattr(exc, '__quent_source_link__', None) is None:
-    exc.__quent_source_link__ = link
+    exc.__quent_source_link__ = link  # type: ignore[attr-defined]
 
   if chain is not None and link is not None and not chain.is_nested:
-    exc.__quent__ = True
-    source_link = exc.__quent_source_link__
-    del exc.__quent_source_link__
+    exc.__quent__ = True  # type: ignore[attr-defined]
+    source_link = exc.__quent_source_link__  # type: ignore[attr-defined]
+    del exc.__quent_source_link__  # type: ignore[attr-defined]
 
     ctx = _Ctx(
       source_link=_get_true_source_link(source_link, root_link),
@@ -86,7 +90,7 @@ def _modify_traceback(exc: BaseException, chain: Chain | None = None, link: Link
     )
     chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx)
     # Indent the chain visualization so it appears nested under the <quent> frame header.
-    chain_source = _make_indent(1).join([''] + chain_source.splitlines())
+    chain_source = _make_indent(1).join(['', *chain_source.splitlines()])
 
     # HACK: Inject chain visualization into the traceback by exec'ing a `raise` statement
     # with a code object whose co_name has been replaced with the chain visualization string.
@@ -97,19 +101,19 @@ def _modify_traceback(exc: BaseException, chain: Chain | None = None, link: Link
     exc_value = sys.exc_info()[1]
     globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
     if _HAS_QUALNAME:
-      code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)
+      code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)  # type: ignore[call-arg]
     else:
       code = _RAISE_CODE.replace(co_name=chain_source)
     try:
       exec(code, globals_, {})
     except BaseException:
-      new_tb = sys.exc_info()[1].__traceback__
+      new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]
       exc.__traceback__ = _clean_internal_frames(new_tb)
   else:
-    exc.__quent__ = True
+    exc.__quent__ = True  # type: ignore[attr-defined]
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
-  seen = set()
+  seen: set[int] = set()
   _clean_chained_exceptions(exc.__cause__, seen)
   _clean_chained_exceptions(exc.__context__, seen)
   return exc.with_traceback(exc.__traceback__)
@@ -190,7 +194,9 @@ def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | Non
   return ', '.join(parts)
 
 
-def _resolve_nested_chain(link: Link, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None, nest_lvl: int, ctx: _Ctx) -> str:
+def _resolve_nested_chain(
+  link: Link, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None, nest_lvl: int, ctx: _Ctx
+) -> str:
   """Resolve a nested chain link into its string representation."""
   original_value = link.original_value if link.original_value is not None else link.v
   nested_root_link = None
@@ -207,14 +213,16 @@ def _resolve_nested_chain(link: Link, args: tuple[Any, ...] | None, kwargs: dict
   nested_ctx = _Ctx(source_link=ctx.source_link, link_temp_args=None)
   nested_ctx.found = ctx.found
   result = _stringify_chain(
-    original_value, nest_lvl=nest_lvl + 1,
-    root_link=nested_root_link, ctx=nested_ctx,
+    original_value,
+    nest_lvl=nest_lvl + 1,
+    root_link=nested_root_link,
+    ctx=nested_ctx,
   )
   ctx.found = nested_ctx.found
   return result
 
 
-def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, ctx: _Ctx | None = None) -> str:
+def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, *, ctx: _Ctx) -> str:
   """Build a string visualization of a chain for traceback display.
 
   Returns the output string.
@@ -235,7 +243,7 @@ def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = N
     if not ctx.found and root is ctx.source_link:
       ctx.found = True
 
-  links = []
+  links: list[tuple[Link, str]] = []
   link = chain.first_link
   while link is not None:
     links.append((link, _get_link_name(link)))
@@ -254,7 +262,7 @@ def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = N
   return output
 
 
-def _format_link(link: Link, nest_lvl: int, ctx: _Ctx | None = None, method_name: str | None = None) -> str:
+def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None = None) -> str:
   """Format a single link for chain visualization.
 
   Handles nested chains, argument display, source link marking, and
@@ -272,10 +280,9 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx | None = None, method_name
   output = ''
   is_chain = False
 
-  if not ctx.found:
-    if ctx.link_temp_args is not None and id(link) in ctx.link_temp_args:
-      args = ctx.link_temp_args[id(link)]
-      kwargs = {}
+  if not ctx.found and ctx.link_temp_args is not None and id(link) in ctx.link_temp_args:
+    args = ctx.link_temp_args[id(link)]
+    kwargs = {}
 
   if original_value is None:
     original_value = link.v
@@ -303,9 +310,8 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx | None = None, method_name
   else:
     output += f'({link_v})'
 
-  if not ctx.found:
-    if outer_link is ctx.source_link:
-      output += ' <' + '-' * 4
+  if not ctx.found and outer_link is ctx.source_link:
+    output += ' <' + '-' * 4
 
   return output
 
@@ -315,7 +321,9 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx | None = None, method_name
 _original_excepthook: Any = sys.excepthook
 
 
-def _quent_excepthook(exc_type: type[BaseException], exc_value: BaseException, exc_tb: types.TracebackType | None) -> None:
+def _quent_excepthook(
+  exc_type: type[BaseException], exc_value: BaseException, exc_tb: types.TracebackType | None
+) -> None:
   """Custom excepthook that cleans quent internal frames before display."""
   if getattr(exc_value, '__quent__', False):
     _clean_chained_exceptions(exc_value, set())
@@ -332,12 +340,18 @@ sys.excepthook = _quent_excepthook
 _original_te_init = traceback.TracebackException.__init__
 
 
-def _patched_te_init(self: traceback.TracebackException, exc_type: type[BaseException], exc_value: BaseException | None = None, exc_tb: types.TracebackType | None = None, **kwargs: Any) -> None:
+def _patched_te_init(
+  self: traceback.TracebackException,
+  exc_type: type[BaseException],
+  exc_value: BaseException | None = None,
+  exc_tb: types.TracebackType | None = None,
+  **kwargs: Any,
+) -> None:
   """Patched TracebackException.__init__ that cleans quent frames."""
   if exc_value is not None and getattr(exc_value, '__quent__', False):
     _clean_chained_exceptions(exc_value, set())
     exc_tb = exc_value.__traceback__
-  _original_te_init(self, exc_type, exc_value, exc_tb, **kwargs)
+  _original_te_init(self, exc_type, exc_value, exc_tb, **kwargs)  # type: ignore[arg-type]
 
 
-traceback.TracebackException.__init__ = _patched_te_init
+traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign,assignment]

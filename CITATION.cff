@@ -3,16 +3,15 @@ message: "If you use this software, please cite it as below."
 type: software
 title: "Quent"
 abstract: >-
-  High-performance fluent chain interface for Python with transparent
-  sync/async handling. Write pipeline code once — Quent automatically
-  detects coroutines and handles them. Built-in retry, timeout, and
-  context propagation. Cython-compiled, zero dependencies.
+  Fluent chain interface for Python with transparent sync/async handling.
+  Write pipeline code once — Quent automatically detects coroutines and
+  handles them. Pure Python, zero dependencies.
 authors:
   - given-names: "Ohad"
     family-names: "Drukman"
     email: "drukmano@icloud.com"
-version: "3.0.1"
-date-released: "2026-03-03"
+version: "3.1.0"
+date-released: "2026-03-05"
 license: MIT
 url: "https://github.com/drukmano/quent"
 repository-code: "https://github.com/drukmano/quent"
@@ -22,9 +21,6 @@ keywords:
   - asyncio
   - pipeline
   - chain
-  - cython
+  - pure-python
   - fluent-interface
-  - retry
-  - timeout
-  - resilience
   - function-composition

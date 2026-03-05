@@ -1,24 +1,32 @@
 """Chain and FrozenChain: the primary execution engine."""
+
 from __future__ import annotations
 
-from typing import Any, NoReturn
-from collections.abc import Callable, Iterable
-import warnings
-import functools
 import collections.abc
+import functools
+import warnings
+from collections.abc import Callable, Iterable
 from inspect import isawaitable
+from typing import Any, NoReturn
 
 from ._core import (
-  Null, _evaluate_value, _resolve_value,
-  _handle_return_exc, _handle_break_exc,
-  _ControlFlowSignal, _Return, _Break, QuentException,
-  Link, _ensure_future,
+  Link,
+  Null,
+  QuentException,
+  _Break,
+  _ControlFlowSignal,
+  _ensure_future,
+  _evaluate_value,
+  _handle_return_exc,
+  _Return,
 )
-from ._ops import _Generator, _make_with, _make_foreach, _make_filter, _make_gather
+from ._ops import _Generator, _make_filter, _make_foreach, _make_gather, _make_with
 from ._traceback import _modify_traceback
 
 
-async def _await_run(result: Any, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None) -> Any:
+async def _await_run(
+  result: Any, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None
+) -> Any:
   """Await a coroutine with traceback support for fire-and-forget paths.
 
   Used when a sync handler (except/finally) returns a coroutine that gets
@@ -28,18 +36,18 @@ async def _await_run(result: Any, chain: Chain | None = None, link: Link | None 
   try:
     return await result
   except BaseException as exc:
-    raise _modify_traceback(exc, chain, link, root_link)
+    raise _modify_traceback(exc, chain, link, root_link) from None
 
 
 def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link: Link | None) -> Any:
   """Shared except handler logic: modify traceback, evaluate handler, return result."""
   _modify_traceback(exc, chain, link, root_link)
-  if chain.on_except_link is None or not isinstance(exc, chain.on_except_exceptions):
+  if chain.on_except_link is None or not isinstance(exc, chain.on_except_exceptions):  # type: ignore[arg-type]
     raise exc
   try:
     result = _evaluate_value(chain.on_except_link, exc)
   except _ControlFlowSignal:
-    raise QuentException('Using control flow signals inside except handlers is not allowed.')
+    raise QuentException('Using control flow signals inside except handlers is not allowed.') from None
   except BaseException as exc_:
     _modify_traceback(exc_, chain, chain.on_except_link, root_link)
     raise exc_ from exc
@@ -49,9 +57,9 @@ def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link
 def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None) -> Any:
   """Shared finally handler logic: evaluate handler, return result."""
   try:
-    return _evaluate_value(chain.on_finally_link, root_value)
+    return _evaluate_value(chain.on_finally_link, root_value)  # type: ignore[arg-type]
   except _ControlFlowSignal:
-    raise QuentException('Using control flow signals inside finally handlers is not allowed.')
+    raise QuentException('Using control flow signals inside finally handlers is not allowed.') from None
   except BaseException as exc_:
     _modify_traceback(exc_, chain, chain.on_finally_link, root_link)
     raise exc_
@@ -65,9 +73,22 @@ class Chain:
   _is_chain = True
 
   __slots__ = (
-    'root_link', 'first_link', 'on_finally_link', 'on_except_link',
-    'current_link', 'on_except_exceptions', 'is_nested'
+    'current_link',
+    'first_link',
+    'is_nested',
+    'on_except_exceptions',
+    'on_except_link',
+    'on_finally_link',
+    'root_link',
   )
+
+  current_link: Link | None
+  first_link: Link | None
+  is_nested: bool
+  on_except_exceptions: tuple[type[BaseException], ...] | None
+  on_except_link: Link | None
+  on_finally_link: Link | None
+  root_link: Link | None
 
   # TODO rename `v` globally to a more appropriate term. there must be a term
   #  for something that can be multiple things (a value, a function, or a class, for example).
@@ -143,14 +164,14 @@ class Chain:
     except _Break:
       if self.is_nested:
         raise
-      raise QuentException('_Break cannot be used in this context.')
+      raise QuentException('_Break cannot be used in this context.') from None
 
     except BaseException as exc:
       # Stamp the failing link onto the exception (first-write-wins) so the
       # traceback formatter can highlight where the error originated.
       if getattr(exc, '__quent_source_link__', None) is None:
-        exc.__quent_source_link__ = link
-      result = _except_handler_body(exc, self, link, root_link)
+        exc.__quent_source_link__ = link  # type: ignore[attr-defined]
+      result = _except_handler_body(exc, self, link, root_link)  # type: ignore[arg-type]
       if isawaitable(result):
         # _ensure_future may raise RuntimeError if no event loop is running.
         # In that case, close the orphaned coroutine to avoid ResourceWarning.
@@ -158,13 +179,12 @@ class Chain:
           result = _ensure_future(_await_run(result, self, self.on_except_link, root_link))
         except RuntimeError:
           result.close()
-          raise QuentException(
-            'An except handler returned a coroutine but no event loop is running.'
-          ) from exc
+          raise QuentException('An except handler returned a coroutine but no event loop is running.') from exc
         warnings.warn(
           'An except handler returned a coroutine from a synchronous execution path. '
           'It was scheduled as a fire-and-forget Task via ensure_future().',
           category=RuntimeWarning,
+          stacklevel=2,
         )
         return result
       if result is Null:
@@ -178,19 +198,23 @@ class Chain:
           try:
             _ensure_future(_await_run(result, self, self.on_finally_link, root_link))
           except RuntimeError:
-            result.close()
-            raise QuentException(
-              'A finally handler returned a coroutine but no event loop is running.'
-            )
+            result.close()  # type: ignore[attr-defined]
+            raise QuentException('A finally handler returned a coroutine but no event loop is running.') from None
           warnings.warn(
             'A finally handler returned a coroutine from a synchronous execution path. '
             'It was scheduled as a fire-and-forget Task via ensure_future().',
             category=RuntimeWarning,
+            stacklevel=2,
           )
 
   async def _run_async(
-    self, awaitable: Any, link: Link, current_value: Any = Null, root_value: Any = Null,
-    has_root_value: bool = False, root_link: Link | None = None,
+    self,
+    awaitable: Any,
+    link: Link,
+    current_value: Any = Null,
+    root_value: Any = Null,
+    has_root_value: bool = False,
+    root_link: Link | None = None,
   ) -> Any:
     try:
       result = await awaitable
@@ -200,14 +224,14 @@ class Chain:
         current_value = result
       if not link.ignore_result:
         current_value = result
-      link = link.next_link
+      link = link.next_link  # type: ignore[assignment]
       while link is not None:
         result = _evaluate_value(link, current_value)
         if isawaitable(result):
           result = await result
         if not link.ignore_result:
           current_value = result
-        link = link.next_link
+        link = link.next_link  # type: ignore[assignment]
 
       if current_value is Null:
         return None
@@ -222,7 +246,7 @@ class Chain:
     except _Break:
       if self.is_nested:
         raise
-      raise QuentException('_Break cannot be used in this context.')
+      raise QuentException('_Break cannot be used in this context.') from None
 
     except BaseException as exc:
       result = _except_handler_body(exc, self, link, root_link)
@@ -241,6 +265,7 @@ class Chain:
   def decorator(self) -> Callable[..., Callable[..., Any]]:
     """Wrap the chain as a function decorator."""
     chain = self
+
     def _decorator(fn):
       @functools.wraps(fn)
       def _wrapper(*args, **kwargs):
@@ -249,7 +274,9 @@ class Chain:
         except _ControlFlowSignal:
           # TODO is that even possible?
           raise QuentException('A control flow signal escaped the chain.') from None
+
       return _wrapper
+
     return _decorator
 
   def run(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> Any:
@@ -268,10 +295,17 @@ class Chain:
     """Append a side-effect step. The result is discarded."""
     return self._then(Link(fn, args, kwargs, ignore_result=True))
 
-  def except_(self, fn: Any, /, *args: Any, exceptions: type[BaseException] | Iterable[type[BaseException]] | None = None, **kwargs: Any) -> Chain:
+  def except_(
+    self,
+    fn: Any,
+    /,
+    *args: Any,
+    exceptions: type[BaseException] | Iterable[type[BaseException]] | None = None,
+    **kwargs: Any,
+  ) -> Chain:
     """Register an exception handler. Receives the caught exception."""
     if self.on_except_link is not None:
-      raise QuentException('You can only register one \'except\' callback.')
+      raise QuentException("You can only register one 'except' callback.")
     if exceptions is not None:
       if isinstance(exceptions, str):
         raise TypeError(f"except_() expects exception types, not string '{exceptions}'")
@@ -289,7 +323,7 @@ class Chain:
   def finally_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
     """Register a cleanup handler. Receives the root value."""
     if self.on_finally_link is not None:
-      raise QuentException('You can only register one \'finally\' callback.')
+      raise QuentException("You can only register one 'finally' callback.")
     self.on_finally_link = Link(fn, args, kwargs)
     return self
 
@@ -359,6 +393,7 @@ class Chain:
 
   def __repr__(self) -> str:
     from ._traceback import _get_link_name, _get_obj_name
+
     parts = []
     if self.root_link is not None:
       parts.append(_get_obj_name(self.root_link.v))
@@ -374,6 +409,7 @@ class _FrozenChain:
   """Frozen chain: delegates to the underlying Chain.
   The chain must not be modified after freezing.
   """
+
   __slots__ = ('_chain',)
 
   def __init__(self, chain: Chain) -> None:
@@ -388,4 +424,4 @@ class _FrozenChain:
     return True
 
   def __repr__(self) -> str:
-    return f'Frozen({repr(self._chain)})'
+    return f'Frozen({self._chain!r})'

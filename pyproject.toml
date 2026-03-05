@@ -6,14 +6,14 @@ build-backend = "setuptools.build_meta"
 name = "quent"
 version = "3.1.0"
 authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
-description = "High-performance fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in retry, timeout, and context propagation. Zero dependencies."
+description = "Fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Pure Python, zero dependencies."
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = [
     'chain', 'chaining', 'pipeline', 'fluent', 'pipe',
     'async', 'sync', 'asyncio', 'coroutine', 'await',
-    'retry', 'timeout', 'resilience',
+    'pure-python',
     'performance',
     'function-composition', 'middleware',
 ]
@@ -42,20 +42,6 @@ Documentation = "https://quent.readthedocs.io"
 Repository = "https://github.com/drukmano/quent"
 Changelog = "https://github.com/drukmano/quent/releases"
 Issues = "https://github.com/drukmano/quent/issues"
-
-[tool.cibuildwheel]
-build = "cp310-* cp311-* cp312-* cp313-* cp314-*"
-skip = "*-musllinux*"
-test-command = "python -m unittest discover -s {project}/tests -p '*_tests.py'"
-
-[tool.cibuildwheel.linux]
-archs = ["x86_64", "aarch64"]
-
-[tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64"]
-
-[tool.cibuildwheel.windows]
-archs = ["AMD64"]
 
 [tool.coverage.run]
 source = ["quent"]

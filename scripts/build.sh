@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
-rm -rf dist
-rm -rf build
-rm -rf quent.egg-info
+
+echo "==> Cleaning previous build artifacts"
+rm -rf dist build *.egg-info
+
+echo "==> Building sdist + wheel"
 python3 -m build
+
+echo "==> Build complete. Artifacts in dist/"
+ls -lh dist/

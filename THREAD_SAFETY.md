@@ -2,79 +2,87 @@
 
 ## Verdict
 
-**Frozen chains are safe for concurrent use — both across threads and asyncio tasks.** Computation results are always correct. There is one minor caveat around diagnostics.
+**Frozen chains are safe for concurrent use -- both across threads and asyncio tasks.** Computation results are always correct. Diagnostics are also safe thanks to per-exception state storage.
 
 ## Safety Matrix
 
 | Scenario | Correct Results? | Correct Tracebacks? |
 |----------|:---:|:---:|
-| Frozen chain, multiple threads (GIL) | **YES** | mostly* |
-| Frozen chain, multiple asyncio tasks | **YES** | mostly* |
-| Unfrozen chain, multiple threads | **NO** — don't do this | **NO** |
-| Any chain, free-threaded Python 3.13+ | **UNSAFE** | **UNSAFE** |
+| Frozen chain, multiple threads (GIL) | **YES** | **YES** |
+| Frozen chain, multiple asyncio tasks | **YES** | **YES** |
+| Unfrozen chain, multiple threads | **NO** -- don't do this | **NO** |
+| Any chain, free-threaded Python 3.13+ | see below | see below |
 
 ## Why It's Safe (for computation)
 
 Every piece of execution state is **per-call**:
-- `_ExecCtx` — created fresh each `_run()` call
-- `temp_root_link` — created fresh via `_make_temp_link()`
-- `link_results` (debug mode) — local variable
-- Local iteration state (`lst`, `el`, `result`, iterators) — all stack-local
+- Local variables in `_run()` / `_run_async()` (`_chain.py`): `link`, `root_link`, `current_value`, `root_value`, `has_run_value`, `has_root_value`, `ignore_finally`, `set_initial_values`
+- Temporary `Link` created when `run(v)` is called with a value -- stack-local
+- Local iteration state in `_ops.py` closures (`lst`, `item`, `result`, iterators) -- all stack-local
 
-All Chain and Link fields (`v`, `args`, `kwargs`, `eval_code`, `next_link`, etc.) are **read-only during execution** — they're set during construction and never touched again.
+All Chain and Link fields are **read-only during execution** -- they are set during construction and never touched again.
 
-## The One Caveat: `link.temp_args` (diagnostics only)
+## Diagnostics: `_set_link_temp_args` (safe)
 
-`_Foreach`, `_Filter`, and `_With` all mutate `self.link.temp_args` during execution — a field on a **shared** Link object. This is used exclusively for traceback display ("which element was being processed when the error occurred"). Under concurrent execution, if two calls error simultaneously, one traceback might show the other's element.
+In the pure Python implementation, `_set_link_temp_args()` (`_core.py`) writes diagnostic information to the **exception object** itself, as `exc.__quent_link_temp_args__`. Since each exception instance is unique per error, this is inherently per-call. There is no mutation of shared Link or Chain state during execution.
 
-**Impact: cosmetic only.** Computation results, exception types, and control flow are all correct. Only the "context" shown in error tracebacks may be wrong under concurrent error conditions.
+### How it works
+
+When a `_foreach_op`, `_filter_op`, or `_with_op` closure (in `_ops.py`) catches an exception, it calls:
+
+```python
+_set_link_temp_args(exc, link, item)
+```
+
+This writes to `exc.__quent_link_temp_args__[id(link)]`, where `exc` is the per-call exception object. Multiple concurrent executions catching different exceptions write to different objects -- no contention.
 
 ### Affected code locations
 
-- `_iteration.pxi` — `_Foreach.__call__` lines 55, 66
-- `_iteration.pxi` — `_Filter.__call__` lines 168, 175
-- `_control_flow.pxi` — `_With.__call__` line 81
-- `_control_flow.pxi` — `_with_full_async` line 140
+- `_ops.py` -- `_foreach_op` sync/async paths (lines ~203, 227, 253)
+- `_ops.py` -- `_filter_op` sync/async paths (lines ~281, 298, 320)
+- `_ops.py` -- `_with_op` sync/async paths
+- `_core.py` -- `_set_link_temp_args()` (line ~94)
 
 ## Free-threaded Python 3.13+ (no GIL)
 
-Without the GIL, the `temp_args` write becomes a potential torn pointer — this could cause memory corruption, not just wrong diagnostics. The `task_registry` global set (`_async_utils.pxi` line 22) also becomes unsafe under concurrent `set.add()`/`set.discard()` without synchronization.
+Without the GIL, additional concerns arise:
+
+- **Link/Chain fields** are still read-only during execution, so they remain safe as long as construction is single-threaded and a happens-before relationship exists before sharing.
+- **`_task_registry`** (`_core.py`, line ~116) -- a module-level `set[asyncio.Task]` mutated by `_ensure_future()`. `set.add()` and `set.discard()` are not atomic without the GIL. This needs synchronization.
+- **`_set_link_temp_args`** -- writes to the exception object. Since exceptions are per-call and not shared across threads, this is safe even without the GIL.
 
 ### Required work for free-threaded support
-- Add a lock around `task_registry` mutations, or switch to a thread-safe container
-- Either make `temp_args` per-execution (store in `_ExecCtx` instead of on shared `Link`), or add per-field locking
-- Audit any Cython cdef class attribute stores for atomicity guarantees
+- Add a lock around `_task_registry` mutations, or switch to a thread-safe container
+- Audit attribute stores on exception objects (`__quent_source_link__`, `__quent_link_temp_args__`, `__quent__`) for atomicity -- these are all per-exception-instance writes, but CPython's free-threaded mode may need care for dict-based attribute access
 
 ## Shared Mutable State Inventory
 
-### Module-level globals (immutable after init — SAFE)
-- `Null`, `EMPTY_TUPLE`, `EMPTY_DICT` — sentinels
-- `_PyCoroType`, `_CyCoroType` — type caches
-- Function aliases (`_async_foreach_fn`, etc.) — bound once
-- `sys.excepthook` — set once at import
+### Module-level globals (immutable after init -- SAFE)
+- `Null` -- singleton sentinel (`_core.py`)
+- `_create_task_fn` -- bound once at import (`_core.py`)
+- `_RAISE_CODE`, `_HAS_QUALNAME`, `_TracebackType`, `_quent_file` -- set once at import (`_traceback.py`)
+- `sys.excepthook` -- set once at import (`_traceback.py`)
 
-### Module-level globals (mutable — requires care)
-- `task_registry` (set) — safe under GIL, unsafe without
-- `_registry_warned` (bool) — benign race at worst
+### Module-level globals (mutable -- requires care)
+- `_task_registry` (set) (`_core.py`, line ~116) -- safe under GIL, unsafe without
 
-### Chain object fields — ALL read-only during execution
-- `root_link`, `first_link`, `on_finally_link`, `current_link`
-- `is_cascade`, `_autorun`, `is_nested`, `_debug`, `_is_simple`, `_is_sync`
+### Chain object fields -- ALL read-only during execution
+- `current_link`, `first_link`, `is_nested`
+- `on_except_exceptions`, `on_except_link`, `on_finally_link`
+- `root_link`
 
-### Link object fields — ALL read-only during execution EXCEPT `temp_args`
-- Read-only: `v`, `original_value`, `exceptions`, `next_link`, `args`, `kwargs`, `is_with_root`, `ignore_result`, `is_chain`, `is_exception_handler`, `reraise`, `eval_code`, `fn_name`
-- **Mutable during execution: `temp_args`** (diagnostics only)
+### Link object fields -- ALL read-only during execution
+- `v`, `next_link`, `ignore_result`, `args`, `kwargs`, `original_value`, `is_chain`
 
-### Per-execution state (SAFE — never shared)
-- `_ExecCtx` instances — created fresh per `_run()` call
-- `temp_root_link` — created fresh per `_run()` call
-- `link_results` dict — local variable in `_run()`
-- Iteration locals (`lst`, `el`, `result`, iterators)
-- Exception attributes (`__quent_link_temp_args__`, `__quent_source_link__`, `__quent__`)
+### Per-execution state (SAFE -- never shared)
+- Local variables in `_run()`: `link`, `root_link`, `current_value`, `root_value`, `has_run_value`, `has_root_value`, `ignore_finally`, `set_initial_values`
+- Local variables in `_run_async()`: same set, received as parameters
+- Temporary `Link` for `run(v)` calls -- created on the stack
+- Iteration locals in `_ops.py` closures (`lst`, `item`, `result`, iterators)
+- Exception attributes (`__quent_link_temp_args__`, `__quent_source_link__`, `__quent__`) -- per-exception-instance
 
 ## Recommendations
 
 1. **Current usage (CPython with GIL):** Frozen chains are safe to share across threads and asyncio tasks. Construct chains in a single thread, freeze them, then share freely.
-2. **Do NOT share unfrozen Chain instances across threads.** Construction methods (`_then`, `config`, `except_`, `finally_`) mutate Chain fields without synchronization.
-3. **For independent copies:** Use `chain.clone()` to create per-thread copies if needed.
-4. **For true snapshots:** Use `chain.clone().freeze()` — `freeze()` alone shares the execution engine with the original chain.
+2. **Do NOT share unfrozen Chain instances across threads.** Construction methods (`then`, `do`, `except_`, `finally_`, etc.) mutate Chain fields without synchronization.
+3. **For reusable pipelines:** Use `chain.freeze()` to create an immutable `_FrozenChain` snapshot. Frozen chains are safe for concurrent use because all execution state is per-call.

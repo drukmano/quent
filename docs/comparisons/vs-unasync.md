@@ -104,8 +104,8 @@ user = await async_client.get_user(42)
 | **Import path rewriting** | Yes (manual configuration) | Not needed |
 | **Works with any API shape** | Yes (mechanical transformation) | Requires chain-compatible API |
 | **Async-specific patterns** | Handles `async for`, `async with` | Handles via `.iterate()`, `.with_()` |
-| **Built-in resilience** | No | Yes (retry, timeout, error handling) |
-| **Performance overhead** | Zero (generated code is native) | Negligible (Cython-compiled) |
+| **Built-in error handling** | No | Yes (except, finally, enhanced tracebacks) |
+| **Performance overhead** | Zero (generated code is native) | Negligible (pure Python) |
 | **Dependencies** | unasync (build-time only) | quent (runtime) |
 
 ## Pros and Cons
@@ -126,7 +126,7 @@ user = await async_client.get_user(42)
 - Import path rewriting can be fragile and requires manual mapping
 - The sync and async implementations must have exactly parallel structure
 - Does not help with mixed sync/async in the same code path
-- No additional features (retry, timeout, etc.)
+- No additional features (error handling, etc.)
 
 ### Quent
 
@@ -134,9 +134,9 @@ user = await async_client.get_user(42)
 
 - No code generation or build step
 - Single implementation -- no generated files to track
-- Includes retry, timeout, error handling, and context propagation
+- Includes error handling and enhanced tracebacks
 - Handles mixed sync/async in the same chain
-- Cython-compiled for minimal overhead
+- Pure Python with minimal overhead
 
 **Cons:**
 
@@ -144,7 +144,7 @@ user = await async_client.get_user(42)
 - API must be structured as a chain/pipeline
 - Not suitable for complex async patterns (`async for` loops with complex bodies, deeply nested `async with` blocks)
 - Newer and less battle-tested than unasync
-- Requires Python >= 3.14
+- Requires Python >= 3.10
 
 ## When to Use Which
 
@@ -158,7 +158,7 @@ user = await async_client.get_user(42)
 **Use Quent when:**
 
 - Your operations naturally form a pipeline or chain
-- You want retry, timeout, and error handling composed in the pipeline
+- You want error handling composed in the pipeline
 - You want a single runtime implementation without generated code
 - You are building application-level code (API clients, service layers, data pipelines)
 - You want the same function to handle both sync and async callers transparently
@@ -166,6 +166,3 @@ user = await async_client.get_user(42)
 ## Further Reading
 
 - [Async Handling](../guide/async.md) -- How Quent's transparent async works in detail
-- [Resilience](../guide/resilience.md) -- Built-in retry and timeout
-- [Quent vs tenacity](vs-tenacity.md) -- Comparison with the retry library
-- [Quent vs pipe](vs-pipe.md) -- Comparison with the pipe library

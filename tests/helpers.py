@@ -145,3 +145,71 @@ class AsyncEmpty:
 def run_sync(coro):
   """Run a coroutine synchronously."""
   return asyncio.run(coro)
+
+
+# --- Edge-case context managers & iterables ---
+
+class SyncCMWithAwaitableExit:
+  def __enter__(self):
+    return 'ctx_value'
+  def __exit__(self, *args):
+    async def _exit():
+      return False
+    return _exit()
+
+class SyncCMSuppressesAwaitable:
+  def __enter__(self):
+    return 'ctx_value'
+  def __exit__(self, *args):
+    async def _exit():
+      return True
+    return _exit()
+
+class AsyncCMNoop:
+  async def __aenter__(self):
+    return 'ctx_value'
+  async def __aexit__(self, *args):
+    return False
+
+class AsyncRangeRaises:
+  def __init__(self, n, raise_at):
+    self.n = n
+    self.raise_at = raise_at
+  def __aiter__(self):
+    self._i = 0
+    return self
+  async def __anext__(self):
+    if self._i >= self.n:
+      raise StopAsyncIteration
+    val = self._i
+    self._i += 1
+    if val == self.raise_at:
+      raise RuntimeError('iteration error')
+    return val
+
+
+# --- Traceback edge-case fixtures ---
+
+class ObjWithBadName:
+  """__name__/__qualname__ raise RuntimeError (not AttributeError), so
+  getattr(obj, '__name__', None) propagates instead of returning default.
+  This triggers the ``except Exception`` path in _get_obj_name.
+  Falls back to repr().
+  """
+  def __getattr__(self, name):
+    if name in ('__name__', '__qualname__'):
+      raise RuntimeError(f'no {name}')
+    raise AttributeError(name)
+  def __repr__(self):
+    return '<ObjWithBadName>'
+
+class ObjWithBadNameAndRepr:
+  """Same as ObjWithBadName but repr() also raises, so _get_obj_name
+  falls all the way back to type(obj).__name__.
+  """
+  def __getattr__(self, name):
+    if name in ('__name__', '__qualname__'):
+      raise RuntimeError(f'no {name}')
+    raise AttributeError(name)
+  def __repr__(self):
+    raise RuntimeError('no repr')

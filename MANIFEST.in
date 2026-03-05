@@ -1,5 +1,5 @@
 include LICENSE
 include README.md
 include pyproject.toml
-recursive-include quent *.pyx *.pxd *.pyi *.pxi
+recursive-include quent *.py
 include quent/py.typed

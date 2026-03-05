@@ -1,106 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-# Compilation modes:
-# ┌───────────┬──────────────────────────────┬─────────────────────────────────────────────────┐
-# │ Mode      │ Command                      │ Effect                                          │
-# ├───────────┼──────────────────────────────┼─────────────────────────────────────────────────┤
-# │ Standard  │ bash scripts/compile.sh      │ Portable, incremental, no extra flags            │
-# │ Benchmark │ bash scripts/compile.sh bench│ Sets QUENT_NATIVE=1 QUENT_LTO=1, full recompile │
-# │ PGO       │ bash scripts/compile.sh pgo  │ 2-pass profile-guided optimisation               │
-# └───────────┴──────────────────────────────┴─────────────────────────────────────────────────┘
+# Pure Python equivalent of Cython's compile step:
+# byte-compiles all .py files, catching syntax errors early
+# and pre-generating .pyc files for faster import.
 
-# Always clean test artifacts
-rm -f .coverage
-rm -rf htmlcov
+echo "==> Cleaning stale bytecode"
+find quent/ -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+find quent/ -name '*.pyc' -delete 2>/dev/null || true
 
-clean_build_artifacts() {
-  rm -f quent/*.cpython*
-  rm -f quent/*.c
-  rm -f quent/*.html
-  rm -f quent/*/*.cpython*
-  rm -f quent/*/*.c
-  rm -f quent/*/*.html
-}
+echo "==> Byte-compiling quent/"
+python3 -m compileall -q quent/
 
-# Check if any .pyx/.pxi source is newer than the newest .so file.
-# Returns 0 (true) if recompilation is needed, 1 (false) if up to date.
-sources_changed() {
-  # If no .so files exist, recompilation is needed
-  local newest_so
-  newest_so=$(find quent -name '*.so' -print -quit 2>/dev/null)
-  if [ -z "$newest_so" ]; then
-    return 0
-  fi
-
-  # Find the newest .so file
-  local so_files
-  so_files=$(find quent -name '*.so')
-  local newest_so_file
-  newest_so_file=$(ls -t $so_files 2>/dev/null | head -1)
-
-  # Check if any .pyx or .pxi file is newer than the newest .so
-  for src in quent/*.pyx quent/*.pxi quent/*/*.pyx quent/*/*.pxi; do
-    [ -f "$src" ] || continue
-    if [ "$src" -nt "$newest_so_file" ]; then
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-# Parse arguments
-force=false
-mode=""
-extra_args=""
-for arg in "$@"; do
-  case "$arg" in
-    force|--force)
-      force=true
-      ;;
-    pgo)
-      mode="pgo"
-      ;;
-    bench)
-      mode="bench"
-      ;;
-    *)
-      extra_args="$extra_args $arg"
-      ;;
-  esac
-done
-
-if [ "$mode" = "pgo" ]; then
-  # PGO always does a full recompilation
-  clean_build_artifacts
-
-  # Pass 1: compile with profile generation
-  QUENT_PGO=generate python cython_setup.py build_ext --inplace
-
-  # Run test suite to generate profile data
-  python -m unittest discover -s tests -p '*_tests.py'
-
-  # Clean .so files but keep .gcda profile data
-  rm -f quent/*.cpython*
-  rm -f quent/*/*.cpython*
-
-  # Pass 2: recompile using profile data
-  QUENT_PGO=use python cython_setup.py build_ext --inplace
-
-  # Clean profile data files
-  find . -name '*.gcda' -delete
-  find . -name '*.gcno' -delete
-elif [ "$mode" = "bench" ]; then
-  echo "Building with native optimizations + LTO..."
-  clean_build_artifacts
-  QUENT_NATIVE=1 QUENT_LTO=1 python cython_setup.py build_ext --inplace
-else
-  if [ "$force" = true ] || sources_changed; then
-    [ "$force" = true ] && echo "Forcing full recompilation..."
-    clean_build_artifacts
-    python cython_setup.py $extra_args build_ext --inplace
-  else
-    echo "All .so files are up to date — skipping compilation."
-  fi
-fi
+echo "==> Compile check passed."

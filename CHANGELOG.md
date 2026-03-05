@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.1.0] - 2026-03-05
+
+### Breaking
+- **Pure Python rewrite**: Migrated from Cython-compiled C extensions to pure Python
+- **Removed classes**: `Cascade`, `CascadeAttr`, `ChainAttr` — use `Chain` directly
+- **Removed pipe operator**: The `|` syntax and `run` helper class are no longer available
+- **Removed resilience features**: `retry()`, `timeout()`, `safe_run()` methods removed
+- **Removed context propagation**: `with_context()`, `get_context()` methods removed
+- **Removed methods**: `root()`, `root_do()`, `clone()`, `config()`, `autorun()`, `while_true()`, `sleep()`, `raise_()`, `attr()`, `attr_fn()`, `suppress()`, `on_success()`, `reduce()`, `set_async()`, `compose()`, `pipe()`, `Chain.null()`
+- **Removed conditionals**: `if_()`, `else_()`, `if_not()`, `condition()`, `not_()`, `eq()`, `neq()`, `is_()`, `is_not()`, `in_()`, `not_in()`, `isinstance_()`, `or_()`, `if_raise()`, `else_raise()`, `if_not_raise()`
+- **Simplified except_**: Only one handler per chain, no `reraise` parameter
+- **Python 3.10 minimum**: Lowered from 3.14 to 3.10 (eager_start=True still used on 3.14+)
+
+### Changed
+- Core rewritten as five pure Python modules: `_chain.py`, `_core.py`, `_ops.py`, `_traceback.py`, `__init__.py`
+- Link evaluation simplified: direct callable/value dispatch via `_evaluate_value()`
+- Async detection uses `inspect.isawaitable()` instead of C-level type checks
+- `_FrozenChain` is now a simple wrapper delegating to the underlying Chain
+
 ## [3.0.0] - 2026-03-01
 
 ### Breaking

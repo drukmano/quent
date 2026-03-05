@@ -21,10 +21,10 @@ jobs:
           allow-prereleases: true
 
       - name: Install dependencies
-        run: pip install "cython>=3.2.4" "setuptools>=82" "coverage>=7.13"
+        run: pip install "setuptools>=82" "coverage>=7.13" "ruff>=0.11" "mypy>=1.15"
 
       - name: Compile
-        run: bash scripts/compile.sh --force
+        run: bash scripts/compile.sh
 
       - name: Run tests
         run: bash scripts/run_tests.sh

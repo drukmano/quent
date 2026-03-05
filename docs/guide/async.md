@@ -58,7 +58,7 @@ When Quent encounters a coroutine during chain evaluation, it:
 2. **Continues the remaining chain** evaluation within the task
 3. **Returns the task**, which the caller can `await` if needed
 
-The `eager_start=True` flag is significant: sync-completing coroutines execute immediately without a round-trip through the event loop. This yields 2-5x faster async chains compared to standard task scheduling.
+The `eager_start=True` flag is significant: sync-completing coroutines execute immediately without a round-trip through the event loop. This yields 2-5x faster async chains compared to standard task scheduling. Note that `eager_start=True` is only available on Python 3.14+; on Python 3.10--3.13, regular `create_task` is used instead.
 
 ## Mixing Sync and Async
 
@@ -173,37 +173,12 @@ This single `UserService` class works with any database client -- sync ORM, asyn
 
 Quent is designed for minimal overhead:
 
-- **C-level coroutine detection**: Exact type identity checks instead of `isinstance` calls, implemented in Cython
-- **Eager task creation**: `asyncio.create_task(eager_start=True)` allows sync-completing coroutines to execute immediately without event loop round-trips
-- **No unnecessary wrapping**: Sync chains execute with no async overhead at all -- they are pure C-level function calls
-
-### Benchmark Results
-
-Average of 10 iterations of 100,000 loops each:
-
-| Scenario | Time (seconds) |
-|----------|---------------|
-| Direct function call | 1.19 |
-| With Quent chain | 1.20 |
-| With Quent frozen chain | 1.06 |
-
-Quent adds negligible overhead to direct function calls. Frozen chains can actually be faster due to pre-built link structures that avoid repeated chain construction.
-
-## The `autorun` Option
-
-When enabled, async chain results are automatically scheduled via `asyncio.create_task`:
-
-```python
-from quent import Chain
-
-Chain(async_operation).autorun().run()  # Task is scheduled immediately
-```
-
-This is useful in fire-and-forget scenarios where you want to schedule an async operation without explicitly awaiting the result.
+- **Runtime coroutine detection**: `isawaitable()` checks to detect async values at each step
+- **Eager task creation**: `asyncio.create_task(eager_start=True)` allows sync-completing coroutines to execute immediately without event loop round-trips (Python 3.14+ only; regular `create_task` on earlier versions)
+- **No unnecessary wrapping**: Sync chains execute with no async overhead
 
 ## Further Reading
 
 - [Getting Started](../getting-started.md) -- Basic chain usage
-- [Chains & Cascades](chains.md) -- All chain types in depth
-- [Resilience](resilience.md) -- Retry and timeout (both work across sync/async)
+- [Chains](chains.md) -- Chain operations in depth
 - [Comparisons: vs unasync](../comparisons/vs-unasync.md) -- Quent's runtime approach vs unasync's code generation
