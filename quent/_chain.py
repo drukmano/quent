@@ -125,6 +125,7 @@ class Chain:
     # the finally block here must NOT fire — it would run before the async work
     # completes. _run_async has its own finally handling.
     ignore_finally = False
+    _active_exc = None
     # One-shot flag: on the first link evaluation, capture the result as root_value
     # (for finally handlers) and initialize current_value (the pipeline value).
     set_initial_values = False
@@ -167,6 +168,7 @@ class Chain:
       raise QuentException('_Break cannot be used in this context.') from None
 
     except BaseException as exc:
+      _active_exc = exc
       # Stamp the failing link onto the exception (first-write-wins) so the
       # traceback formatter can highlight where the error originated.
       if getattr(exc, '__quent_source_link__', None) is None:
@@ -199,7 +201,9 @@ class Chain:
             _ensure_future(_await_run(result, self, self.on_finally_link, root_link))
           except RuntimeError:
             result.close()  # type: ignore[attr-defined]
-            raise QuentException('A finally handler returned a coroutine but no event loop is running.') from None
+            raise QuentException(
+              'A finally handler returned a coroutine but no event loop is running.'
+            ) from _active_exc
           warnings.warn(
             'A finally handler returned a coroutine from a synchronous execution path. '
             'It was scheduled as a fire-and-forget Task via ensure_future().',
@@ -216,6 +220,7 @@ class Chain:
     has_root_value: bool = False,
     root_link: Link | None = None,
   ) -> Any:
+    _active_exc = None
     try:
       result = await awaitable
       if has_root_value and root_value is Null:
@@ -249,6 +254,7 @@ class Chain:
       raise QuentException('_Break cannot be used in this context.') from None
 
     except BaseException as exc:
+      _active_exc = exc
       result = _except_handler_body(exc, self, link, root_link)
       if isawaitable(result):
         result = await result
@@ -258,9 +264,14 @@ class Chain:
 
     finally:
       if self.on_finally_link is not None:
-        result = _finally_handler_body(self, root_value, root_link)
-        if isawaitable(result):
-          await result
+        try:
+          rv = _evaluate_value(self.on_finally_link, root_value)
+          if isawaitable(rv):
+            await rv
+        except BaseException as finally_exc:
+          if finally_exc.__context__ is None and _active_exc is not None:
+            finally_exc.__context__ = _active_exc
+          raise
 
   def decorator(self) -> Callable[..., Callable[..., Any]]:
     """Wrap the chain as a function decorator."""

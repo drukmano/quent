@@ -27,10 +27,13 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     try:
       body_result = await body_result
     except BaseException as exc:
-      exit_result = current_value.__exit__(type(exc), exc, exc.__traceback__)
-      if isawaitable(exit_result):
-        exit_result = await exit_result
-      if not exit_result:
+      try:
+        suppress = current_value.__exit__(type(exc), exc, exc.__traceback__)
+        if isawaitable(suppress):
+          suppress = await suppress
+      except BaseException as exit_exc:
+        raise exit_exc from exc
+      if not suppress:
         raise
       return outer_value if ignore_result else None
     else:
@@ -66,7 +69,11 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
       if isawaitable(result):
         return _to_async(current_value, result, outer_value)
     except BaseException as exc:
-      if not current_value.__exit__(type(exc), exc, exc.__traceback__):
+      try:
+        suppress = current_value.__exit__(type(exc), exc, exc.__traceback__)
+      except BaseException as exit_exc:
+        raise exit_exc from exc
+      if not suppress:
         raise
       return outer_value if ignore_result else None
     else:

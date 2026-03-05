@@ -213,3 +213,10 @@ class ObjWithBadNameAndRepr:
     raise AttributeError(name)
   def __repr__(self):
     raise RuntimeError('no repr')
+
+class AsyncCMRaisesOnExit:
+  async def __aenter__(self):
+    return self
+
+  async def __aexit__(self, *args):
+    raise RuntimeError('async exit error')
