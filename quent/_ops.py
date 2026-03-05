@@ -18,15 +18,22 @@ from ._core import (
   _Return,
   _set_link_temp_args,
 )
+from ._traceback import _modify_traceback
 
 
 def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   """Create a context manager operation for use in a chain."""
 
-  async def _to_async(current_value: Any, body_result: Any, outer_value: Any) -> Any:
+  async def _to_async(current_value: Any, body_result: Any, outer_value: Any, ctx: Any) -> Any:
     try:
       body_result = await body_result
+    except _ControlFlowSignal:
+      exit_result = current_value.__exit__(None, None, None)
+      if isawaitable(exit_result):
+        await exit_result
+      raise
     except BaseException as exc:
+      _set_link_temp_args(exc, link, ctx=ctx)
       try:
         suppress = current_value.__exit__(type(exc), exc, exc.__traceback__)
         if isawaitable(suppress):
@@ -47,12 +54,32 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   async def _full_async(current_value: Any) -> Any:
     outer_value = current_value
     result = Null
+    signal = None
     async with current_value as ctx:
-      result = _evaluate_value(link, ctx)
-      if isawaitable(result):
-        result = await result
+      try:
+        result = _evaluate_value(link, ctx)
+        if isawaitable(result):
+          result = await result
+      except _ControlFlowSignal as s:
+        signal = s
+      except BaseException as exc:
+        _set_link_temp_args(exc, link, ctx=ctx)
+        raise
+    if signal is not None:
+      raise signal
     if result is Null:
       return outer_value if ignore_result else None
+    if ignore_result:
+      return outer_value
+    return result
+
+  async def _await_exit_suppress(suppress: Any, exc: BaseException, outer_value: Any) -> Any:
+    if await suppress:
+      return outer_value if ignore_result else None
+    raise exc
+
+  async def _await_exit_success(exit_result: Any, outer_value: Any, result: Any) -> Any:
+    await exit_result
     if ignore_result:
       return outer_value
     return result
@@ -67,17 +94,25 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     try:
       result = _evaluate_value(link, ctx)
       if isawaitable(result):
-        return _to_async(current_value, result, outer_value)
+        return _to_async(current_value, result, outer_value, ctx)
+    except _ControlFlowSignal:
+      current_value.__exit__(None, None, None)
+      raise
     except BaseException as exc:
+      _set_link_temp_args(exc, link, ctx=ctx)
       try:
         suppress = current_value.__exit__(type(exc), exc, exc.__traceback__)
       except BaseException as exit_exc:
         raise exit_exc from exc
+      if isawaitable(suppress):
+        return _await_exit_suppress(suppress, exc, outer_value)
       if not suppress:
         raise
       return outer_value if ignore_result else None
     else:
-      current_value.__exit__(None, None, None)
+      exit_result = current_value.__exit__(None, None, None)
+      if isawaitable(exit_result):
+        return _await_exit_success(exit_result, outer_value, result)
       if ignore_result:
         return outer_value
       return result
@@ -91,19 +126,31 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
 # create generator objects at call time — a method would bind `self` unnecessarily
 # and complicate the generator's closure. Keeping them external is cleaner.
 def _sync_generator(
-  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool
+  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool,
+  chain: Any = None, link: Any = None,
 ) -> Iterator[Any]:
   """Synchronous generator over chain output."""
+  idx = 0
   try:
     for item in chain_run(*run_args):
       if fn is None:
         yield item
       else:
-        result = fn(item)
+        try:
+          result = fn(item)
+        except _ControlFlowSignal:
+          raise
+        except BaseException as exc:
+          if link is not None:
+            _set_link_temp_args(exc, link, item=item, index=idx)
+            method = 'iterate_do' if ignore_result else 'iterate'
+            _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+          raise
         if ignore_result:
           yield item
         else:
           yield result
+      idx += 1
   except _Break:
     return
   except _Return:
@@ -117,7 +164,8 @@ async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
 
 
 async def _async_generator(
-  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool
+  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool,
+  chain: Any = None, link: Any = None,
 ) -> AsyncIterator[Any]:
   """Asynchronous generator over chain output."""
   iterator = chain_run(*run_args)
@@ -125,18 +173,29 @@ async def _async_generator(
     iterator = await iterator
   if not hasattr(iterator, '__aiter__'):
     iterator = _aiter_wrap(iterator)
+  idx = 0
   try:
     async for item in iterator:
       if fn is None:
         yield item
       else:
-        result = fn(item)
-        if isawaitable(result):
-          result = await result
+        try:
+          result = fn(item)
+          if isawaitable(result):
+            result = await result
+        except _ControlFlowSignal:
+          raise
+        except BaseException as exc:
+          if link is not None:
+            _set_link_temp_args(exc, link, item=item, index=idx)
+            method = 'iterate_do' if ignore_result else 'iterate'
+            _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+          raise
         if ignore_result:
           yield item
         else:
           yield result
+      idx += 1
   except _Break:
     return
   except _Return:
@@ -150,24 +209,33 @@ class _Generator:
   choosing the appropriate generator at iteration time.
   """
 
-  __slots__ = ('_chain_run', '_fn', '_ignore_result', '_run_args')
+  __slots__ = ('_chain', '_chain_run', '_fn', '_ignore_result', '_link', '_run_args')
 
-  def __init__(self, chain_run: Callable[..., Any], fn: Callable[[Any], Any] | None, ignore_result: bool) -> None:
+  def __init__(
+    self,
+    chain_run: Callable[..., Any],
+    fn: Callable[[Any], Any] | None,
+    ignore_result: bool,
+    chain: Any = None,
+    link: Any = None,
+  ) -> None:
     self._chain_run = chain_run
     self._fn = fn
     self._ignore_result = ignore_result
+    self._chain = chain
+    self._link = link
     self._run_args: tuple[Any, tuple[Any, ...], dict[str, Any]] = (Null, (), {})
 
   def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> _Generator:
-    g = _Generator(self._chain_run, self._fn, self._ignore_result)
+    g = _Generator(self._chain_run, self._fn, self._ignore_result, self._chain, self._link)
     g._run_args = (v, args, kwargs)
     return g
 
   def __iter__(self) -> Iterator[Any]:
-    return _sync_generator(self._chain_run, self._run_args, self._fn, self._ignore_result)
+    return _sync_generator(self._chain_run, self._run_args, self._fn, self._ignore_result, self._chain, self._link)
 
   def __aiter__(self) -> AsyncIterator[Any]:
-    return _async_generator(self._chain_run, self._run_args, self._fn, self._ignore_result)
+    return _async_generator(self._chain_run, self._run_args, self._fn, self._ignore_result, self._chain, self._link)
 
   def __repr__(self) -> str:
     return '<Quent._Generator>'
@@ -186,7 +254,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
 
   # Picks up a sync iteration that hit an awaitable result. Receives the live
   # iterator, the current item, and the pending awaitable to continue from.
-  async def _to_async(iterator: Iterator[Any], item: Any, result: Any, lst: list[Any]) -> list[Any]:
+  async def _to_async(iterator: Iterator[Any], item: Any, result: Any, lst: list[Any], idx: int) -> list[Any]:
     try:
       while True:
         if isawaitable(result):
@@ -195,6 +263,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
           lst.append(item)
         else:
           lst.append(result)
+        idx += 1
         item = next(iterator)
         result = fn(item)
     except _Break as exc:
@@ -207,12 +276,13 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
-      _set_link_temp_args(exc, link, item)
+      _set_link_temp_args(exc, link, item=item, index=idx)
       raise
 
   async def _full_async(current_value: Any) -> list[Any]:
     lst = []
     item = Null
+    idx = 0
     try:
       async for item in current_value:
         result = fn(item)
@@ -222,6 +292,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
           lst.append(item)
         else:
           lst.append(result)
+        idx += 1
       return lst
     except _Break as exc:
       result = _handle_break_exc(exc, lst)
@@ -231,7 +302,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
-      _set_link_temp_args(exc, link, item)
+      _set_link_temp_args(exc, link, item=item, index=idx)
       raise
 
   def _foreach_op(current_value: Any) -> Any:
@@ -240,16 +311,18 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     lst: list[Any] = []
     it = iter(current_value)
     item = Null
+    idx = 0
     try:
       while True:
         item = next(it)
         result = fn(item)
         if isawaitable(result):
-          return _to_async(it, item, result, lst)
+          return _to_async(it, item, result, lst, idx)
         if ignore_result:
           lst.append(item)
         else:
           lst.append(result)
+        idx += 1
     except _Break as exc:
       return _handle_break_exc(exc, lst)
     except StopIteration:
@@ -257,7 +330,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
-      _set_link_temp_args(exc, link, item)
+      _set_link_temp_args(exc, link, item=item, index=idx)
       raise
 
   # Attach metadata as function attributes — a Python hack that lets the traceback
@@ -271,13 +344,14 @@ def _make_filter(link: Link) -> Callable[[Any], Any]:
   """Create a filter operation for use in a chain."""
   fn: Callable[[Any], Any] = link.v
 
-  async def _to_async(iterator: Iterator[Any], item: Any, result: Any, lst: list[Any]) -> list[Any]:
+  async def _to_async(iterator: Iterator[Any], item: Any, result: Any, lst: list[Any], idx: int) -> list[Any]:
     try:
       while True:
         if isawaitable(result):
           result = await result
         if result:
           lst.append(item)
+        idx += 1
         item = next(iterator)
         result = fn(item)
     except StopIteration:
@@ -285,12 +359,13 @@ def _make_filter(link: Link) -> Callable[[Any], Any]:
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
-      _set_link_temp_args(exc, link, item)
+      _set_link_temp_args(exc, link, item=item, index=idx)
       raise
 
   async def _full_async(current_value: Any) -> list[Any]:
     lst = []
     item = Null
+    idx = 0
     try:
       async for item in current_value:
         result = fn(item)
@@ -298,11 +373,12 @@ def _make_filter(link: Link) -> Callable[[Any], Any]:
           result = await result
         if result:
           lst.append(item)
+        idx += 1
       return lst
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
-      _set_link_temp_args(exc, link, item)
+      _set_link_temp_args(exc, link, item=item, index=idx)
       raise
 
   def _filter_op(current_value: Any) -> Any:
@@ -311,20 +387,22 @@ def _make_filter(link: Link) -> Callable[[Any], Any]:
     lst: list[Any] = []
     it = iter(current_value)
     item = Null
+    idx = 0
     try:
       while True:
         item = next(it)
         result = fn(item)
         if isawaitable(result):
-          return _to_async(it, item, result, lst)
+          return _to_async(it, item, result, lst, idx)
         if result:
           lst.append(item)
+        idx += 1
     except StopIteration:
       return lst
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
-      _set_link_temp_args(exc, link, item)
+      _set_link_temp_args(exc, link, item=item, index=idx)
       raise
 
   _filter_op._quent_op = 'filter'  # type: ignore[attr-defined]
@@ -367,4 +445,5 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
     return results
 
   _gather_op._quent_op = 'gather'  # type: ignore[attr-defined]
+  _gather_op._fns = fns  # type: ignore[attr-defined]
   return _gather_op

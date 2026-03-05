@@ -91,18 +91,18 @@ def _handle_return_exc(exc: _Return, propagate: bool) -> Any:
   return _resolve_value(exc.value, exc.args_, exc.kwargs_)
 
 
-def _set_link_temp_args(exc: BaseException, link: Link, value: Any) -> None:
+def _set_link_temp_args(exc: BaseException, link: Link, /, **kwargs: Any) -> None:
   """Attach debug info to an exception for traceback display.
 
-  Records the value that was being processed when the exception occurred,
+  Records keyword-tagged values that were available when the exception occurred,
   keyed by the link's identity. Used by _traceback._format_link to show
-  actual arguments in the chain visualization.
+  actual arguments in the chain visualization (e.g. current_value=, item=, index=).
   """
   if not hasattr(exc, '__quent_link_temp_args__'):
     exc.__quent_link_temp_args__ = {}  # type: ignore[attr-defined]
   # Keyed by id(link) so _traceback._format_link can match the right args
   # to the right link when rendering the chain visualization.
-  exc.__quent_link_temp_args__[id(link)] = (value,)  # type: ignore[attr-defined]
+  exc.__quent_link_temp_args__[id(link)] = kwargs  # type: ignore[attr-defined]
 
 
 # Eager task start (Python 3.14+) avoids event loop scheduling overhead.

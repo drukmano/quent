@@ -32,7 +32,7 @@ class _Ctx:
 
   __slots__ = ('found', 'link_temp_args', 'source_link')
 
-  def __init__(self, source_link: Link | None, link_temp_args: dict[int, tuple[Any, ...]] | None) -> None:
+  def __init__(self, source_link: Link | None, link_temp_args: dict[int, dict[str, Any]] | None) -> None:
     self.source_link = source_link
     self.link_temp_args = link_temp_args
     self.found = False
@@ -71,7 +71,8 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
 
 
 def _modify_traceback(
-  exc: BaseException, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None
+  exc: BaseException, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None,
+  extra_links: list[tuple[Link, str]] | None = None,
 ) -> BaseException:
   """Inject chain visualization or just strip internal frames.
   Always returns the exception for use in `raise` expressions.
@@ -88,7 +89,7 @@ def _modify_traceback(
       source_link=_get_true_source_link(source_link, root_link),
       link_temp_args=getattr(exc, '__quent_link_temp_args__', None),
     )
-    chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx)
+    chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
     # Indent the chain visualization so it appears nested under the <quent> frame header.
     chain_source = _make_indent(1).join(['', *chain_source.splitlines()])
 
@@ -222,7 +223,7 @@ def _resolve_nested_chain(
   return result
 
 
-def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, *, ctx: _Ctx) -> str:
+def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, *, ctx: _Ctx, extra_links: list[tuple[Link, str]] | None = None) -> str:
   """Build a string visualization of a chain for traceback display.
 
   Returns the output string.
@@ -259,6 +260,13 @@ def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = N
     if not ctx.found and link is ctx.source_link:
       ctx.found = True
 
+  if extra_links:
+    for link, method_name in extra_links:
+      output += _make_indent(nest_lvl)
+      output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name)
+      if not ctx.found and link is ctx.source_link:
+        ctx.found = True
+
   return output
 
 
@@ -281,8 +289,9 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None =
   is_chain = False
 
   if not ctx.found and ctx.link_temp_args is not None and id(link) in ctx.link_temp_args:
-    args = ctx.link_temp_args[id(link)]
-    kwargs = {}
+    temp_kwargs = ctx.link_temp_args[id(link)]
+    if temp_kwargs:
+      kwargs = {**(kwargs or {}), **temp_kwargs}
 
   if original_value is None:
     original_value = link.v
@@ -291,7 +300,11 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None =
     args = kwargs = None
     is_chain = True
   else:
-    link_v = _get_obj_name(original_value)
+    op = getattr(outer_link.v, '_quent_op', None)
+    if op == 'gather' and hasattr(outer_link.v, '_fns'):
+      link_v = ', '.join(_get_obj_name(f) for f in outer_link.v._fns)
+    else:
+      link_v = _get_obj_name(original_value)
 
   if method_name is not None:
     output += f'.{method_name}'

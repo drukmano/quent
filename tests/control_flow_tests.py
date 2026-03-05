@@ -255,5 +255,36 @@ class TestReturnBreakInteractionWithExcept(unittest.TestCase):
     self.assertIn('control flow signals inside finally handlers is not allowed', str(ctx.exception).lower())
 
 
+class TestControlFlowInAsyncFinally(unittest.IsolatedAsyncioTestCase):
+
+  async def test_return_in_async_finally_raises_quent_exception(self):
+    # Mirrors test_return_in_finally_handler_raises_quent_exception (sync)
+    # but exercises the _run_async finally path.
+    async def async_step(x):
+      return x
+
+    result_chain = (
+      Chain(5)
+      .then(async_step)
+      .finally_(lambda x: Chain.return_(99))
+    )
+    with self.assertRaises(QuentException) as ctx:
+      await result_chain.run()
+    self.assertIn('control flow signals inside finally handlers is not allowed', str(ctx.exception).lower())
+
+  async def test_break_in_async_finally_raises_quent_exception(self):
+    async def async_step(x):
+      return x
+
+    result_chain = (
+      Chain(5)
+      .then(async_step)
+      .finally_(lambda x: Chain.break_())
+    )
+    with self.assertRaises(QuentException) as ctx:
+      await result_chain.run()
+    self.assertIn('control flow signals inside finally handlers is not allowed', str(ctx.exception).lower())
+
+
 if __name__ == '__main__':
   unittest.main()

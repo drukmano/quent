@@ -278,7 +278,7 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
     except RuntimeError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (20,))
+      self.assertEqual(values[0], {'item': 20, 'index': 1})
 
   async def test_to_async_break_with_async_value(self):
     # Sync iterable + fn returns coroutine, then Break with async value.
@@ -333,7 +333,7 @@ class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
     except RuntimeError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (1,))
+      self.assertEqual(values[0], {'item': 1, 'index': 1})
 
   async def test_full_async_break_with_async_value(self):
     async def make_val():
@@ -387,7 +387,7 @@ class TestFilterToAsyncPaths(IsolatedAsyncioTestCase):
     except RuntimeError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (20,))
+      self.assertEqual(values[0], {'item': 20, 'index': 1})
 
 
 # ---------------------------------------------------------------------------
@@ -425,7 +425,7 @@ class TestFilterFullAsyncPaths(IsolatedAsyncioTestCase):
     except RuntimeError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (1,))
+      self.assertEqual(values[0], {'item': 1, 'index': 1})
 
 
 # ---------------------------------------------------------------------------

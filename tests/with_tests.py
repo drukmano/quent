@@ -8,6 +8,7 @@ from quent import Chain, Null, QuentException
 from helpers import (
   SyncCM, AsyncCM, SyncCMSuppresses, AsyncCMSuppresses,
   SyncCMRaisesOnEnter, SyncCMRaisesOnExit, DualCM,
+  SyncCMWithAwaitableExit, SyncCMSuppressesAwaitable,
 )
 
 
@@ -177,6 +178,52 @@ class TestWithContextlib(unittest.IsolatedAsyncioTestCase):
     cm = nullcontext('val')
     result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'val')
+
+
+class TestWithControlFlowSignalGuard(unittest.IsolatedAsyncioTestCase):
+  """Bug 2: _ControlFlowSignal must not leak to __exit__/__aexit__."""
+
+  def test_return_in_sync_with_propagates(self):
+    # _Return inside with_ body must propagate past the CM, not be passed to __exit__ as exc_info.
+    cm = SyncCMSuppresses()
+    result = Chain(cm).with_(lambda ctx: Chain.return_(42)).run()
+    self.assertEqual(result, 42)
+
+  async def test_return_in_async_body_sync_cm_propagates(self):
+    # _to_async path: sync CM, async body raises _Return.
+    cm = SyncCM()
+
+    async def async_body(ctx):
+      Chain.return_(42)
+
+    result = await Chain(cm).with_(async_body).run()
+    self.assertEqual(result, 42)
+    self.assertTrue(cm.exited)
+
+  async def test_return_in_full_async_cm_propagates(self):
+    # _full_async path: async CM, body raises _Return.
+    from helpers import AsyncCMSuppresses
+    result = await Chain(AsyncCMSuppresses()).with_(lambda ctx: Chain.return_(42)).run()
+    self.assertEqual(result, 42)
+
+
+class TestWithAwaitableExit(unittest.IsolatedAsyncioTestCase):
+  """Bug 3: sync __exit__ returning an awaitable must be handled."""
+
+  async def test_awaitable_exit_false_does_not_suppress(self):
+    # SyncCMWithAwaitableExit.__exit__ returns a coroutine that resolves to False.
+    with self.assertRaises(ZeroDivisionError):
+      await Chain(SyncCMWithAwaitableExit()).with_(lambda ctx: 1 / 0).run()
+
+  async def test_awaitable_exit_true_suppresses(self):
+    # SyncCMSuppressesAwaitable.__exit__ returns a coroutine that resolves to True.
+    result = await Chain(SyncCMSuppressesAwaitable()).with_(lambda ctx: 1 / 0).run()
+    self.assertIsNone(result)
+
+  async def test_awaitable_exit_success_path(self):
+    # Success path: __exit__(None, None, None) returns awaitable. Should be awaited.
+    result = await Chain(SyncCMWithAwaitableExit()).with_(lambda ctx: 42).run()
+    self.assertEqual(result, 42)
 
 
 if __name__ == '__main__':

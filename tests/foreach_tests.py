@@ -208,12 +208,12 @@ class TestForeachExceptions(unittest.TestCase):
       Chain([10, 20, 30]).foreach(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      # The temp args dict should contain an entry whose value is (item,)
-      # where item is the element that was being processed.
+      # The temp args dict should contain an entry whose value is a dict
+      # holding the item and index that was being processed.
       values = list(exc.__quent_link_temp_args__.values())
       self.assertTrue(len(values) > 0)
-      # The first item processed is 10, so temp args should be (10,).
-      self.assertEqual(values[0], (10,))
+      # The first item processed is 10 at index 0.
+      self.assertEqual(values[0], {'item': 10, 'index': 0})
     else:
       self.fail('ZeroDivisionError was not raised')
 
@@ -237,7 +237,7 @@ class TestForeachExceptions(unittest.TestCase):
       Chain([1, 2, 3]).foreach(boom_on_three).run()
     except ValueError as exc:
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (3,))
+      self.assertEqual(values[0], {'item': 3, 'index': 2})
     else:
       self.fail('ValueError was not raised')
 
@@ -260,7 +260,7 @@ class TestForeachExceptionsAsync(IsolatedAsyncioTestCase):
     except ValueError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (0,))
+      self.assertEqual(values[0], {'item': 0, 'index': 0})
     else:
       self.fail('ValueError was not raised')
 

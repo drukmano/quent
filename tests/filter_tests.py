@@ -107,14 +107,14 @@ class TestFilterEdgeCases(unittest.TestCase):
       Chain([10, 20, 30]).filter(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      # The dict should contain at least one entry whose value is a tuple
+      # The dict should contain at least one entry whose value is a dict
       # holding the item that was being processed when the error occurred.
       temp_args = exc.__quent_link_temp_args__
       self.assertIsInstance(temp_args, dict)
       self.assertTrue(len(temp_args) > 0)
       # The first item in the iterable (10) is where the predicate blows up.
       values = list(temp_args.values())
-      self.assertEqual(values[0], (10,))
+      self.assertEqual(values[0], {'item': 10, 'index': 0})
     else:
       self.fail('ZeroDivisionError was not raised')
 

@@ -1355,7 +1355,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     except ValueError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (30,))
+      self.assertEqual(values[0], {'item': 30, 'index': 2})
     else:
       self.fail('ValueError was not raised')
 
@@ -1370,7 +1370,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     except ValueError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (1,))
+      self.assertEqual(values[0], {'item': 1, 'index': 1})
     else:
       self.fail('ValueError was not raised')
 
@@ -1383,7 +1383,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     except ValueError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (10,))
+      self.assertEqual(values[0], {'item': 10, 'index': 0})
     else:
       self.fail('ValueError was not raised')
 
@@ -1396,7 +1396,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     except ValueError as exc:
       self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
       values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], (0,))
+      self.assertEqual(values[0], {'item': 0, 'index': 0})
     else:
       self.fail('ValueError was not raised')
 

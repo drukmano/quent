@@ -19,6 +19,7 @@ from ._core import (
   _evaluate_value,
   _handle_return_exc,
   _Return,
+  _set_link_temp_args,
 )
 from ._ops import _Generator, _make_filter, _make_foreach, _make_gather, _make_with
 from ._traceback import _modify_traceback
@@ -49,6 +50,7 @@ def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link
   except _ControlFlowSignal:
     raise QuentException('Using control flow signals inside except handlers is not allowed.') from None
   except BaseException as exc_:
+    _set_link_temp_args(exc_, chain.on_except_link, exc=exc)
     _modify_traceback(exc_, chain, chain.on_except_link, root_link)
     raise exc_ from exc
   return result
@@ -61,6 +63,8 @@ def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None)
   except _ControlFlowSignal:
     raise QuentException('Using control flow signals inside finally handlers is not allowed.') from None
   except BaseException as exc_:
+    if root_value is not Null:
+      _set_link_temp_args(exc_, chain.on_finally_link, root_value=root_value)  # type: ignore[arg-type]
     _modify_traceback(exc_, chain, chain.on_finally_link, root_link)
     raise exc_
 
@@ -173,6 +177,14 @@ class Chain:
       # traceback formatter can highlight where the error originated.
       if getattr(exc, '__quent_source_link__', None) is None:
         exc.__quent_source_link__ = link  # type: ignore[attr-defined]
+      if (
+        current_value is not Null
+        and not link.args  # type: ignore[union-attr]
+        and not link.kwargs  # type: ignore[union-attr]
+        and not link.is_chain  # type: ignore[union-attr]
+        and not getattr(link.v, '_quent_op', None)  # type: ignore[union-attr]
+      ):
+        _set_link_temp_args(exc, link, current_value=current_value)  # type: ignore[arg-type]
       result = _except_handler_body(exc, self, link, root_link)  # type: ignore[arg-type]
       if isawaitable(result):
         # _ensure_future may raise RuntimeError if no event loop is running.
@@ -259,6 +271,14 @@ class Chain:
 
     except BaseException as exc:
       _active_exc = exc
+      if (
+        current_value is not Null
+        and not link.args
+        and not link.kwargs
+        and not link.is_chain
+        and not getattr(link.v, '_quent_op', None)
+      ):
+        _set_link_temp_args(exc, link, current_value=current_value)
       result = _except_handler_body(exc, self, link, root_link)
       if isawaitable(result):
         result = await result
@@ -269,9 +289,17 @@ class Chain:
     finally:
       if self.on_finally_link is not None:
         try:
-          rv = _evaluate_value(self.on_finally_link, root_value)
+          rv = _finally_handler_body(self, root_value, root_link)
           if isawaitable(rv):
-            await rv
+            try:
+              await rv
+            except _ControlFlowSignal:
+              raise QuentException('Using control flow signals inside finally handlers is not allowed.') from None
+            except BaseException as exc_:
+              if root_value is not Null:
+                _set_link_temp_args(exc_, self.on_finally_link, root_value=root_value)
+              _modify_traceback(exc_, self, self.on_finally_link, root_link)
+              raise exc_
         except BaseException as finally_exc:
           if finally_exc.__context__ is None and _active_exc is not None:
             finally_exc.__context__ = _active_exc
@@ -344,11 +372,13 @@ class Chain:
 
   def iterate(self, fn: Callable[[Any], Any] | None = None) -> _Generator:
     """Return a sync/async iterator over the chain's output."""
-    return _Generator(self._run, fn, ignore_result=False)
+    link = Link(fn) if fn is not None else None
+    return _Generator(self._run, fn, ignore_result=False, chain=self, link=link)
 
   def iterate_do(self, fn: Callable[[Any], Any] | None = None) -> _Generator:
     """Return a sync/async iterator, discarding fn's return values."""
-    return _Generator(self._run, fn, ignore_result=True)
+    link = Link(fn) if fn is not None else None
+    return _Generator(self._run, fn, ignore_result=True, chain=self, link=link)
 
   def foreach(self, fn: Callable[[Any], Any], /) -> Chain:
     """Apply fn to each element of the current iterable value."""
