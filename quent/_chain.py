@@ -176,10 +176,12 @@ class Chain:
       result = _except_handler_body(exc, self, link, root_link)  # type: ignore[arg-type]
       if isawaitable(result):
         # _ensure_future may raise RuntimeError if no event loop is running.
-        # In that case, close the orphaned coroutine to avoid ResourceWarning.
+        # In that case, close both coroutines to avoid ResourceWarning.
+        coro = _await_run(result, self, self.on_except_link, root_link)
         try:
-          result = _ensure_future(_await_run(result, self, self.on_except_link, root_link))
+          result = _ensure_future(coro)
         except RuntimeError:
+          coro.close()
           result.close()
           raise QuentException('An except handler returned a coroutine but no event loop is running.') from exc
         warnings.warn(
@@ -197,9 +199,11 @@ class Chain:
       if not ignore_finally and self.on_finally_link is not None:
         result = _finally_handler_body(self, root_value, root_link)
         if isawaitable(result):
+          coro = _await_run(result, self, self.on_finally_link, root_link)
           try:
-            _ensure_future(_await_run(result, self, self.on_finally_link, root_link))
+            _ensure_future(coro)
           except RuntimeError:
+            coro.close()
             result.close()  # type: ignore[attr-defined]
             raise QuentException(
               'A finally handler returned a coroutine but no event loop is running.'
