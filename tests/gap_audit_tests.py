@@ -136,8 +136,10 @@ class CriticalTests(unittest.IsolatedAsyncioTestCase):
     self.assertNotIn(task, _task_registry)
 
   def test_except_raises_without_from_preserves_context(self):
-    """C3: except handler raises WITHOUT `from exc`. Python's implicit
-    chaining should still preserve the original exception as __context__.
+    """C3: except handler raises WITHOUT `from exc`. The handler itself
+    does not use `from`, but _except_handler_body catches the re-raised
+    exception and does `raise exc_ from exc`, so the framework always
+    chains the handler's exception to the original exception.
     """
     def body(x=None):
       raise ValueError('original')
@@ -151,13 +153,17 @@ class CriticalTests(unittest.IsolatedAsyncioTestCase):
 
     exc = cm.exception
     self.assertEqual(str(exc), 'handler error')
-    # No explicit chaining (no `from`), so __cause__ is None
-    self.assertIsNone(exc.__cause__)
-    # Python's implicit chaining preserves the original ValueError
+    # The framework does `raise exc_ from exc` in _except_handler_body,
+    # so __cause__ is set to the original ValueError even though the
+    # handler itself did not use `from`.
+    self.assertIsNotNone(exc.__cause__)
+    self.assertIsInstance(exc.__cause__, ValueError)
+    self.assertEqual(str(exc.__cause__), 'original')
+    # Python's implicit chaining also preserves the original ValueError
     self.assertIsInstance(exc.__context__, ValueError)
     self.assertEqual(str(exc.__context__), 'original')
-    # __suppress_context__ is False because no explicit `from` was used
-    self.assertFalse(exc.__suppress_context__)
+    # __suppress_context__ is True because the framework used `from`
+    self.assertTrue(exc.__suppress_context__)
 
   def test_finally_raises_when_body_succeeds(self):
     """C4: body succeeds, no except handler, finally handler raises.
