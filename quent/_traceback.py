@@ -15,15 +15,22 @@ if TYPE_CHECKING:
 
 
 _quent_file: str = os.path.dirname(os.path.abspath(__file__)) + os.sep
+# Pre-compiled code object for the traceback injection hack (see _modify_traceback).
+# The code simply raises an exception. Its co_name/co_qualname will be replaced with
+# the chain visualization string, so when Python builds the traceback frame, the
+# "function name" shown IS the chain visualization.
 _RAISE_CODE: types.CodeType = compile('raise __exc__', '<quent>', 'exec')
+# Python 3.11+ supports code.replace(co_qualname=...), needed for the traceback hack.
 _HAS_QUALNAME: bool = sys.version_info >= (3, 11)
+# Local alias used as a constructor in _clean_internal_frames. TracebackType()
+# can construct traceback objects since Python 3.7 (PEP 579).
 _TracebackType: type[types.TracebackType] = types.TracebackType
 
 
 class _Ctx:
   """Shared context threaded through chain stringification."""
   __slots__ = ('source_link', 'link_temp_args', 'found')
-  def __init__(self, source_link, link_temp_args):
+  def __init__(self, source_link: Link | None, link_temp_args: dict[int, tuple[Any, ...]] | None) -> None:
     self.source_link = source_link
     self.link_temp_args = link_temp_args
     self.found = False
@@ -78,8 +85,14 @@ def _modify_traceback(exc: BaseException, chain: Chain | None = None, link: Link
       link_temp_args=getattr(exc, '__quent_link_temp_args__', None),
     )
     chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx)
+    # Indent the chain visualization so it appears nested under the <quent> frame header.
     chain_source = _make_indent(1).join([''] + chain_source.splitlines())
 
+    # HACK: Inject chain visualization into the traceback by exec'ing a `raise` statement
+    # with a code object whose co_name has been replaced with the chain visualization string.
+    # Python's traceback machinery reads co_name as the "function name", so the chain
+    # structure appears as if it were a function name in the traceback.
+    # The exec creates a real traceback frame that we then graft onto the exception.
     filename = '<quent>'
     exc_value = sys.exc_info()[1]
     globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
@@ -164,7 +177,7 @@ def _get_obj_name(obj: Any) -> str:
     return type(obj).__name__
 
 
-def _format_call_args(args, kwargs):
+def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> str:
   """Format positional and keyword arguments for chain visualization."""
   parts = []
   if args:
@@ -177,7 +190,7 @@ def _format_call_args(args, kwargs):
   return ', '.join(parts)
 
 
-def _resolve_nested_chain(link, args, kwargs, nest_lvl, ctx):
+def _resolve_nested_chain(link: Link, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None, nest_lvl: int, ctx: _Ctx) -> str:
   """Resolve a nested chain link into its string representation."""
   original_value = link.original_value if link.original_value is not None else link.v
   nested_root_link = None
@@ -297,6 +310,8 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx | None = None, method_name
   return output
 
 
+# Override the default exception display to clean quent-internal frames.
+# Without this, uncaught exceptions would show quent's internal call stack.
 _original_excepthook: Any = sys.excepthook
 
 
@@ -311,6 +326,9 @@ def _quent_excepthook(exc_type: type[BaseException], exc_value: BaseException, e
 sys.excepthook = _quent_excepthook
 
 
+# Also patch TracebackException (used by logging, traceback.format_exception, etc.)
+# so that quent-internal frames are cleaned in ALL exception rendering paths,
+# not just the default sys.excepthook.
 _original_te_init = traceback.TracebackException.__init__
 
 

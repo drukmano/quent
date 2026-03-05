@@ -60,6 +60,8 @@ def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None)
 class Chain:
   """Sequential pipeline that transparently bridges synchronous and asynchronous operations."""
 
+  # Duck-typing marker. Checked via getattr() in Link.__init__ and elsewhere
+  # to detect Chain instances without importing Chain (avoids circular imports).
   _is_chain = True
 
   __slots__ = (
@@ -98,10 +100,17 @@ class Chain:
     root_value = Null
     has_run_value = v is not Null
     has_root_value = has_run_value or link is not None
+    # When the sync path discovers an awaitable and delegates to _run_async,
+    # the finally block here must NOT fire — it would run before the async work
+    # completes. _run_async has its own finally handling.
     ignore_finally = False
+    # One-shot flag: on the first link evaluation, capture the result as root_value
+    # (for finally handlers) and initialize current_value (the pipeline value).
     set_initial_values = False
 
     try:
+      # When run(v) is called with a value, wrap it in a temporary Link and splice
+      # it before first_link, so it becomes the root of this execution.
       if has_run_value:
         link = Link(v, args, kwargs)
         link.next_link = self.first_link
@@ -137,10 +146,14 @@ class Chain:
       raise QuentException('_Break cannot be used in this context.')
 
     except BaseException as exc:
+      # Stamp the failing link onto the exception (first-write-wins) so the
+      # traceback formatter can highlight where the error originated.
       if getattr(exc, '__quent_source_link__', None) is None:
         exc.__quent_source_link__ = link
       result = _except_handler_body(exc, self, link, root_link)
       if isawaitable(result):
+        # _ensure_future may raise RuntimeError if no event loop is running.
+        # In that case, close the orphaned coroutine to avoid ResourceWarning.
         try:
           result = _ensure_future(_await_run(result, self, self.on_except_link, root_link))
         except RuntimeError:
@@ -338,6 +351,7 @@ class Chain:
     """Signal break from an iteration."""
     raise _Break(v, args, kwargs)
 
+  # Alias so Chain instances are directly callable: chain(v) == chain.run(v)
   __call__ = run
 
   def __bool__(self) -> bool:

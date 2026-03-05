@@ -34,6 +34,9 @@ class _ControlFlowSignal(Exception):
   """
   __slots__ = ('value', 'args_', 'kwargs_')
 
+  # Intentionally skips super().__init__() — avoids the overhead of building
+  # an args tuple and message string, since these are internal control-flow
+  # signals that are never displayed to users.
   def __init__(self, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
     self.value = v
     self.args_ = args
@@ -90,6 +93,8 @@ def _set_link_temp_args(exc: BaseException, link: Link, value: Any) -> None:
   """
   if not hasattr(exc, '__quent_link_temp_args__'):
     exc.__quent_link_temp_args__ = {}
+  # Keyed by id(link) so _traceback._format_link can match the right args
+  # to the right link when rendering the chain visualization.
   exc.__quent_link_temp_args__[id(link)] = (value,)
 
 
@@ -108,6 +113,7 @@ def _ensure_future(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
   """Schedule a coroutine as a fire-and-forget task with strong reference tracking."""
   task = _create_task_fn(coro)
   _task_registry.add(task)
+  # Auto-removes from registry on completion to avoid unbounded growth.
   task.add_done_callback(_task_registry.discard)
   return task
 
@@ -137,6 +143,8 @@ class Link:
     ignore_result: bool = False,
     original_value: Any | None = None,
   ) -> None:
+    # Duck-typing: checks for the _is_chain class attribute that only Chain
+    # sets, avoiding a circular import with _chain.py.
     self.is_chain = getattr(v, '_is_chain', False)
     if self.is_chain:
       v.is_nested = True

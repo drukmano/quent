@@ -48,7 +48,8 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     return result
 
   def _with_op(current_value: Any) -> Any:
-    # TODO why outer_value and not just use current_value? what is this var purpose?
+    # Capture the context manager itself before __enter__ may rebind it. When
+    # ignore_result=True, the chain returns this original value, not the __enter__ result.
     outer_value = current_value
     if hasattr(current_value, '__aenter__'):
       return _full_async(current_value)
@@ -72,7 +73,9 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   return _with_op
 
 
-# TODO why these are outside the class? why not just inline this code in the __iter__ or __aiter__
+# Defined as module-level functions (not methods) because Python generator functions
+# create generator objects at call time — a method would bind `self` unnecessarily
+# and complicate the generator's closure. Keeping them external is cleaner.
 def _sync_generator(chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool) -> Iterator[Any]:
   """Synchronous generator over chain output."""
   try:
@@ -155,6 +158,15 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   """Create a foreach iteration operation for use in a chain."""
   fn: Callable[[Any], Any] = link.v
 
+  # Three-tier sync/async pattern used by foreach, filter, and with_:
+  #   _foreach_op: Pure sync fast path. Uses manual `while True` + `next()` instead
+  #     of `for` loop so the iterator can be handed off to _to_async mid-iteration.
+  #   _to_async: Sync-to-async handoff. Called when a sync iteration discovers that
+  #     `fn` returned a coroutine. Continues the SAME iterator from where sync left off.
+  #   _full_async: Pure async path for async iterables (`async for`).
+
+  # Picks up a sync iteration that hit an awaitable result. Receives the live
+  # iterator, the current item, and the pending awaitable to continue from.
   async def _to_async(iterator: Iterator[Any], item: Any, result: Any, lst: list[Any]) -> list[Any]:
     try:
       while True:
@@ -229,6 +241,8 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
       _set_link_temp_args(exc, link, item)
       raise
 
+  # Attach metadata as function attributes — a Python hack that lets the traceback
+  # formatter identify the operation type without needing a class wrapper.
   _foreach_op._quent_op = 'foreach'
   _foreach_op._ignore_result = ignore_result
   return _foreach_op
@@ -323,6 +337,8 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
         if isawaitable(result):
           has_coro = True
     except BaseException:
+      # If a fn raises during setup, close any already-created coroutines to avoid
+      # "coroutine was never awaited" RuntimeWarning.
       for r in results:
         if hasattr(r, 'close'):
           r.close()

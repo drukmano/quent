@@ -1,12 +1,12 @@
 [build-system]
-requires = ["setuptools>=82", "wheel", "cython>=3.2.4"]
+requires = ["setuptools>=82", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "quent"
 version = "3.1.0"
 authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
-description = "High-performance fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in retry, timeout, and context propagation. Cython-compiled, zero dependencies."
+description = "High-performance fluent chain interface for Python with transparent sync/async handling. Write pipeline code once -- Quent automatically detects coroutines and handles them. Built-in retry, timeout, and context propagation. Zero dependencies."
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,7 +14,7 @@ keywords = [
     'chain', 'chaining', 'pipeline', 'fluent', 'pipe',
     'async', 'sync', 'asyncio', 'coroutine', 'await',
     'retry', 'timeout', 'resilience',
-    'cython', 'performance',
+    'performance',
     'function-composition', 'middleware',
 ]
 classifiers = [
@@ -28,7 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Programming Language :: Cython",
+
     "Framework :: AsyncIO",
     "Topic :: Software Development",
     "Topic :: Software Development :: Libraries",
@@ -58,14 +58,56 @@ archs = ["x86_64", "arm64"]
 archs = ["AMD64"]
 
 [tool.coverage.run]
-plugins = ["Cython.Coverage"]
 source = ["quent"]
 
 [dependency-groups]
 dev = [
-    "cython>=3.2.4",
     "build>=1.4",
     "coverage>=7.13",
     "twine>=6.2",
     "setuptools>=82",
+    "ruff>=0.11",
+    "mypy>=1.15",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+    "E",       # pycodestyle errors
+    "W",       # pycodestyle warnings
+    "F",       # pyflakes
+    "I",       # isort
+    "UP",      # pyupgrade
+    "B",       # flake8-bugbear
+    "SIM",     # flake8-simplify
+    "RUF",     # ruff-specific rules
+]
+ignore = [
+    "E741",    # ambiguous variable name (single-letter vars used intentionally)
+    "B905",    # zip-without-strict (not always appropriate)
+    "SIM108",  # ternary instead of if-else (readability preference)
+    "UP007",   # use X | Y for union types (already used, but some edge cases)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["quent"]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "single"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
