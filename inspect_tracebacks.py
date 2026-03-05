@@ -5,6 +5,7 @@ Run with:  python3 inspect_tracebacks.py
 from __future__ import annotations
 
 import asyncio
+import functools
 import traceback as tb_mod
 import sys
 
@@ -66,6 +67,22 @@ def run_async_case(label: str, coro_fn) -> None:
     try:
       result = await coro_fn()
       print(f'[no exception]  result = {result!r}')
+    except Exception:
+      tb_mod.print_exc()
+  asyncio.run(_runner())
+  print()
+
+
+def run_async_case_caught(label: str, coro_fn) -> None:
+  """Run an async case expected to be handled by except_, printing the result."""
+  global _total_cases, _caught_by_except_cases
+  _total_cases += 1
+  _caught_by_except_cases += 1
+  _header(label)
+  async def _runner():
+    try:
+      result = await coro_fn()
+      print(f'[caught by except_]  result = {result!r}')
     except Exception:
       tb_mod.print_exc()
   asyncio.run(_runner())
@@ -537,6 +554,456 @@ def section_chained_exc():
 
 
 # ===========================================================================
+# SECTION 16 – Nested chain with except_ handler
+# ===========================================================================
+
+def _inner_raiser(x):
+  raise ValueError('inner boom')
+
+
+def section_nested_except():
+  _header('SECTION 16 — Nested chain with except_ handler')
+
+  # CASE 40: Inner chain raises, outer chain has except_ that catches
+  run_case_caught(
+    'CASE 40: Inner chain raises, outer except_ catches',
+    lambda: (
+      Chain(1)
+      .then(Chain().then(_inner_raiser))
+      .except_(lambda e: f'outer caught: {e}')
+      .run()
+    ),
+  )
+
+  # CASE 41: Inner chain raises, outer except_ with wrong exception type
+  run_case(
+    'CASE 41: Inner chain raises, outer except_ wrong type (catches TypeError, gets ValueError)',
+    lambda: (
+      Chain(1)
+      .then(Chain().then(_inner_raiser))
+      .except_(lambda e: f'caught: {e}', exceptions=TypeError)
+      .run()
+    ),
+  )
+
+  # CASE 42: Inner chain has its own except_ that catches, outer continues
+  run_case_caught(
+    'CASE 42: Inner except_ catches, outer chain continues (no traceback)',
+    lambda: (
+      Chain(1)
+      .then(
+        Chain()
+        .then(_inner_raiser)
+        .except_(lambda e: f'inner caught: {e}')
+      )
+      .then(lambda x: f'outer got: {x}')
+      .except_(lambda e: f'outer caught: {e}')
+      .run()
+    ),
+  )
+
+
+# ===========================================================================
+# SECTION 17 – Nested chain with finally_ handler
+# ===========================================================================
+
+_finally_tracker_17 = []
+
+
+def section_nested_finally():
+  _header('SECTION 17 — Nested chain with finally_ handler')
+
+  _finally_tracker_17.clear()
+
+  # CASE 43: Outer chain has finally_, inner chain raises
+  run_case(
+    'CASE 43: Outer finally_ runs when inner chain raises',
+    lambda: (
+      Chain(1)
+      .then(Chain().then(lambda x: 1 / 0))
+      .finally_(lambda x: _finally_tracker_17.append('outer_finally_ran'))
+      .run()
+    ),
+  )
+  print(f'  [tracker] _finally_tracker_17 = {_finally_tracker_17}')
+
+  _finally_tracker_17.clear()
+
+  # CASE 44: Both inner and outer have finally_
+  def _case44():
+    inner = (
+      Chain()
+      .then(lambda x: 1 / 0)
+      .finally_(lambda x: _finally_tracker_17.append('inner_finally'))
+    )
+    return (
+      Chain(1)
+      .then(inner)
+      .finally_(lambda x: _finally_tracker_17.append('outer_finally'))
+      .run()
+    )
+
+  run_case(
+    'CASE 44: Both inner and outer have finally_, inner raises',
+    _case44,
+  )
+  print(f'  [tracker] _finally_tracker_17 = {_finally_tracker_17}')
+
+
+# ===========================================================================
+# SECTION 18 – Chain with both except_ and finally_
+# ===========================================================================
+
+_finally_tracker_18 = []
+
+
+def section_except_and_finally():
+  _header('SECTION 18 — Chain with both except_ and finally_')
+
+  _finally_tracker_18.clear()
+
+  # CASE 45: except_ catches + finally_ runs
+  run_case_caught(
+    'CASE 45: except_ catches + finally_ runs (no traceback)',
+    lambda: (
+      Chain(1)
+      .then(lambda x: 1 / 0)
+      .except_(lambda e: f'caught: {e}')
+      .finally_(lambda x: _finally_tracker_18.append('finally_45'))
+      .run()
+    ),
+  )
+  print(f'  [tracker] _finally_tracker_18 = {_finally_tracker_18}')
+
+  _finally_tracker_18.clear()
+
+  # CASE 46: except_ doesn't catch (wrong type) + finally_ runs
+  run_case(
+    'CASE 46: except_ wrong type + finally_ runs (traceback shown, finally_ ran)',
+    lambda: (
+      Chain(1)
+      .then(lambda x: 1 / 0)
+      .except_(lambda e: 'caught', exceptions=TypeError)
+      .finally_(lambda x: _finally_tracker_18.append('finally_46'))
+      .run()
+    ),
+  )
+  print(f'  [tracker] _finally_tracker_18 = {_finally_tracker_18}')
+
+  _finally_tracker_18.clear()
+
+  # CASE 47: except_ raises + finally_ runs
+  def _except_reraises(e):
+    raise RuntimeError('except_ re-raised')
+
+  def _case47():
+    return (
+      Chain(1)
+      .then(lambda x: 1 / 0)
+      .except_(_except_reraises)
+      .finally_(lambda x: _finally_tracker_18.append('finally_47'))
+      .run()
+    )
+
+  run_case(
+    'CASE 47: except_ raises new error + finally_ runs (chained traceback)',
+    _case47,
+  )
+  print(f'  [tracker] _finally_tracker_18 = {_finally_tracker_18}')
+
+
+# ===========================================================================
+# SECTION 19 – Multiple chained steps with args and kwargs combinations
+# ===========================================================================
+
+def _step_with_args_kwargs(x, extra1, extra2, key=None):
+  raise ValueError(f'x={x!r}, extra1={extra1!r}, extra2={extra2!r}, key={key!r}')
+
+
+def _do_with_args(x, extra, key=None):
+  raise ValueError(f'do: x={x!r}, extra={extra!r}, key={key!r}')
+
+
+def section_args_kwargs():
+  _header('SECTION 19 — Multiple chained steps with args and kwargs combinations')
+
+  # CASE 48: .then(fn, arg1, arg2, key=val) that raises
+  run_case(
+    'CASE 48: .then(fn, arg1, arg2, key=val) raises',
+    lambda: Chain(1).then(_step_with_args_kwargs, 'a1', 'a2', key='kv').run(),
+  )
+
+  # CASE 49: .do(fn, arg1, key=val) that raises
+  run_case(
+    'CASE 49: .do(fn, arg1, key=val) raises',
+    lambda: Chain(1).do(_do_with_args, 'extra', key='kval').run(),
+  )
+
+  # CASE 50: Nested chain as a .then() step with args passed to a step that raises
+  def _inner_raises(x):
+    raise RuntimeError(f'inner got: {x!r}')
+
+  run_case(
+    'CASE 50: Nested chain step with inner raises',
+    lambda: Chain(1).then(Chain().then(lambda x: x + 1).then(_inner_raises)).run(),
+  )
+
+
+# ===========================================================================
+# SECTION 20 – Async nested chains
+# ===========================================================================
+
+async def _async_inner_raiser(x):
+  raise ValueError('async inner boom')
+
+
+async def _async_step_ok(x):
+  return x + 100
+
+
+def section_async_nested():
+  _header('SECTION 20 — Async nested chains')
+
+  # CASE 51: Async inner chain raises inside sync outer chain
+  run_async_case(
+    'CASE 51: Async inner chain raises inside sync outer chain',
+    lambda: (
+      Chain(1)
+      .then(Chain().then(_async_inner_raiser))
+      .run()
+    ),
+  )
+
+  # CASE 52: Sync inner chain raises inside async outer chain
+  run_async_case(
+    'CASE 52: Sync inner chain raises inside async outer (outer has async step before)',
+    lambda: (
+      Chain(1)
+      .then(_async_step_ok)
+      .then(Chain().then(_inner_raiser))
+      .run()
+    ),
+  )
+
+  # CASE 53: Double-nested async: outer async -> inner async -> innermost raises
+  run_async_case(
+    'CASE 53: Double-nested async — outer async -> inner async -> innermost raises',
+    lambda: (
+      Chain(1)
+      .then(_async_step_ok)
+      .then(
+        Chain()
+        .then(_async_step_ok)
+        .then(
+          Chain().then(_async_inner_raiser)
+        )
+      )
+      .run()
+    ),
+  )
+
+
+# ===========================================================================
+# SECTION 21 – Frozen chain variations
+# ===========================================================================
+
+def section_frozen_variations():
+  _header('SECTION 21 — Frozen chain variations')
+
+  # CASE 54: Frozen chain with except_ handler that catches
+  def _case54():
+    fc = (
+      Chain()
+      .then(lambda x: 1 / 0)
+      .except_(lambda e: f'frozen caught: {e}')
+      .freeze()
+    )
+    return fc(1)
+
+  run_case_caught(
+    'CASE 54: Frozen chain with except_ that catches',
+    _case54,
+  )
+
+  # CASE 55: Frozen chain with nested chain that raises
+  def _case55():
+    fc = (
+      Chain()
+      .then(Chain().then(lambda x: 1 / 0))
+      .freeze()
+    )
+    return fc(1)
+
+  run_case(
+    'CASE 55: Frozen chain with nested chain that raises',
+    _case55,
+  )
+
+  # CASE 56: Frozen chain called multiple times — 2nd call same formatting
+  def _case56():
+    fc = (
+      Chain()
+      .then(lambda x: 1 / 0)
+      .freeze()
+    )
+    results = []
+    for i in range(2):
+      try:
+        fc(i)
+      except Exception:
+        results.append(f'call {i+1} raised')
+        tb_mod.print_exc()
+        print()
+    return results
+
+  global _total_cases, _traceback_cases
+  _total_cases += 1
+  _header('CASE 56: Frozen chain called twice — both calls show formatting')
+  try:
+    result = _case56()
+    print(f'[no exception]  result = {result!r}')
+  except Exception:
+    _traceback_cases += 1
+    tb_mod.print_exc()
+  print()
+
+
+# ===========================================================================
+# SECTION 22 – Edge cases
+# ===========================================================================
+
+def section_edge_cases():
+  _header('SECTION 22 — Edge cases')
+
+  # CASE 57: Empty chain (no root, no links)
+  run_case(
+    'CASE 57: Empty chain — Chain().run() (should return None, no exception)',
+    lambda: Chain().run(),
+  )
+
+  # CASE 58: Chain with only root, no links
+  run_case(
+    'CASE 58: Chain with only root, no links — Chain(42).run() (should return 42)',
+    lambda: Chain(42).run(),
+  )
+
+  # CASE 59: Chain root is another Chain
+  run_case(
+    'CASE 59: Chain root is another Chain — Chain(Chain(1).then(lambda x: 1/0)).run()',
+    lambda: Chain(Chain(1).then(lambda x: 1 / 0)).run(),
+  )
+
+  # CASE 60: Very long chain (20 steps) — verify formatting with many steps
+  def _case60():
+    c = Chain(1)
+    for i in range(19):
+      c = c.then(lambda x, _i=i: x + 1)
+    c = c.then(lambda x: 1 / 0)
+    return c.run()
+
+  run_case(
+    'CASE 60: Very long chain (20 steps), last one raises',
+    _case60,
+  )
+
+  # CASE 61: Chain with functools.partial as a step that raises
+  def _partial_target(a, b, c):
+    raise ValueError(f'partial: a={a!r}, b={b!r}, c={c!r}')
+
+  run_case(
+    'CASE 61: Chain with functools.partial as a step that raises',
+    lambda: Chain(1).then(functools.partial(_partial_target, 'a_val', 'b_val')).run(),
+  )
+
+  # CASE 62: Chain with a class (constructor) as a step
+  run_case(
+    'CASE 62: Chain with class (int) as step, then lambda raises',
+    lambda: Chain(1).then(int).then(lambda x: 1 / 0).run(),
+  )
+
+
+# ===========================================================================
+# SECTION 23 – Mixed operations chain
+# ===========================================================================
+
+def section_mixed_ops():
+  _header('SECTION 23 — Mixed operations chain')
+
+  # CASE 63: Complex chain mixing then/do/foreach/filter/with_ — error deep
+  def _fail_in_filter(x):
+    raise RuntimeError(f'filter predicate failed on {x!r}')
+
+  run_case(
+    'CASE 63: then -> do -> foreach -> filter pipeline, error in filter predicate (deep)',
+    lambda: (
+      Chain([1, 2, 3])
+      .then(lambda x: [v * 10 for v in x])
+      .do(lambda x: None)
+      .foreach(lambda x: x + 1)
+      .filter(_fail_in_filter)
+      .run()
+    ),
+  )
+
+  # CASE 64: Chain with then -> foreach -> filter, error in filter
+  run_case(
+    'CASE 64: then -> foreach -> filter pipeline, error in filter predicate',
+    lambda: (
+      Chain([1, 2, 0])
+      .then(lambda x: x)
+      .foreach(lambda x: x * 2)
+      .filter(lambda x: 10 / x)
+      .run()
+    ),
+  )
+
+
+# ===========================================================================
+# SECTION 24 – Async except/finally handlers
+# ===========================================================================
+
+async def _async_except_handler(e):
+  return f'async caught: {e}'
+
+
+async def _async_finally_handler(x):
+  _async_finally_tracker.append('async_finally_ran')
+
+
+_async_finally_tracker = []
+
+
+def section_async_handlers():
+  _header('SECTION 24 — Async except/finally handlers')
+
+  # CASE 65: Async except_ handler that catches
+  run_async_case_caught(
+    'CASE 65: Async except_ handler that catches',
+    lambda: (
+      Chain(1)
+      .then(lambda x: 1 / 0)
+      .except_(_async_except_handler)
+      .run()
+    ),
+  )
+
+  # CASE 66: Async finally_ handler + sync chain raises
+  _async_finally_tracker.clear()
+
+  run_async_case(
+    'CASE 66: Async finally_ handler + sync chain raises',
+    lambda: (
+      Chain(1)
+      .then(_async_step_ok)
+      .then(lambda x: 1 / 0)
+      .finally_(_async_finally_handler)
+      .run()
+    ),
+  )
+  print(f'  [tracker] _async_finally_tracker = {_async_finally_tracker}')
+
+
+# ===========================================================================
 # MAIN
 # ===========================================================================
 
@@ -556,6 +1023,15 @@ def main():
   section_args()
   section_control_flow()
   section_chained_exc()
+  section_nested_except()
+  section_nested_finally()
+  section_except_and_finally()
+  section_args_kwargs()
+  section_async_nested()
+  section_frozen_variations()
+  section_edge_cases()
+  section_mixed_ops()
+  section_async_handlers()
 
   # Summary
   bar = '═' * 60

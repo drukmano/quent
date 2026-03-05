@@ -20,6 +20,15 @@ _HAS_QUALNAME: bool = sys.version_info >= (3, 11)
 _TracebackType: type[types.TracebackType] = types.TracebackType
 
 
+class _Ctx:
+  """Shared context threaded through chain stringification."""
+  __slots__ = ('source_link', 'link_temp_args', 'found')
+  def __init__(self, source_link, link_temp_args):
+    self.source_link = source_link
+    self.link_temp_args = link_temp_args
+    self.found = False
+
+
 def _clean_internal_frames(tb: types.TracebackType | None) -> types.TracebackType | None:
   """Remove quent-internal frames from a traceback, keeping only user frames
   and the synthetic <quent> frame.
@@ -52,71 +61,45 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
   _clean_chained_exceptions(exc.__context__, seen)
 
 
-def _remove_self_frames() -> BaseException:
-  """Clean internal frames from the current exception and return it
-  with the cleaned traceback.
-  """
-  exc_value = sys.exc_info()[1]
-  exc_value.__quent__ = True
-  tb = exc_value.__traceback__
-
-  cleaned_tb = _clean_internal_frames(tb)
-
-  seen = set()
-  _clean_chained_exceptions(exc_value.__cause__, seen)
-  _clean_chained_exceptions(exc_value.__context__, seen)
-
-  return exc_value.with_traceback(cleaned_tb)
-
-
-def _modify_traceback(exc: BaseException, chain: Chain, link: Link, root_link: Link | None = None) -> None:
-  """Inject a readable chain visualization into the exception's traceback.
-
-  Creates a synthetic <quent> frame whose 'function name' is the
-  chain visualization string, so the traceback naturally displays
-  the chain structure.
+def _modify_traceback(exc: BaseException, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None) -> BaseException:
+  """Inject chain visualization or just strip internal frames.
+  Always returns the exception for use in `raise` expressions.
   """
   if getattr(exc, '__quent_source_link__', None) is None:
     exc.__quent_source_link__ = link
 
-  if chain.is_nested:
-    return
+  if chain is not None and link is not None and not chain.is_nested:
+    exc.__quent__ = True
+    source_link = exc.__quent_source_link__
+    del exc.__quent_source_link__
 
-  exc.__quent__ = True
-  source_link = exc.__quent_source_link__
-  del exc.__quent_source_link__
-  link_temp_args = getattr(exc, '__quent_link_temp_args__', None)
+    ctx = _Ctx(
+      source_link=_get_true_source_link(source_link, root_link),
+      link_temp_args=getattr(exc, '__quent_link_temp_args__', None),
+    )
+    chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx)
+    chain_source = _make_indent(1).join([''] + chain_source.splitlines())
 
-  filename = '<quent>'
-  chain_source, _ = _stringify_chain(
-    chain, nest_lvl=0,
-    root_link=root_link,
-    link_temp_args=link_temp_args,
-    source_link=_get_true_source_link(source_link, root_link),
-    found_source_link=False,
-  )
-  chain_source = _make_indent(1).join([''] + chain_source.splitlines())
-
-  exc_value = sys.exc_info()[1]
-  globals_ = {
-    '__name__': filename,
-    '__file__': filename,
-    '__exc__': exc_value,
-  }
-  if _HAS_QUALNAME:
-    code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)
+    filename = '<quent>'
+    exc_value = sys.exc_info()[1]
+    globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
+    if _HAS_QUALNAME:
+      code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)
+    else:
+      code = _RAISE_CODE.replace(co_name=chain_source)
+    try:
+      exec(code, globals_, {})
+    except BaseException:
+      new_tb = sys.exc_info()[1].__traceback__
+      exc.__traceback__ = _clean_internal_frames(new_tb)
   else:
-    code = _RAISE_CODE.replace(co_name=chain_source)
-  try:
-    exec(code, globals_, {})
-  except BaseException:
-    new_tb = sys.exc_info()[1].__traceback__
-    cleaned_tb = _clean_internal_frames(new_tb)
-    exc.__traceback__ = cleaned_tb
+    exc.__quent__ = True
+    exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
   seen = set()
   _clean_chained_exceptions(exc.__cause__, seen)
   _clean_chained_exceptions(exc.__context__, seen)
+  return exc.with_traceback(exc.__traceback__)
 
 
 def _get_true_source_link(source_link: Link | None, root_link: Link | None) -> Link | None:
@@ -181,27 +164,47 @@ def _get_obj_name(obj: Any) -> str:
     return type(obj).__name__
 
 
-def _format_args(args: tuple[Any, ...] | None) -> str:
-  """Format positional arguments for chain visualization."""
-  if not args:
-    return ''
-  if args[0] is ...:
-    return ', ...'
-  return ', ' + ', '.join([_get_obj_name(a) for a in args])
+def _format_call_args(args, kwargs):
+  """Format positional and keyword arguments for chain visualization."""
+  parts = []
+  if args:
+    if args[0] is ...:
+      parts.append('...')
+    else:
+      parts.extend(_get_obj_name(a) for a in args)
+  if kwargs:
+    parts.extend(f'{k}={_get_obj_name(v)}' for k, v in kwargs.items())
+  return ', '.join(parts)
 
 
-def _format_kwargs(kwargs: dict[str, Any] | None) -> str:
-  """Format keyword arguments for chain visualization."""
-  if not kwargs:
-    return ''
-  return ', ' + ', '.join([f'{k}={_get_obj_name(v)}' for k, v in kwargs.items()])
+def _resolve_nested_chain(link, args, kwargs, nest_lvl, ctx):
+  """Resolve a nested chain link into its string representation."""
+  original_value = link.original_value if link.original_value is not None else link.v
+  nested_root_link = None
+  _temp_args = args or ()
+  _temp_kwargs = kwargs or {}
+  if _temp_args or _temp_kwargs:
+    _temp_v = _temp_args[0] if _temp_args else Null
+    if _temp_v is not Null:
+      nested_root_link = Link(
+        _temp_v,
+        args=_temp_args[1:] if len(_temp_args) > 1 else None,
+        kwargs=_temp_kwargs or None,
+      )
+  nested_ctx = _Ctx(source_link=ctx.source_link, link_temp_args=None)
+  nested_ctx.found = ctx.found
+  result = _stringify_chain(
+    original_value, nest_lvl=nest_lvl + 1,
+    root_link=nested_root_link, ctx=nested_ctx,
+  )
+  ctx.found = nested_ctx.found
+  return result
 
 
-def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, link_temp_args: dict[int, tuple[Any, ...]] | None = None,
-                     source_link: Link | None = None, found_source_link: bool = False) -> tuple[str, bool]:
+def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, ctx: _Ctx | None = None) -> str:
   """Build a string visualization of a chain for traceback display.
 
-  Returns a tuple of (output_string, found_source_link_bool).
+  Returns the output string.
   """
   output = ''
   root = chain.root_link
@@ -215,12 +218,9 @@ def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = N
   if root is None:
     output += '()'
   else:
-    output += _format_link(
-      root, nest_lvl=nest_lvl, link_temp_args=link_temp_args,
-      source_link=source_link, found_source_link=found_source_link,
-    )
-    if not found_source_link and root is source_link:
-      found_source_link = True
+    output += _format_link(root, nest_lvl=nest_lvl, ctx=ctx)
+    if not ctx.found and root is ctx.source_link:
+      ctx.found = True
 
   links = []
   link = chain.first_link
@@ -234,18 +234,14 @@ def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = N
 
   for link, method_name in links:
     output += _make_indent(nest_lvl)
-    output += _format_link(
-      link, nest_lvl=nest_lvl, link_temp_args=link_temp_args,
-      source_link=source_link, found_source_link=found_source_link,
-      method_name=method_name,
-    )
-    if not found_source_link and link is source_link:
-      found_source_link = True
+    output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name)
+    if not ctx.found and link is ctx.source_link:
+      ctx.found = True
 
-  return output, found_source_link
+  return output
 
 
-def _format_link(link: Link, nest_lvl: int, link_temp_args: dict[int, tuple[Any, ...]] | None = None, source_link: Link | None = None, found_source_link: bool = False, method_name: str | None = None) -> str:
+def _format_link(link: Link, nest_lvl: int, ctx: _Ctx | None = None, method_name: str | None = None) -> str:
   """Format a single link for chain visualization.
 
   Handles nested chains, argument display, source link marking, and
@@ -263,31 +259,16 @@ def _format_link(link: Link, nest_lvl: int, link_temp_args: dict[int, tuple[Any,
   output = ''
   is_chain = False
 
-  if not found_source_link:
-    if link_temp_args is not None and id(link) in link_temp_args:
-      args = link_temp_args[id(link)]
+  if not ctx.found:
+    if ctx.link_temp_args is not None and id(link) in ctx.link_temp_args:
+      args = ctx.link_temp_args[id(link)]
       kwargs = {}
 
   if original_value is None:
     original_value = link.v
   if link.is_chain or getattr(original_value, '_is_chain', False):
-    nested_root_link = None
-    _temp_args = args or ()
-    _temp_kwargs = kwargs or {}
-    if _temp_args or _temp_kwargs:
-      _temp_v = _temp_args[0] if _temp_args else Null
-      if _temp_v is not Null:
-        nested_root_link = Link(
-          _temp_v,
-          args=_temp_args[1:] if len(_temp_args) > 1 else None,
-          kwargs=_temp_kwargs or None,
-        )
+    link_v = _resolve_nested_chain(link, args, kwargs, nest_lvl, ctx)
     args = kwargs = None
-    link_v, found_source_link = _stringify_chain(
-      original_value, nest_lvl=nest_lvl + 1,
-      root_link=nested_root_link, link_temp_args=None,
-      source_link=source_link, found_source_link=found_source_link,
-    )
     is_chain = True
   else:
     link_v = _get_obj_name(original_value)
@@ -298,25 +279,19 @@ def _format_link(link: Link, nest_lvl: int, link_temp_args: dict[int, tuple[Any,
   # Determine if this link represents a callable invocation.
   if callable(link.v) or link.args or link.kwargs or link.is_chain:
     if is_chain:
-      args_s = _format_args(args)
-      kwargs_s = _format_kwargs(kwargs)
-      chain_newline = ''
-      if args_s or kwargs_s:
-        chain_newline = _make_indent(nest_lvl + 1)
-      link_v = f'({link_v}{chain_newline}{args_s}{kwargs_s}'
-      if link_v.endswith(', '):
-        link_v = link_v[:-2]
-      output += link_v + f'{_make_indent(nest_lvl)})'
+      call_args = _format_call_args(args, kwargs)
+      chain_newline = _make_indent(nest_lvl + 1) if call_args else ''
+      call_prefix = f', {call_args}' if call_args else ''
+      output += f'({link_v}{chain_newline}{call_prefix}{_make_indent(nest_lvl)})'
     else:
-      link_v = f'({link_v}{_format_args(args)}{_format_kwargs(kwargs)}'
-      if link_v.endswith(', '):
-        link_v = link_v[:-2]
-      output += link_v + ')'
+      call_args = _format_call_args(args, kwargs)
+      call_prefix = f', {call_args}' if call_args else ''
+      output += f'({link_v}{call_prefix})'
   else:
     output += f'({link_v})'
 
-  if not found_source_link:
-    if outer_link is source_link:
+  if not ctx.found:
+    if outer_link is ctx.source_link:
       output += ' <' + '-' * 4
 
   return output

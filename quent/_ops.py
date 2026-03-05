@@ -48,6 +48,7 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     return result
 
   def _with_op(current_value: Any) -> Any:
+    # TODO why outer_value and not just use current_value? what is this var purpose?
     outer_value = current_value
     if hasattr(current_value, '__aenter__'):
       return _full_async(current_value)
@@ -71,6 +72,7 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   return _with_op
 
 
+# TODO why these are outside the class? why not just inline this code in the __iter__ or __aiter__
 def _sync_generator(chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool) -> Iterator[Any]:
   """Synchronous generator over chain output."""
   try:
@@ -146,7 +148,7 @@ class _Generator:
     return _async_generator(self._chain_run, self._run_args, self._fn, self._ignore_result)
 
   def __repr__(self) -> str:
-    return '<_Generator>'
+    return '<Quent._Generator>'
 
 
 def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:

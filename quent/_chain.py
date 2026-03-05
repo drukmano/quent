@@ -15,7 +15,7 @@ from ._core import (
   Link, _ensure_future,
 )
 from ._ops import _Generator, _make_with, _make_foreach, _make_filter, _make_gather
-from ._traceback import _modify_traceback, _remove_self_frames
+from ._traceback import _modify_traceback
 
 
 async def _await_run(result: Any, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None) -> Any:
@@ -28,9 +28,7 @@ async def _await_run(result: Any, chain: Chain | None = None, link: Link | None 
   try:
     return await result
   except BaseException as exc:
-    if chain is not None and link is not None:
-      _modify_traceback(exc, chain, link, root_link)
-    raise _remove_self_frames()
+    raise _modify_traceback(exc, chain, link, root_link)
 
 
 def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link: Link | None) -> Any:
