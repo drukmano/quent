@@ -1,72 +1,38 @@
 # Compiled Python files
+__pycache__/
 *.pyc
-__pycache__
 *.py[cod]
 *$py.class
-venv
-.venv
 
 # Distribution / packaging
-.Python
 build/
-develop-eggs/
 dist/
-dist_electron/
-downloads/
-eggs/
-.eggs/
-#lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
 *.egg-info/
-.pytest_cache
-.installed.cfg
 *.egg
-MANIFEST
 
-# C extensions
-*.so
+# Virtual environments
+.venv*/
+venv*/
 
-# Folder view configuration files
+# Coverage
+.coverage
+htmlcov/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# IDE
+.idea/
+
+# OS
 .DS_Store
-.AppleDouble
-.LSOverride
-Desktop.ini
-
-# Thumbnail cache files
 ._*
 Thumbs.db
-__*
-*--
-*.icloud
-!__init__.py
-!__init__.pyx
-!__init__.pxd
-!__init__.c
 
-# Files that might appear on external disks
-.Spotlight-V100
-.Trashes
-.Trash
-
-.idea
+# Misc
 *.nosync*
 *.tmp*
-node_modules
-package-lock.json
-yarn.lock
-.coverage
-
 .env
-.venv*
-env
-venv*
-ENV
-env.bak
-venv.bak
-*.html
-.hypothesis/*

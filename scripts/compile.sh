@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Pure Python equivalent of Cython's compile step:
-# byte-compiles all .py files, catching syntax errors early
-# and pre-generating .pyc files for faster import.
+# Byte-compiles all .py files, catching syntax errors early.
 
 echo "==> Cleaning stale bytecode"
 find quent/ -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

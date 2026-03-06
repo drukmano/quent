@@ -2,7 +2,6 @@
 set -e
 
 # Build and upload to PyPI.
-# Mirrors scripts_cython/distribute.sh but for pure Python distribution.
 
 ./scripts/build.sh
 

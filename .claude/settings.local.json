@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(source:*)",
+      "Bash(bash:*)",
+      "Bash(python -m pytest tests/test_core_functionality.py -v)",
+      "Bash(python:*)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "Bash(wc:*)",
+      "Bash(python3:*)",
+      "Bash(gh issue:*)",
+      "Bash(test:*)",
+      "Bash(grep:*)",
+      "Bash(gh repo:*)",
+      "Bash(gh auth:*)",
+      "Bash(git:*)",
+      "Bash(sort:*)"
+    ],
+    "deny": []
+  },
+  "outputStyle": "orchestrator"
+}
