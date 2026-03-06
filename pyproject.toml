@@ -52,6 +52,9 @@ quent = ["py.typed", "*.pyi"]
 [tool.coverage.run]
 source = ["quent"]
 
+[tool.coverage.report]
+fail_under = 80
+
 [dependency-groups]
 dev = [
     "build>=1.4",

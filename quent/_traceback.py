@@ -71,6 +71,9 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
       exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
     stack.append(exc.__cause__)
     stack.append(exc.__context__)
+    # Python 3.11+: ExceptionGroup wraps sub-exceptions
+    if hasattr(exc, 'exceptions'):
+      stack.extend(exc.exceptions)
 
 
 def _modify_traceback(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import sys
 from collections.abc import Coroutine
@@ -178,9 +179,13 @@ class Link:
   ) -> None:
     # Duck-typing: checks for the _is_chain class attribute that only Chain
     # sets, avoiding a circular import with _chain.py.
-    self.is_chain = getattr(v, '_is_chain', False)
+    try:
+      self.is_chain = getattr(v, '_is_chain', False)
+    except Exception:
+      self.is_chain = False
     if self.is_chain:
-      v.is_nested = True
+      with contextlib.suppress(AttributeError, TypeError):
+        v.is_nested = True
     self.v = v
     self.args = args
     self.kwargs = kwargs

@@ -85,62 +85,11 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 ---
 
-#### M8. `Link.__init__` crashes on objects whose `__getattr__` raises non-`AttributeError`
-
-- **File:** `_core.py:181`
-- **Code:** `self.is_chain = getattr(v, '_is_chain', False)`
-- **Description:** `getattr(obj, name, default)` only swallows `AttributeError`. If a user object's `__getattr__` raises a different exception (e.g., `ValueError`, `RuntimeError`), `Link.__init__` will crash with that exception.
-- **Verified empirically:**
-  ```python
-  class RaisesValueError:
-      def __getattr__(self, name):
-          raise ValueError(f'Cannot access {name}')
-
-  Link(RaisesValueError())  # raises ValueError: Cannot access _is_chain
-  ```
-- **Impact:** Any user object with a broken `__getattr__` (proxy objects, ORMs with lazy loading, descriptors) will crash at chain construction time with a confusing non-quent exception.
-- **ASSUMPTION:** Objects that raise non-`AttributeError` from `__getattr__` are violating the descriptor protocol convention and would cause similar problems in many Python libraries. Likely acceptable as a design trade-off.
-
----
-
-#### M9. `Link.__init__` crashes when setting `is_nested = True` on frozen objects
-
-- **File:** `_core.py:183`
-- **Code:** `v.is_nested = True`
-- **Description:** If `v` has `_is_chain = True` (detected by `getattr`), the code unconditionally sets `v.is_nested = True`. This raises `AttributeError` if `v` uses `__slots__` without an `is_nested` slot, or if `v` has a `__setattr__` that rejects writes.
-- **Verified empirically:**
-  ```python
-  class Frozen:
-      __slots__ = ()
-      _is_chain = True
-
-  Link(Frozen())  # AttributeError: 'Frozen' object has no attribute 'is_nested'
-  ```
-- **Assessment:** In practice, only `Chain` instances have `_is_chain = True`, and `Chain` defines `is_nested` in its `__slots__`. User objects mimicking `_is_chain` is an unsupported scenario. However, if any third-party code or future refactoring introduces `_is_chain` on a read-only object, this will crash.
-
----
-
 #### M10. Sync chain returns unawaited coroutine with no warning
 
 - **File:** `_chain.py:151`
 - **Description:** When `_run` encounters an awaitable, it returns a coroutine from what appears to be a sync call. There's no warning emitted (unlike the except/finally handlers which warn at lines 199-204 and 223-228). Python will emit `RuntimeWarning: coroutine was never awaited` if the coroutine is GC'd, but the message points to quent internals, not user code.
 - **Impact:** A user calling `result = chain.run()` might not realize they got a coroutine instead of a value.
-
----
-
-#### M13. Stale coroutine returned from `_full_async` when async CM suppresses body exception
-
-- **File:** `_ops.py:54-74`
-- **Description:** When async CM suppresses an exception, `result` still holds the stale coroutine from before `await`. On `ignore_result=False`, line 74 returns this stale coroutine.
-- **Acknowledged:** In `cm_protocol_matrix_tests.py:416-431` as a "library edge case"
-
----
-
-#### M14. `ExceptionGroup` sub-exceptions not cleaned by traceback system
-
-- **File:** `_traceback.py:62-73`
-- **Description:** `_clean_chained_exceptions` traverses `__cause__`/`__context__` but NOT `ExceptionGroup.exceptions`. Sub-exceptions retain quent-internal frames.
-- **Scope:** Python 3.11+ only
 
 ---
 
@@ -266,13 +215,6 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 - **File:** `_ops.py`
 - **Description:** Sync: `StopIteration` from `fn` terminates iteration early (caught by `while/next` pattern). Async: `StopIteration` from `fn` propagates as error (not caught by `async for`). Documented by tests. Consequence of different loop mechanisms.
-
----
-
-#### L25. No coverage `fail_under` threshold configured
-
-- **File:** `pyproject.toml` lines 52-53
-- **Description:** Coverage is computed but has no minimum threshold — CI passes even if coverage drops to 0%.
 
 ---
 
@@ -564,9 +506,9 @@ All identified refactoring opportunities have been addressed.
 
 | Category | Critical | High | Medium | Low |
 |----------|----------|------|--------|-----|
-| Bugs/Correctness | **0** | **1** | **7** | **17** |
+| Bugs/Correctness | **0** | **1** | **3** | **16** |
 | Security | 0 | 0 | 0 | 0 |
-| **Total Open** | **0** | **1** | **7** | **17** |
+| **Total Open** | **0** | **1** | **3** | **16** |
 
 ### High-Severity Findings Quick Reference
 
@@ -581,8 +523,8 @@ The library is well-engineered with a comprehensive test suite (4,887 tests, all
 The remaining open items are:
 - **0 Critical**
 - **1 High:** H7 (`_task_registry` thread safety — future scope)
-- **7 Medium:** M2 (gather partial results), M3 (sync iterator event loop blocking), M8 (getattr non-AttributeError), M9 (is_nested on frozen objects), M10 (unawaited coroutine warning), M13 (stale coroutine from async CM), M14 (ExceptionGroup not cleaned)
-- **17 Low:** L1, L2, L4, L5, L7-L17, L21, L25 — minor edge cases, cosmetic issues, and design trade-offs
+- **3 Medium:** M2 (gather partial results), M3 (sync iterator event loop blocking), M10 (unawaited coroutine warning)
+- **16 Low:** L1, L2, L4, L5, L7-L17, L21 — minor edge cases, cosmetic issues, and design trade-offs
 
 ---
 

@@ -63,6 +63,7 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
       except _ControlFlowSignal as s:
         signal = s
       except BaseException as exc:
+        result = Null  # Reset so suppressed exceptions don't return stale values
         _set_link_temp_args(exc, link, ctx=ctx)
         raise
     if signal is not None:
