@@ -1,6 +1,6 @@
 """Visual inspection of quent exception traceback formatting.
 
-Run with:  python3 inspect_tracebacks.py
+Run with:  python3 inspect_traceback.py
 """
 from __future__ import annotations
 
@@ -1004,6 +1004,220 @@ def section_async_handlers():
 
 
 # ===========================================================================
+# SECTION 25 – Decorator chains
+# ===========================================================================
+
+def section_decorator():
+  _header('SECTION 25 — Decorator chains')
+
+  # CASE 67: Decorated function — Chain.decorator() wrapping a failing fn
+  @Chain().then(lambda x: x + 1).then(lambda x: 1 / 0).decorator()
+  def decorated_simple(x):
+    return x
+
+  run_case(
+    'CASE 67: Decorated function — chain.decorator() wrapping, inner link raises',
+    lambda: decorated_simple(42),
+  )
+
+  # CASE 68: Decorator with named functions mid-chain
+  def add_one(x):
+    return x + 1
+
+  def fail_step(x):
+    raise ValueError('decorator chain failed')
+
+  @Chain().then(add_one).then(fail_step).then(str).decorator()
+  def decorated_mid_fail(x):
+    return x
+
+  run_case(
+    'CASE 68: Decorator — named functions, fail in the middle of chain',
+    lambda: decorated_mid_fail(10),
+  )
+
+
+# ===========================================================================
+# SECTION 26 – iterate / iterate_do
+# ===========================================================================
+
+def section_iterate():
+  _header('SECTION 26 — iterate / iterate_do')
+
+  def _bad_iterate_fn(x):
+    if x == 3:
+      raise ValueError(f'iterate failed on {x}')
+    return x * 10
+
+  # CASE 69: Sync iterate fn raises
+  run_case(
+    'CASE 69: iterate — sync fn raises on item 3',
+    lambda: list(Chain(range(5)).iterate(_bad_iterate_fn)),
+  )
+
+  # CASE 70: iterate_do fn raises
+  def _bad_iterate_do_fn(x):
+    if x == 2:
+      raise ValueError(f'iterate_do failed on {x}')
+
+  run_case(
+    'CASE 70: iterate_do — sync fn raises on item 2',
+    lambda: list(Chain(range(5)).iterate_do(_bad_iterate_do_fn)),
+  )
+
+  # CASE 71: Async iterate fn raises
+  async def _async_bad_iterate_fn(x):
+    if x == 3:
+      raise ValueError(f'async iterate failed on {x}')
+    return x * 10
+
+  async def _consume_async_iterate():
+    result = []
+    async for item in Chain(range(5)).iterate(_async_bad_iterate_fn):
+      result.append(item)
+    return result
+
+  run_async_case(
+    'CASE 71: iterate — async fn raises on item 3',
+    _consume_async_iterate,
+  )
+
+
+# ===========================================================================
+# SECTION 27 – Async context managers
+# ===========================================================================
+
+class _AsyncSimpleCM:
+  async def __aenter__(self):
+    return 'async_ctx_val'
+  async def __aexit__(self, *args):
+    return False
+
+async def _async_body_raises(ctx):
+  raise ValueError(f'async body failed with ctx={ctx!r}')
+
+def section_async_cm():
+  _header('SECTION 27 — Async context managers')
+
+  # CASE 72: AsyncCM body raises
+  run_async_case(
+    'CASE 72: Async context manager — body raises',
+    lambda: Chain(_AsyncSimpleCM()).with_(_async_body_raises).run(),
+  )
+
+
+# ===========================================================================
+# SECTION 28 – Async filter/gather
+# ===========================================================================
+
+class _AsyncRange:
+  def __init__(self, n):
+    self.n = n
+  def __aiter__(self):
+    self._i = 0
+    return self
+  async def __anext__(self):
+    if self._i >= self.n:
+      raise StopAsyncIteration
+    val = self._i
+    self._i += 1
+    return val
+
+async def _async_bad_pred(x):
+  if x == 3:
+    raise ValueError(f'async filter failed on {x}')
+  return x % 2 == 0
+
+async def _async_gather_raises(x):
+  raise ValueError('async gather fn failed')
+
+async def _async_gather_ok(x):
+  return x + 100
+
+def section_async_filter_gather():
+  _header('SECTION 28 — Async filter/gather')
+
+  # CASE 73: Async filter predicate raises
+  run_async_case(
+    'CASE 73: Async filter — predicate raises on item 3',
+    lambda: Chain(_AsyncRange(5)).filter(_async_bad_pred).run(),
+  )
+
+  # CASE 74: Async gather fn raises
+  run_async_case(
+    'CASE 74: Async gather — one async fn raises',
+    lambda: Chain(1).gather(_async_gather_ok, _async_gather_raises, _async_gather_ok).run(),
+  )
+
+
+# ===========================================================================
+# SECTION 29 – Callable objects
+# ===========================================================================
+
+class _CallableObj:
+  def __call__(self, x):
+    return x + 1
+  def __repr__(self):
+    return '<CallableObj>'
+
+class _CallableObjRaises:
+  def __call__(self, x):
+    raise ValueError('callable object raised')
+  def __repr__(self):
+    return '<CallableObjRaises>'
+
+class _AsyncCallableObj:
+  async def __call__(self, x):
+    raise ValueError('async callable object raised')
+  def __repr__(self):
+    return '<AsyncCallableObj>'
+
+def section_callable_objects():
+  _header('SECTION 29 — Callable objects')
+
+  # CASE 75: Callable object in chain, then raise_fn
+  def _raise(x):
+    raise ValueError('after callable obj')
+
+  run_case(
+    'CASE 75: CallableObj in chain, then raise_fn',
+    lambda: Chain(1).then(_CallableObj()).then(_raise).run(),
+  )
+
+  # CASE 76: Callable object that raises
+  run_case(
+    'CASE 76: CallableObj that raises',
+    lambda: Chain(1).then(_CallableObjRaises()).run(),
+  )
+
+  # CASE 77: Async callable object that raises
+  run_async_case(
+    'CASE 77: AsyncCallableObj that raises',
+    lambda: Chain(1).then(_AsyncCallableObj()).run(),
+  )
+
+
+# ===========================================================================
+# SECTION 30 – sys.excepthook demo
+# ===========================================================================
+
+def section_excepthook():
+  _header('SECTION 30 — sys.excepthook demo')
+
+  global _total_cases
+  _total_cases += 1
+
+  _header('CASE 78: sys.excepthook display for a mid-chain failure')
+  print('(Simulating what an uncaught exception would show via sys.excepthook)\n')
+  try:
+    Chain(1).then(lambda v: v + 1).then(lambda v: 1 / 0).run()
+  except Exception:
+    exc_type, exc_value, exc_tb = sys.exc_info()
+    sys.excepthook(exc_type, exc_value, exc_tb)
+  print()
+
+
+# ===========================================================================
 # MAIN
 # ===========================================================================
 
@@ -1032,6 +1246,12 @@ def main():
   section_edge_cases()
   section_mixed_ops()
   section_async_handlers()
+  section_decorator()
+  section_iterate()
+  section_async_cm()
+  section_async_filter_gather()
+  section_callable_objects()
+  section_excepthook()
 
   # Summary
   bar = '═' * 60

@@ -71,7 +71,10 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
 
 
 def _modify_traceback(
-  exc: BaseException, chain: Chain | None = None, link: Link | None = None, root_link: Link | None = None,
+  exc: BaseException,
+  chain: Chain | None = None,
+  link: Link | None = None,
+  root_link: Link | None = None,
   extra_links: list[tuple[Link, str]] | None = None,
 ) -> BaseException:
   """Inject chain visualization or just strip internal frames.
@@ -223,7 +226,14 @@ def _resolve_nested_chain(
   return result
 
 
-def _stringify_chain(chain: Chain, nest_lvl: int = 0, root_link: Link | None = None, *, ctx: _Ctx, extra_links: list[tuple[Link, str]] | None = None) -> str:
+def _stringify_chain(
+  chain: Chain,
+  nest_lvl: int = 0,
+  root_link: Link | None = None,
+  *,
+  ctx: _Ctx,
+  extra_links: list[tuple[Link, str]] | None = None,
+) -> str:
   """Build a string visualization of a chain for traceback display.
 
   Returns the output string.

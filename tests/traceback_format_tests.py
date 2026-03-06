@@ -23,7 +23,9 @@ from unittest.mock import patch
 
 from helpers import (
   AsyncCM,
+  AsyncCallableObj,
   AsyncRange,
+  CallableObj,
   SyncCM,
   SyncCMRaisesOnEnter,
   async_fn,
@@ -525,20 +527,16 @@ class TestEndToEndOperations(unittest.TestCase):
     _assert_chain_contains(self, tb_str, ".with_do(raise_fn, ctx='ctx_value') <----")
 
   def test_iterate_shows_item_and_index(self):
-    """EXPECTED TO FAIL -- Gap #5: no _set_link_temp_args in iterate paths."""
-
     def fn(x):
       if x == 1:
         raise ValueError('iterate fail')
       return x
 
-    # iterate returns a generator; consuming it triggers the exception.
-    # iterate exceptions don't go through _modify_traceback, so there is no
-    # <quent> frame or chain visualization. Check for the chain visualization
-    # with item/index info, which requires _set_link_temp_args support.
     tb_str = _capture_tb(lambda: list(Chain(range(3)).iterate(fn)))
     _assert_quent_frame(self, tb_str)
-    _assert_chain_contains(self, tb_str, 'index=1')
+    _assert_no_internal_frames(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'iterate')
+    _assert_chain_contains(self, tb_str, '.iterate(fn, item=1, index=1) <----')
 
   def test_foreach_temp_args_correct_item(self):
     def fn(x):
@@ -550,6 +548,19 @@ class TestEndToEndOperations(unittest.TestCase):
     _assert_arrow_on(self, tb_str, 'foreach')
     # temp_args should show the failing item (0)
     self.assertIn('0', tb_str)
+
+  def test_with_do_shows_method_name(self):
+    tb_str = _capture_tb(lambda: Chain(SyncCM()).with_do(raise_fn).run())
+    _assert_chain_contains(self, tb_str, '.with_do(')
+
+  def test_foreach_do_shows_method_name(self):
+    def fn(x):
+      if x == 2:
+        raise ValueError('bad')
+      return x
+
+    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach_do(fn).run())
+    _assert_chain_contains(self, tb_str, '.foreach_do(')
 
 
 # ---------------------------------------------------------------------------
@@ -667,6 +678,20 @@ class TestNestedChains(unittest.TestCase):
     tb_str = _capture_tb(lambda: Chain(inner).run())
     _assert_quent_frame(self, tb_str)
     _assert_arrow_on(self, tb_str, 'raise_fn')
+
+  def test_nested_finally_inner_outer_both_run(self):
+    tracker = []
+    inner = (
+      Chain()
+      .then(raise_fn)
+      .finally_(lambda rv: tracker.append('inner_finally'))
+    )
+    try:
+      Chain(1).then(inner).finally_(lambda rv: tracker.append('outer_finally')).run()
+    except ValueError:
+      pass
+    self.assertIn('inner_finally', tracker)
+    self.assertIn('outer_finally', tracker)
 
 
 # ---------------------------------------------------------------------------
@@ -852,6 +877,17 @@ class TestChainedExceptions(unittest.TestCase):
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(bad_handler).finally_(bad_finally).run())
     self.assertIn('TypeError', tb_str)
+
+  def test_except_catches_finally_runs_no_traceback(self):
+    tracker = []
+    result = (
+      Chain(raise_fn)
+      .except_(lambda exc: 'caught')
+      .finally_(lambda rv=None: tracker.append('finally_ran'))
+      .run()
+    )
+    self.assertEqual(result, 'caught')
+    self.assertEqual(tracker, ['finally_ran'])
 
 
 # ---------------------------------------------------------------------------
@@ -1525,6 +1561,360 @@ class TestEdgeCases(unittest.TestCase):
     # instead the chain visualization appears directly.
     _assert_quent_frame(self, tb_str)
     _assert_chain_contains(self, tb_str, 'Chain(raise_fn) <----')
+
+  def test_frozen_with_except_catches(self):
+    frozen = Chain().then(raise_fn).except_(lambda exc: 'caught').freeze()
+    result = frozen(1)
+    self.assertEqual(result, 'caught')
+
+  def test_frozen_called_twice_independent(self):
+    frozen = Chain().then(raise_fn).freeze()
+    tb1 = _capture_tb(lambda: frozen(1))
+    tb2 = _capture_tb(lambda: frozen(2))
+    self.assertIsNotNone(tb1)
+    self.assertIsNotNone(tb2)
+    _assert_quent_frame(self, tb1)
+    _assert_quent_frame(self, tb2)
+    _assert_arrow_on(self, tb1, 'raise_fn')
+    _assert_arrow_on(self, tb2, 'raise_fn')
+
+
+# ---------------------------------------------------------------------------
+# TestIterateTraceback -- 4 tests
+# ---------------------------------------------------------------------------
+
+
+class TestIterateTraceback(unittest.TestCase):
+  """Tests for iterate/iterate_do traceback formatting."""
+
+  def test_iterate_sync_fn_raises(self):
+    def bad_fn(x):
+      if x == 3:
+        raise ValueError('iterate fail')
+      return x * 10
+
+    tb_str = _capture_tb(lambda: list(Chain(range(5)).iterate(bad_fn)))
+    _assert_quent_frame(self, tb_str)
+    _assert_no_internal_frames(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'iterate')
+    _assert_chain_contains(self, tb_str, '.iterate(bad_fn, item=3, index=3) <----')
+    self.assertIn('ValueError: iterate fail', tb_str)
+
+  def test_iterate_do_sync_fn_raises(self):
+    def bad_fn(x):
+      if x == 2:
+        raise ValueError('iterate_do fail')
+
+    tb_str = _capture_tb(lambda: list(Chain(range(5)).iterate_do(bad_fn)))
+    _assert_quent_frame(self, tb_str)
+    _assert_no_internal_frames(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'iterate_do')
+    _assert_chain_contains(self, tb_str, '.iterate_do(bad_fn, item=2, index=2) <----')
+    self.assertIn('ValueError: iterate_do fail', tb_str)
+
+  def test_iterate_chain_viz_present(self):
+    """Chain visualization includes root and iterate link with arrow."""
+    def bad_fn(x):
+      if x == 1:
+        raise ValueError('viz check')
+      return x
+
+    tb_str = _capture_tb(lambda: list(Chain(range(3)).iterate(bad_fn)))
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_count(self, tb_str, 1)
+    _assert_chain_contains(self, tb_str, 'Chain(range(0, 3))', '.iterate(bad_fn, item=1, index=1) <----')
+
+  def test_iterate_no_internal_frames(self):
+    def bad_fn(x):
+      if x == 0:
+        raise ValueError('frame check')
+      return x
+
+    tb_str = _capture_tb(lambda: list(Chain(range(3)).iterate(bad_fn)))
+    _assert_no_internal_frames(self, tb_str)
+    _assert_quent_frame(self, tb_str)
+    self.assertIn('ValueError: frame check', tb_str)
+
+
+# ---------------------------------------------------------------------------
+# TestIterateTracebackAsync -- 2 tests
+# ---------------------------------------------------------------------------
+
+
+class TestIterateTracebackAsync(unittest.IsolatedAsyncioTestCase):
+  """Async tests for iterate/iterate_do traceback formatting."""
+
+  async def test_async_iterate_fn_raises(self):
+    async def bad_fn(x):
+      if x == 3:
+        raise ValueError('async iterate fail')
+      return x * 10
+
+    async def _consume():
+      result = []
+      async for item in Chain(AsyncRange(5)).iterate(bad_fn):
+        result.append(item)
+      return result
+
+    tb_str = await _capture_tb_async(_consume())
+    _assert_quent_frame(self, tb_str)
+    _assert_no_internal_frames(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'iterate')
+    _assert_chain_contains(self, tb_str, '.iterate(bad_fn, item=3, index=3) <----')
+    self.assertIn('ValueError: async iterate fail', tb_str)
+
+  async def test_async_iterate_do_fn_raises(self):
+    async def bad_fn(x):
+      if x == 2:
+        raise ValueError('async iterate_do fail')
+
+    async def _consume():
+      result = []
+      async for item in Chain(AsyncRange(5)).iterate_do(bad_fn):
+        result.append(item)
+      return result
+
+    tb_str = await _capture_tb_async(_consume())
+    _assert_quent_frame(self, tb_str)
+    _assert_no_internal_frames(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'iterate_do')
+    _assert_chain_contains(self, tb_str, '.iterate_do(bad_fn, item=2, index=2) <----')
+    self.assertIn('ValueError: async iterate_do fail', tb_str)
+
+
+# ---------------------------------------------------------------------------
+# TestDecoratorTraceback -- 3 tests
+# ---------------------------------------------------------------------------
+
+
+class TestDecoratorTraceback(unittest.TestCase):
+  """Tests for Chain.decorator() traceback formatting."""
+
+  def test_decorator_chain_raises(self):
+    @Chain().then(raise_fn).decorator()
+    def decorated(x):
+      return x
+
+    tb_str = _capture_tb(lambda: decorated(42))
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'raise_fn')
+
+  def test_decorator_mid_chain_fails(self):
+    @Chain().then(sync_fn).then(raise_fn).then(str).decorator()
+    def decorated(x):
+      return x
+
+    tb_str = _capture_tb(lambda: decorated(10))
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'raise_fn')
+    _assert_chain_contains(self, tb_str, '.then(sync_fn)', '.then(raise_fn')
+
+  def test_decorator_no_internal_frames(self):
+    @Chain().then(raise_fn).decorator()
+    def decorated(x):
+      return x
+
+    tb_str = _capture_tb(lambda: decorated(1))
+    _assert_no_internal_frames(self, tb_str)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncNestedTraceback -- 4 tests
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncNestedTraceback(unittest.IsolatedAsyncioTestCase):
+  """Async nested chain traceback tests."""
+
+  async def test_async_outer_sync_inner_raises(self):
+    tb_str = await _capture_tb_async(
+      Chain(1).then(async_fn).then(Chain().then(raise_fn)).run()
+    )
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'raise_fn')
+
+  async def test_sync_outer_async_inner_raises(self):
+    tb_str = await _capture_tb_async(
+      Chain(1).then(Chain().then(async_raise_fn)).run()
+    )
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'async_raise_fn')
+
+  async def test_both_async_nested(self):
+    tb_str = await _capture_tb_async(
+      Chain(1).then(async_fn).then(Chain().then(async_raise_fn)).run()
+    )
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'async_raise_fn')
+
+  async def test_triple_nested_async(self):
+    inner3 = Chain().then(async_raise_fn)
+    inner2 = Chain().then(async_fn).then(inner3)
+    inner1 = Chain().then(async_fn).then(inner2)
+    tb_str = await _capture_tb_async(
+      Chain(1).then(async_fn).then(inner1).run()
+    )
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'async_raise_fn')
+
+
+# ---------------------------------------------------------------------------
+# TestMixedOperationTraceback -- 3 tests
+# ---------------------------------------------------------------------------
+
+
+class TestMixedOperationTraceback(unittest.TestCase):
+  """Tests for mixed operation pipeline tracebacks."""
+
+  def test_then_foreach_filter_pipeline(self):
+    def bad_pred(x):
+      if x == 3:
+        raise ValueError('filter fail')
+      return x > 0
+
+    tb_str = _capture_tb(lambda: Chain([1, 2, 3]).foreach(lambda x: x).filter(bad_pred).run())
+    self.assertIsNotNone(tb_str)
+    _assert_arrow_on(self, tb_str, 'filter')
+
+  def test_then_with_foreach_pipeline(self):
+    def fn_raises_on_zero(x):
+      if x == 0:
+        raise ValueError('zero!')
+      return x
+
+    tb_str = _capture_tb(
+      lambda: Chain(SyncCM()).with_(lambda ctx: [1, 2, 0]).foreach(fn_raises_on_zero).run()
+    )
+    self.assertIsNotNone(tb_str)
+    _assert_arrow_on(self, tb_str, 'foreach')
+
+  def test_do_then_gather_pipeline(self):
+    def ok(x):
+      return x + 1
+
+    def bad(x):
+      raise ValueError('gather fail')
+
+    tb_str = _capture_tb(lambda: Chain(1).do(sync_fn).gather(ok, bad, ok).run())
+    self.assertIsNotNone(tb_str)
+    _assert_arrow_on(self, tb_str, 'gather')
+
+
+# ---------------------------------------------------------------------------
+# TestControlFlowTraceback -- 4 tests
+# ---------------------------------------------------------------------------
+
+
+class TestControlFlowTraceback(unittest.TestCase):
+  """Tests for control flow (return_/break_) and exception handling edge cases."""
+
+  def test_return_no_exception(self):
+    result = Chain(1).then(lambda x: Chain.return_(x + 99)).run()
+    self.assertEqual(result, 100)
+
+  def test_break_in_foreach_no_exception(self):
+    def fn(x):
+      if x == 2:
+        Chain.break_()
+      return x * 10
+
+    result = Chain([0, 1, 2, 3]).foreach(fn).run()
+    self.assertEqual(result, [0, 10])
+
+  def test_except_non_matching_type(self):
+    tb_str = _capture_tb(
+      lambda: Chain(1).then(lambda x: 1 / 0).except_(lambda e: 'caught', exceptions=TypeError).run()
+    )
+    self.assertIsNotNone(tb_str)
+    self.assertIn('ZeroDivisionError', tb_str)
+
+  def test_nested_inner_except_catches(self):
+    inner = Chain().then(raise_fn).except_(lambda exc: 'inner_caught')
+    result = Chain(1).then(inner).then(lambda x: f'outer got: {x}').run()
+    self.assertEqual(result, 'outer got: inner_caught')
+
+
+# ---------------------------------------------------------------------------
+# TestCallableObjectTraceback -- 2 tests
+# ---------------------------------------------------------------------------
+
+
+class TestCallableObjectTraceback(unittest.TestCase):
+  """Tests for callable object display in tracebacks."""
+
+  def test_callable_obj_displayed(self):
+    tb_str = _capture_tb(lambda: Chain(1).then(CallableObj()).then(raise_fn).run())
+    self.assertIsNotNone(tb_str)
+    _assert_quent_frame(self, tb_str)
+    _assert_arrow_on(self, tb_str, 'raise_fn')
+
+  def test_callable_obj_raises(self):
+    class BadCallable:
+      def __call__(self, x):
+        raise ValueError('callable raised')
+      def __repr__(self):
+        return '<BadCallable>'
+
+    tb_str = _capture_tb(lambda: Chain(1).then(BadCallable()).run())
+    self.assertIsNotNone(tb_str)
+    self.assertIn('ValueError: callable raised', tb_str)
+    _assert_quent_frame(self, tb_str)
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncGatherTraceback -- 1 test
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncGatherTraceback(unittest.IsolatedAsyncioTestCase):
+  """Tests for async gather traceback formatting."""
+
+  async def test_async_gather_fn_raises(self):
+    tb_str = await _capture_tb_async(
+      Chain(1).gather(async_fn, async_raise_fn, async_fn).run()
+    )
+    self.assertIsNotNone(tb_str)
+    _assert_arrow_on(self, tb_str, 'gather')
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncFilterTraceback -- 1 test
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncFilterTraceback(unittest.IsolatedAsyncioTestCase):
+  """Tests for async filter traceback formatting."""
+
+  async def test_async_filter_on_async_iterable(self):
+    async def bad_pred(x):
+      if x == 3:
+        raise ValueError('async filter fail')
+      return x % 2 == 0
+
+    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).filter(bad_pred).run())
+    self.assertIsNotNone(tb_str)
+    _assert_arrow_on(self, tb_str, 'filter')
+
+
+# ---------------------------------------------------------------------------
+# TestAsyncCMTraceback -- 1 test
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncCMTraceback(unittest.IsolatedAsyncioTestCase):
+  """Tests for async context manager traceback formatting."""
+
+  async def test_async_cm_body_raises_shows_ctx(self):
+    tb_str = await _capture_tb_async(Chain(AsyncCM()).with_(async_raise_fn).run())
+    self.assertIsNotNone(tb_str)
+    _assert_arrow_on(self, tb_str, 'async_raise_fn')
+    self.assertIn("ctx='ctx_value'", tb_str)
 
 
 if __name__ == '__main__':

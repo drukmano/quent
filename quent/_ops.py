@@ -126,8 +126,12 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
 # create generator objects at call time — a method would bind `self` unnecessarily
 # and complicate the generator's closure. Keeping them external is cleaner.
 def _sync_generator(
-  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool,
-  chain: Any = None, link: Any = None,
+  chain_run: Callable[..., Any],
+  run_args: tuple[Any, ...],
+  fn: Callable[[Any], Any] | None,
+  ignore_result: bool,
+  chain: Any = None,
+  link: Any = None,
 ) -> Iterator[Any]:
   """Synchronous generator over chain output."""
   idx = 0
@@ -164,8 +168,12 @@ async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
 
 
 async def _async_generator(
-  chain_run: Callable[..., Any], run_args: tuple[Any, ...], fn: Callable[[Any], Any] | None, ignore_result: bool,
-  chain: Any = None, link: Any = None,
+  chain_run: Callable[..., Any],
+  run_args: tuple[Any, ...],
+  fn: Callable[[Any], Any] | None,
+  ignore_result: bool,
+  chain: Any = None,
+  link: Any = None,
 ) -> AsyncIterator[Any]:
   """Asynchronous generator over chain output."""
   iterator = chain_run(*run_args)
