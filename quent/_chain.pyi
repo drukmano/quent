@@ -13,6 +13,9 @@ def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None)
 class Chain:
   _is_chain: bool
   __slots__: tuple[str, ...]
+  _retry_backoff: Callable[[int], float] | float | None
+  _retry_max_attempts: int | None
+  _retry_on: tuple[type[BaseException], ...] | None
   current_link: Link | None
   first_link: Link | None
   is_nested: bool
@@ -31,6 +34,10 @@ class Chain:
     root_value: Any = ...,
     has_root_value: bool = ...,
     root_link: Link | None = ...,
+    run_v: Any = ...,
+    run_args: tuple[Any, ...] | None = ...,
+    run_kwargs: dict[str, Any] | None = ...,
+    retry_attempt: int = ...,
   ) -> Any: ...
   def decorator(self) -> Callable[..., Callable[..., Any]]: ...
   def run(self, v: Any = ..., /, *args: Any, **kwargs: Any) -> Any: ...
@@ -45,6 +52,13 @@ class Chain:
     **kwargs: Any,
   ) -> Chain: ...
   def finally_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain: ...
+  def retry(
+    self,
+    max_attempts: int = ...,
+    on: tuple[type[BaseException], ...] | type[BaseException] = ...,
+    backoff: Callable[[int], float] | float | None = ...,
+  ) -> Chain: ...
+  def _get_retry_delay(self, attempt: int) -> float: ...
   def iterate(self, fn: Callable[[Any], Any] | None = ...) -> _Generator: ...
   def iterate_do(self, fn: Callable[[Any], Any] | None = ...) -> _Generator: ...
   def foreach(self, fn: Callable[[Any], Any], /) -> Chain: ...

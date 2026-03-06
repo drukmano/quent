@@ -356,42 +356,33 @@ When `run(v)` is called on a chain with a `root_link`, the run value creates a t
 
 ## VI. PRODUCT IDEAS & NEW FEATURES
 
-### Planned Features
-
 #### 1. `.retry()` — Built-in Retry with Backoff
 
 Pattern from: RxJS `retry`/`retryWhen`, Effect `Schedule`, tenacity
 
 ```python
+Chain(fetch_from_api)
+  .then(parse_response)
+  .retry(max_attempts=3, on=(ConnectionError, TimeoutError), backoff=lambda n: 2**n)
+  .except_(log_and_return_default, exceptions=(ConnectionError, TimeoutError))
+  .run()
+
+# Per-link retry via nested chains:
 Chain()
-  .then(fetch_from_api)
-  .retry(max_attempts=3, backoff=lambda n: 2**n, on=(ConnectionError, TimeoutError))
+  .then(Chain(flaky_operation).retry(3, on=(ConnectionError,)))
+  .then(process_result)
+  .run()
 ```
 
-Most requested missing feature for async pipeline libraries. Users currently must wrap individual functions with tenacity, which breaks the fluent API.
-
-#### 2. `.timeout()` — Per-Step or Per-Chain Timeout
-
-Pattern from: RxJS `timeout`, Effect structured concurrency, asyncio
-
-```python
-Chain()
-  .then(slow_operation).timeout(seconds=5.0)
-  .then(fast_followup)
-```
-
-For async chains, wrap the awaitable in `asyncio.wait_for`. For sync, raise after deadline. Critical for production use.
-
-#### 3. `|` Operator — Fluent Pipe Syntax
-
-Pattern from: Elixir `|>`, pipe library, shell pipes
-
-```python
-Chain(data) | transform1 | transform2 | transform3
-# equivalent to: Chain(data).then(transform1).then(transform2).then(transform3)
-```
-
-Implement `__or__` to accept callables and append them as `.then()` steps. Zero-ceremony composition that feels native to Python. Returns `self` for continued chaining.
+**Design:**
+- Chain-level config, like `except_()` / `finally_()` — one retry per chain
+- Retries the entire chain execution from scratch on failure
+- `max_attempts`: total attempts (3 = initial + 2 retries)
+- `on`: tuple of exception types that trigger retry (default: `(Exception,)`)
+- `backoff`: `None` (no delay), `float` (flat delay in seconds), or `Callable[[int], float]` (receives 0-indexed attempt number, returns delay in seconds)
+- Sync backoff uses `time.sleep()`, async backoff uses `asyncio.sleep()` — transparent bridging
+- On exhaustion, the last exception propagates to `except_()` / `finally_()` handlers
+- For per-link retry, use nested chains
 
 ---
 

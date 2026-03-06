@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections.abc
 import contextlib
 import functools
+import time
 import warnings
 from collections.abc import Callable, Iterable
 from inspect import isawaitable
@@ -80,6 +82,9 @@ class Chain:
   _is_chain = True
 
   __slots__ = (
+    '_retry_backoff',
+    '_retry_max_attempts',
+    '_retry_on',
     'current_link',
     'first_link',
     'is_nested',
@@ -89,6 +94,9 @@ class Chain:
     'root_link',
   )
 
+  _retry_backoff: Callable[[int], float] | float | None
+  _retry_max_attempts: int | None
+  _retry_on: tuple[type[BaseException], ...] | None
   current_link: Link | None
   first_link: Link | None
   is_nested: bool
@@ -107,6 +115,9 @@ class Chain:
     self.on_finally_link = None
     self.on_except_link = None
     self.on_except_exceptions = None
+    self._retry_max_attempts = None
+    self._retry_on = None
+    self._retry_backoff = None
 
   def _then(self, link: Link) -> Chain:
     if self.current_link is not None:
@@ -136,31 +147,66 @@ class Chain:
     # One-shot flag: on the first link evaluation, capture the result as root_value
     # (for finally handlers) and initialize current_value (the pipeline value).
     set_initial_values = False
+    max_attempts = self._retry_max_attempts or 1
+    retry_on = self._retry_on or ()
 
     try:
-      # When run(v) is called with a value, wrap it in a temporary Link and splice
-      # it before first_link, so it becomes the root of this execution.
-      if has_run_value:
-        link = Link(v, args, kwargs)
-        link.next_link = self.first_link
-        root_link = link
-      elif not has_root_value:
-        link = self.first_link
+      for _retry_attempt in range(max_attempts):
+        try:
+          # Reset state for each attempt
+          root_link = self.root_link
+          root_value = Null
+          current_value = Null
+          set_initial_values = False
 
-      while link is not None:
-        result = _evaluate_value(link, current_value)
-        if isawaitable(result):
-          ignore_finally = True
-          return self._run_async(result, link, current_value, root_value, has_root_value, root_link)
-        if not set_initial_values:
-          set_initial_values = True
-          if has_root_value and root_value is Null:
-            root_value = result
-          if current_value is Null and not link.ignore_result:
-            current_value = result
-        if not link.ignore_result:
-          current_value = result
-        link = link.next_link
+          # When run(v) is called with a value, wrap it in a temporary Link and splice
+          # it before first_link, so it becomes the root of this execution.
+          if has_run_value:
+            link = Link(v, args, kwargs)
+            link.next_link = self.first_link
+            root_link = link
+          elif has_root_value:
+            link = self.root_link
+          else:
+            link = self.first_link
+
+          while link is not None:
+            result = _evaluate_value(link, current_value)
+            if isawaitable(result):
+              ignore_finally = True
+              return self._run_async(
+                result,
+                link,
+                current_value,
+                root_value,
+                has_root_value,
+                root_link,
+                v,
+                args,
+                kwargs,
+                _retry_attempt,
+              )
+            if not set_initial_values:
+              set_initial_values = True
+              if has_root_value and root_value is Null:
+                root_value = result
+              if current_value is Null and not link.ignore_result:
+                current_value = result
+            if not link.ignore_result:
+              current_value = result
+            link = link.next_link
+
+          break  # Success — exit retry loop
+
+        except _ControlFlowSignal:
+          raise  # NEVER retry control flow signals
+        except BaseException as exc:
+          if _retry_attempt < max_attempts - 1 and isinstance(exc, retry_on):
+            delay = self._get_retry_delay(_retry_attempt)
+            if delay > 0:
+              time.sleep(delay)
+            continue
+          raise  # Last attempt or non-retryable — propagate to outer except
 
       if current_value is Null:
         return None
@@ -238,28 +284,72 @@ class Chain:
     root_value: Any = Null,
     has_root_value: bool = False,
     root_link: Link | None = None,
+    run_v: Any = Null,
+    run_args: tuple[Any, ...] | None = None,
+    run_kwargs: dict[str, Any] | None = None,
+    retry_attempt: int = 0,
   ) -> Any:
     _active_exc = None
-    try:
-      result = await awaitable
-      if has_root_value and root_value is Null:
-        root_value = result
-      if current_value is Null and not link.ignore_result:
-        current_value = result
-      if not link.ignore_result:
-        current_value = result
-      link = link.next_link  # type: ignore[assignment]
-      while link is not None:
-        result = _evaluate_value(link, current_value)
-        if isawaitable(result):
-          result = await result
-        if not link.ignore_result:
-          current_value = result
-        link = link.next_link  # type: ignore[assignment]
+    max_attempts = self._retry_max_attempts or 1
+    retry_on = self._retry_on or ()
+    has_run_value = run_v is not Null
 
-      if current_value is Null:
-        return None
-      return current_value
+    try:
+      for _attempt in range(retry_attempt, max_attempts):
+        try:
+          if _attempt == retry_attempt:
+            # First time through — complete the current attempt
+            result = await awaitable
+            if has_root_value and root_value is Null:
+              root_value = result
+            if current_value is Null and not link.ignore_result:
+              current_value = result
+            if not link.ignore_result:
+              current_value = result
+            link = link.next_link  # type: ignore[assignment]
+          else:
+            # Retry — restart from scratch
+            root_link = self.root_link
+            root_value = Null
+            current_value = Null
+            has_root_value = has_run_value or self.root_link is not None
+            if has_run_value:
+              link = Link(run_v, run_args, run_kwargs)
+              link.next_link = self.first_link
+              root_link = link
+            elif has_root_value:
+              link = self.root_link  # type: ignore[assignment]
+            else:
+              link = self.first_link  # type: ignore[assignment]
+            set_initial_values = False
+
+          while link is not None:
+            result = _evaluate_value(link, current_value)
+            if isawaitable(result):
+              result = await result
+            if _attempt > retry_attempt and not set_initial_values:
+              set_initial_values = True
+              if has_root_value and root_value is Null:
+                root_value = result
+              if current_value is Null and not link.ignore_result:
+                current_value = result
+            if not link.ignore_result:
+              current_value = result
+            link = link.next_link  # type: ignore[assignment]
+
+          if current_value is Null:
+            return None
+          return current_value
+
+        except _ControlFlowSignal:
+          raise  # NEVER retry control flow signals
+        except BaseException as exc:
+          if _attempt < max_attempts - 1 and isinstance(exc, retry_on):
+            delay = self._get_retry_delay(_attempt)
+            if delay > 0:
+              await asyncio.sleep(delay)
+            continue
+          raise  # Last attempt or non-retryable — propagate to outer except
 
     except _Return as exc:
       result = _handle_return_exc(exc, self.is_nested)
@@ -386,6 +476,38 @@ class Chain:
       raise QuentException("You can only register one 'finally' callback.")
     self.on_finally_link = Link(fn, args, kwargs)
     return self
+
+  def retry(
+    self,
+    max_attempts: int = 3,
+    on: tuple[type[BaseException], ...] | type[BaseException] = (Exception,),
+    backoff: Callable[[int], float] | float | None = None,
+  ) -> Chain:
+    """Configure retry for this chain.
+
+    Retries the entire chain execution from scratch on failure.
+    One retry config per chain (like except_/finally_).
+    For per-link retry, use nested chains.
+
+    Args:
+      max_attempts: Total attempts (3 = initial + 2 retries).
+      on: Exception types that trigger retry.
+      backoff: None (no delay), float (flat delay in seconds),
+        or callable(attempt_index) -> delay in seconds.
+    """
+    self._retry_max_attempts = max_attempts
+    self._retry_on = on if isinstance(on, tuple) else (on,)
+    self._retry_backoff = backoff
+    return self
+
+  def _get_retry_delay(self, attempt: int) -> float:
+    """Compute the delay before the next retry attempt."""
+    b = self._retry_backoff
+    if b is None:
+      return 0.0
+    if callable(b):
+      return b(attempt)
+    return b  # flat float delay
 
   def iterate(self, fn: Callable[[Any], Any] | None = None) -> _Generator:
     """Return a sync/async iterator over the chain's output."""
