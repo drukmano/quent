@@ -17,10 +17,8 @@ class TestFrozenChainConcurrency(unittest.IsolatedAsyncioTestCase):
 
   async def test_concurrent_runs_100(self):
     frozen = Chain().then(lambda x: x * 2).freeze()
-    coros = [frozen.run(i) for i in range(100)]
-    # All sync steps, so results are not coroutines -- just plain values.
-    # Chain with sync steps returns synchronously even when called in async context.
-    results = coros  # sync results, not awaitable
+    # All sync steps — returns synchronously even in async context.
+    results = [frozen.run(i) for i in range(100)]
     self.assertEqual(sorted(results), [i * 2 for i in range(100)])
 
   async def test_concurrent_runs_async_100(self):

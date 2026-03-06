@@ -91,33 +91,37 @@ def _modify_traceback(
     source_link = exc.__quent_source_link__  # type: ignore[attr-defined]
     del exc.__quent_source_link__  # type: ignore[attr-defined]
 
-    ctx = _Ctx(
-      source_link=_get_true_source_link(source_link, root_link),
-      link_temp_args=getattr(exc, '__quent_link_temp_args__', None),
-    )
-    if hasattr(exc, '__quent_link_temp_args__'):
-      del exc.__quent_link_temp_args__
-    chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
-    # Indent the chain visualization so it appears nested under the <quent> frame header.
-    chain_source = _make_indent(1).join(['', *chain_source.splitlines()])
-
-    # HACK: Inject chain visualization into the traceback by exec'ing a `raise` statement
-    # with a code object whose co_name has been replaced with the chain visualization string.
-    # Python's traceback machinery reads co_name as the "function name", so the chain
-    # structure appears as if it were a function name in the traceback.
-    # The exec creates a real traceback frame that we then graft onto the exception.
-    filename = '<quent>'
-    exc_value = exc
-    globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
-    if _HAS_QUALNAME:
-      code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)  # type: ignore[call-arg]
-    else:
-      code = _RAISE_CODE.replace(co_name=chain_source)
     try:
-      exec(code, globals_, {})
-    except BaseException:
-      new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]
-      exc.__traceback__ = _clean_internal_frames(new_tb)
+      ctx = _Ctx(
+        source_link=_get_true_source_link(source_link, root_link),
+        link_temp_args=getattr(exc, '__quent_link_temp_args__', None),
+      )
+      if hasattr(exc, '__quent_link_temp_args__'):
+        del exc.__quent_link_temp_args__
+      chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
+      # Indent the chain visualization so it appears nested under the <quent> frame header.
+      chain_source = _make_indent(1).join(['', *chain_source.splitlines()])
+
+      # HACK: Inject chain visualization into the traceback by exec'ing a `raise` statement
+      # with a code object whose co_name has been replaced with the chain visualization string.
+      # Python's traceback machinery reads co_name as the "function name", so the chain
+      # structure appears as if it were a function name in the traceback.
+      # The exec creates a real traceback frame that we then graft onto the exception.
+      filename = '<quent>'
+      exc_value = exc
+      globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
+      if _HAS_QUALNAME:
+        code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)  # type: ignore[call-arg]
+      else:
+        code = _RAISE_CODE.replace(co_name=chain_source)
+      try:
+        exec(code, globals_, {})
+      except BaseException:
+        new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]
+        exc.__traceback__ = _clean_internal_frames(new_tb)
+    except Exception:
+      # Visualization failed — fall back to just cleaning frames.
+      exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
   else:
     exc.__quent__ = True  # type: ignore[attr-defined]
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
@@ -217,7 +221,7 @@ def _resolve_nested_chain(
   _temp_kwargs = kwargs or {}
   if _temp_args or _temp_kwargs:
     _temp_v = _temp_args[0] if _temp_args else Null
-    if _temp_v is not Null:
+    if _temp_v is not Null or _temp_kwargs:
       nested_root_link = Link(
         _temp_v,
         args=_temp_args[1:] if len(_temp_args) > 1 else None,
@@ -271,6 +275,10 @@ def _stringify_chain(
   link = chain.first_link
   while link is not None:
     links.append((link, _get_link_name(link)))
+    # If this is an 'if' operation, check for an else branch.
+    op = getattr(link.v, '_quent_op', None)
+    if op == 'if' and getattr(link.v, '_else_link', None) is not None:
+      links.append((link.v._else_link, 'else_'))
     link = link.next_link
   if chain.on_except_link is not None:
     links.append((chain.on_except_link, 'except_'))

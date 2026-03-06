@@ -64,14 +64,13 @@ class TestResolveNestedChain(unittest.TestCase):
     self.assertIn('Ellipsis', result)
 
   def test_kwargs_only(self):
-    """kwargs={'k': 1}, no positional -> _temp_v=Null -> line 212 NOT reached."""
+    """kwargs={'k': 1}, no positional -> kwargs shown in visualization."""
     inner = Chain().then(sync_fn)
     link = Link(inner)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _resolve_nested_chain(link, None, {'k': 1}, 0, ctx)
-    # No positional args -> _temp_args is empty -> _temp_v=Null
-    # nested_root_link is NOT created
-    self.assertIn('Chain()', result)
+    # kwargs-only: nested_root_link is created with Null value + kwargs
+    self.assertIn('k=', result)
 
   def test_found_flag_propagation(self):
     """ctx.found is propagated through nested resolution."""

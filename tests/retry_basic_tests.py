@@ -1124,21 +1124,15 @@ class TestRetryMaxAttemptsEdgeCases(unittest.TestCase):
       Chain(fn).retry(max_attempts=1).run()
     self.assertEqual(len(fn.counter), 1)
 
-  def test_max_attempts_0_treated_as_1(self):
-    """max_attempts=0 — falsy value defaults to 1 via `or 1`, so chain runs once."""
-    fn = make_counter_fn()
-    result = Chain(fn).retry(max_attempts=0).run()
-    # 0 is falsy, so `self._retry_max_attempts or 1` evaluates to 1
-    self.assertEqual(result, 'counted')
-    self.assertEqual(len(fn.counter), 1)
+  def test_max_attempts_0_rejected(self):
+    """max_attempts=0 — rejected by validation (must be >= 1)."""
+    with self.assertRaises(QuentException):
+      Chain(lambda: 'ok').retry(max_attempts=0)
 
-  def test_max_attempts_negative_treated_as_1(self):
-    """max_attempts=-1 — negative is truthy, but range(-1) is empty, so no execution."""
-    fn = make_counter_fn()
-    result = Chain(fn).retry(max_attempts=-1).run()
-    # -1 is truthy, so max_attempts=-1 is used directly. range(-1) is empty.
-    self.assertIsNone(result)
-    self.assertEqual(len(fn.counter), 0)
+  def test_max_attempts_negative_rejected(self):
+    """max_attempts=-1 — rejected by validation (must be >= 1)."""
+    with self.assertRaises(QuentException):
+      Chain(lambda: 'ok').retry(max_attempts=-1)
 
   def test_large_max_attempts_with_early_success(self):
     """max_attempts=100 but succeed on attempt 3."""
@@ -1176,12 +1170,10 @@ class TestRetryMaxAttemptsEdgeCasesAsync(unittest.IsolatedAsyncioTestCase):
       await Chain(fn).retry(max_attempts=1).run()
     self.assertEqual(len(fn.counter), 1)
 
-  async def test_async_max_attempts_0_treated_as_1(self):
-    fn = make_async_counter_fn()
-    result = await Chain(fn).retry(max_attempts=0).run()
-    # 0 is falsy, so `self._retry_max_attempts or 1` evaluates to 1
-    self.assertEqual(result, 'counted')
-    self.assertEqual(len(fn.counter), 1)
+  async def test_async_max_attempts_0_rejected(self):
+    """max_attempts=0 — rejected by validation (must be >= 1)."""
+    with self.assertRaises(QuentException):
+      Chain(lambda: 'ok').retry(max_attempts=0)
 
   async def test_async_large_max_attempts_early_success(self):
     fn = make_async_fail_then_succeed(2, success_value='early_async')

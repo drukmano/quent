@@ -97,6 +97,29 @@ class _XExpr:
   def __setattr__(self, name: str, value: Any) -> None:
     raise AttributeError('Cannot set attributes on X expressions')
 
+  # --- Containment / iteration guards ---
+  def __contains__(self, item: Any) -> bool:
+    raise TypeError(
+      'Cannot use `in` operator on X expressions. '
+      'Use a lambda instead: lambda x: item in x'
+    )
+
+  def __iter__(self) -> Any:
+    raise TypeError(
+      'Cannot iterate over X expressions. '
+      'Use a lambda instead: lambda x: iter(x)'
+    )
+
+  # --- Copy / pickle guards ---
+  def __copy__(self) -> _XExpr:
+    raise TypeError('X expressions cannot be copied. Construct a new expression instead.')
+
+  def __deepcopy__(self, memo: Any) -> _XExpr:
+    raise TypeError('X expressions cannot be deep-copied. Construct a new expression instead.')
+
+  def __reduce__(self) -> tuple[Any, ...]:
+    raise TypeError('X expressions cannot be pickled. Construct a new expression instead.')
+
   # --- Item access ---
   def __getitem__(self, key: Any) -> _XExpr:
     return self._chain('item', key)
@@ -236,7 +259,7 @@ class _XExpr:
     return self._chain('unop', operator.invert)
 
   # __bool__ intentionally NOT overridden — must return bool
-  # __hash__ intentionally NOT overridden — allows use in sets/dicts
+  # __hash__ is implicitly None because __eq__ is overridden — _XExpr instances are unhashable
 
 
 class _XAttr(_XExpr):

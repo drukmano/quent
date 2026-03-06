@@ -374,9 +374,12 @@ class Chain:
         and not getattr(link.v, '_quent_op', None)
       ):
         _set_link_temp_args(exc, link, current_value=current_value)
-      result = _except_handler_body(exc, self, link, root_link)
-      if isawaitable(result):
-        result = await result
+      try:
+        result = _except_handler_body(exc, self, link, root_link)
+        if isawaitable(result):
+          result = await result
+      except _ControlFlowSignal:
+        raise QuentException('A control flow signal escaped the chain.') from None
       if result is Null:
         return None
       return result
@@ -495,6 +498,24 @@ class Chain:
       backoff: None (no delay), float (flat delay in seconds),
         or callable(attempt_index) -> delay in seconds.
     """
+    if self._retry_max_attempts is not None:
+      raise QuentException("You can only register one 'retry' configuration.")
+    if not isinstance(max_attempts, int) or max_attempts < 1:
+      raise QuentException('retry() requires max_attempts to be an integer >= 1.')
+    if isinstance(on, tuple):
+      if not on:
+        raise QuentException('retry() requires at least one exception type.')
+      for exc_type in on:
+        if not isinstance(exc_type, type) or not issubclass(exc_type, BaseException):
+          raise TypeError(f'retry() expects exception types (subclasses of BaseException), got {exc_type!r}')
+    elif isinstance(on, type) and issubclass(on, BaseException):
+      pass  # single type — valid
+    else:
+      raise TypeError(f'retry() expects exception types (subclasses of BaseException), got {on!r}')
+    if backoff is not None and not callable(backoff) and not isinstance(backoff, (int, float)):
+      raise TypeError(f'retry() backoff must be None, a number, or a callable, got {type(backoff).__name__}')
+    if isinstance(backoff, (int, float)) and backoff < 0:
+      raise QuentException('retry() backoff delay must be non-negative.')
     self._retry_max_attempts = max_attempts
     self._retry_on = on if isinstance(on, tuple) else (on,)
     self._retry_backoff = backoff

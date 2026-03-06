@@ -1134,22 +1134,15 @@ class TestRetryEdgeCases(unittest.TestCase):
     self.assertEqual(str(ctx.exception), 'backoff broken')
     self.assertEqual(len(attempts), 1)
 
-  def test_max_attempts_zero_still_executes_once(self):
-    """max_attempts=0 -> treated as 1 due to `self._retry_max_attempts or 1`."""
-    attempts = []
+  def test_max_attempts_zero_rejected(self):
+    """max_attempts=0 -> rejected by validation (must be >= 1)."""
+    with self.assertRaises(QuentException):
+      Chain(lambda: 'ok', ...).retry(0, on=(ValueError,))
 
-    def fn():
-      attempts.append(1)
-      return 'ok'
-
-    result = Chain(fn, ...).retry(0, on=(ValueError,)).run()
-    self.assertEqual(result, 'ok')
-    self.assertEqual(len(attempts), 1)
-
-  def test_max_attempts_zero_with_failure(self):
-    """max_attempts=0 with failure: treated as 1, exception propagates immediately."""
-    with self.assertRaises(ValueError):
-      Chain(lambda: (_ for _ in ()).throw(ValueError('fail'))).retry(0, on=(ValueError,)).run()
+  def test_max_attempts_zero_with_failure_rejected(self):
+    """max_attempts=0 with failure: rejected by validation (must be >= 1)."""
+    with self.assertRaises(QuentException):
+      Chain(lambda: None).retry(0, on=(ValueError,))
 
   def test_max_attempts_one_no_retry(self):
     """max_attempts=1 means execute once, no retry."""
@@ -1379,21 +1372,10 @@ class TestRetryFluentAPI(unittest.TestCase):
     result = Chain(5).then(flaky).retry(3, on=(ValueError,)).run()
     self.assertEqual(result, 10)
 
-  def test_retry_multiple_times_last_wins(self):
-    """Calling retry() multiple times: last one wins."""
-    attempts = []
-
-    def flaky():
-      attempts.append(1)
-      if len(attempts) < 3:
-        raise ValueError('retry')
-      return 'ok'
-
-    # First retry(2) would not be enough (only 2 attempts), but retry(5) overrides.
-    c = Chain(flaky, ...).retry(2, on=(ValueError,)).retry(5, on=(ValueError,))
-    result = c.run()
-    self.assertEqual(result, 'ok')
-    self.assertEqual(len(attempts), 3)
+  def test_retry_multiple_times_rejected(self):
+    """Calling retry() multiple times raises QuentException (like except_/finally_)."""
+    with self.assertRaises(QuentException):
+      Chain(lambda: 'ok', ...).retry(2, on=(ValueError,)).retry(5, on=(ValueError,))
 
   def test_retry_single_exception_type_not_tuple(self):
     """retry(on=ValueError) with a single type (not wrapped in tuple)."""

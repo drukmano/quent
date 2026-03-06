@@ -1,10 +1,10 @@
 # EXHAUSTIVE CODE REVIEW — `quent/` Library
 
-**Scope:** All 5 source files in `quent/` (482 + 212 + 458 + 383 + 8 = 1,543 lines)
+**Scope:** All 6 source files in `quent/` (482 + 212 + 458 + 383 + 243 + 8 = 1,786 lines)
 **Standard:** Life-and-death, $1,000,000 expert review
 **Date:** 2026-03-06
-**Reviewed by:** Claude Opus 4.6 orchestrator with 7 parallel deep-dive agents
-**Files audited:** `_core.py`, `_chain.py`, `_ops.py`, `_traceback.py`, `__init__.py`
+**Reviewed by:** Claude Opus 4.6 orchestrator with 10 parallel deep-dive agents + automated tooling
+**Files audited:** `_core.py`, `_chain.py`, `_ops.py`, `_traceback.py`, `_x.py`, `__init__.py`
 
 ## Project Identity
 
@@ -24,7 +24,7 @@ quent is a **transparent sync/async bridge**. It is not a collections library, n
 
 0. [Project Identity](#project-identity)
 1. [Bugs & Correctness Issues](#i-bugs--correctness-issues)
-   - [Critical](#critical-none-found)
+   - [Critical](#critical)
    - [High Severity](#high-severity)
    - [Medium Severity](#medium-severity)
    - [Low Severity](#low-severity)
@@ -37,12 +37,19 @@ quent is a **transparent sync/async bridge**. It is not a collections library, n
 8. [Competitive Analysis](#viii-competitive-analysis)
 9. [Summary](#ix-summary)
 10. [Detailed Per-File Audit Reports](#x-detailed-per-file-audit-reports)
+11. [Web Research Findings](#xi-web-research-findings)
+12. [Test Suite Audit](#xii-test-suite-audit)
+13. [_x.py (X Placeholder Proxy)](#xiii-_xpy-x-placeholder-proxy--previously-unreviewed)
+14. [Configuration & Packaging Audit](#xiv-configuration--packaging-audit)
+15. [Retry Feature Assessment](#xv-retry-feature-assessment)
 
 ---
 
 ## I. BUGS & CORRECTNESS ISSUES
 
-### CRITICAL: None Found
+### CRITICAL
+
+None found.
 
 The core execution engine is sound. Sync/async bridging is watertight. All 8 initial-value combinations in `_run()` produce correct results. Exception handling is proper. The library is well-engineered.
 
@@ -118,6 +125,22 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 - **File:** `_chain.py:151`
 - **Description:** When `_run` encounters an awaitable, it returns a coroutine from what appears to be a sync call. There's no warning emitted (unlike the except/finally handlers which warn at lines 199-204 and 223-228). Python will emit `RuntimeWarning: coroutine was never awaited` if the coroutine is GC'd, but the message points to quent internals, not user code.
 - **Impact:** A user calling `result = chain.run()` might not realize they got a coroutine instead of a value.
+
+---
+
+#### M13. Stale coroutine returned from `_full_async` when async CM suppresses body exception
+
+- **File:** `_ops.py:54-74`
+- **Description:** When async CM suppresses an exception, `result` still holds the stale coroutine from before `await`. On `ignore_result=False`, line 74 returns this stale coroutine.
+- **Acknowledged:** In `cm_protocol_matrix_tests.py:416-431` as a "library edge case"
+
+---
+
+#### M14. `ExceptionGroup` sub-exceptions not cleaned by traceback system
+
+- **File:** `_traceback.py:62-73`
+- **Description:** `_clean_chained_exceptions` traverses `__cause__`/`__context__` but NOT `ExceptionGroup.exceptions`. Sub-exceptions retain quent-internal frames.
+- **Scope:** Python 3.11+ only
 
 ---
 
@@ -239,6 +262,20 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 ---
 
+#### L21. `StopIteration` asymmetry between sync and async foreach
+
+- **File:** `_ops.py`
+- **Description:** Sync: `StopIteration` from `fn` terminates iteration early (caught by `while/next` pattern). Async: `StopIteration` from `fn` propagates as error (not caught by `async for`). Documented by tests. Consequence of different loop mechanisms.
+
+---
+
+#### L25. No coverage `fail_under` threshold configured
+
+- **File:** `pyproject.toml` lines 52-53
+- **Description:** Coverage is computed but has no minimum threshold — CI passes even if coverage drops to 0%.
+
+---
+
 ## II. SECURITY
 
 ### exec() is SAFE
@@ -356,7 +393,9 @@ When `run(v)` is called on a chain with a `root_link`, the run value creates a t
 
 ## VI. PRODUCT IDEAS & NEW FEATURES
 
-#### 1. `.retry()` — Built-in Retry with Backoff
+#### 1. `.retry()` — Built-in Retry with Backoff — IMPLEMENTED
+
+**Status:** IMPLEMENTED. Feature is fully coded in `_chain.py` with 4 test files (5,728 lines). See [Section XV](#xv-retry-feature-assessment) for detailed assessment.
 
 Pattern from: RxJS `retry`/`retryWhen`, Effect `Schedule`, tenacity
 
@@ -425,7 +464,7 @@ All identified refactoring opportunities have been addressed.
 | Typed error channel | NO | YES | YES | NO | NO | NO | NO | YES |
 | Dependency injection | NO | YES | NO | NO | NO | NO | NO | YES |
 | Side-effect step (tap/do) | YES | NO | NO | NO | NO | YES (tee) | YES (tap) | YES |
-| Retry/backoff | NO | NO | NO | NO | NO | NO | YES | YES |
+| Retry/backoff | YES | NO | NO | NO | NO | NO | YES | YES |
 | Timeout | NO | NO | YES (cancel) | NO | NO | NO | YES | YES |
 | Conditional branching | YES (`if_`/`else_`) | YES (lash) | YES (match) | NO | NO | NO | YES | YES |
 | Parallel map/filter | NO | NO | NO | NO | YES (pseq) | NO | YES | YES |
@@ -525,9 +564,9 @@ All identified refactoring opportunities have been addressed.
 
 | Category | Critical | High | Medium | Low |
 |----------|----------|------|--------|-----|
-| Bugs/Correctness | 0 | 1 | 5 | 13 |
+| Bugs/Correctness | **0** | **1** | **7** | **17** |
 | Security | 0 | 0 | 0 | 0 |
-| **Total** | **0** | **1** | **5** | **13** |
+| **Total Open** | **0** | **1** | **7** | **17** |
 
 ### High-Severity Findings Quick Reference
 
@@ -537,12 +576,13 @@ All identified refactoring opportunities have been addressed.
 
 ### Overall Assessment
 
-The library is well-engineered with no critical bugs. The core execution engine (sync/async bridging, linked list traversal, exception handling) is correct and thoroughly tested. The remaining HIGH finding (H7, `_task_registry` thread safety on free-threaded Python) is acknowledged as future scope.
+The library is well-engineered with a comprehensive test suite (4,887 tests, all passing, 2 skipped). The core execution engine (sync/async bridging, linked list traversal, exception handling) is correct and thoroughly tested. The `.retry()` feature has been fully implemented matching the proposed API from Section VI.
 
 The remaining open items are:
-- **1 High:** H7 — `_task_registry` thread safety on free-threaded Python 3.13+
-- **5 Medium:** M2 (gather partial results), M3 (sync iterator event loop blocking), M8 (getattr non-AttributeError), M9 (is_nested on frozen objects), M10 (unawaited coroutine warning)
-- **13 Low:** L1, L2, L4, L5, L7-L17 — minor edge cases, cosmetic issues, and design trade-offs
+- **0 Critical**
+- **1 High:** H7 (`_task_registry` thread safety — future scope)
+- **7 Medium:** M2 (gather partial results), M3 (sync iterator event loop blocking), M8 (getattr non-AttributeError), M9 (is_nested on frozen objects), M10 (unawaited coroutine warning), M13 (stale coroutine from async CM), M14 (ExceptionGroup not cleaned)
+- **17 Low:** L1, L2, L4, L5, L7-L17, L21, L25 — minor edge cases, cosmetic issues, and design trade-offs
 
 ---
 
@@ -737,6 +777,41 @@ Minimal, clean public surface. All internals are underscore-prefixed.
 
 ---
 
+### X.6 `_x.py` — X Placeholder Proxy
+
+**File:** `/Users/user/Documents/quent/quent/_x.py` (243 lines)
+
+#### Architecture
+
+- `_XExpr` — Base class for deferred expression objects. Stores an `_ops` tuple of `(op_type, *params)` entries representing a chain of operations to replay on an input value.
+- `_XAttr` — Subclass for attribute access disambiguation. When `X.foo` is accessed, an `_XAttr` is returned; `_XAttr.__call__` must distinguish between "call the attribute" (`X.foo()`) and "call the result as the next pipeline step" — this is the core design challenge.
+- `X` — The singleton `_XExpr()` instance exported to users.
+
+#### 6 Operation Types
+
+| Type | Example | Stored as |
+|------|---------|-----------|
+| `attr` | `X.name` | `('attr', 'name')` |
+| `item` | `X[0]` | `('item', 0)` |
+| `call` | `X(1, 2)` | `('call', (1, 2), {})` |
+| `binop` | `X + 1` | `('binop', operator.add, 1)` |
+| `rbinop` | `1 + X` | `('rbinop', operator.add, 1)` |
+| `unop` | `-X` | `('unop', operator.neg)` |
+
+#### 34 Operator Methods
+
+Covers all standard Python operators: arithmetic (+, -, *, /, //, %, **, @), bitwise (&, |, ^, ~, <<, >>), comparison (==, !=, <, <=, >, >=), unary (-, +, ~, abs, bool, not), and indexing ([]).
+
+#### Zero Coupling
+
+`_x.py` has zero imports from other quent modules. The `X` proxy is integrated into the chain via pure duck typing — `_evaluate_value` calls it like any other callable, and `X.__call__` replays the stored operations on the input value.
+
+#### Test Coverage
+
+423 tests across 2 files. Good coverage of operator methods, attribute access, nested expressions, and the `_XAttr.__call__` disambiguation logic.
+
+---
+
 ## XI. WEB RESEARCH FINDINGS
 
 ### Python 3.14 `asyncio.create_task(eager_start=True)`
@@ -805,6 +880,194 @@ for i in range(10):
 - Introduced in Python 3.8
 - `co_qualname` parameter added in Python 3.11
 - `_HAS_QUALNAME = sys.version_info >= (3, 11)` check is CORRECT
+
+---
+
+## XII. TEST SUITE AUDIT
+
+### Test Suite Health
+
+- **4,887 tests**, all pass, 2 skipped
+- 71 test files covering 6 source files
+- Ruff: clean. Mypy: clean. `.pyi` stubs: zero mismatches across all 6 file pairs.
+
+### Coverage by Source File
+
+| File | Coverage | Key Gaps |
+|------|----------|----------|
+| `_core.py` | Excellent | None — `_resolve_value`, `_handle_break_exc`, `_handle_return_exc` all have direct tests |
+| `_chain.py` | Excellent | None — `Chain.__bool__`, `freeze()` twice, `FrozenChain` method availability, `except_`/`finally_` duplicate registration, `FrozenChain __bool__`/`__repr__` all covered |
+| `_ops.py` | Very Good | None — `_sync_generator` coroutine detection, `_Generator __repr__`, `_get_link_name` all ops covered |
+| `_traceback.py` | Very Good | None — `ObjWithBadName`/`ObjWithBadNameAndRepr` helpers, `_modify_traceback` visualization error path, `disable_traceback_patching()` effect, `else_()` visualization, kwargs-only nested chain, `_format_call_args` edge cases all covered |
+| `_x.py` | Excellent | None — `in` operator trap, `iter(X)` infinite loop, copy/pickle all covered with 43 guard method tests |
+| `__init__.py` | Complete | N/A |
+
+### Missing Test Categories (from Cross-Cutting Audit)
+
+#### 1. Adversarial Tests Missing
+
+- Objects with `_is_chain = True` but no `_run` method
+- Callables that mutate the chain during execution
+- Exception subclasses with broken `__init__`/`__str__`/`__repr__`
+- Recursive chain structures (not via `run()`) — would hit recursion limit
+- Re-entrant `__enter__`/`__exit__` that run chains
+- Memory bombs (millions of links, multi-GB values)
+
+#### 2. Concurrent Safety Tests Missing
+
+- Multiple frozen chains sharing same inner Chain object
+- Event loop in separate thread
+- Task cancellation during concurrent execution
+- Mixed sync/async concurrent access
+- `_task_registry` thread safety probing
+- Stress testing with 100+ threads
+
+#### 3. Negative Tests Missing
+
+- Calling chain methods after `run()`
+- `run()` with excessive positional arguments
+- `decorator()` on FrozenChain
+
+#### 4. Test Quality Issues
+
+- `concurrent_safety_tests.py:test_task_registry_cleanup` doesn't actually test what it claims (just checks registry is a set)
+- Memory tests only verify "no crash", not actual memory usage
+- `except_tests.py:test_control_flow_in_async_handler_raises_internal_signal` documents a potential bug, not correct behavior
+
+### Retry Feature Test Assessment
+
+- 4 new test files (5,728 lines), untracked in git
+- Feature fully implemented in `_chain.py`
+- Tests are comprehensive and match the proposed API from Section VI
+
+---
+
+## XIII. `_x.py` (X Placeholder Proxy) — PREVIOUSLY UNREVIEWED
+
+### Purpose
+
+`_x.py` provides a lambda-free expression proxy for use in chain pipelines. Instead of writing `lambda x: x % 2 == 0`, users write `X % 2 == 0`. The `X` object records all operations performed on it and replays them when called with an actual value.
+
+### Architecture
+
+- **`_XExpr`** — Base class. Stores an `_ops` tuple of `(op_type, *params)` entries. Each Python operator/attribute access/item access/call appends a new operation. When called as `X(value)`, replays all stored operations against `value` in sequence.
+- **`_XAttr`** — Subclass for attribute access. Created when `X.foo` is accessed. The core design challenge is in `_XAttr.__call__`: it must distinguish between "call the attribute" (`X.foo()` → `value.foo()`) and "use as a pipeline callable" (`chain.then(X.foo)` → chain calls `X.foo(value)` which becomes `value.foo`).
+- **`X`** — The singleton `_XExpr()` instance, exported in `__init__.py`.
+
+### 6 Operation Types
+
+| Type | Example | Stored as |
+|------|---------|-----------|
+| `attr` | `X.name` | `('attr', 'name')` |
+| `item` | `X[0]` | `('item', 0)` |
+| `call` | `X(1, 2)` | `('call', (1, 2), {})` |
+| `binop` | `X + 1` | `('binop', operator.add, 1)` |
+| `rbinop` | `1 + X` | `('rbinop', operator.add, 1)` |
+| `unop` | `-X` | `('unop', operator.neg)` |
+
+### 34 Operator Methods
+
+Covers all standard Python operators: arithmetic (`+`, `-`, `*`, `/`, `//`, `%`, `**`, `@`), bitwise (`&`, `|`, `^`, `~`, `<<`, `>>`), comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), unary (`-`, `+`, `~`, `abs`, `bool`, `not`), and indexing (`[]`).
+
+### Zero Coupling to Rest of Codebase
+
+`_x.py` has zero imports from other quent modules. Integration is via pure duck typing — `_evaluate_value` in `_core.py` calls `X` like any other callable, and `X.__call__` replays the stored operations on the input value.
+
+### Single-Argument Disambiguation in `_XAttr.__call__`
+
+When `_XAttr.__call__` receives exactly one positional argument and no keyword arguments, it must decide: is this `X.method(arg)` (call the attribute with the arg) or is this `X.attr(pipeline_value)` (replay the expression on the pipeline value)? The disambiguation rule: if the single argument is the pipeline's current value being passed by the chain engine, treat it as a pipeline call; otherwise, record it as a method call on the attribute. This is the core design tension in `_x.py`.
+
+### Test Coverage
+
+423 tests across 2 files covering operator methods, attribute access, nested expressions, and the `_XAttr.__call__` disambiguation logic.
+
+---
+
+## XIV. CONFIGURATION & PACKAGING AUDIT
+
+### Missing `dependencies = []` Declaration
+
+- `pyproject.toml` does not explicitly declare `dependencies = []`
+- While quent has zero runtime dependencies, PEP 621 best practice is to declare this explicitly
+- Some tooling may warn or behave unexpectedly without the declaration
+
+### No Coverage `fail_under` Threshold
+
+- **File:** `pyproject.toml` lines 52-53
+- Coverage is computed but has no minimum threshold
+- CI passes even if coverage drops to 0%
+- **Fix:** Add `fail_under = 90` (or appropriate value) to `[tool.coverage.report]`
+
+### `distribute.sh` Skips `twine check`
+
+- The distribution script does not run `twine check dist/*` before upload
+- This means malformed package metadata could be uploaded to PyPI
+- **Fix:** Add `twine check dist/*` step before `twine upload`
+
+### CI Workflow Issues
+
+- No `fail-fast: false` on matrix builds — first failure cancels other Python version checks
+- Coverage data is computed but discarded (not uploaded to Codecov or similar)
+- No version-tag verification in publish workflow — can publish without matching tag
+- `run_tests.sh` mutates source files (runs `ruff format` and `ruff check --fix` before testing) — test results depend on format pass
+
+### No `__version__` Attribute
+
+- Package does not expose `quent.__version__`
+- Acceptable (version is in `pyproject.toml`), but noted for completeness
+- Users cannot programmatically check the installed version without `importlib.metadata`
+
+---
+
+## XV. RETRY FEATURE ASSESSMENT
+
+### Status: FULLY IMPLEMENTED
+
+The `.retry()` feature proposed in [Section VI](#vi-product-ideas--new-features) has been fully implemented. The implementation matches the proposed API perfectly.
+
+### Implementation Location
+
+- **File:** `_chain.py:480-501` (`.retry()` method)
+- **Execution:** Integrated into `_run()` and `_run_async()` execution paths
+
+### API (as implemented)
+
+```python
+Chain(fetch_from_api)
+  .then(parse_response)
+  .retry(max_attempts=3, on=(ConnectionError, TimeoutError), backoff=lambda n: 2**n)
+  .except_(log_and_return_default, exceptions=(ConnectionError, TimeoutError))
+  .run()
+```
+
+- `max_attempts`: total attempts (3 = initial + 2 retries)
+- `on`: tuple of exception types that trigger retry (default: `(Exception,)`)
+- `backoff`: `None` (no delay), `float` (flat delay in seconds), or `Callable[[int], float]` (receives 0-indexed attempt number, returns delay in seconds)
+- Sync backoff uses `time.sleep()`, async backoff uses `asyncio.sleep()` — transparent bridging
+- On exhaustion, the last exception propagates to `except_()` / `finally_()` handlers
+- Chain state fully reset between attempts
+
+### Test Coverage
+
+- 4 test files, 5,728 lines of tests (untracked in git)
+- `retry_basic_tests.py` — core retry logic, sync/async/handoff paths
+- `retry_async_tests.py` — async-specific retry behavior
+- `retry_handler_tests.py` — interaction with except/finally handlers
+- `retry_cross_feature_tests.py` — interaction with other chain features
+
+### Validated Paths
+
+- Sync retry with flat and callable backoff
+- Async retry with `asyncio.sleep` backoff
+- Sync-to-async handoff during retry
+- Exception filtering via `on` parameter
+- State reset between attempts
+- Handler interactions (except, finally, if/else)
+
+### Issues Found
+
+- `max_attempts=0` treated as 1 attempt but `max_attempts=-1` means "don't run"
+- Calling `retry()` twice silently overwrites the first configuration
 
 ---
 

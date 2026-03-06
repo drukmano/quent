@@ -39,7 +39,7 @@ async def async_side_effect(tracker, x):
 # --- Callable type fixtures ---
 
 class Adder:
-  """Not callable -- used as a non-callable class constructor test."""
+  """Callable class constructor for testing — Adder(x) creates an Adder instance."""
   def __init__(self, x):
     self.x = x
 

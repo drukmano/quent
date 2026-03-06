@@ -323,17 +323,13 @@ class TestExceptAsync(unittest.IsolatedAsyncioTestCase):
     self.assertIsInstance(received[0], ValueError)
     self.assertEqual(str(received[0]), 'test error')
 
-  async def test_control_flow_in_async_handler_raises_internal_signal(self):
-    # When an async except handler raises a _Return, it escapes _run_async's
-    # except BaseException block (since the _Return is raised during the await
-    # of the handler result, inside the except BaseException clause). The
-    # _Return propagates out of _run_async as a raw _ControlFlowSignal.
-    # In the sync path, run() would catch it and wrap it in QuentException,
-    # but here the coroutine is already returned before the _Return is raised,
-    # so run()'s try/except never sees it. The raw _Return escapes.
+  async def test_control_flow_in_async_handler_raises_quent_exception(self):
+    # When an async except handler raises a _Return, _run_async's defensive
+    # guard catches _ControlFlowSignal and wraps it in QuentException,
+    # preventing internal signals from leaking to user code.
     async def handler(exc):
       Chain.return_('val')
-    with self.assertRaises(_Return):
+    with self.assertRaises(QuentException):
       await Chain(async_raise_fn).except_(handler).run()
 
 
