@@ -484,7 +484,7 @@ class TestFilterSyncTier(unittest.TestCase):
       Chain([1, 2, 3]).filter(
         lambda x: Chain.break_() if x == 2 else True
       ).run()
-    self.assertIn('_Break cannot be used in this context', str(cm.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(cm.exception))
 
 
 # ===========================================================================
@@ -533,7 +533,7 @@ class TestFilterToAsyncTier(IsolatedAsyncioTestCase):
 
     with self.assertRaises(QuentException) as cm:
       await Chain([1, 2, 3]).filter(break_on_two).run()
-    self.assertIn('_Break cannot be used in this context', str(cm.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(cm.exception))
 
 
 # ===========================================================================
@@ -570,7 +570,7 @@ class TestFilterFullAsyncTier(IsolatedAsyncioTestCase):
       await Chain(AsyncRange(5)).filter(
         lambda x: Chain.break_() if x == 2 else True
       ).run()
-    self.assertIn('_Break cannot be used in this context', str(cm.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(cm.exception))
 
 
 # ===========================================================================
@@ -1353,9 +1353,9 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     try:
       await Chain([10, 20, 30]).foreach(boom_on_third).run()
     except ValueError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 30, 'index': 2})
+      # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ValueError was not raised')
 
@@ -1368,9 +1368,9 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     try:
       await Chain(AsyncRange(5)).foreach(boom_on_second).run()
     except ValueError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 1, 'index': 1})
+      # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ValueError was not raised')
 
@@ -1381,9 +1381,9 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     try:
       await Chain([10, 20]).filter(boom).run()
     except ValueError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 10, 'index': 0})
+      # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ValueError was not raised')
 
@@ -1394,9 +1394,9 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     try:
       await Chain(AsyncRange(3)).filter(boom).run()
     except ValueError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 0, 'index': 0})
+      # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ValueError was not raised')
 

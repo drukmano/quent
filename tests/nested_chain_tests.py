@@ -189,7 +189,7 @@ class TestNestedBreakPropagation(unittest.TestCase):
     inner = Chain().then(lambda x: Chain.break_())
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(inner).run()
-    self.assertIn('_Break cannot be used in this context', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
 
   def test_break_in_foreach_with_plain_fn(self):
     """Verify foreach with a plain lambda handles break correctly (baseline)."""

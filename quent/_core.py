@@ -17,6 +17,15 @@ class _Null:
   def __repr__(self) -> str:
     return '<Null>'
 
+  def __copy__(self) -> _Null:
+    return self
+
+  def __deepcopy__(self, memo: dict[int, Any]) -> _Null:
+    return self
+
+  def __reduce__(self) -> str:
+    return 'Null'
+
 
 Null = _Null()
 
@@ -38,9 +47,9 @@ class _ControlFlowSignal(Exception):
 
   __slots__ = ('args_', 'kwargs_', 'value')
 
-  # Intentionally skips super().__init__() — avoids the overhead of building
-  # an args tuple and message string, since these are internal control-flow
-  # signals that are never displayed to users.
+  # Intentionally skips super().__init__() — these are internal control-flow
+  # signals that are never displayed to users, so the standard Exception
+  # args tuple and message string are unnecessary.
   def __init__(self, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
     self.value = v
     self.args_ = args
@@ -118,7 +127,11 @@ _task_registry: set[asyncio.Task[Any]] = set()
 
 def _ensure_future(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
   """Schedule a coroutine as a fire-and-forget task with strong reference tracking."""
-  task = _create_task_fn(coro)
+  try:
+    task = _create_task_fn(coro)
+  except RuntimeError:
+    coro.close()
+    raise
   _task_registry.add(task)
   # Auto-removes from registry on completion to avoid unbounded growth.
   task.add_done_callback(_task_registry.discard)
@@ -135,7 +148,6 @@ class Link:
     args: Positional arguments for the call.
     kwargs: Keyword arguments for the call.
     original_value: The original value before wrapping (for traceback display).
-    temp_args: Temporary arguments set during evaluation (for traceback display).
   """
 
   __slots__ = (
@@ -186,8 +198,8 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
   if link.is_chain:
     if args and args[0] is ...:
       return v._run(Null, None, None)
-    if args:
-      return v._run(args[0], args[1:], kwargs or {})
+    if args or kwargs:
+      return v._run(args[0] if args else current_value, args[1:] if args else None, kwargs or {})
     return v._run(current_value, None, None)
 
   if args and args[0] is ...:

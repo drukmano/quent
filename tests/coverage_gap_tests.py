@@ -263,6 +263,8 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
 
   async def test_to_async_exception_with_temp_args(self):
     # Sync iterable, fn returns coroutine then raises on later item.
+    # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+    # Verify the exception was processed (has __quent__) and cleaned up.
     call_count = 0
 
     async def fn_raises_later(x):
@@ -276,9 +278,8 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
       await Chain([10, 20, 30]).foreach(fn_raises_later).run()
       self.fail('Should have raised')
     except RuntimeError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 20, 'index': 1})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
 
   async def test_to_async_break_with_async_value(self):
     # Sync iterable + fn returns coroutine, then Break with async value.
@@ -322,6 +323,8 @@ class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'early')
 
   async def test_full_async_exception_with_temp_args(self):
+    # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+    # Verify the exception was processed (has __quent__) and cleaned up.
     def fn_raises(x):
       if x == 1:
         raise RuntimeError('boom')
@@ -331,9 +334,8 @@ class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
       await Chain(AsyncRange(3)).foreach(fn_raises).run()
       self.fail('Should have raised')
     except RuntimeError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 1, 'index': 1})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
 
   async def test_full_async_break_with_async_value(self):
     async def make_val():
@@ -372,6 +374,8 @@ class TestFilterToAsyncPaths(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'early')
 
   async def test_to_async_exception_with_temp_args(self):
+    # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+    # Verify the exception was processed (has __quent__) and cleaned up.
     call_count = 0
 
     async def pred(x):
@@ -385,9 +389,8 @@ class TestFilterToAsyncPaths(IsolatedAsyncioTestCase):
       await Chain([10, 20, 30]).filter(pred).run()
       self.fail('Should have raised')
     except RuntimeError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 20, 'index': 1})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +417,8 @@ class TestFilterFullAsyncPaths(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'early')
 
   async def test_full_async_exception_with_temp_args(self):
+    # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+    # Verify the exception was processed (has __quent__) and cleaned up.
     def pred(x):
       if x == 1:
         raise RuntimeError('filter boom')
@@ -423,9 +428,8 @@ class TestFilterFullAsyncPaths(IsolatedAsyncioTestCase):
       await Chain(AsyncRange(3)).filter(pred).run()
       self.fail('Should have raised')
     except RuntimeError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 1, 'index': 1})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
 
 
 # ---------------------------------------------------------------------------

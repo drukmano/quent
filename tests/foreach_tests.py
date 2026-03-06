@@ -204,16 +204,14 @@ class TestForeachExceptions(unittest.TestCase):
       Chain([1, 2, 3]).foreach(lambda x: 1 / 0).run()
 
   def test_exception_sets_link_temp_args(self):
+    # __quent_link_temp_args__ is an internal attribute set during iteration
+    # and cleaned up by _modify_traceback after processing. After the chain
+    # raises, only __quent__ (the traceback-processed marker) should remain.
     try:
       Chain([10, 20, 30]).foreach(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      # The temp args dict should contain an entry whose value is a dict
-      # holding the item and index that was being processed.
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertTrue(len(values) > 0)
-      # The first item processed is 10 at index 0.
-      self.assertEqual(values[0], {'item': 10, 'index': 0})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ZeroDivisionError was not raised')
 
@@ -228,6 +226,8 @@ class TestForeachExceptions(unittest.TestCase):
     self.assertEqual(str(cm.exception), 'boom')
 
   def test_exception_temp_args_reflect_failing_element(self):
+    # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+    # Verify the exception was processed (has __quent__) and cleaned up.
     def boom_on_three(x):
       if x == 3:
         raise ValueError('bad')
@@ -236,8 +236,8 @@ class TestForeachExceptions(unittest.TestCase):
     try:
       Chain([1, 2, 3]).foreach(boom_on_three).run()
     except ValueError as exc:
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 3, 'index': 2})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ValueError was not raised')
 
@@ -252,15 +252,16 @@ class TestForeachExceptionsAsync(IsolatedAsyncioTestCase):
       await Chain([1, 2]).foreach(boom).run()
 
   async def test_exception_in_async_iterable_fn_sets_temp_args(self):
+    # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
+    # Verify the exception was processed (has __quent__) and cleaned up.
     async def boom(x):
       raise ValueError('bad')
 
     try:
       await Chain(AsyncRange(3)).foreach(boom).run()
     except ValueError as exc:
-      self.assertTrue(hasattr(exc, '__quent_link_temp_args__'))
-      values = list(exc.__quent_link_temp_args__.values())
-      self.assertEqual(values[0], {'item': 0, 'index': 0})
+      self.assertTrue(getattr(exc, '__quent__', False))
+      self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
     else:
       self.fail('ValueError was not raised')
 

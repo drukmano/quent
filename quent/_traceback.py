@@ -92,6 +92,8 @@ def _modify_traceback(
       source_link=_get_true_source_link(source_link, root_link),
       link_temp_args=getattr(exc, '__quent_link_temp_args__', None),
     )
+    if hasattr(exc, '__quent_link_temp_args__'):
+      del exc.__quent_link_temp_args__
     chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
     # Indent the chain visualization so it appears nested under the <quent> frame header.
     chain_source = _make_indent(1).join(['', *chain_source.splitlines()])
@@ -102,7 +104,7 @@ def _modify_traceback(
     # structure appears as if it were a function name in the traceback.
     # The exec creates a real traceback frame that we then graft onto the exception.
     filename = '<quent>'
-    exc_value = sys.exc_info()[1]
+    exc_value = exc
     globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
     if _HAS_QUALNAME:
       code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)  # type: ignore[call-arg]
@@ -367,14 +369,14 @@ def _patched_te_init(
   self: traceback.TracebackException,
   exc_type: type[BaseException],
   exc_value: BaseException | None = None,
-  exc_tb: types.TracebackType | None = None,
+  exc_traceback: types.TracebackType | None = None,
   **kwargs: Any,
 ) -> None:
   """Patched TracebackException.__init__ that cleans quent frames."""
   if exc_value is not None and getattr(exc_value, '__quent__', False):
     _clean_chained_exceptions(exc_value, set())
-    exc_tb = exc_value.__traceback__
-  _original_te_init(self, exc_type, exc_value, exc_tb, **kwargs)  # type: ignore[arg-type]
+    exc_traceback = exc_value.__traceback__
+  _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]
 
 
-traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign,assignment]
+traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]

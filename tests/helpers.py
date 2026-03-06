@@ -220,3 +220,175 @@ class AsyncCMRaisesOnExit:
 
   async def __aexit__(self, *args):
     raise RuntimeError('async exit error')
+
+
+# --- Stateful callables ---
+
+class StatefulCallable:
+  """Tracks call count and arguments for verification."""
+  def __init__(self):
+    self.calls = []
+  def __call__(self, *args, **kwargs):
+    self.calls.append((args, kwargs))
+    return len(self.calls)
+
+class AsyncStatefulCallable:
+  """Async version of StatefulCallable."""
+  def __init__(self):
+    self.calls = []
+  async def __call__(self, *args, **kwargs):
+    self.calls.append((args, kwargs))
+    return len(self.calls)
+
+
+# --- Additional context manager fixtures ---
+
+class AsyncCMRaisesOnEnter:
+  """Async CM whose __aenter__ raises."""
+  async def __aenter__(self):
+    raise RuntimeError('async enter error')
+  async def __aexit__(self, *args):
+    return False
+
+class SyncCMRaisesOnExitFrom:
+  """__exit__ raises with `from exc` chaining."""
+  def __enter__(self):
+    return 'ctx_value'
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    if exc_val is not None:
+      raise RuntimeError('exit error') from exc_val
+    return False
+
+class SyncCMExitReturnsAwaitableOnException:
+  """Sync CM whose __exit__ returns an awaitable only on exception."""
+  def __enter__(self):
+    return 'ctx_value'
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    if exc_type is not None:
+      async def _exit():
+        return False
+      return _exit()
+    return False
+
+class TrackingCM:
+  """CM that records enter/exit calls and arguments."""
+  def __init__(self):
+    self.entered = False
+    self.exited = False
+    self.exit_args = None
+    self.enter_result = 'tracked_ctx'
+  def __enter__(self):
+    self.entered = True
+    return self.enter_result
+  def __exit__(self, *args):
+    self.exited = True
+    self.exit_args = args
+    return False
+
+class AsyncTrackingCM:
+  """Async CM that records enter/exit calls."""
+  def __init__(self):
+    self.entered = False
+    self.exited = False
+    self.exit_args = None
+    self.enter_result = 'async_tracked_ctx'
+  async def __aenter__(self):
+    self.entered = True
+    return self.enter_result
+  async def __aexit__(self, *args):
+    self.exited = True
+    self.exit_args = args
+    return False
+
+class SyncCMEnterReturnsNone:
+  """CM whose __enter__ returns None."""
+  def __enter__(self):
+    return None
+  def __exit__(self, *args):
+    return False
+
+class SyncCMEnterReturnsSelf:
+  """CM whose __enter__ returns self."""
+  def __enter__(self):
+    return self
+  def __exit__(self, *args):
+    return False
+
+class SyncCMExitRaisesOnSuccess:
+  """CM whose __exit__ raises even on success (no body exception)."""
+  def __enter__(self):
+    return 'ctx_value'
+  def __exit__(self, exc_type, exc_val, exc_tb):
+    raise RuntimeError('exit error on success')
+
+
+# --- Additional iterable fixtures ---
+
+class RaisingIterable:
+  """Sync iterable that raises at a specific index."""
+  def __init__(self, n, raise_at):
+    self.n = n
+    self.raise_at = raise_at
+  def __iter__(self):
+    for i in range(self.n):
+      if i == self.raise_at:
+        raise RuntimeError('iteration error')
+      yield i
+
+class InfiniteIterable:
+  """Iterable that yields forever (for break testing)."""
+  def __init__(self, start=0):
+    self.start = start
+  def __iter__(self):
+    i = self.start
+    while True:
+      yield i
+      i += 1
+
+class AsyncInfiniteIterable:
+  """Async iterable that yields forever."""
+  def __init__(self, start=0):
+    self.start = start
+  def __aiter__(self):
+    self._i = self.start
+    return self
+  async def __anext__(self):
+    val = self._i
+    self._i += 1
+    return val
+
+
+# --- Exception fixtures ---
+
+class CustomException(Exception):
+  """Custom exception for testing exception type filtering."""
+  pass
+
+class CustomBaseException(BaseException):
+  """Custom BaseException for testing BaseException handling."""
+  pass
+
+class NestedCustomException(CustomException):
+  """Subclass of CustomException for inheritance testing."""
+  pass
+
+
+# --- Utility functions ---
+
+def make_tracker():
+  """Return a callable that records calls and a list to inspect."""
+  calls = []
+  def fn(*args, **kwargs):
+    calls.append((args, kwargs))
+    return 'tracked'
+  fn.calls = calls
+  return fn
+
+def make_async_tracker():
+  """Return an async callable that records calls and a list to inspect."""
+  calls = []
+  async def fn(*args, **kwargs):
+    calls.append((args, kwargs))
+    return 'tracked'
+  fn.calls = calls
+  return fn

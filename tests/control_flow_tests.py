@@ -140,14 +140,14 @@ class TestBreakSignal(unittest.TestCase):
   def test_break_outside_foreach_raises_quent_exception(self):
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(lambda x: Chain.break_()).run()
-    self.assertIn('_Break cannot be used in this context', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
 
   def test_break_in_filter_stops(self):
     # filter catches _ControlFlowSignal and re-raises it, so _Break propagates
     # to the chain's _run handler where it raises QuentException (not in foreach context)
     with self.assertRaises(QuentException) as ctx:
       Chain([1, 2, 3]).filter(lambda x: Chain.break_() if x == 2 else True).run()
-    self.assertIn('_Break cannot be used in this context', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
 
 
 class TestBreakAsync(unittest.IsolatedAsyncioTestCase):
@@ -163,7 +163,7 @@ class TestBreakAsync(unittest.IsolatedAsyncioTestCase):
   async def test_break_outside_foreach_async_raises(self):
     with self.assertRaises(QuentException) as ctx:
       await Chain(5).then(async_fn).then(lambda x: Chain.break_()).run()
-    self.assertIn('_Break cannot be used in this context', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
 
   async def test_break_with_async_value(self):
     async def make_break_val():

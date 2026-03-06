@@ -462,13 +462,11 @@ class TestUserCodeCatchesControlFlow(unittest.TestCase):
 class TestExceptWithBadTypes(unittest.TestCase):
 
   def test_except_with_int_as_filter(self):
-    """exceptions=42: int is not str and not Iterable, so it goes to the
-    else branch: on_except_exceptions = (42,). At runtime, isinstance(exc, (42,))
-    raises TypeError.
+    """exceptions=42: now raises TypeError at registration time because
+    42 is not a type or BaseException subclass.
     """
-    c = Chain(lambda: 1 / 0).except_(lambda e: 'caught', exceptions=42)
     with self.assertRaises(TypeError):
-      c.run()
+      Chain(lambda: 1 / 0).except_(lambda e: 'caught', exceptions=42)
 
   def test_except_with_none_as_filter(self):
     """exceptions=None uses the default (Exception,)."""

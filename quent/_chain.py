@@ -94,8 +94,8 @@ class Chain:
   on_finally_link: Link | None
   root_link: Link | None
 
-  # TODO rename `v` globally to a more appropriate term. there must be a term
-  #  for something that can be multiple things (a value, a function, or a class, for example).
+  # `v` is intentional shorthand for "value" in the broad sense — any Python object
+  #  (literal, callable, class, etc.). This generality is by design.
   def __init__(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> None:
     self.is_nested = False
     self.root_link = Link(v, args, kwargs) if v is not Null else None
@@ -153,7 +153,7 @@ class Chain:
           set_initial_values = True
           if has_root_value and root_value is Null:
             root_value = result
-          if current_value is Null:
+          if current_value is Null and not link.ignore_result:
             current_value = result
         if not link.ignore_result:
           current_value = result
@@ -169,7 +169,7 @@ class Chain:
     except _Break:
       if self.is_nested:
         raise
-      raise QuentException('_Break cannot be used in this context.') from None
+      raise QuentException('Chain.break_() cannot be used outside of a foreach iteration.') from None
 
     except BaseException as exc:
       _active_exc = exc
@@ -241,7 +241,7 @@ class Chain:
       result = await awaitable
       if has_root_value and root_value is Null:
         root_value = result
-      if current_value is Null:
+      if current_value is Null and not link.ignore_result:
         current_value = result
       if not link.ignore_result:
         current_value = result
@@ -267,10 +267,12 @@ class Chain:
     except _Break:
       if self.is_nested:
         raise
-      raise QuentException('_Break cannot be used in this context.') from None
+      raise QuentException('Chain.break_() cannot be used outside of a foreach iteration.') from None
 
     except BaseException as exc:
       _active_exc = exc
+      if getattr(exc, '__quent_source_link__', None) is None:
+        exc.__quent_source_link__ = link  # type: ignore[attr-defined]
       if (
         current_value is not Null
         and not link.args
@@ -315,7 +317,9 @@ class Chain:
         try:
           return chain._run(fn, args, kwargs)
         except _ControlFlowSignal:
-          # TODO is that even possible?
+          # Defensive: _ControlFlowSignal should be caught inside _run, but this
+          # guard prevents leaking internal signals if a future code change breaks
+          # that invariant.
           raise QuentException('A control flow signal escaped the chain.') from None
 
       return _wrapper
@@ -327,7 +331,9 @@ class Chain:
     try:
       return self._run(v, args, kwargs)
     except _ControlFlowSignal:
-      # TODO is that even possible?
+      # Defensive: _ControlFlowSignal should be caught inside _run, but this
+      # guard prevents leaking internal signals if a future code change breaks
+      # that invariant.
       raise QuentException('A control flow signal escaped the chain.') from None
 
   def then(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
@@ -358,6 +364,9 @@ class Chain:
           raise QuentException('except_() requires at least one exception type when exceptions is provided.')
       else:
         self.on_except_exceptions = (exceptions,)
+      for exc_type in self.on_except_exceptions:
+        if not isinstance(exc_type, type) or not issubclass(exc_type, BaseException):
+          raise TypeError(f'except_() expects exception types (subclasses of BaseException), got {exc_type!r}')
     else:
       self.on_except_exceptions = (Exception,)
     self.on_except_link = Link(fn, args, kwargs)
