@@ -74,8 +74,11 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     return result
 
   async def _await_exit_suppress(suppress: Any, exc: BaseException, outer_value: Any) -> Any:
-    if await suppress:
-      return outer_value if ignore_result else None
+    try:
+      if await suppress:
+        return outer_value if ignore_result else None
+    except BaseException as exit_exc:
+      raise exit_exc from exc
     raise exc
 
   async def _await_exit_success(exit_result: Any, outer_value: Any, result: Any) -> Any:
@@ -142,6 +145,13 @@ def _sync_generator(
       else:
         try:
           result = fn(item)
+          if isawaitable(result):
+            if hasattr(result, 'close'):
+              result.close()
+            raise TypeError(
+              f'iterate() callback {fn!r} returned a coroutine. '
+              f'Use "async for" with __aiter__ instead of "for" with __iter__.'
+            )
         except _ControlFlowSignal:
           raise
         except BaseException as exc:
@@ -445,7 +455,7 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
       # If a fn raises during setup, close any already-created coroutines to avoid
       # "coroutine was never awaited" RuntimeWarning.
       for r in results:
-        if hasattr(r, 'close'):
+        if isawaitable(r) and hasattr(r, 'close'):
           r.close()
       raise
     if has_coro:
@@ -455,3 +465,37 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
   _gather_op._quent_op = 'gather'  # type: ignore[attr-defined]
   _gather_op._fns = fns  # type: ignore[attr-defined]
   return _gather_op
+
+
+def _make_if(predicate_link: Link, fn_link: Link) -> Callable[[Any], Any]:
+  """Create a conditional branching operation for use in a chain."""
+  predicate: Callable[..., Any] = predicate_link.v
+
+  async def _to_async_pred(pred_result: Any, current_value: Any) -> Any:
+    pred_result = await pred_result
+    if pred_result:
+      result = _evaluate_value(fn_link, current_value)
+      if isawaitable(result):
+        return await result
+      return result
+    elif _if_op._else_link is not None:  # type: ignore[attr-defined]
+      result = _evaluate_value(_if_op._else_link, current_value)  # type: ignore[attr-defined]
+      if isawaitable(result):
+        return await result
+      return result
+    return current_value
+
+  def _if_op(current_value: Any) -> Any:
+    pred_result = predicate(current_value) if current_value is not Null else predicate()
+    if isawaitable(pred_result):
+      return _to_async_pred(pred_result, current_value)
+    if pred_result:
+      return _evaluate_value(fn_link, current_value)
+    elif _if_op._else_link is not None:  # type: ignore[attr-defined]
+      return _evaluate_value(_if_op._else_link, current_value)  # type: ignore[attr-defined]
+    return current_value
+
+  _if_op._quent_op = 'if'  # type: ignore[attr-defined]
+  _if_op._else_link = None  # type: ignore[attr-defined]
+  _if_op._predicate_link = predicate_link  # type: ignore[attr-defined]
+  return _if_op

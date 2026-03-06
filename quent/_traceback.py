@@ -14,7 +14,7 @@ if TYPE_CHECKING:
   from ._chain import Chain
 
 
-_quent_file: str = os.path.dirname(os.path.abspath(__file__)) + os.sep
+_quent_file: str = os.path.dirname(os.path.realpath(__file__)) + os.sep
 # Pre-compiled code object for the traceback injection hack (see _modify_traceback).
 # The code simply raises an exception. Its co_name/co_qualname will be replaced with
 # the chain visualization string, so when Python builds the traceback frame, the
@@ -60,14 +60,17 @@ def _clean_internal_frames(tb: types.TracebackType | None) -> types.TracebackTyp
 
 
 def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None:
-  """Recursively clean internal frames from chained exceptions."""
-  if exc is None or id(exc) in seen:
-    return
-  seen.add(id(exc))
-  if exc.__traceback__ is not None:
-    exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
-  _clean_chained_exceptions(exc.__cause__, seen)
-  _clean_chained_exceptions(exc.__context__, seen)
+  """Iteratively clean internal frames from chained exceptions."""
+  stack = [exc]
+  while stack:
+    exc = stack.pop()
+    if exc is None or id(exc) in seen:
+      continue
+    seen.add(id(exc))
+    if exc.__traceback__ is not None:
+      exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
+    stack.append(exc.__cause__)
+    stack.append(exc.__context__)
 
 
 def _modify_traceback(
@@ -131,7 +134,9 @@ def _get_true_source_link(source_link: Link | None, root_link: Link | None) -> L
   Drills through nested Chain root links to find the actual user-provided
   callable or value that caused the exception.
   """
-  while source_link is not None:
+  seen = set()
+  while source_link is not None and id(source_link) not in seen:
+    seen.add(id(source_link))
     if source_link.is_chain:
       chain = source_link.v
     elif getattr(source_link.original_value, '_is_chain', False):
@@ -164,6 +169,8 @@ def _get_link_name(link: Link) -> str:
     return 'filter'
   if op == 'gather':
     return 'gather'
+  if op == 'if':
+    return 'if_'
   if link.ignore_result:
     return 'do'
   return 'then'
@@ -182,7 +189,7 @@ def _get_obj_name(obj: Any) -> str:
   if hasattr(obj, 'func'):  # functools.partial
     return f'partial({_get_obj_name(obj.func)})'
   try:
-    return repr(obj)
+    return repr(obj).replace('\n', '\\n').replace('\r', '\\r')
   except Exception:
     return type(obj).__name__
 
@@ -201,7 +208,7 @@ def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | Non
 
 
 def _resolve_nested_chain(
-  link: Link, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None, nest_lvl: int, ctx: _Ctx
+  link: Link, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None, nest_lvl: int, ctx: _Ctx, max_depth: int = 50
 ) -> str:
   """Resolve a nested chain link into its string representation."""
   original_value = link.original_value if link.original_value is not None else link.v
@@ -223,6 +230,7 @@ def _resolve_nested_chain(
     nest_lvl=nest_lvl + 1,
     root_link=nested_root_link,
     ctx=nested_ctx,
+    max_depth=max_depth,
   )
   ctx.found = nested_ctx.found
   return result
@@ -235,11 +243,14 @@ def _stringify_chain(
   *,
   ctx: _Ctx,
   extra_links: list[tuple[Link, str]] | None = None,
+  max_depth: int = 50,
 ) -> str:
   """Build a string visualization of a chain for traceback display.
 
   Returns the output string.
   """
+  if nest_lvl >= max_depth:
+    return f'{_make_indent(nest_lvl)}Chain(...<truncated at depth {max_depth}>...)'
   output = ''
   root = chain.root_link
   if root is None and root_link is not None:
@@ -252,7 +263,7 @@ def _stringify_chain(
   if root is None:
     output += '()'
   else:
-    output += _format_link(root, nest_lvl=nest_lvl, ctx=ctx)
+    output += _format_link(root, nest_lvl=nest_lvl, ctx=ctx, max_depth=max_depth)
     if not ctx.found and root is ctx.source_link:
       ctx.found = True
 
@@ -268,21 +279,21 @@ def _stringify_chain(
 
   for link, method_name in links:
     output += _make_indent(nest_lvl)
-    output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name)
+    output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name, max_depth=max_depth)
     if not ctx.found and link is ctx.source_link:
       ctx.found = True
 
   if extra_links:
     for link, method_name in extra_links:
       output += _make_indent(nest_lvl)
-      output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name)
+      output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name, max_depth=max_depth)
       if not ctx.found and link is ctx.source_link:
         ctx.found = True
 
   return output
 
 
-def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None = None) -> str:
+def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None = None, max_depth: int = 50) -> str:
   """Format a single link for chain visualization.
 
   Handles nested chains, argument display, source link marking, and
@@ -308,7 +319,7 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None =
   if original_value is None:
     original_value = link.v
   if link.is_chain or getattr(original_value, '_is_chain', False):
-    link_v = _resolve_nested_chain(link, args, kwargs, nest_lvl, ctx)
+    link_v = _resolve_nested_chain(link, args, kwargs, nest_lvl, ctx, max_depth=max_depth)
     args = kwargs = None
     is_chain = True
   else:
@@ -350,13 +361,13 @@ def _quent_excepthook(
   exc_type: type[BaseException], exc_value: BaseException, exc_tb: types.TracebackType | None
 ) -> None:
   """Custom excepthook that cleans quent internal frames before display."""
-  if getattr(exc_value, '__quent__', False):
-    _clean_chained_exceptions(exc_value, set())
-    exc_tb = exc_value.__traceback__
+  try:
+    if getattr(exc_value, '__quent__', False):
+      _clean_chained_exceptions(exc_value, set())
+      exc_tb = exc_value.__traceback__
+  except Exception:
+    pass
   _original_excepthook(exc_type, exc_value, exc_tb)
-
-
-sys.excepthook = _quent_excepthook
 
 
 # Also patch TracebackException (used by logging, traceback.format_exception, etc.)
@@ -373,10 +384,36 @@ def _patched_te_init(
   **kwargs: Any,
 ) -> None:
   """Patched TracebackException.__init__ that cleans quent frames."""
-  if exc_value is not None and getattr(exc_value, '__quent__', False):
-    _clean_chained_exceptions(exc_value, set())
-    exc_traceback = exc_value.__traceback__
+  try:
+    if exc_value is not None and getattr(exc_value, '__quent__', False):
+      _clean_chained_exceptions(exc_value, set())
+      exc_traceback = exc_value.__traceback__
+  except Exception:
+    pass
   _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]
 
 
-traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]
+_patching_enabled = False
+
+
+def disable_traceback_patching() -> None:
+  """Restore the original sys.excepthook and TracebackException.__init__."""
+  global _patching_enabled
+  if not _patching_enabled:
+    return
+  _patching_enabled = False
+  sys.excepthook = _original_excepthook
+  traceback.TracebackException.__init__ = _original_te_init  # type: ignore[method-assign]
+
+
+def enable_traceback_patching() -> None:
+  """Install quent's custom excepthook and TracebackException patch."""
+  global _patching_enabled
+  if _patching_enabled:
+    return
+  _patching_enabled = True
+  sys.excepthook = _quent_excepthook
+  traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]
+
+
+enable_traceback_patching()

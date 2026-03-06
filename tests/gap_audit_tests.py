@@ -314,15 +314,14 @@ class ModerateTests(unittest.IsolatedAsyncioTestCase):
     result = await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
     self.assertEqual(result, [2, 4, 6, 8])
 
-  def test_sync_iterate_with_async_fn_yields_coroutines(self):
-    """M8: .iterate(async_fn) used synchronously yields raw coroutine objects.
+  def test_sync_iterate_with_async_fn_raises_typeerror(self):
+    """H2 fix: .iterate(async_fn) used synchronously now raises TypeError.
     """
     g = Chain([1, 2, 3]).iterate(async_fn)
-    items = list(g)
-    self.assertEqual(len(items), 3)
-    for item in items:
-      self.assertTrue(inspect.iscoroutine(item))
-      item.close()  # Avoid RuntimeWarning about unawaited coroutines
+    with self.assertRaises(TypeError) as ctx:
+      list(g)
+    self.assertIn('coroutine', str(ctx.exception))
+    self.assertIn('async for', str(ctx.exception))
 
   def test_return_inside_with_body_cleanup(self):
     """M9: _Return in a with_ body. The CM's __exit__ should still be called.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections.abc
+import contextlib
 import functools
 import warnings
 from collections.abc import Callable, Iterable
@@ -21,7 +22,7 @@ from ._core import (
   _Return,
   _set_link_temp_args,
 )
-from ._ops import _Generator, _make_filter, _make_foreach, _make_gather, _make_with
+from ._ops import _Generator, _make_filter, _make_foreach, _make_gather, _make_if, _make_with
 from ._traceback import _modify_traceback
 
 
@@ -42,7 +43,8 @@ async def _await_run(
 
 def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link: Link | None) -> Any:
   """Shared except handler logic: modify traceback, evaluate handler, return result."""
-  _modify_traceback(exc, chain, link, root_link)
+  with contextlib.suppress(Exception):
+    _modify_traceback(exc, chain, link, root_link)
   if chain.on_except_link is None or not isinstance(exc, chain.on_except_exceptions):  # type: ignore[arg-type]
     raise exc
   try:
@@ -65,7 +67,8 @@ def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None)
   except BaseException as exc_:
     if root_value is not Null:
       _set_link_temp_args(exc_, chain.on_finally_link, root_value=root_value)  # type: ignore[arg-type]
-    _modify_traceback(exc_, chain, chain.on_finally_link, root_link)
+    with contextlib.suppress(Exception):
+      _modify_traceback(exc_, chain, chain.on_finally_link, root_link)
     raise exc_
 
 
@@ -308,7 +311,12 @@ class Chain:
           raise
 
   def decorator(self) -> Callable[..., Callable[..., Any]]:
-    """Wrap the chain as a function decorator."""
+    """Wrap the chain as a function decorator.
+
+    Warning: The decorator captures the chain by reference. Modifying
+    the chain after calling decorator() affects the decorated function.
+    Use freeze() first if you need an immutable snapshot.
+    """
     chain = self
 
     def _decorator(fn):
@@ -340,7 +348,7 @@ class Chain:
     """Append a step. The result replaces the current chain value."""
     return self._then(Link(v, args, kwargs))
 
-  def do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Chain:
+  def do(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
     """Append a side-effect step. The result is discarded."""
     return self._then(Link(fn, args, kwargs, ignore_result=True))
 
@@ -421,11 +429,36 @@ class Chain:
     inner = Link(fn, args, kwargs)
     return self._then(Link(_make_with(inner, True), ignore_result=True, original_value=inner))
 
+  def if_(self, predicate: Callable[..., Any], fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
+    """Conditionally apply fn if predicate(current_value) is truthy.
+
+    If predicate returns truthy, fn is evaluated and its result replaces
+    the current value. If falsy, the current value passes through unchanged.
+    Both predicate and fn can be sync or async.
+    """
+    fn_link = Link(fn, args, kwargs)
+    return self._then(Link(_make_if(Link(predicate), fn_link), original_value=fn_link))
+
+  def else_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
+    """Register an else branch for the preceding if_() step.
+
+    Must be called immediately after if_(). If the preceding if_'s
+    predicate was falsy, fn is evaluated instead.
+    """
+    last = self.current_link if self.current_link is not None else self.first_link
+    if last is None or getattr(last.v, '_quent_op', None) != 'if':
+      raise QuentException('else_() can only be used immediately after if_()')
+    last.v._else_link = Link(fn, args, kwargs)
+    return self
+
   def freeze(self) -> _FrozenChain:
     """Compile the chain into a frozen form.
 
     The chain must not be modified after freezing. Adding links, except
     handlers, or finally handlers after freeze() produces undefined behavior.
+
+    Note: return_() and break_() inside a frozen sub-chain do NOT propagate
+    to the outer chain. The frozen boundary acts as an opaque execution scope.
     """
     return _FrozenChain(self)
 

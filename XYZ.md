@@ -6,10 +6,23 @@
 **Reviewed by:** Claude Opus 4.6 orchestrator with 7 parallel deep-dive agents
 **Files audited:** `_core.py`, `_chain.py`, `_ops.py`, `_traceback.py`, `__init__.py`
 
+## Project Identity
+
+quent is a **transparent sync/async bridge**. It is not a collections library, not a functional programming toolkit, not an opinionated framework. It provides the minimum set of pipeline primitives that let developers:
+
+- **Write code once** — a single chain definition works for both sync and async callables. Zero ceremony, zero code duplication.
+- **Migrate existing codebases** — unify separate sync and async implementations of the same logic into one. Stop maintaining two versions of every function.
+- **Stay out of the way** — quent is unopinionated. It bridges the sync/async divide and gets out of the way. No imposed patterns, paradigms, or abstractions beyond the pipeline itself.
+
+**What quent is NOT:** a collections/iteration library (use itertools, more-itertools), a functional programming framework (use returns, toolz, Expression), or an opinionated architecture (use Effect, returns).
+
+**Design principle:** Every feature must justify itself by solving a real sync/async bridging problem or eliminating genuine code duplication. Features that merely wrap stdlib functionality don't belong.
+
 ---
 
 ## Table of Contents
 
+0. [Project Identity](#project-identity)
 1. [Bugs & Correctness Issues](#i-bugs--correctness-issues)
    - [Critical](#critical-none-found)
    - [High Severity](#high-severity)
@@ -37,112 +50,6 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 ### HIGH SEVERITY
 
-#### H1. `_await_exit_suppress` loses original exception context when `__exit__` awaitable raises
-
-- **File:** `_ops.py:76-79`
-- **Description:** When a sync context manager's `__exit__` returns an awaitable that raises during body-exception handling, the new exception has no `__cause__` or `__context__` referencing the original body exception. Python's implicit chaining doesn't fire because `exc` is in a closure, not the active exception.
-- **Impact:** Debugging becomes harder because the original body exception is silently discarded with no traceback chain.
-- **Demonstrated:**
-  ```
-  # Standard Python: RuntimeError.__context__ = ZeroDivisionError
-  # _await_exit_suppress: RuntimeError.__context__ = None, __cause__ = None
-  ```
-- **Fix:**
-  ```python
-  async def _await_exit_suppress(suppress, exc, outer_value):
-      try:
-        if await suppress:
-          return outer_value if ignore_result else None
-      except BaseException as exit_exc:
-        raise exit_exc from exc
-      raise exc
-  ```
-- **ASSUMPTION:** This is rare in practice (sync `__exit__` returning a coroutine that raises is exotic), but it is a semantic correctness deviation from the `with` statement protocol.
-
----
-
-#### H2. `_sync_generator` yields unawaited coroutines when `fn` is async
-
-- **File:** `_ops.py:128-161`
-- **Description:** `_sync_generator` calls `fn(item)` and yields the result directly without checking `isawaitable(result)`. If a user creates an `iterate()` generator with an `async def` function and consumes it synchronously via `for item in g`, they receive raw coroutine objects instead of their resolved values. These coroutines are never awaited, generating `RuntimeWarning: coroutine was never awaited`.
-- **Demonstrated:**
-  ```python
-  async def double(x): return x * 2
-  g = Chain([1, 2, 3]).iterate(double)
-  list(g)  # => [<coroutine>, <coroutine>, <coroutine>]
-  ```
-- **Impact:** Silent data corruption (coroutine objects where values were expected) if the user calls `list(g)` instead of `[x async for x in g]` when `fn` is async.
-- **Mitigation:** The user should use `async for` instead of `for` when `fn` is async. The `_async_generator` path correctly awaits results. However, there is no guard, warning, or documentation preventing the footgun.
-- **Fix:** Detect the first awaitable in `_sync_generator` and raise a clear error rather than silently yielding coroutines.
-- **ASSUMPTION:** This is considered a user error, not a library bug, given the library's philosophy of transparent sync/async bridging.
-
----
-
-#### H3. `_get_true_source_link` can infinite loop with cyclic chain references
-
-- **File:** `_traceback.py:134-147`
-- **Description:** The `while source_link is not None:` loop has no cycle-detection mechanism. If two chains have their `root_link` properties set such that `chain_a.root_link.v = chain_b` and `chain_b.root_link.v = chain_a`, this function enters an infinite loop that hangs the process.
-- **Confirmed via testing:** A cyclic chain structure causes a timeout (infinite loop). The function never terminates.
-- **Exploitability through public API:** LOW. The `root_link` is set only at `Chain.__init__` construction time and is never mutated by public methods. Creating a cycle requires direct slot assignment, which is internal API abuse. However, `root_link` is a public slot (not name-mangled), so a user could accidentally or intentionally trigger this.
-- **Fix:**
-  ```python
-  def _get_true_source_link(source_link, root_link):
-    seen = set()
-    while source_link is not None and id(source_link) not in seen:
-      seen.add(id(source_link))
-      ...
-  ```
-
----
-
-#### H4. `_clean_chained_exceptions` unbounded recursion
-
-- **File:** `_traceback.py:62-70`
-- **Description:** The function is recursive, following both `__cause__` and `__context__` chains. With a linear exception chain of ~1000 entries, this hits Python's default recursion limit (1000). Confirmed: a chain of 2000 exceptions causes `RecursionError`.
-- **Impact:** A `RecursionError` during traceback formatting would mask the original error. This is exception handling code crashing during exception handling — the worst kind of failure.
-- **Fix:** Convert to an iterative approach using an explicit stack:
-  ```python
-  def _clean_chained_exceptions(exc, seen):
-    stack = [exc]
-    while stack:
-      exc = stack.pop()
-      if exc is None or id(exc) in seen:
-        continue
-      seen.add(id(exc))
-      if exc.__traceback__ is not None:
-        exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
-      stack.append(exc.__cause__)
-      stack.append(exc.__context__)
-  ```
-
----
-
-#### H5. `_stringify_chain` / `_resolve_nested_chain` recursion overflow on deep nesting
-
-- **File:** `_traceback.py:203-228` and `_traceback.py:231-282`
-- **Description:** `_resolve_nested_chain` calls `_stringify_chain` which calls `_format_link` which calls `_resolve_nested_chain` — forming a recursive cycle for nested chains. With ~500 levels of chain nesting, this causes `RecursionError`. Confirmed: a 200-deep nested chain stringifies to a 243KB string successfully, but a 500-deep chain hits `RecursionError`.
-- **Impact:** Also produces enormous `co_name` strings (1MB+ strings accepted by `code.replace()`, producing 1MB+ traceback output).
-- **Fix:** Add a `max_depth` guard with fallback to truncated output, or convert to iterative traversal.
-
----
-
-#### H6. `_modify_traceback` failure replaces the original exception
-
-- **File:** `_chain.py:45` (inside `_except_handler_body`)
-- **Description:** `_modify_traceback(exc, chain, link, root_link)` is called before the except handler runs. If it raises (e.g., from any of H3-H5), the formatting error replaces the application error entirely. The user's `except_()` handler is never invoked, and the original application error becomes hidden as `__context__` of the traceback-formatting error.
-- **Verified empirically:** Injecting a broken `_modify_traceback` causes the formatting error to propagate instead of the actual `ZeroDivisionError`.
-- **Fix:** Wrap `_modify_traceback` in try/except within `_except_handler_body`:
-  ```python
-  def _except_handler_body(exc, chain, link, root_link):
-    try:
-      _modify_traceback(exc, chain, link, root_link)
-    except Exception:
-      pass  # formatting failure must never mask application error
-    ...
-  ```
-
----
-
 #### H7. `_task_registry` not thread-safe on free-threaded Python 3.13+
 
 - **File:** `_core.py:125`
@@ -152,39 +59,7 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 ---
 
-#### H8. Frozen chain `_Return`/`_Break` semantics silently differ from unfrozen nested chains — undocumented
-
-- **File:** `_chain.py:462-475`
-- **Description:** `_FrozenChain.run()` catches `_ControlFlowSignal`, so `Chain.return_()` inside a frozen sub-chain returns a value to the *next step* instead of exiting the *outer chain*.
-- **Verified empirically:**
-  - `Chain(5).then(unfrozen_inner).then(f).run()` — `_Return` inside `unfrozen_inner` propagates to the outer chain, skipping `f`. Result: the return value.
-  - `Chain(5).then(frozen_inner).then(f).run()` — `_Return` inside `frozen_inner` is caught by `frozen_inner.run()`. The return value becomes the input to `f`. Result: `f(return_value)`.
-- **Impact:** Semantically correct (frozen = opaque boundary) but undocumented. Users who nest frozen chains expecting the same behavior as unfrozen chains will be surprised.
-
----
-
 ### MEDIUM SEVERITY
-
-#### M1. `_make_gather` cleanup closes any object with `.close()`, not just coroutines
-
-- **File:** `_ops.py:444-449`
-- **Description:** The cleanup loop in the `except BaseException` block calls `.close()` on any result that has a `close` attribute. This includes not just unawaited coroutines (the intended target) but also file objects, database connections, StringIO buffers, sockets, and any other object with a `.close()` method that a sync fn might return.
-- **Demonstrated:**
-  ```python
-  buffer = io.StringIO('hello')
-  Chain(5).gather(lambda x: buffer, lambda x: 1/0).run()
-  # buffer is now closed, even though it was a valid sync return value
-  ```
-- **Fix:** Check specifically for coroutines:
-  ```python
-  from inspect import isawaitable
-  for r in results:
-      if isawaitable(r) and hasattr(r, 'close'):
-          r.close()
-  ```
-  Or use `asyncio.iscoroutine(r)` for even tighter specificity.
-
----
 
 #### M2. `asyncio.gather` without `return_exceptions=True` — partial results lost
 
@@ -200,56 +75,6 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 - **File:** `_ops.py:164-167`
 - **Description:** When an async generator wraps a sync iterator via `_aiter_wrap`, each call to `__anext__` blocks the event loop for the duration of `next(sync_iter)`. If the sync iterator performs I/O or computation, the entire event loop stalls.
 - **Assessment:** Inherent limitation of bridging sync iterators into async context. No general-purpose solution without `asyncio.to_thread` or similar. Should be documented as a known limitation.
-
----
-
-#### M4. `_quent_file` uses `abspath` instead of `realpath` — symlink-based filtering failure
-
-- **File:** `_traceback.py:17`
-- **Code:** `_quent_file: str = os.path.dirname(os.path.abspath(__file__)) + os.sep`
-- **Description:** `os.path.abspath()` does NOT resolve symlinks. If quent is installed via a symlink (e.g., `pip install -e .` with a symlinked path, or a symlinked virtualenv), `_quent_file` will contain the symlink path, while `tb.tb_frame.f_code.co_filename` in other quent source files may contain the resolved real path (or vice versa). The `startswith(_quent_file)` check on line 51 would fail, and internal quent frames would leak into user tracebacks.
-- **Confirmed:** On macOS, `/var` is a symlink to `/private/var`. When importing through a symlinked path, `abspath` and `realpath` return different results.
-- **Fix:** `os.path.realpath(__file__)` instead of `os.path.abspath(__file__)`.
-
----
-
-#### M5. `_get_obj_name` doesn't sanitize newlines in output
-
-- **File:** `_traceback.py:172-187`
-- **Description:** When `_get_obj_name` falls through to `repr(obj)`, the repr string may contain newlines or other control characters. This string is embedded into the chain visualization which becomes `co_name` in the traceback. The result is a malformed traceback display where the function name spans multiple lines.
-- **Confirmed:** An object with `__repr__` returning `"evil\nline2\nline3"` produces a traceback where the chain visualization breaks across lines.
-- **Fix:** Sanitize the return value: `return repr(obj).replace('\n', '\\n')` or truncate at the first newline.
-
----
-
-#### M6. No error guard in `_quent_excepthook` / `_patched_te_init`
-
-- **File:** `_traceback.py:349-382`
-- **Description:** Neither `_quent_excepthook` nor `_patched_te_init` has a `try/except` guard around the `_clean_chained_exceptions` call. If `_clean_chained_exceptions` raises (e.g., from `RecursionError` per H4), the exception propagates through the hook.
-- **Impact:** For `_quent_excepthook`, Python's fallback prints both the original exception and the hook error. For `_patched_te_init`, it crashes whatever code was trying to format the exception.
-- **Fix:** Wrap the cleaning logic in try/except and fall through to the original behavior on failure:
-  ```python
-  def _quent_excepthook(exc_type, exc_value, exc_tb):
-    try:
-      if getattr(exc_value, '__quent__', False):
-        _clean_chained_exceptions(exc_value, set())
-        exc_tb = exc_value.__traceback__
-    except Exception:
-      pass
-    _original_excepthook(exc_type, exc_value, exc_tb)
-  ```
-
----
-
-#### M7. Import-time side effects with no opt-out
-
-- **File:** `_traceback.py:359,382` and `__init__.py:3`
-- **Description:** Importing `quent` (even just `from quent import Null`) immediately patches `sys.excepthook` and `traceback.TracebackException.__init__`. There is no opt-out mechanism.
-- **Impact:** Affects ALL exception display in the process. Can conflict with other libraries that also patch `sys.excepthook` (e.g., IPython, rich, sentry-sdk) depending on import order.
-- **Details:**
-  - If quent is imported BEFORE another hook library: quent's hook chains to the original default, the other library replaces quent's hook entirely — quent's cleaning is lost.
-  - If quent is imported AFTER: quent chains to the other library's hook correctly.
-- **Recommendation:** Consider an opt-out mechanism (e.g., `QUENT_NO_TRACEBACK_PATCH=1` env var, or `quent.disable_traceback_patching()`).
 
 ---
 
@@ -318,14 +143,6 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 ---
 
-#### L3. `decorator()` captures mutable chain with no documentation warning
-
-- **File:** `_chain.py:310-327`
-- **Description:** The `decorator()` method creates a closure over `self`. If the user adds links after calling `.decorator()`, the decorated function executes with the modified chain. This is documented in tests as "undefined behavior by design."
-- **Gap:** `freeze()` has an explicit docstring warning about post-freeze modification (lines 425-429). `decorator()` lacks an equivalent warning.
-
----
-
 #### L4. `_make_filter` does not handle `_Break`
 
 - **File:** `_ops.py:351-417`
@@ -338,14 +155,6 @@ The core execution engine is sound. Sync/async bridging is watertight. All 8 ini
 
 - **File:** `_ops.py:435-453`
 - **Description:** When a gathered function raises, the exception doesn't indicate which function (by index or name) caused the failure. Unlike `_make_foreach` and `_make_filter` which attach `item` and `index` via `_set_link_temp_args`, `_gather_op` does not annotate the exception.
-
----
-
-#### L6. `do()` type annotation says `Callable` but accepts any value at runtime
-
-- **File:** `_chain.py:343`
-- **Signature:** `def do(self, fn: Callable[..., Any], /) -> Chain`
-- **Description:** At runtime, `do(42)` works fine: `_evaluate_value` sees `callable(42) == False` and returns `42` as-is; since `ignore_result=True`, the result is discarded. The type annotation `Callable[..., Any]` is misleading. Static type checkers (mypy) would flag `chain.do(42)` as an error, but it works at runtime. `then()` correctly uses `v: Any`.
 
 ---
 
@@ -515,13 +324,6 @@ By design. Both `_make_foreach` and `_make_filter` collect all results into `lst
 
 ## V. API DESIGN ISSUES & SUGGESTIONS
 
-### Naming Conventions
-
-| Current | Suggested Alias | Rationale |
-|---------|----------------|-----------|
-| `.do()` | `.tap()` | Universal convention (RxJS, Elixir, pipe). More recognizable. |
-| `.foreach()` | `.map()` | `foreach` implies side-effects in most languages. `map` is universal for "apply and collect." |
-
 ### Type Annotation Inconsistencies
 
 | Method | Current Annotation | Runtime Behavior | Fix |
@@ -554,22 +356,9 @@ When `run(v)` is called on a chain with a `root_link`, the run value creates a t
 
 ## VI. PRODUCT IDEAS & NEW FEATURES
 
-### Tier 1: High Impact, Moderate Effort
+### Planned Features
 
-#### 1. Conditional Branching: `.if_()` / `.if_not()`
-
-Pattern from: RxJS (`filter`), returns (`lash`), Elixir (`then` with guards)
-
-```python
-Chain(value)
-  .then(process)
-  .if_(lambda v: v > 0, lambda v: v * 2)        # apply only if predicate true
-  .if_not(lambda v: v is None, lambda v: v.upper())  # apply only if predicate false
-```
-
-This is the single most requested feature across pipeline library issues. Currently users must embed conditionals inside lambdas, breaking readability.
-
-#### 2. `.retry()` — Built-in Retry with Backoff
+#### 1. `.retry()` — Built-in Retry with Backoff
 
 Pattern from: RxJS `retry`/`retryWhen`, Effect `Schedule`, tenacity
 
@@ -581,7 +370,7 @@ Chain()
 
 Most requested missing feature for async pipeline libraries. Users currently must wrap individual functions with tenacity, which breaks the fluent API.
 
-#### 3. `.timeout()` — Per-Step or Per-Chain Timeout
+#### 2. `.timeout()` — Per-Step or Per-Chain Timeout
 
 Pattern from: RxJS `timeout`, Effect structured concurrency, asyncio
 
@@ -593,166 +382,22 @@ Chain()
 
 For async chains, wrap the awaitable in `asyncio.wait_for`. For sync, raise after deadline. Critical for production use.
 
-#### 4. Type Stubs / mypy Support
+#### 3. `|` Operator — Fluent Pipe Syntax
 
-Pattern from: returns (mypy plugin), Expression (native typing)
-
-Even partial type annotations using `@overload` for common arities (2-7 steps) would dramatically improve IDE experience. The `returns` library proved this is the #1 adoption driver for serious users. At minimum, provide `.pyi` stubs for `Chain`, `then`, `run`.
-
----
-
-### Tier 2: Medium Impact, Low Effort
-
-#### 5. `.tap()` Alias for `.do()`
-
-Universal naming convention. Consider also a `.log(label)` shorthand: `do(lambda v: logger.debug(f'{label}: {v}'))`.
-
-#### 6. `.map()` Alias for `.foreach()`
-
-Universal naming convention across every programming language.
-
-#### 7. `.reduce()` / `.fold()` Terminal Operation
-
-Pattern from: Rust `fold`/`reduce`, PyFunctional `reduce`, toolz
-
-```python
-Chain([1, 2, 3, 4])
-  .reduce(lambda acc, x: acc + x, initial=0)  # returns 10
-```
-
-#### 8. `.flat_map()` — Map Then Flatten
-
-Pattern from: Rust `flat_map`, PyFunctional `flat_map`, RxJS `mergeMap`
-
-```python
-Chain([[1, 2], [3, 4]])
-  .flat_map(lambda x: [v * 2 for v in x])  # yields [2, 4, 6, 8]
-```
-
-#### 9. `.filter_map()` — Combined Filter+Map
-
-Pattern from: Rust `filter_map`
-
-```python
-Chain([1, 2, 3, 4, 5])
-  .filter_map(lambda x: x * 2 if x % 2 == 0 else None)  # yields [4, 8]
-```
-
-Return `None` to skip, any other value to keep. Eliminates common two-step filter-then-map.
-
-#### 10. `.take(n)` / `.skip(n)` / `.take_while(pred)` / `.skip_while(pred)`
-
-Pattern from: Rust iterators, pipe library, PyFunctional. Fundamental iteration control primitives.
-
-#### 11. `|` Operator Support
-
-Pattern from: pipe library, pipetools, RxJS
+Pattern from: Elixir `|>`, pipe library, shell pipes
 
 ```python
 Chain(data) | transform1 | transform2 | transform3
+# equivalent to: Chain(data).then(transform1).then(transform2).then(transform3)
 ```
 
-Implement `__or__` to accept callables and append them as `.then()` steps.
-
----
-
-### Tier 3: Novel / Advanced Ideas
-
-#### 12. `.scan(fn, initial)` — Stateful Accumulation Yielding Intermediates
-
-Pattern from: Rust `scan`, RxJS `scan`, toolz `accumulate`
-
-```python
-Chain([1, 2, 3, 4])
-  .scan(lambda acc, x: acc + x, initial=0)  # yields [1, 3, 6, 10]
-```
-
-Unlike `reduce` which produces a single final value, `scan` produces a stream of intermediate accumulations.
-
-#### 13. Placeholder `X` Object for Lambda-Free Expressions
-
-Pattern from: pipetools `X`, lodash/fp auto-curry
-
-```python
-Chain([1, 2, 3, 4])
-  .filter(X % 2 == 0)    # instead of lambda x: x % 2 == 0
-  .map(X * 10)            # instead of lambda x: x * 10
-```
-
-A proxy object that records operations and replays them when called.
-
-#### 14. `.partition(pred)` — Split Into Two Collections
-
-Pattern from: Rust `partition`, Haskell
-
-```python
-Chain([1, 2, 3, 4, 5])
-  .partition(lambda x: x % 2 == 0)  # returns ([2, 4], [1, 3, 5])
-```
-
-#### 15. `.enumerate()` — Yield `(index, element)` Pairs
-
-Pattern from: Rust, Python built-in
-
-#### 16. `.distinct()` / `.batch(n)` / `.flatten()` / `.zip()`
-
-Common collection operations available in every pipeline library.
-
-#### 17. `.log(label)` Shorthand for Debug Logging
-
-```python
-Chain(data)
-  .then(transform)
-  .log('after transform')  # prints: after transform: <value>
-  .then(next_step)
-```
-
-#### 18. Opt-Out for Traceback Patching
-
-Environment variable `QUENT_NO_TRACEBACK_PATCH=1` or explicit `quent.disable_traceback_patching()`.
-
----
-
-### What NOT to Add (Wrong Scope)
-
-- **Result/Maybe containers** — That's `returns`/`Expression` territory. quent's strength is pipeline composition, not error-as-values
-- **DAG-based dependency resolution** — That's `pipefunc` territory (scientific computing)
-- **Multiprocessing parallelism** — That's `pypeln` territory
-- **Serialization I/O** — That's `PyFunctional` territory
+Implement `__or__` to accept callables and append them as `.then()` steps. Zero-ceremony composition that feels native to Python. Returns `self` for continued chaining.
 
 ---
 
 ## VII. REFACTORING OPPORTUNITIES
 
-### Priority 1: Safety-Critical Fixes
-
-1. **Wrap `_modify_traceback` in try/except** in all callers (`_except_handler_body`, `_finally_handler_body`, generator error paths) — a formatting failure must NEVER mask an application error (H6)
-
-2. **Convert `_clean_chained_exceptions` to iterative** — recursive traversal is a ticking time bomb for deep exception chains (H4)
-
-3. **Add cycle/depth guards to `_get_true_source_link` and `_stringify_chain`** — prevents infinite loops and recursion overflow (H3, H5)
-
-4. **Add error guards to `_quent_excepthook` and `_patched_te_init`** — a crash in exception formatting is worse than unformatted output (M6)
-
-### Priority 2: Correctness Fixes
-
-5. **Fix `_await_exit_suppress` exception chaining** — add `try/except` and `raise exit_exc from exc` (H1)
-
-6. **Tighten `_make_gather` cleanup** — only close awaitables, not arbitrary `.close()` objects (M1)
-
-7. **Use `os.path.realpath`** instead of `os.path.abspath` in `_traceback.py` — prevents symlink-related frame filtering failures (M4)
-
-8. **Sanitize `_get_obj_name` output** — replace newlines in repr strings (M5)
-
-### Priority 3: Quality Improvements
-
-9. **Detect unawaited coroutines in `_sync_generator`** — raise a clear error instead of silently yielding coroutines (H2)
-
-10. **Document frozen chain control flow semantics** — explicitly state that `return_()`/`break_()` don't propagate through frozen boundaries (H8)
-
-11. **Add `decorator()` docstring warning** about post-decoration mutation (L3)
-
-12. **Harmonize type annotations** — make `do()`, `except_()`, `finally_()` consistent with `then()` (L6)
+All identified refactoring opportunities have been addressed.
 
 ---
 
@@ -791,7 +436,7 @@ Environment variable `QUENT_NO_TRACEBACK_PATCH=1` or explicit `quent.disable_tra
 | Side-effect step (tap/do) | YES | NO | NO | NO | NO | YES (tee) | YES (tap) | YES |
 | Retry/backoff | NO | NO | NO | NO | NO | NO | YES | YES |
 | Timeout | NO | NO | YES (cancel) | NO | NO | NO | YES | YES |
-| Conditional branching | NO | YES (lash) | YES (match) | NO | NO | NO | YES | YES |
+| Conditional branching | YES (`if_`/`else_`) | YES (lash) | YES (match) | NO | NO | NO | YES | YES |
 | Parallel map/filter | NO | NO | NO | NO | YES (pseq) | NO | YES | YES |
 | gather/fan-out | YES | NO | NO | YES (juxt) | NO | NO | YES | YES |
 | Context manager | YES | YES (managed) | YES | NO | NO | NO | NO | YES |
@@ -889,36 +534,24 @@ Environment variable `QUENT_NO_TRACEBACK_PATCH=1` or explicit `quent.disable_tra
 
 | Category | Critical | High | Medium | Low |
 |----------|----------|------|--------|-----|
-| Bugs/Correctness | 0 | 8 | 10 | 17 |
+| Bugs/Correctness | 0 | 1 | 5 | 13 |
 | Security | 0 | 0 | 0 | 0 |
-| **Total** | **0** | **8** | **10** | **17** |
+| **Total** | **0** | **1** | **5** | **13** |
 
 ### High-Severity Findings Quick Reference
 
-| ID | File | Line(s) | Description |
-|----|------|---------|-------------|
-| H1 | `_ops.py` | 76-79 | `_await_exit_suppress` loses exception context |
-| H2 | `_ops.py` | 128-161 | `_sync_generator` yields unawaited coroutines |
-| H3 | `_traceback.py` | 134-147 | `_get_true_source_link` infinite loop on cycles |
-| H4 | `_traceback.py` | 62-70 | `_clean_chained_exceptions` unbounded recursion |
-| H5 | `_traceback.py` | 203-282 | `_stringify_chain` recursion overflow |
-| H6 | `_chain.py` | 45 | `_modify_traceback` failure masks app errors |
-| H7 | `_core.py` | 125 | `_task_registry` not thread-safe on free-threaded Python |
-| H8 | `_chain.py` | 462-475 | Frozen chain control flow semantics undocumented |
+| ID | File | Line(s) | Description | Status |
+|----|------|---------|-------------|--------|
+| H7 | `_core.py` | 125 | `_task_registry` not thread-safe on free-threaded Python | Open (future scope) |
 
 ### Overall Assessment
 
-The library is well-engineered with no critical bugs. The core execution engine (sync/async bridging, linked list traversal, exception handling) is correct and thoroughly tested. The 8 HIGH findings are concentrated in two areas:
+The library is well-engineered with no critical bugs. The core execution engine (sync/async bridging, linked list traversal, exception handling) is correct and thoroughly tested. The remaining HIGH finding (H7, `_task_registry` thread safety on free-threaded Python) is acknowledged as future scope.
 
-1. **Traceback formatting code** lacking defensive guards against recursion, cycles, and crashes (H3, H4, H5, H6)
-2. **Edge cases in the ops layer** — `_await_exit_suppress` chain loss (H1), `_sync_generator` yielding unawaited coroutines (H2)
-
-All HIGH findings are fixable without architectural changes. The product has strong competitive differentiation (transparent sync/async bridging, traceback enhancement, freeze/decorator patterns) but would benefit significantly from:
-
-- Type stubs / mypy support
-- Conditional branching (`.if_()`)
-- Retry/timeout primitives
-- Universal naming aliases (`.tap()`, `.map()`)
+The remaining open items are:
+- **1 High:** H7 — `_task_registry` thread safety on free-threaded Python 3.13+
+- **5 Medium:** M2 (gather partial results), M3 (sync iterator event loop blocking), M8 (getattr non-AttributeError), M9 (is_nested on frozen objects), M10 (unawaited coroutine warning)
+- **13 Low:** L1, L2, L4, L5, L7-L17 — minor edge cases, cosmetic issues, and design trade-offs
 
 ---
 
@@ -1023,7 +656,7 @@ All code paths in `except_()` set `on_except_exceptions` to a non-None tuple bef
 | `__enter__` raises | YES | `__exit__` not called (outside try block) |
 | Body raises, `__exit__` returns True | YES | Exception suppressed |
 | Body raises, `__exit__` raises | YES | `raise exit_exc from exc` |
-| Body raises, `__exit__` returns awaitable | YES* | *See H1 for chain loss |
+| Body raises, `__exit__` returns awaitable | YES | Chain loss fixed (H1) |
 | `async with` + `_ControlFlowSignal` | YES | Stored, CM exits cleanly, then re-raised |
 | `hasattr(__aenter__)` check | YES | Async path preferred for dual-protocol objects |
 
@@ -1184,4 +817,4 @@ for i in range(10):
 
 ---
 
-*End of review. All findings documented. Ready for implementation.*
+*End of review. All findings documented. Remaining items are open issues.*

@@ -47,7 +47,7 @@ Issues = "https://github.com/drukmano/quent/issues"
 packages = ["quent"]
 
 [tool.setuptools.package-data]
-quent = ["py.typed"]
+quent = ["py.typed", "*.pyi"]
 
 [tool.coverage.run]
 source = ["quent"]
