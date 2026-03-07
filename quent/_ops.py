@@ -21,32 +21,22 @@ from ._core import (
 from ._traceback import _modify_traceback
 
 
+def _handle_iterate_exc(exc: BaseException, link: Any, chain: Any, ignore_result: bool, item: Any, idx: int) -> None:
+  if link is not None:
+    _set_link_temp_args(exc, link, item=item, index=idx)
+    method = 'iterate_do' if ignore_result else 'iterate'
+    _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+
+
+async def _async_handle_break(exc: _Break, lst: list[Any]) -> Any:
+  result = _handle_break_exc(exc, lst)
+  if isawaitable(result):
+    return await result
+  return result
+
+
 def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
   """Create a context manager operation for use in a chain."""
-  # L8: Extract callable/args/kwargs from link at factory time (build-time capture).
-  # Link objects are immutable after creation, so this is equivalent to runtime access.
-  fn = link.v
-  fn_args = link.args
-  fn_kwargs = link.kwargs
-
-  def _evaluate_body(ctx: Any) -> Any:
-    """Evaluate the body callable with extracted link values."""
-    v, args, kwargs = fn, fn_args, fn_kwargs
-
-    if link.is_chain:
-      if args and args[0] is ...:
-        return v._run(Null, None, None)
-      if args or kwargs:
-        return v._run(args[0] if args else ctx, args[1:] if args else None, kwargs or {})
-      return v._run(ctx, None, None)
-
-    if args and args[0] is ...:
-      return v()
-    if args or kwargs:
-      return v(*(args or ()), **(kwargs or {}))
-    if callable(v):
-      return v(ctx) if ctx is not Null else v()
-    return v
 
   async def _to_async(current_value: Any, body_result: Any, outer_value: Any, ctx: Any) -> Any:
     try:
@@ -81,7 +71,7 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     signal = None
     async with current_value as ctx:
       try:
-        result = _evaluate_body(ctx)
+        result = _evaluate_value(link, ctx)
         if isawaitable(result):
           result = await result
       except _ControlFlowSignal as s:
@@ -120,7 +110,7 @@ def _make_with(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
     if hasattr(current_value, '__enter__'):
       ctx = current_value.__enter__()
       try:
-        result = _evaluate_body(ctx)
+        result = _evaluate_value(link, ctx)
         if isawaitable(result):
           return _to_async(current_value, result, outer_value, ctx)
       except _ControlFlowSignal:
@@ -190,10 +180,7 @@ def _sync_generator(
         except _ControlFlowSignal:
           raise
         except BaseException as exc:
-          if link is not None:
-            _set_link_temp_args(exc, link, item=item, index=idx)
-            method = 'iterate_do' if ignore_result else 'iterate'
-            _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+          _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
           raise
         if ignore_result:
           yield item
@@ -239,10 +226,7 @@ async def _async_generator(
         except _ControlFlowSignal:
           raise
         except BaseException as exc:
-          if link is not None:
-            _set_link_temp_args(exc, link, item=item, index=idx)
-            method = 'iterate_do' if ignore_result else 'iterate'
-            _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+          _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
           raise
         if ignore_result:
           yield item
@@ -335,10 +319,7 @@ def _make_iter_op(link: Link, mode: str) -> Callable[[Any], Any]:
         item = next(iterator)
         result = fn(item)
     except _Break as exc:
-      result = _handle_break_exc(exc, lst)
-      if isawaitable(result):
-        return await result  # type: ignore[no-any-return]
-      return result  # type: ignore[no-any-return]
+      return await _async_handle_break(exc, lst)
     except StopIteration:
       return lst
     except _ControlFlowSignal:
@@ -360,10 +341,7 @@ def _make_iter_op(link: Link, mode: str) -> Callable[[Any], Any]:
         idx += 1
       return lst
     except _Break as exc:
-      result = _handle_break_exc(exc, lst)
-      if isawaitable(result):
-        return await result  # type: ignore[no-any-return]
-      return result  # type: ignore[no-any-return]
+      return await _async_handle_break(exc, lst)
     except _ControlFlowSignal:
       raise
     except BaseException as exc:
@@ -476,19 +454,19 @@ def _make_if(predicate_link: Link | None, v_link: Link) -> Callable[[Any], Any]:
   # L8: Extract callable from predicate link at factory time (build-time capture).
   predicate = predicate_link.v if predicate_link is not None else None
 
+  def _eval_if_branch(pred_result: Any, else_link: Link | None, current_value: Any) -> Any:
+    if pred_result:
+      return _evaluate_value(v_link, current_value)
+    if else_link is not None:
+      return _evaluate_value(else_link, current_value)
+    return current_value
+
   async def _to_async_pred(pred_result: Any, current_value: Any) -> Any:
     pred_result = await pred_result
-    if pred_result:
-      result = _evaluate_value(v_link, current_value)
-      if isawaitable(result):
-        return await result
-      return result
-    elif _if_op._else_link is not None:  # type: ignore[attr-defined]
-      result = _evaluate_value(_if_op._else_link, current_value)  # type: ignore[attr-defined]
-      if isawaitable(result):
-        return await result
-      return result
-    return current_value
+    result = _eval_if_branch(pred_result, _if_op._else_link, current_value)  # type: ignore[attr-defined]
+    if isawaitable(result):
+      return await result
+    return result
 
   def _if_op(current_value: Any) -> Any:
     if predicate is not None:
@@ -497,11 +475,7 @@ def _make_if(predicate_link: Link | None, v_link: Link) -> Callable[[Any], Any]:
         return _to_async_pred(pred_result, current_value)
     else:
       pred_result = current_value
-    if pred_result:
-      return _evaluate_value(v_link, current_value)
-    elif _if_op._else_link is not None:  # type: ignore[attr-defined]
-      return _evaluate_value(_if_op._else_link, current_value)  # type: ignore[attr-defined]
-    return current_value
+    return _eval_if_branch(pred_result, _if_op._else_link, current_value)  # type: ignore[attr-defined]
 
   _if_op._quent_op = 'if'  # type: ignore[attr-defined]
   _if_op._else_link = None  # type: ignore[attr-defined]

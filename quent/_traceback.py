@@ -374,16 +374,28 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None =
 # Without this, uncaught exceptions would show quent's internal call stack.
 
 
+def _try_clean_quent_exc(exc_value: BaseException | None) -> tuple[bool, types.TracebackType | None]:
+  """Attempt to clean quent internal frames from an exception's traceback.
+
+  Returns (cleaned, traceback) — True and the cleaned traceback if the exception
+  was a quent exception, False and None otherwise.
+  """
+  try:
+    if exc_value is not None and getattr(exc_value, '__quent__', False):
+      _clean_chained_exceptions(exc_value, set())
+      return True, exc_value.__traceback__
+  except Exception:
+    pass
+  return False, None
+
+
 def _quent_excepthook(
   exc_type: type[BaseException], exc_value: BaseException, exc_tb: types.TracebackType | None
 ) -> None:
   """Custom excepthook that cleans quent internal frames before display."""
-  try:
-    if getattr(exc_value, '__quent__', False):
-      _clean_chained_exceptions(exc_value, set())
-      exc_tb = exc_value.__traceback__
-  except Exception:
-    pass
+  cleaned, tb = _try_clean_quent_exc(exc_value)
+  if cleaned:
+    exc_tb = tb
   sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 
@@ -401,12 +413,9 @@ def _patched_te_init(
   **kwargs: Any,
 ) -> None:
   """Patched TracebackException.__init__ that cleans quent frames."""
-  try:
-    if exc_value is not None and getattr(exc_value, '__quent__', False):
-      _clean_chained_exceptions(exc_value, set())
-      exc_traceback = exc_value.__traceback__
-  except Exception:
-    pass
+  cleaned, tb = _try_clean_quent_exc(exc_value)
+  if cleaned:
+    exc_traceback = tb
   _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]
 
 

@@ -39,6 +39,11 @@ class QuentException(Exception):
   __slots__ = ()
 
 
+def _validate_ellipsis(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> None:
+  if args and args[0] is ... and (len(args) > 1 or kwargs):
+    raise QuentException('Ellipsis (...) cannot be combined with other arguments')
+
+
 class _ControlFlowSignal(Exception):
   """Base for control-flow exceptions used internally by Chain.
 
@@ -80,8 +85,7 @@ def _resolve_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, Any] 
   args = args or ()
   kwargs = kwargs or {}
   if args and args[0] is ...:
-    if len(args) > 1 or kwargs:
-      raise QuentException('Ellipsis (...) cannot be combined with other arguments')
+    _validate_ellipsis(args, kwargs)
     return v()
   if args or kwargs:
     return v(*args, **kwargs)
@@ -231,16 +235,14 @@ def _evaluate_value(
   # _ControlFlowSignal trap, so _Return/_Break propagate to the outer chain.
   if link.is_chain:
     if args and args[0] is ...:
-      if len(args) > 1 or kwargs:
-        raise QuentException('Ellipsis (...) cannot be combined with other arguments')
+      _validate_ellipsis(args, kwargs)
       return v._run(Null, None, None)
     if args or kwargs:
       return v._run(args[0] if args else current_value, args[1:] if args else None, kwargs or {})
     return v._run(current_value, None, None)
 
   if args and args[0] is ...:
-    if len(args) > 1 or kwargs:
-      raise QuentException('Ellipsis (...) cannot be combined with other arguments')
+    _validate_ellipsis(args, kwargs)
     return v()
   if args or kwargs:
     if not callable(v):

@@ -43,6 +43,34 @@ async def _await_run(
     raise _modify_traceback(exc, chain, link, root_link) from None
 
 
+def _fire_and_forget(
+  result: Any,
+  chain: Chain,
+  link: Link,
+  root_link: Link | None,
+  handler_name: str,
+  source_exc: BaseException | None,
+) -> Any:
+  """Schedule an awaitable handler result as a fire-and-forget task.
+
+  Used when a sync chain's except/finally handler returns a coroutine.
+  """
+  coro = _await_run(result, chain, link, root_link)
+  try:
+    task = _ensure_future(coro)
+  except RuntimeError:
+    coro.close()
+    result.close()
+    raise QuentException(f'A {handler_name} handler returned a coroutine but no event loop is running.') from source_exc
+  warnings.warn(
+    f'A {handler_name} handler returned a coroutine from a synchronous execution path. '
+    f'It was scheduled as a fire-and-forget Task via ensure_future().',
+    category=RuntimeWarning,
+    stacklevel=3,
+  )
+  return task
+
+
 def _except_handler_body(
   exc: BaseException,
   chain: Chain,
@@ -270,22 +298,7 @@ class Chain:
           result.close()
         raise
       if isawaitable(result):
-        # _ensure_future may raise RuntimeError if no event loop is running.
-        # In that case, close both coroutines to avoid ResourceWarning.
-        coro = _await_run(result, self, self.on_except_link, root_link)
-        try:
-          result = _ensure_future(coro)
-        except RuntimeError:
-          coro.close()
-          result.close()
-          raise QuentException('An except handler returned a coroutine but no event loop is running.') from exc
-        warnings.warn(
-          'An except handler returned a coroutine from a synchronous execution path. '
-          'It was scheduled as a fire-and-forget Task via ensure_future().',
-          category=RuntimeWarning,
-          stacklevel=2,
-        )
-        return result
+        return _fire_and_forget(result, self, self.on_except_link, root_link, 'except', exc)
       if result is Null:
         return None
       return result
@@ -294,21 +307,7 @@ class Chain:
       if not ignore_finally and self.on_finally_link is not None:
         result = _finally_handler_body(self, root_value, root_link)
         if isawaitable(result):
-          coro = _await_run(result, self, self.on_finally_link, root_link)
-          try:
-            _ensure_future(coro)
-          except RuntimeError:
-            coro.close()
-            result.close()  # type: ignore[attr-defined]
-            raise QuentException(
-              'A finally handler returned a coroutine but no event loop is running.'
-            ) from _active_exc
-          warnings.warn(
-            'A finally handler returned a coroutine from a synchronous execution path. '
-            'It was scheduled as a fire-and-forget Task via ensure_future().',
-            category=RuntimeWarning,
-            stacklevel=2,
-          )
+          _fire_and_forget(result, self, self.on_finally_link, root_link, 'finally', _active_exc)
 
   async def _run_async(
     self,

@@ -7,6 +7,14 @@ from ._ops import _Generator
 async def _await_run(
   result: Any, chain: Chain | None = ..., link: Link | None = ..., root_link: Link | None = ...
 ) -> Any: ...
+def _fire_and_forget(
+  result: Any,
+  chain: Chain,
+  link: Link,
+  root_link: Link | None,
+  handler_name: str,
+  source_exc: BaseException | None,
+) -> Any: ...
 def _except_handler_body(
   exc: BaseException, chain: Chain, link: Link, root_link: Link | None, root_value: Any
 ) -> Any: ...
