@@ -5,7 +5,7 @@ Matrix dimensions:
   - fn type (sync, async, plain value, nested Chain, extra args, raising, returns None, Ellipsis)
   - else_ variation (none, sync, async, plain value)
   - Current value state (truthy, falsy, None, no root)
-  - Chain context (single if_, after then, before then, multiple if_/else_, frozen)
+  - Chain context (single if_, after then, before then, multiple if_/else_)
   - Error cases (else_ without if_, else_ after then, predicate/fn/else_fn raises)
 """
 from __future__ import annotations
@@ -374,55 +374,6 @@ class TestIfChainContext(unittest.TestCase):
     )
     self.assertEqual(r, 20)
     self.assertEqual(tracker, [20])
-
-
-class TestIfFrozenChain(unittest.TestCase):
-
-  def test_if_in_frozen_chain_truthy(self):
-    fc = Chain().if_(lambda v: v > 5, then=lambda v: v * 2).freeze()
-    r = fc(10)
-    self.assertEqual(r, 20)
-
-  def test_if_in_frozen_chain_falsy(self):
-    fc = Chain().if_(lambda v: v > 5, then=lambda v: v * 2).freeze()
-    r = fc(3)
-    self.assertEqual(r, 3)
-
-  def test_if_else_in_frozen_chain_truthy(self):
-    fc = Chain().if_(lambda v: v > 5, then=lambda v: v * 2).else_(lambda v: v * 3).freeze()
-    r = fc(10)
-    self.assertEqual(r, 20)
-
-  def test_if_else_in_frozen_chain_falsy(self):
-    fc = Chain().if_(lambda v: v > 5, then=lambda v: v * 2).else_(lambda v: v * 3).freeze()
-    r = fc(3)
-    self.assertEqual(r, 9)
-
-  def test_frozen_chain_reusable_different_values(self):
-    fc = Chain().if_(lambda v: v > 5, then=lambda v: v * 2).else_(lambda v: v * 3).freeze()
-    self.assertEqual(fc(10), 20)
-    self.assertEqual(fc(3), 9)
-    self.assertEqual(fc(0), 0)
-    self.assertEqual(fc(100), 200)
-
-  def test_frozen_chain_used_as_nested_fn(self):
-    fc = Chain().then(lambda v: v + 1).if_(lambda v: v > 5, then=lambda v: v * 10).freeze()
-    r = Chain(10).then(fc).run()
-    # fc receives 10, then 10+1=11, 11>5 -> 110
-    self.assertEqual(r, 110)
-
-
-class TestIfFrozenChainAsync(unittest.IsolatedAsyncioTestCase):
-
-  async def test_frozen_if_async_predicate(self):
-    fc = Chain().if_(async_truthy_pred, then=lambda v: v * 2).freeze()
-    r = await fc(10)
-    self.assertEqual(r, 20)
-
-  async def test_frozen_if_async_fn(self):
-    fc = Chain().if_(lambda v: v > 5, then=async_double).freeze()
-    r = await fc(10)
-    self.assertEqual(r, 20)
 
 
 # ============================================================================

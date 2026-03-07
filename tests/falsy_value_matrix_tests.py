@@ -484,42 +484,6 @@ class TestFalsyThroughNestedChain(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestFalsyThroughFreeze(unittest.TestCase):
-  """Falsy values through frozen chains."""
-
-  def test_frozen_chain_with_falsy_root(self):
-    """Frozen chain with falsy root — correct result."""
-    for name, val in FALSY_ROOT_VALUES:
-      with self.subTest(value=name):
-        frozen = Chain(val).then(lambda x: x).freeze()
-        result = frozen.run()
-        _assert_falsy_equal(self, result, val)
-
-  def test_frozen_chain_falsy_run_value(self):
-    """Frozen chain called with falsy run value."""
-    for name, val in FALSY_ROOT_VALUES:
-      with self.subTest(value=name):
-        frozen = Chain().then(lambda x: x).freeze()
-        result = frozen.run(val)
-        _assert_falsy_equal(self, result, val)
-
-  def test_frozen_chain_falsy_step_result(self):
-    """Frozen chain where a step returns falsy."""
-    for name, val in FALSY_VALUES:
-      with self.subTest(value=name):
-        frozen = Chain(1).then(lambda x, v=val: v).freeze()
-        result = frozen.run()
-        _assert_falsy_equal(self, result, val)
-
-  def test_frozen_chain_reuse_with_falsy(self):
-    """Frozen chain called multiple times with different falsy values."""
-    frozen = Chain().then(lambda x: x).freeze()
-    for name, val in FALSY_ROOT_VALUES:
-      with self.subTest(value=name):
-        result = frozen.run(val)
-        _assert_falsy_equal(self, result, val)
-
-
 # ---------------------------------------------------------------------------
 # TestFalsyThroughDecorator
 # ---------------------------------------------------------------------------
@@ -929,13 +893,6 @@ class TestFalsyEdgeCases(unittest.TestCase):
     """False as run arg -> then -> result."""
     result = Chain().then(lambda x: x).run(False)
     self.assertIs(result, False)
-
-  def test_zero_preserved_in_frozen_reuse(self):
-    """Frozen chain called multiple times with 0 — always returns 0."""
-    frozen = Chain().then(lambda x: x).freeze()
-    for _ in range(5):
-      result = frozen.run(0)
-      self.assertEqual(result, 0)
 
   def test_empty_containers_preserved_through_do(self):
     """All empty container types preserved through do()."""

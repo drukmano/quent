@@ -1,6 +1,6 @@
 """Systematic test of every chain method combined with every other chain method,
 in both sync and async execution modes. Covers pairwise, triple, async-crossing,
-except/finally interactions, freeze, decorator, and iterate combinations.
+except/finally interactions, decorator, and iterate combinations.
 """
 from __future__ import annotations
 
@@ -1270,118 +1270,6 @@ class TestAsyncExceptFinally(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# PART 5: freeze x every method
-# ---------------------------------------------------------------------------
-
-class TestFreezePairs(unittest.TestCase):
-
-  def test_freeze_then(self):
-    frozen = Chain().then(lambda x: x + 1).freeze()
-    self.assertEqual(frozen(5), 6)
-    self.assertEqual(frozen(10), 11)
-
-  def test_freeze_do(self):
-    tracker = []
-    frozen = Chain().do(lambda x: tracker.append(x)).freeze()
-    result = frozen(5)
-    self.assertEqual(result, 5)
-    self.assertEqual(tracker, [5])
-
-  def test_freeze_map(self):
-    frozen = Chain().then(lambda x: x).map(lambda x: x * 2).freeze()
-    self.assertEqual(frozen([1, 2, 3]), [2, 4, 6])
-
-  def test_freeze_filter(self):
-    frozen = Chain().then(lambda x: x).filter(lambda x: x > 2).freeze()
-    self.assertEqual(frozen([1, 2, 3, 4]), [3, 4])
-
-  def test_freeze_gather(self):
-    frozen = (
-      Chain()
-      .then(lambda x: x)
-      .gather(lambda x: x + 1, lambda x: x * 2)
-      .freeze()
-    )
-    self.assertEqual(frozen(5), [6, 10])
-
-  def test_freeze_with(self):
-    frozen = Chain().then(lambda x: x).with_(lambda ctx: ctx + '_body').freeze()
-    cm = TrackingCM()
-    result = frozen(cm)
-    self.assertEqual(result, 'tracked_ctx_body')
-    self.assertTrue(cm.entered)
-    self.assertTrue(cm.exited)
-
-  def test_freeze_if_else(self):
-    frozen = (
-      Chain()
-      .then(lambda x: x)
-      .if_(lambda x: x > 10, then=lambda x: 'big')
-      .else_(lambda x: 'small')
-      .freeze()
-    )
-    self.assertEqual(frozen(20), 'big')
-    self.assertEqual(frozen(5), 'small')
-
-  def test_freeze_reuse_different_values(self):
-    frozen = Chain().then(lambda x: x * 2).freeze()
-    self.assertEqual(frozen(1), 2)
-    self.assertEqual(frozen(5), 10)
-    self.assertEqual(frozen(100), 200)
-
-  def test_freeze_except(self):
-    def maybe_raise(x):
-      if x < 0:
-        raise ValueError('negative')
-      return x
-    frozen = (
-      Chain()
-      .then(maybe_raise)
-      .except_(lambda rv, exc: -1)
-      .freeze()
-    )
-    self.assertEqual(frozen(5), 5)
-    self.assertEqual(frozen(-1), -1)
-
-  def test_freeze_finally(self):
-    tracker = []
-    frozen = (
-      Chain()
-      .then(lambda x: x + 1)
-      .finally_(lambda root: tracker.append(root))
-      .freeze()
-    )
-    result = frozen(5)
-    self.assertEqual(result, 6)
-    self.assertEqual(tracker, [5])
-
-  def test_freeze_map_filter_combo(self):
-    frozen = (
-      Chain()
-      .then(lambda x: x)
-      .map(lambda x: x * 2)
-      .filter(lambda x: x > 5)
-      .freeze()
-    )
-    self.assertEqual(frozen([1, 2, 3, 4, 5]), [6, 8, 10])
-
-
-class TestFreezeAsync(IsolatedAsyncioTestCase):
-
-  async def test_freeze_async_then(self):
-    frozen = Chain().then(async_fn).freeze()
-    result = await frozen(5)
-    self.assertEqual(result, 6)
-
-  async def test_freeze_async_map(self):
-    async def async_double(x):
-      return x * 2
-    frozen = Chain().then(lambda x: x).map(async_double).freeze()
-    result = await frozen([1, 2, 3])
-    self.assertEqual(result, [2, 4, 6])
-
-
-# ---------------------------------------------------------------------------
 # PART 6: decorator x every method
 # ---------------------------------------------------------------------------
 
@@ -1875,13 +1763,6 @@ class TestComplexAsyncPipelines(IsolatedAsyncioTestCase):
       return x
     result = await my_fn(5)
     self.assertEqual(result, 60)
-
-  async def test_async_freeze_reuse(self):
-    frozen = Chain().then(async_fn).then(lambda x: x * 10).freeze()
-    r1 = await frozen(5)
-    r2 = await frozen(10)
-    self.assertEqual(r1, 60)
-    self.assertEqual(r2, 110)
 
 
 # ---------------------------------------------------------------------------

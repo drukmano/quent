@@ -360,10 +360,10 @@ class TestWithFullAsyncPaths(IsolatedAsyncioTestCase):
       await Chain(AsyncCMRaisesOnEnter()).with_(lambda ctx_: ctx_).run()
     self.assertEqual(str(ctx.exception), 'async enter error')
 
-  async def test_dual_protocol_prefers_aenter(self):
-    """_with_op: DualCM has both protocols -> __aenter__ preferred."""
-    result = await Chain(DualCM()).with_(lambda ctx: ctx).run()
-    self.assertEqual(result, 'async_ctx')
+  def test_dual_protocol_prefers_enter(self):
+    """_with_op: DualCM has both protocols -> __enter__ preferred (sync path)."""
+    result = Chain(DualCM()).with_(lambda ctx: ctx).run()
+    self.assertEqual(result, 'sync_ctx')
 
   async def test_with_do_full_async_preserves(self):
     """_full_async with ignore_result: returns outer_value."""
@@ -389,10 +389,10 @@ class TestWithFullAsyncPaths(IsolatedAsyncioTestCase):
     result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'async_yielded')
 
-  async def test_contextlib_nullcontext(self):
-    """_full_async: nullcontext has __aenter__."""
+  def test_contextlib_nullcontext(self):
+    """nullcontext has both __enter__ and __aenter__; __enter__ preferred (sync path)."""
     cm = nullcontext('val')
-    result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
+    result = Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'val')
 
   async def test_full_async_control_flow_break(self):
@@ -592,15 +592,9 @@ class TestWithNestedWith(IsolatedAsyncioTestCase):
     self.assertTrue(inner_cm.exited)
 
 
-class TestWithFrozenChainBody(unittest.TestCase):
-  """with_ where the body is a frozen chain."""
-
-  def test_frozen_chain_as_body(self):
-    """Frozen chain is treated as a regular callable by with_."""
-    inner = Chain().then(lambda ctx: ctx + '_frozen').freeze()
-    cm = SyncCM()
-    result = Chain(cm).with_(inner).run()
-    self.assertEqual(result, 'ctx_value_frozen')
+class TestWithPlaceholder(unittest.TestCase):
+  """Placeholder for removed frozen chain tests."""
+  pass
 
 
 class TestWithEnterReturnsSelf(unittest.TestCase):

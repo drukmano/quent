@@ -103,12 +103,12 @@ class TestWithAsync(unittest.IsolatedAsyncioTestCase):
     self.assertIsNone(result)
 
 
-class TestWithDualProtocol(unittest.IsolatedAsyncioTestCase):
+class TestWithDualProtocol(unittest.TestCase):
 
-  async def test_aenter_preferred_over_enter(self):
-    # DualCM has both __enter__ and __aenter__; __aenter__ should be preferred.
-    result = await Chain(DualCM()).with_(lambda ctx: ctx).run()
-    self.assertEqual(result, 'async_ctx')
+  def test_enter_preferred_over_aenter(self):
+    # DualCM has both __enter__ and __aenter__; __enter__ is now preferred (sync path).
+    result = Chain(DualCM()).with_(lambda ctx: ctx).run()
+    self.assertEqual(result, 'sync_ctx')
 
   def test_only_enter_used_when_no_aenter(self):
     # SyncCM has no __aenter__, so __enter__ is used.
@@ -124,10 +124,11 @@ class TestWithEdgeCases(unittest.TestCase):
       Chain(SyncCMRaisesOnExit()).with_(lambda ctx_: ctx_).run()
     self.assertEqual(str(ctx.exception), 'exit error')
 
-  def test_non_cm_raises_attribute_error(self):
-    # 42 has no __enter__/__aenter__, so AttributeError is raised.
-    with self.assertRaises(AttributeError):
-      Chain(42).with_(lambda ctx: ctx).run()
+  def test_non_cm_raises_type_error(self):
+    # 42 has no __enter__/__aenter__, so TypeError is raised.
+    with self.assertRaises(TypeError) as ctx:
+      Chain(42).with_(lambda ctx_: ctx_).run()
+    self.assertIn('does not support the context manager protocol', str(ctx.exception))
 
   def test_with_fn_explicit_args(self):
     # Explicit positional args override the default ctx passing.
@@ -172,11 +173,11 @@ class TestWithContextlib(unittest.IsolatedAsyncioTestCase):
     result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'async_yielded')
 
-  async def test_nullcontext(self):
-    # nullcontext has __aenter__ (Python 3.10+), so the chain goes async.
+  def test_nullcontext(self):
+    # nullcontext has both __enter__ and __aenter__; __enter__ is now preferred (sync path).
     # Wrap in lambda because nullcontext is callable.
     cm = nullcontext('val')
-    result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
+    result = Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'val')
 
 

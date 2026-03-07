@@ -19,47 +19,46 @@ from helpers import AsyncRange
 
 class TestStopIterationInMap(unittest.TestCase):
 
-  def test_stop_iteration_in_fn_ends_early(self):
-    """StopIteration raised by fn is caught by the `except StopIteration`
-    in _foreach_op's while/next loop, ending iteration early.
-    Only items processed before the raise are included.
+  def test_stop_iteration_in_fn_propagates(self):
+    """StopIteration raised by fn propagates as a regular exception.
+    The while/next loop only catches StopIteration from next(it),
+    not from fn(item).
     """
     def fn(x):
       if x == 3:
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3, 4]).map(fn).run()
-    self.assertEqual(result, [10, 20])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3, 4]).map(fn).run()
 
   def test_stop_iteration_on_first_item(self):
-    """StopIteration on the very first item: nothing appended yet -> []."""
+    """StopIteration on the very first item propagates."""
     def fn(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
   def test_stop_iteration_on_last_item(self):
-    """StopIteration on the last item: all previous items included."""
+    """StopIteration on the last item propagates."""
     def fn(x):
       if x == 3:
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [10, 20])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
   def test_stop_iteration_with_message(self):
-    """StopIteration('msg') -- the value attribute is ignored; the
-    accumulated list up to that point is returned."""
+    """StopIteration('msg') from fn propagates as a regular exception."""
     def fn(x):
       if x == 2:
-        raise StopIteration('should be ignored')
+        raise StopIteration('should propagate')
       return x * 10
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [10])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
 
 # ---------------------------------------------------------------------------
@@ -69,23 +68,23 @@ class TestStopIterationInMap(unittest.TestCase):
 class TestStopIterationInFilter(unittest.TestCase):
 
   def test_stop_iteration_in_predicate(self):
-    """StopIteration raised by filter predicate is caught by the
-    `except StopIteration` in _filter_op's while/next loop."""
+    """StopIteration raised by filter predicate propagates as a regular
+    exception (not silently caught)."""
     def pred(x):
       if x == 3:
         raise StopIteration
       return x % 2 == 1
 
-    result = Chain([1, 2, 3, 4, 5]).filter(pred).run()
-    self.assertEqual(result, [1])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3, 4, 5]).filter(pred).run()
 
   def test_stop_iteration_on_first_item_filter(self):
-    """StopIteration on the very first item of a filter: returns []."""
+    """StopIteration on the very first item of a filter propagates."""
     def pred(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).filter(pred).run()
-    self.assertEqual(result, [])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).filter(pred).run()
 
 
 # ---------------------------------------------------------------------------
@@ -191,24 +190,23 @@ class TestStopAsyncIteration(IsolatedAsyncioTestCase):
 
 class TestStopIterationInForeach(unittest.TestCase):
 
-  def test_stop_iteration_in_foreach_ends_early(self):
-    """StopIteration in foreach fn ends iteration early,
-    returning only items processed before the raise."""
+  def test_stop_iteration_in_foreach_propagates(self):
+    """StopIteration in foreach fn propagates as a regular exception."""
     def fn(x):
       if x == 2:
         raise StopIteration
       return x * 10  # discarded by foreach
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
-    self.assertEqual(result, [1])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).foreach(fn).run()
 
   def test_stop_iteration_in_foreach_first_item(self):
-    """StopIteration on first item in foreach -> []."""
+    """StopIteration on first item in foreach propagates."""
     def fn(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
-    self.assertEqual(result, [])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).foreach(fn).run()
 
 
 class TestStopIterationAsyncMap(IsolatedAsyncioTestCase):
@@ -269,26 +267,27 @@ class TestStopIterationFromNestedNext(unittest.TestCase):
 
   def test_fn_calls_next_on_exhausted_iterator(self):
     """fn that calls next() on an exhausted iterator raises StopIteration,
-    which is caught by _foreach_op's except StopIteration handler."""
+    which propagates (not silently swallowed)."""
     exhausted = iter([])
 
     def fn(x):
       next(exhausted)  # raises StopIteration
       return x
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
   def test_fn_calls_next_midway(self):
-    """fn calls next() on an iterator that exhausts mid-way."""
+    """fn calls next() on an iterator that exhausts mid-way.
+    StopIteration from fn propagates as an error."""
     inner_iter = iter([100, 200])
 
     def fn(x):
       return next(inner_iter)
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    # fn(1)=100, fn(2)=200, fn(3) raises StopIteration -> caught
-    self.assertEqual(result, [100, 200])
+    # fn(1)=100, fn(2)=200, fn(3) raises StopIteration -> propagates
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
 
 class TestStopIterationDoesNotAffectBreak(unittest.TestCase):
@@ -312,8 +311,8 @@ class TestPEP479InIterateWithNoLink(unittest.TestCase):
 
 class TestStopIterationMultipleOccurrences(unittest.TestCase):
 
-  def test_stop_iteration_only_first_matters(self):
-    """Only the first StopIteration matters -- subsequent items are never reached."""
+  def test_stop_iteration_propagates_on_first_occurrence(self):
+    """StopIteration from fn propagates; subsequent items are never reached."""
     call_count = 0
 
     def fn(x):
@@ -323,8 +322,8 @@ class TestStopIterationMultipleOccurrences(unittest.TestCase):
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3, 4, 5]).map(fn).run()
-    self.assertEqual(result, [10])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3, 4, 5]).map(fn).run()
     self.assertEqual(call_count, 2)  # fn called for 1 and 2 only
 
 

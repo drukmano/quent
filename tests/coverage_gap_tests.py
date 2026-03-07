@@ -6,6 +6,7 @@ of _chain.py, _ops.py, _traceback.py, and _core.py.
 from __future__ import annotations
 
 import asyncio
+import sys
 import traceback
 import unittest
 import warnings
@@ -519,11 +520,9 @@ class TestTracebackExcepthook(unittest.TestCase):
   """Test the custom excepthook cleans quent frames."""
 
   def test_excepthook_cleans_quent_frames(self):
-    import quent._traceback as tb_mod
-
     mock_hook = MagicMock()
-    original = tb_mod._original_excepthook
-    tb_mod._original_excepthook = mock_hook
+    original = sys.__excepthook__
+    sys.__excepthook__ = mock_hook
     try:
       exc = ValueError('test')
       exc.__quent__ = True
@@ -532,20 +531,18 @@ class TestTracebackExcepthook(unittest.TestCase):
       call_args = mock_hook.call_args
       self.assertIs(call_args[0][1], exc)
     finally:
-      tb_mod._original_excepthook = original
+      sys.__excepthook__ = original
 
   def test_excepthook_passes_through_non_quent(self):
-    import quent._traceback as tb_mod
-
     mock_hook = MagicMock()
-    original = tb_mod._original_excepthook
-    tb_mod._original_excepthook = mock_hook
+    original = sys.__excepthook__
+    sys.__excepthook__ = mock_hook
     try:
       exc = ValueError('non-quent')
       _quent_excepthook(ValueError, exc, None)
       mock_hook.assert_called_once_with(ValueError, exc, None)
     finally:
-      tb_mod._original_excepthook = original
+      sys.__excepthook__ = original
 
 
 # ---------------------------------------------------------------------------

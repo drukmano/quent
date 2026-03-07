@@ -196,25 +196,6 @@ class TestEvaluateValueCallableMatrix(unittest.TestCase):
         else:
           self.assertEqual(result, ((), {}))
 
-  # -- Convention: ellipsis + trailing --
-
-  def test_callable_type_x_convention_ellipsis_trailing(self):
-    """Ellipsis as first arg with trailing -- still calls v() with no args."""
-    for name, (fn, _is_async) in self.callables.items():
-      with self.subTest(callable_type=name):
-        if name in ('builtin_len', 'class_constructor'):
-          # v() raises TypeError for these
-          link = Link(fn, (..., 'trailing'))
-          with self.assertRaises(TypeError):
-            _evaluate_value(link, 'ignored')
-          continue
-        link = Link(fn, (..., 'trailing'))
-        result = _run_maybe_async(_evaluate_value(link, 'ignored'))
-        if name == 'partial':
-          self.assertEqual(result, (('partial_arg',), {}))
-        else:
-          # args[0] is ... -> v() regardless of trailing elements
-          self.assertEqual(result, ((), {}))
 
 
 # ---------------------------------------------------------------------------
@@ -447,14 +428,11 @@ class TestResolveValueDense(unittest.TestCase):
     result = _resolve_value(lambda: 'ell', (...,), None)
     self.assertEqual(result, 'ell')
 
-  def test_callable_with_ellipsis_and_kwargs(self):
-    """Ellipsis branch: `if args and args[0] is ...: return v()`.
-
-    kwargs are completely ignored because the ellipsis branch returns
-    before the `if args or kwargs` check.
-    """
-    result = _resolve_value(lambda: 'ell', (...,), {'k': 99})
-    self.assertEqual(result, 'ell')
+  def test_callable_with_ellipsis_and_kwargs_raises(self):
+    """Ellipsis cannot be combined with other arguments (including kwargs)."""
+    from quent import QuentException
+    with self.assertRaises(QuentException):
+      _resolve_value(lambda: 'ell', (...,), {'k': 99})
 
   def test_non_callable_no_args(self):
     result = _resolve_value(42, None, None)
@@ -662,26 +640,6 @@ class TestEvaluateValueEdgeCases(unittest.TestCase):
     # -> evaluates root Link(lambda: 10) -> 10
     self.assertEqual(result, 10)
 
-  def test_frozen_chain_as_link_value(self):
-    """Frozen chains lack _is_chain, so treated as regular callables.
-
-    frozen(current_value) calls chain.run(current_value).
-    Chain(root).run(v): run value bypasses the root_link and splices
-    before first_link. So Chain(lambda x: x*5) with no .then() steps
-    and run(3) just returns 3 (the run value itself).
-
-    To actually process the value, use Chain().then(fn):
-    """
-    inner = Chain()
-    inner.then(lambda x: x * 5)
-    frozen = inner.freeze()
-    link = Link(frozen)
-    # link.is_chain should be False for frozen chains
-    self.assertFalse(link.is_chain)
-    # callable(frozen) is True -> frozen(current_value)
-    result = _evaluate_value(link, 3)
-    self.assertEqual(result, 15)
-
   def test_evaluate_value_current_value_null_callable(self):
     """current_value=Null, callable fn -> fn() with no args."""
     fn = lambda: 'null_path'
@@ -820,24 +778,6 @@ class TestEvaluateValueEdgeCases(unittest.TestCase):
     with self.assertRaises(TypeError):
       _evaluate_value(link, 'cv')
 
-  def test_frozen_chain_with_ellipsis(self):
-    """Frozen chain with ellipsis: treated as regular callable, fn()."""
-    inner = Chain(lambda: 77)
-    frozen = inner.freeze()
-    link = Link(frozen, (...,))
-    self.assertFalse(link.is_chain)
-    result = _evaluate_value(link, 'ignored')
-    self.assertEqual(result, 77)
-
-  def test_frozen_chain_with_args(self):
-    """Frozen chain with explicit args: fn(*args)."""
-    inner = Chain()
-    inner._then(Link(lambda x: x * 10))
-    frozen = inner.freeze()
-    link = Link(frozen, (4,))
-    result = _evaluate_value(link, 'ignored')
-    self.assertEqual(result, 40)
-
   def test_evaluate_value_default_current_value_is_null(self):
     """_evaluate_value with no current_value arg defaults to Null."""
     fn = lambda: 'default_null'
@@ -898,17 +838,15 @@ class TestResolveValueEdgeCases(unittest.TestCase):
     result = _resolve_value(fn, (1, ...), None)
     self.assertEqual(result, (1, ...))
 
-  def test_callable_with_only_ellipsis_kwarg_ignored(self):
-    """_resolve_value with ellipsis in args ignores kwargs entirely."""
-    calls = []
+  def test_callable_with_ellipsis_and_kwargs_raises(self):
+    """_resolve_value with ellipsis in args and kwargs raises QuentException."""
+    from quent import QuentException
 
     def fn(*args, **kwargs):
-      calls.append((args, kwargs))
       return 'done'
 
-    result = _resolve_value(fn, (...,), {'should': 'be_ignored'})
-    self.assertEqual(result, 'done')
-    self.assertEqual(calls, [((), {})])
+    with self.assertRaises(QuentException):
+      _resolve_value(fn, (...,), {'should': 'be_ignored'})
 
   def test_non_callable_with_empty_args_and_kwargs(self):
     """Non-callable with () and {} -> treated as no args -> returned as-is."""

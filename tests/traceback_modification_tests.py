@@ -19,7 +19,6 @@ from quent._traceback import (
   _clean_internal_frames,
   _Ctx,
   _modify_traceback,
-  _original_excepthook,
   _patched_te_init,
   _quent_excepthook,
   _stringify_chain,
@@ -262,12 +261,12 @@ class TestExcepthookAndTeInit(unittest.TestCase):
     """_quent_excepthook falls through to original for non-quent exceptions."""
     exc = ValueError('plain')
     exc.__traceback__ = None
-    # Should not raise; delegates to _original_excepthook
+    # Should not raise; delegates to sys.__excepthook__
     # We just verify it does not crash
     try:
       _quent_excepthook(type(exc), exc, exc.__traceback__)
     except Exception:
-      # _original_excepthook may print to stderr but should not raise
+      # sys.__excepthook__ may print to stderr but should not raise
       pass
 
   def test_patched_te_init_cleans(self):

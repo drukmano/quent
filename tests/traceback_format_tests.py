@@ -667,12 +667,6 @@ class TestNestedChains(unittest.TestCase):
     quent_frame_count = tb_str.count('File "<quent>"')
     self.assertEqual(quent_frame_count, 1)
 
-  def test_frozen_as_step_not_nested(self):
-    inner = Chain().then(raise_fn).freeze()
-    # Frozen chain lacks _is_chain attribute, treated as regular callable
-    tb_str = _capture_tb(lambda: Chain(1).then(inner).run())
-    _assert_quent_frame(self, tb_str)
-
   def test_chain_root_is_chain(self):
     inner = Chain().then(raise_fn)
     tb_str = _capture_tb(lambda: Chain(inner).run())
@@ -1379,12 +1373,6 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
     tb_str = _capture_tb(lambda: Chain(1).gather(f1, f2, f3, f4, f5).run())
     _assert_chain_contains(self, tb_str, '.gather(f1, f2, f3, f4, f5)')
 
-  def test_frozen_chain_shows_current_value(self):
-    """Frozen chains also show current_value."""
-    frozen = Chain(1).then(raise_fn).freeze()
-    tb_str = _capture_tb(lambda: frozen.run())
-    _assert_chain_contains(self, tb_str, '.then(raise_fn, current_value=1) <----')
-
   def test_run_with_value_shows_current_value(self):
     """Running a chain with run(v) shows current_value from that pipeline."""
     c = Chain().then(raise_fn)
@@ -1464,12 +1452,12 @@ class TestHookIntegration(unittest.TestCase):
     self.assertIs(sys.excepthook, _quent_excepthook)
 
   def test_excepthook_passthrough(self):
-    """Non-quent exceptions should pass through to original hook."""
+    """Non-quent exceptions should pass through to sys.__excepthook__."""
     from quent._traceback import _quent_excepthook
 
     exc = ValueError('plain')
     exc.__traceback__ = None
-    with patch('quent._traceback._original_excepthook') as mock_hook:
+    with patch('sys.__excepthook__') as mock_hook:
       _quent_excepthook(ValueError, exc, None)
       mock_hook.assert_called_once_with(ValueError, exc, None)
 
@@ -1526,21 +1514,6 @@ class TestEdgeCases(unittest.TestCase):
     _assert_quent_frame(self, tb_str)
     _assert_arrow_on(self, tb_str, 'raise_fn')
 
-  def test_frozen_chain_traceback(self):
-    frozen = Chain(raise_fn).freeze()
-    tb_str = _capture_tb(lambda: frozen.run())
-    _assert_quent_frame(self, tb_str)
-    _assert_arrow_on(self, tb_str, 'raise_fn')
-
-  def test_frozen_called_twice(self):
-    frozen = Chain(raise_fn).freeze()
-    tb1 = _capture_tb(lambda: frozen.run())
-    tb2 = _capture_tb(lambda: frozen.run())
-    _assert_quent_frame(self, tb1)
-    _assert_quent_frame(self, tb2)
-    _assert_arrow_on(self, tb1, 'raise_fn')
-    _assert_arrow_on(self, tb2, 'raise_fn')
-
   def test_very_long_chain_20_links(self):
     c = Chain(1)
     for _ in range(19):
@@ -1561,22 +1534,6 @@ class TestEdgeCases(unittest.TestCase):
     # instead the chain visualization appears directly.
     _assert_quent_frame(self, tb_str)
     _assert_chain_contains(self, tb_str, 'Chain(raise_fn) <----')
-
-  def test_frozen_with_except_catches(self):
-    frozen = Chain().then(raise_fn).except_(lambda rv, exc: 'caught').freeze()
-    result = frozen(1)
-    self.assertEqual(result, 'caught')
-
-  def test_frozen_called_twice_independent(self):
-    frozen = Chain().then(raise_fn).freeze()
-    tb1 = _capture_tb(lambda: frozen(1))
-    tb2 = _capture_tb(lambda: frozen(2))
-    self.assertIsNotNone(tb1)
-    self.assertIsNotNone(tb2)
-    _assert_quent_frame(self, tb1)
-    _assert_quent_frame(self, tb2)
-    _assert_arrow_on(self, tb1, 'raise_fn')
-    _assert_arrow_on(self, tb2, 'raise_fn')
 
 
 # ---------------------------------------------------------------------------

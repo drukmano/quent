@@ -497,14 +497,16 @@ class TestControlFlowInAsyncHandlers(IsolatedAsyncioTestCase):
 class TestWithOnNonCMDetailed(unittest.TestCase):
   """Detailed tests for with_ on non-context-managers."""
 
-  def test_with_on_int_attribute_error(self):
-    with self.assertRaises(AttributeError):
-      Chain(42).with_(lambda ctx: ctx).run()
+  def test_with_on_int_type_error(self):
+    with self.assertRaises(TypeError) as ctx:
+      Chain(42).with_(lambda ctx_: ctx_).run()
+    self.assertIn("'int' object does not support the context manager protocol", str(ctx.exception))
 
-  def test_with_on_string_attribute_error(self):
+  def test_with_on_string_type_error(self):
     """Strings have no __aenter__ or __enter__."""
-    with self.assertRaises(AttributeError):
-      Chain('hello').with_(lambda ctx: ctx).run()
+    with self.assertRaises(TypeError) as ctx:
+      Chain('hello').with_(lambda ctx_: ctx_).run()
+    self.assertIn("'str' object does not support the context manager protocol", str(ctx.exception))
 
 
 class TestMapOnNonIterableDetailed(unittest.TestCase):

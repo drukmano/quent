@@ -1,11 +1,11 @@
 """Tests for the full cross-product of callable types x calling conventions x chain methods.
 
 Generates a dense matrix using self.subTest() to cover every combination of:
-  - 11 callable types (regular fn, async fn, lambda, builtins, partial,
+  - 9 callable types (regular fn, async fn, lambda, builtins, partial,
     class constructor, callable obj, async callable obj, bound method,
-    nested Chain, frozen Chain)
-  - 6 calling conventions (no args, positional args, kwargs only,
-    args+kwargs, ellipsis, ellipsis+trailing)
+    nested Chain)
+  - 5 calling conventions (no args, positional args, kwargs only,
+    args+kwargs, ellipsis)
   - Chain methods (then, do, run, Chain(root), except_, finally_)
 
 Also tests current_value state interactions with calling conventions.
@@ -93,7 +93,6 @@ CONVENTIONS = [
   ('kwargs_only', (), {'x': 10, 'y': 20}),
   ('args_kwargs', (10,), {'b': 20}),
   ('ellipsis', (...,), {}),
-  ('ellipsis_trailing', (..., 'extra'), {}),
 ]
 
 
@@ -118,7 +117,7 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
     elif conv_name == 'args_kwargs':
       self.assertEqual(tracker_calls[-1], ((10,), {'b': 20}))
       self.assertEqual(result, 10)
-    elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+    elif conv_name == 'ellipsis':
       self.assertEqual(tracker_calls[-1], ((), {}))
       self.assertEqual(result, 'no_args_result')
 
@@ -126,10 +125,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).then(_make_tracker(), *conv_args, **conv_kwargs).run()
-          continue
         fn = _make_tracker()
         result = Chain(input_value).then(fn, *conv_args, **conv_kwargs).run()
         self._run_tracker_assertions(fn.calls, result, conv_name, input_value)
@@ -138,10 +133,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).then(_make_tracker(), *conv_args, **conv_kwargs).run()
-          continue
         fn = _make_tracker()
         result = Chain(input_value).then(fn, *conv_args, **conv_kwargs).run()
         self._run_tracker_assertions(fn.calls, result, conv_name, input_value)
@@ -149,10 +140,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
   def test_builtin_str(self):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(42).then(str, *conv_args).run()
-          continue
         if conv_name == 'no_args':
           self.assertEqual(Chain(42).then(str).run(), '42')
         elif conv_name == 'positional':
@@ -171,10 +158,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
   def test_builtin_int(self):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(42).then(int, *conv_args).run()
-          continue
         if conv_name == 'no_args':
           self.assertEqual(Chain('42').then(int).run(), 42)
         elif conv_name == 'positional':
@@ -190,10 +173,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
   def test_builtin_abs(self):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(-5).then(abs, *conv_args, **conv_kwargs).run()
-          continue
         if conv_name == 'no_args':
           self.assertEqual(Chain(-5).then(abs).run(), 5)
         else:
@@ -203,10 +182,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
   def test_partial(self):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(5).then(functools.partial(operator.add, 10), *conv_args, **conv_kwargs).run()
-          continue
         fn = functools.partial(operator.add, 10)
         if conv_name == 'no_args':
           self.assertEqual(Chain(5).then(fn).run(), 15)
@@ -221,10 +196,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
   def test_class_constructor(self):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(5).then(Adder, *conv_args, **conv_kwargs).run()
-          continue
         if conv_name == 'no_args':
           result = Chain(5).then(Adder).run()
           self.assertIsInstance(result, Adder)
@@ -241,10 +212,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).then(_make_tracker(), *conv_args, **conv_kwargs).run()
-          continue
         fn = _make_tracker()
         result = Chain(input_value).then(fn, *conv_args, **conv_kwargs).run()
         self._run_tracker_assertions(fn.calls, result, conv_name, input_value)
@@ -253,11 +220,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          method, _ = _make_bound_method_tracker()
-          with self.assertRaises(QuentException):
-            Chain(input_value).then(method, *conv_args, **conv_kwargs).run()
-          continue
         method, calls = _make_bound_method_tracker()
         result = Chain(input_value).then(method, *conv_args, **conv_kwargs).run()
         self._run_tracker_assertions(calls, result, conv_name, input_value)
@@ -266,11 +228,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          inner = Chain(lambda: 'no_args_result')
-          with self.assertRaises(QuentException):
-            Chain(input_value).then(inner, *conv_args).run()
-          continue
         if conv_name == 'ellipsis':
           inner = Chain(lambda: 'no_args_result')
           result = Chain(input_value).then(inner, *conv_args).run()
@@ -300,45 +257,6 @@ class TestThenCallableConventionMatrix(unittest.TestCase):
           with self.assertRaises(TypeError):
             Chain(input_value).then(inner, 10, b=20).run()
 
-  def test_frozen_chain(self):
-    input_value = 42
-    for conv_name, conv_args, conv_kwargs in CONVENTIONS:
-      with self.subTest(convention=conv_name):
-        if conv_name in ('ellipsis', 'ellipsis_trailing'):
-          # Frozen chain has no _is_chain, treated as regular callable
-          # fn() -> frozen() -> frozen.run(Null) -> chain executes with no run_value
-          frozen = Chain(lambda: 'no_args_result').freeze()
-          result = Chain(input_value).then(frozen, *conv_args).run()
-          self.assertEqual(result, 'no_args_result')
-        elif conv_name == 'no_args':
-          # Frozen treated as callable: fn(current_value) -> frozen(42)
-          # -> frozen.run(42) -> chain._run(42, ...) -> 42
-          frozen = Chain().then(lambda x: x).freeze()
-          result = Chain(input_value).then(frozen).run()
-          self.assertEqual(result, input_value)
-        elif conv_name == 'positional':
-          # fn(10, 20) -> frozen(10, 20) -> frozen.run(10, 20)
-          # -> chain._run(10, (20,), {}) -> Link(10, (20,), {})
-          # -> _evaluate_value: args truthy, 10 not callable -> 10(20) -> TypeError
-          frozen = Chain().then(lambda x: x).freeze()
-          with self.assertRaises(TypeError):
-            Chain(input_value).then(frozen, 10, 20).run()
-        elif conv_name == 'kwargs_only':
-          # fn(x=10, y=20) -> frozen(x=10, y=20) -> frozen.run(x=10, y=20)
-          # run signature: run(v=Null, /, *args, **kwargs)
-          # -> chain._run(Null, (), {x:10, y:20})
-          # has_run_value=False, no root -> first_link gets Null
-          # callable with Null -> lambda() -> TypeError (needs x)
-          frozen = Chain().then(lambda x: x).freeze()
-          with self.assertRaises(TypeError):
-            Chain(input_value).then(frozen, **conv_kwargs).run()
-        elif conv_name == 'args_kwargs':
-          # fn(10, b=20) -> frozen(10, b=20) -> frozen.run(10, b=20)
-          # -> chain._run(10, (), {b:20}) -> Link(10, (), {b:20})
-          # -> _evaluate_value: kwargs truthy -> 10(b=20) -> TypeError
-          frozen = Chain().then(lambda x: x).freeze()
-          with self.assertRaises(TypeError):
-            Chain(input_value).then(frozen, 10, b=20).run()
 
 
 # ---------------------------------------------------------------------------
@@ -354,10 +272,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(_make_tracker(), *conv_args, **conv_kwargs).run()
-          continue
         fn = _make_tracker()
         result = Chain(input_value).do(fn, *conv_args, **conv_kwargs).run()
         self.assertEqual(result, input_value)
@@ -366,10 +280,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(_make_tracker(), *conv_args, **conv_kwargs).run()
-          continue
         fn = _make_tracker()
         result = Chain(input_value).do(fn, *conv_args, **conv_kwargs).run()
         self.assertEqual(result, input_value)
@@ -378,10 +288,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(str, *conv_args).run()
-          continue
         if conv_name == 'no_args':
           result = Chain(input_value).do(str).run()
           self.assertEqual(result, input_value)
@@ -401,10 +307,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(int, *conv_args, **conv_kwargs).run()
-          continue
         if conv_name in ('no_args', 'ellipsis'):
           result = Chain(input_value).do(int, *conv_args, **conv_kwargs).run()
           self.assertEqual(result, input_value)
@@ -416,10 +318,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = -5
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(abs, *conv_args, **conv_kwargs).run()
-          continue
         if conv_name == 'no_args':
           result = Chain(input_value).do(abs).run()
           self.assertEqual(result, input_value)
@@ -431,10 +329,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 5
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(functools.partial(operator.add, 10), *conv_args, **conv_kwargs).run()
-          continue
         fn = functools.partial(operator.add, 10)
         if conv_name == 'no_args':
           result = Chain(input_value).do(fn).run()
@@ -447,10 +341,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 5
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(Adder, *conv_args, **conv_kwargs).run()
-          continue
         if conv_name == 'no_args':
           result = Chain(input_value).do(Adder).run()
           self.assertEqual(result, input_value)
@@ -462,10 +352,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(_make_tracker(), *conv_args, **conv_kwargs).run()
-          continue
         fn = _make_tracker()
         result = Chain(input_value).do(fn, *conv_args, **conv_kwargs).run()
         self.assertEqual(result, input_value)
@@ -474,11 +360,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          method, _ = _make_bound_method_tracker()
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(method, *conv_args, **conv_kwargs).run()
-          continue
         method, calls = _make_bound_method_tracker()
         result = Chain(input_value).do(method, *conv_args, **conv_kwargs).run()
         self.assertEqual(result, input_value)
@@ -487,11 +368,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
     input_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name == 'ellipsis_trailing':
-          inner = Chain(lambda: 'discarded')
-          with self.assertRaises(QuentException):
-            Chain(input_value).do(inner, *conv_args).run()
-          continue
         if conv_name == 'ellipsis':
           inner = Chain(lambda: 'discarded')
           result = Chain(input_value).do(inner, *conv_args).run()
@@ -517,38 +393,6 @@ class TestDoCallableConventionMatrix(unittest.TestCase):
           with self.assertRaises(TypeError):
             Chain(input_value).do(inner, *conv_args, **conv_kwargs).run()
 
-  def test_frozen_chain(self):
-    input_value = 42
-    for conv_name, conv_args, conv_kwargs in CONVENTIONS:
-      with self.subTest(convention=conv_name):
-        if conv_name in ('ellipsis', 'ellipsis_trailing'):
-          frozen = Chain(lambda: 'discarded').freeze()
-          result = Chain(input_value).do(frozen, *conv_args).run()
-          self.assertEqual(result, input_value)
-        elif conv_name == 'no_args':
-          frozen = Chain().then(lambda x: 'discarded').freeze()
-          result = Chain(input_value).do(frozen).run()
-          self.assertEqual(result, input_value)
-        elif conv_name == 'positional':
-          # frozen(10, 20) -> frozen.run(10, 20) -> _run(10, (20,), {})
-          # -> Link(10, (20,), {}) -> 10(20) -> TypeError
-          frozen = Chain().then(lambda x: 'discarded').freeze()
-          with self.assertRaises(TypeError):
-            Chain(input_value).do(frozen, 10, 20).run()
-        elif conv_name == 'kwargs_only':
-          # frozen(x=10, y=20) -> frozen.run(x=10, y=20)
-          # run(v=Null, /, *args, **kwargs) -> _run(Null, (), {x:10, y:20})
-          # has_run_value=False -> no root -> first_link gets Null
-          # callable with Null -> lambda() -> TypeError
-          frozen = Chain().then(lambda x: 'discarded').freeze()
-          with self.assertRaises(TypeError):
-            Chain(input_value).do(frozen, **conv_kwargs).run()
-        elif conv_name == 'args_kwargs':
-          # frozen(10, b=20) -> frozen.run(10, b=20) -> _run(10, (), {b:20})
-          # -> Link(10, (), {b:20}) -> 10(b=20) -> TypeError
-          frozen = Chain().then(lambda x: 'discarded').freeze()
-          with self.assertRaises(TypeError):
-            Chain(input_value).do(frozen, 10, b=20).run()
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +422,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
         elif conv_name == 'args_kwargs':
           self.assertEqual(result, 10)
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(result, 'no_args_result')
           self.assertEqual(fn.calls[-1], ((), {}))
 
@@ -589,7 +433,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
         result = Chain(fn, *conv_args, **conv_kwargs).run()
         if conv_name == 'no_args':
           self.assertEqual(fn.calls[-1], ((), {}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   def test_builtin_str(self):
@@ -601,7 +445,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
           # str(10, 20) -> TypeError
           with self.assertRaises(TypeError):
             Chain(str, 10, 20).run()
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(Chain(str, *conv_args).run(), '')
         else:
           with self.assertRaises(TypeError):
@@ -615,7 +459,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
         elif conv_name == 'positional':
           with self.assertRaises(TypeError):
             Chain(int, 10, 20).run()
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(Chain(int, *conv_args).run(), 0)
         else:
           with self.assertRaises(TypeError):
@@ -631,7 +475,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
         elif conv_name == 'positional':
           with self.assertRaises(TypeError):
             Chain(abs, 10, 20).run()
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           with self.assertRaises(TypeError):
             Chain(abs, *conv_args).run()
         else:
@@ -650,7 +494,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
           # partial(add, 10)(10, 20) -> TypeError
           with self.assertRaises(TypeError):
             Chain(fn, 10, 20).run()
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           with self.assertRaises(TypeError):
             Chain(fn, *conv_args).run()
         else:
@@ -667,7 +511,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
           # Adder(10, 20) -> TypeError
           with self.assertRaises(TypeError):
             Chain(Adder, 10, 20).run()
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           with self.assertRaises(TypeError):
             Chain(Adder, *conv_args).run()
         elif conv_name == 'kwargs_only':
@@ -685,7 +529,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
         result = Chain(fn, *conv_args, **conv_kwargs).run()
         if conv_name == 'no_args':
           self.assertEqual(fn.calls[-1], ((), {}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   def test_bound_method(self):
@@ -703,7 +547,7 @@ class TestRootCallableConventionMatrix(unittest.TestCase):
           self.assertEqual(calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(calls[-1], ((), {}))
 
 
@@ -735,7 +579,7 @@ class TestRunValueConventionMatrix(unittest.TestCase):
         elif conv_name == 'args_kwargs':
           self.assertEqual(tracker.calls[-1], ((10,), {'b': 20}))
           self.assertEqual(result, 10)
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(tracker.calls[-1], ((), {}))
           self.assertEqual(result, 'no_args_result')
 
@@ -814,7 +658,7 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           self.assertEqual(fn.calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   def test_lambda(self):
@@ -848,7 +692,7 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           self.assertEqual(calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(calls[-1], ((), {}))
 
   def test_partial(self):
@@ -865,7 +709,7 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           handler = functools.partial(lambda prefix, a, b: f'{prefix}:{a}', 'pfx')
           result = Chain(self._make_raiser()).except_(handler, 10, 20).run()
           self.assertEqual(result, 'pfx:10')
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           handler = functools.partial(lambda prefix: f'{prefix}:handled', 'pfx')
           result = Chain(self._make_raiser()).except_(handler, *conv_args).run()
           self.assertEqual(result, 'pfx:handled')
@@ -888,7 +732,7 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           # Adder(10, 20) -> TypeError
           with self.assertRaises(TypeError):
             Chain(self._make_raiser()).except_(Adder, 10, 20).run()
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           # Adder() -> TypeError
           with self.assertRaises(TypeError):
             Chain(self._make_raiser()).except_(Adder, *conv_args).run()
@@ -903,7 +747,7 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
   def test_nested_chain(self):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name in ('ellipsis', 'ellipsis_trailing'):
+        if conv_name == 'ellipsis':
           inner = Chain(lambda: 'chain_handled')
           result = Chain(self._make_raiser()).except_(inner, *conv_args).run()
           self.assertEqual(result, 'chain_handled')
@@ -929,41 +773,6 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           with self.assertRaises(TypeError):
             Chain(self._make_raiser()).except_(inner, 10, b=20).run()
 
-  def test_frozen_chain(self):
-    for conv_name, conv_args, conv_kwargs in CONVENTIONS:
-      with self.subTest(convention=conv_name):
-        if conv_name in ('ellipsis', 'ellipsis_trailing'):
-          frozen = Chain(lambda: 'frozen_handled').freeze()
-          result = Chain(self._make_raiser()).except_(frozen, *conv_args).run()
-          self.assertEqual(result, 'frozen_handled')
-        elif conv_name == 'no_args':
-          # frozen(rv, exc) -> frozen.run(None, ValueError('boom'))
-          # -> _run(None, (ValueError('boom'),), {})
-          # has_run_value=True -> Link(None, (ValueError('boom'),), {})
-          # args truthy -> None(exc) -> TypeError (None not callable)
-          frozen = Chain().then(lambda exc: f'frozen:{type(exc).__name__}').freeze()
-          with self.assertRaises(TypeError):
-            Chain(self._make_raiser()).except_(frozen).run()
-        elif conv_name == 'positional':
-          # frozen(10, 20) -> frozen.run(10, 20) -> _run(10, (20,), {})
-          # -> Link(10, (20,), {}) -> 10(20) -> TypeError
-          frozen = Chain().then(lambda x: f'frozen:{x}').freeze()
-          with self.assertRaises(TypeError):
-            Chain(self._make_raiser()).except_(frozen, 10, 20).run()
-        elif conv_name == 'kwargs_only':
-          # frozen(x=10, y=20) -> frozen.run(x=10, y=20) -> _run(Null, (), {x:10, y:20})
-          # has_run_value=False -> no root -> first_link with Null
-          # lambda(**kw) can accept Null? No: callable with Null -> lambda() but
-          # lambda(**kw) needs no positional -> works
-          frozen = Chain().then(lambda **kw: 'frozen:handled').freeze()
-          result = Chain(self._make_raiser()).except_(frozen, **conv_kwargs).run()
-          self.assertEqual(result, 'frozen:handled')
-        elif conv_name == 'args_kwargs':
-          # frozen(10, b=20) -> frozen.run(10, b=20) -> _run(10, (), {b:20})
-          # -> Link(10, (), {b:20}) -> kwargs truthy -> 10(b=20) -> TypeError
-          frozen = Chain().then(lambda x, **kw: 'frozen:handled').freeze()
-          with self.assertRaises(TypeError):
-            Chain(self._make_raiser()).except_(frozen, 10, b=20).run()
 
 
 # ---------------------------------------------------------------------------
@@ -992,7 +801,7 @@ class TestFinallyCallableConventionMatrix(unittest.TestCase):
           self.assertEqual(fn.calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   def test_lambda(self):
@@ -1027,7 +836,7 @@ class TestFinallyCallableConventionMatrix(unittest.TestCase):
           self.assertEqual(calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(calls[-1], ((), {}))
 
   def test_partial(self):
@@ -1038,7 +847,7 @@ class TestFinallyCallableConventionMatrix(unittest.TestCase):
           handler = functools.partial(lambda prefix, rv: f'{prefix}:{rv}', 'fin')
           result = Chain(root_value).finally_(handler).run()
           self.assertEqual(result, root_value)
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           handler = functools.partial(lambda prefix: f'{prefix}:done', 'fin')
           result = Chain(root_value).finally_(handler, *conv_args).run()
           self.assertEqual(result, root_value)
@@ -1051,7 +860,7 @@ class TestFinallyCallableConventionMatrix(unittest.TestCase):
     root_value = 42
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
-        if conv_name in ('ellipsis', 'ellipsis_trailing'):
+        if conv_name == 'ellipsis':
           inner = Chain(lambda: 'fin_result')
           result = Chain(root_value).finally_(inner, *conv_args).run()
           self.assertEqual(result, root_value)
@@ -1076,36 +885,6 @@ class TestFinallyCallableConventionMatrix(unittest.TestCase):
           with self.assertRaises(TypeError):
             Chain(root_value).finally_(inner, 10, b=20).run()
 
-  def test_frozen_chain(self):
-    root_value = 42
-    for conv_name, conv_args, conv_kwargs in CONVENTIONS:
-      with self.subTest(convention=conv_name):
-        if conv_name in ('ellipsis', 'ellipsis_trailing'):
-          frozen = Chain(lambda: 'fin_result').freeze()
-          result = Chain(root_value).finally_(frozen, *conv_args).run()
-          self.assertEqual(result, root_value)
-        elif conv_name == 'no_args':
-          frozen = Chain().then(lambda rv: f'fin:{rv}').freeze()
-          result = Chain(root_value).finally_(frozen).run()
-          self.assertEqual(result, root_value)
-        elif conv_name == 'positional':
-          # frozen(10, 20) -> frozen.run(10, 20) -> _run(10, (20,), {})
-          # -> Link(10, (20,), {}) -> 10(20) -> TypeError
-          frozen = Chain().then(lambda x: f'fin:{x}').freeze()
-          with self.assertRaises(TypeError):
-            Chain(root_value).finally_(frozen, 10, 20).run()
-        elif conv_name == 'kwargs_only':
-          # frozen(x=10, y=20) -> frozen.run(Null, x=10, y=20)
-          # has_run_value=False -> first_link with Null -> lambda() -> TypeError
-          frozen = Chain().then(lambda **kw: 'fin_result').freeze()
-          result = Chain(root_value).finally_(frozen, **conv_kwargs).run()
-          self.assertEqual(result, root_value)
-        elif conv_name == 'args_kwargs':
-          # frozen(10, b=20) -> frozen.run(10, b=20) -> _run(10, (), {b:20})
-          # -> Link(10, (), {b:20}) -> 10(b=20) -> TypeError
-          frozen = Chain().then(lambda x, **kw: f'fin:{x}').freeze()
-          with self.assertRaises(TypeError):
-            Chain(root_value).finally_(frozen, 10, b=20).run()
 
 
 # ---------------------------------------------------------------------------
@@ -1156,7 +935,7 @@ class TestCurrentValueStateMatrix(unittest.TestCase):
           elif conv_name == 'args_kwargs':
             self.assertEqual(tracker.calls[-1], ((10,), {'b': 20}))
             self.assertEqual(result, 10)
-          elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+          elif conv_name == 'ellipsis':
             self.assertEqual(tracker.calls[-1], ((), {}))
             self.assertEqual(result, 'no_args_result')
 
@@ -1194,7 +973,7 @@ class TestCurrentValueStateMatrix(unittest.TestCase):
             self.assertEqual(tracker.calls[-1], ((), {'x': 10, 'y': 20}))
           elif conv_name == 'args_kwargs':
             self.assertEqual(tracker.calls[-1], ((10,), {'b': 20}))
-          elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+          elif conv_name == 'ellipsis':
             self.assertEqual(tracker.calls[-1], ((), {}))
 
 
@@ -1224,7 +1003,7 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
         elif conv_name == 'args_kwargs':
           self.assertEqual(result, 10)
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(result, 'no_args_result')
           self.assertEqual(fn.calls[-1], ((), {}))
 
@@ -1247,7 +1026,7 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
         elif conv_name == 'args_kwargs':
           self.assertEqual(result, 10)
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(result, 'no_args_result')
           self.assertEqual(fn.calls[-1], ((), {}))
 
@@ -1267,7 +1046,7 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
           self.assertEqual(fn.calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   async def test_do_async_callable_obj(self):
@@ -1300,7 +1079,7 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
           self.assertEqual(fn.calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   async def test_except_async_callable_obj(self):
@@ -1340,7 +1119,7 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
           self.assertEqual(fn.calls[-1], ((), {'x': 10, 'y': 20}))
         elif conv_name == 'args_kwargs':
           self.assertEqual(fn.calls[-1], ((10,), {'b': 20}))
-        elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+        elif conv_name == 'ellipsis':
           self.assertEqual(fn.calls[-1], ((), {}))
 
   async def test_finally_async_callable_obj(self):
@@ -1401,7 +1180,7 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
           elif conv_name == 'args_kwargs':
             self.assertEqual(tracker.calls[-1], ((10,), {'b': 20}))
             self.assertEqual(result, 10)
-          elif conv_name in ('ellipsis', 'ellipsis_trailing'):
+          elif conv_name == 'ellipsis':
             self.assertEqual(tracker.calls[-1], ((), {}))
             self.assertEqual(result, 'no_args_result')
 

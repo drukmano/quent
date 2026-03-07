@@ -104,6 +104,7 @@ PURE_SYNC_CM_FACTORIES = {
   'SyncCMExitRaisesOnSuccess': lambda: SyncCMExitRaisesOnSuccess(),
   'SyncCMRaisesOnExitFrom': lambda: SyncCMRaisesOnExitFrom(),
   'TrackingCM': lambda: TrackingCM(),
+  'DualCM': lambda: DualCM(),
 }
 
 # CMs whose __enter__ raises -- body never runs
@@ -127,6 +128,7 @@ PURE_SYNC_ENTER_VALUES = {
   'SyncCMExitRaisesOnSuccess': 'ctx_value',
   'SyncCMRaisesOnExitFrom': 'ctx_value',
   'TrackingCM': 'tracked_ctx',
+  'DualCM': 'sync_ctx',
 }
 
 # Async CM types (have __aenter__)
@@ -136,7 +138,6 @@ ASYNC_CM_FACTORIES = {
   'AsyncCMRaisesOnEnter': lambda: AsyncCMRaisesOnEnter(),
   'AsyncCMRaisesOnExit': lambda: AsyncCMRaisesOnExit(),
   'AsyncTrackingCM': lambda: AsyncTrackingCM(),
-  'DualCM': lambda: DualCM(),
 }
 
 ASYNC_ENTER_RAISES = {'AsyncCMRaisesOnEnter'}
@@ -150,7 +151,6 @@ ASYNC_ENTER_VALUES = {
   'AsyncCMSuppresses': 'ctx_value',
   'AsyncCMRaisesOnExit': '_self_',  # returns self
   'AsyncTrackingCM': 'async_tracked_ctx',
-  'DualCM': 'sync_ctx',  # _make_with prefers __enter__ over __aenter__
 }
 
 # Sync CMs whose __exit__ ALWAYS returns awaitable -- must be tested in async context
@@ -548,8 +548,8 @@ class TestCMProtocolAsyncMatrix(IsolatedAsyncioTestCase):
           with self.assertRaises(ValueError):
             await chain.run()
 
-  async def test_nullcontext_success_async(self):
-    """nullcontext has __aenter__, so it always goes async path."""
+  def test_nullcontext_success_sync(self):
+    """nullcontext has __enter__ preferred over __aenter__, so goes sync path."""
     for method in ('with_', 'with_do'):
       with self.subTest(method=method, body='success'):
         cm = contextlib.nullcontext('null_ctx')
@@ -558,20 +558,20 @@ class TestCMProtocolAsyncMatrix(IsolatedAsyncioTestCase):
           chain.with_(_sync_body)
         else:
           chain.with_do(_sync_body)
-        result = await chain.run()
+        result = chain.run()
         if method == 'with_do':
           self.assertIs(result, cm)
         else:
           self.assertEqual(result, 'body:null_ctx')
 
-  async def test_nullcontext_exception_async(self):
+  def test_nullcontext_exception_sync(self):
     cm = contextlib.nullcontext('x')
     with self.assertRaises(ValueError):
-      await Chain(lambda: cm).with_(_sync_raise_body).run()
+      Chain(lambda: cm).with_(_sync_raise_body).run()
 
-  async def test_nullcontext_with_do_preserves_async(self):
+  def test_nullcontext_with_do_preserves_sync(self):
     cm = contextlib.nullcontext('anything')
-    result = await Chain(lambda: cm).with_do(lambda ctx: 'ignored').run()
+    result = Chain(lambda: cm).with_do(lambda ctx: 'ignored').run()
     self.assertIs(result, cm)
 
   async def test_contextlib_async_cm_success(self):
@@ -675,10 +675,10 @@ class TestCMEnterValueMatrix(IsolatedAsyncioTestCase):
     result = await Chain(cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'async_tracked_ctx')
 
-  async def test_nullcontext_enter_value(self):
-    """nullcontext has __aenter__, tested in async context."""
+  def test_nullcontext_enter_value(self):
+    """nullcontext has __enter__ preferred, tested in sync context."""
     cm = contextlib.nullcontext('hello')
-    result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
+    result = Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'hello')
 
   def test_contextlib_cm_enter_value(self):
@@ -691,10 +691,10 @@ class TestCMEnterValueMatrix(IsolatedAsyncioTestCase):
     result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertEqual(result, 'cl_async_ctx')
 
-  async def test_nullcontext_none_enter_value(self):
+  def test_nullcontext_none_enter_value(self):
     """nullcontext() with no arg returns None as enter value."""
     cm = contextlib.nullcontext()
-    result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
+    result = Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertIsNone(result)
 
 
@@ -937,10 +937,10 @@ class TestCMWithDoPreservationMatrix(IsolatedAsyncioTestCase):
     result = Chain(lambda: cm).with_do(lambda ctx: 999).run()
     self.assertIs(result, cm)
 
-  async def test_with_do_preserves_nullcontext(self):
-    """nullcontext has __aenter__, tested in async context."""
+  def test_with_do_preserves_nullcontext(self):
+    """nullcontext has __enter__ preferred, tested in sync context."""
     cm = contextlib.nullcontext('anything')
-    result = await Chain(lambda: cm).with_do(lambda ctx: 'ignored').run()
+    result = Chain(lambda: cm).with_do(lambda ctx: 'ignored').run()
     self.assertIs(result, cm)
 
   async def test_with_do_preserves_contextlib_async_cm(self):
@@ -956,10 +956,10 @@ class TestCMWithDoPreservationMatrix(IsolatedAsyncioTestCase):
         result = Chain(cm).with_do(lambda ctx, v=val: v).run()
         self.assertIs(result, cm)
 
-  async def test_with_do_preserves_nullcontext_none_enter(self):
+  def test_with_do_preserves_nullcontext_none_enter(self):
     """nullcontext() with no arg -- with_do still returns the CM."""
     cm = contextlib.nullcontext()
-    result = await Chain(lambda: cm).with_do(lambda ctx: 'ignored').run()
+    result = Chain(lambda: cm).with_do(lambda ctx: 'ignored').run()
     self.assertIs(result, cm)
 
 
@@ -995,19 +995,19 @@ class TestCMProtocolContextlibMatrix(IsolatedAsyncioTestCase):
     result = Chain(lambda: cm).with_(_sync_raise_body).run()
     self.assertIsNone(result)
 
-  async def test_nullcontext_success(self):
+  def test_nullcontext_success(self):
     cm = contextlib.nullcontext(42)
-    result = await Chain(lambda: cm).with_(lambda ctx: ctx + 8).run()
+    result = Chain(lambda: cm).with_(lambda ctx: ctx + 8).run()
     self.assertEqual(result, 50)
 
-  async def test_nullcontext_exception(self):
+  def test_nullcontext_exception(self):
     cm = contextlib.nullcontext('x')
     with self.assertRaises(ValueError):
-      await Chain(lambda: cm).with_(_sync_raise_body).run()
+      Chain(lambda: cm).with_(_sync_raise_body).run()
 
-  async def test_nullcontext_none_enter(self):
+  def test_nullcontext_none_enter(self):
     cm = contextlib.nullcontext()
-    result = await Chain(lambda: cm).with_(lambda ctx: ctx).run()
+    result = Chain(lambda: cm).with_(lambda ctx: ctx).run()
     self.assertIsNone(result)
 
   def test_contextlib_cm_return_signal(self):
@@ -1020,9 +1020,9 @@ class TestCMProtocolContextlibMatrix(IsolatedAsyncioTestCase):
     result = await Chain(lambda: cm).with_(_sync_return_body).run()
     self.assertEqual(result, 'early')
 
-  async def test_nullcontext_return_signal(self):
+  def test_nullcontext_return_signal(self):
     cm = contextlib.nullcontext('x')
-    result = await Chain(lambda: cm).with_(_sync_return_body).run()
+    result = Chain(lambda: cm).with_(_sync_return_body).run()
     self.assertEqual(result, 'early')
 
   def test_contextlib_cm_with_do_return_signal(self):
@@ -1030,9 +1030,9 @@ class TestCMProtocolContextlibMatrix(IsolatedAsyncioTestCase):
     result = Chain(lambda: cm).with_do(_sync_return_body).run()
     self.assertEqual(result, 'early')
 
-  async def test_nullcontext_with_do_return_signal(self):
+  def test_nullcontext_with_do_return_signal(self):
     cm = contextlib.nullcontext('x')
-    result = await Chain(lambda: cm).with_do(_sync_return_body).run()
+    result = Chain(lambda: cm).with_do(_sync_return_body).run()
     self.assertEqual(result, 'early')
 
 

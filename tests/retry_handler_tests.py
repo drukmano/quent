@@ -1254,34 +1254,6 @@ class TestRetryMultiStepAsync(IsolatedAsyncioTestCase):
 
 
 # ===========================================================================
-# Category 11: retry with frozen chains
-# ===========================================================================
-
-class TestRetryFrozen(unittest.TestCase):
-  """Frozen chains with retry."""
-
-  def test_frozen_chain_retry(self):
-    fn = FailNTimes(2, ValueError, 'ok')
-    frozen = Chain(fn, ...).retry(3, on=ValueError).freeze()
-    result = frozen.run()
-    self.assertEqual(result, 'ok')
-    self.assertEqual(len(fn.attempts), 3)
-
-  def test_frozen_chain_retry_with_except(self):
-    fn = always_fail(ValueError)
-    handler = Counter()
-    frozen = (
-      Chain(fn, ...)
-      .retry(3, on=ValueError)
-      .except_(handler)
-      .freeze()
-    )
-    result = frozen.run()
-    self.assertEqual(len(fn.attempts), 3)
-    self.assertEqual(handler.count, 1)
-
-
-# ===========================================================================
 # Category 12: retry with non-retryable exceptions
 # ===========================================================================
 

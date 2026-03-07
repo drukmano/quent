@@ -283,24 +283,6 @@ class TestGatherWithMap(IsolatedAsyncioTestCase):
     self.assertEqual(result, [110, 120])
 
 
-class TestGatherWithFrozenChain(IsolatedAsyncioTestCase):
-  """Gather where fn is a frozen chain."""
-
-  def test_frozen_chain_as_fn(self):
-    """Frozen chain acts as a callable in gather."""
-    frozen = Chain().then(lambda x: x * 2).freeze()
-    result = Chain(5).gather(frozen, lambda x: x + 1).run()
-    self.assertEqual(result, [10, 6])
-
-  async def test_frozen_chain_async(self):
-    """Frozen chain with async step in gather."""
-    async def async_step(x):
-      return x * 3
-    frozen = Chain().then(async_step).freeze()
-    result = await Chain(5).gather(frozen, lambda x: x + 1).run()
-    self.assertEqual(result, [15, 6])
-
-
 class TestGatherDuplicateFunctions(unittest.TestCase):
   """Gather with the same function multiple times."""
 

@@ -6,7 +6,6 @@ Tests the retry mechanism across all execution paths:
   - Sync-to-async transition during retry (the critical path)
   - Various awaitable patterns during retry
   - Backoff verification (sync vs async sleep)
-  - Concurrent frozen chain with retry
   - Run arguments preservation across retries
 """
 from __future__ import annotations
@@ -272,7 +271,7 @@ class TestPureSyncRetry(unittest.TestCase):
     # except_ catches the ValueError after retries are exhausted;
     # the handler returns a value, so the chain does not re-raise.
     result = Chain(fn).retry(3, on=ValueError).except_(
-      lambda exc: handler_calls.append(str(exc)) or 'handled'
+      lambda rv, exc: handler_calls.append(str(exc)) or 'handled'
     ).run()
     self.assertEqual(result, 'handled')
     self.assertEqual(len(handler_calls), 1)
@@ -282,7 +281,7 @@ class TestPureSyncRetry(unittest.TestCase):
     fn = FailNTimes(1)
     handler_calls = []
     result = Chain(fn).retry(3, on=ValueError).except_(
-      lambda exc: handler_calls.append(str(exc))
+      lambda rv, exc: handler_calls.append(str(exc))
     ).run()
     self.assertEqual(result, 'ok')
     self.assertEqual(handler_calls, [])
@@ -921,86 +920,6 @@ class TestAsyncBackoffVerification(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'ok')
     mock_async.assert_called_once_with(0.01)
     mock_sync.assert_not_called()
-
-
-# ===========================================================================
-# CATEGORY 6: CONCURRENT FROZEN CHAIN WITH RETRY
-# ===========================================================================
-
-class TestConcurrentFrozenChainRetry(IsolatedAsyncioTestCase):
-  """Freeze a chain with retry, run concurrently, verify independence."""
-
-  async def test_concurrent_frozen_chain_independent_retries(self):
-    """Multiple concurrent tasks each get independent retry behavior."""
-    per_task_counts = {}
-    lock = asyncio.Lock()
-
-    async def fn_with_id(task_id):
-      async with lock:
-        per_task_counts.setdefault(task_id, 0)
-        per_task_counts[task_id] += 1
-        count = per_task_counts[task_id]
-      if count <= 1:
-        raise ValueError(f'task {task_id} fail')
-      return f'task_{task_id}_ok'
-
-    frozen = Chain().then(fn_with_id).retry(3, on=ValueError).freeze()
-    results = await asyncio.gather(*[frozen.run(i) for i in range(5)])
-    self.assertEqual(sorted(results), [
-      'task_0_ok', 'task_1_ok', 'task_2_ok', 'task_3_ok', 'task_4_ok'
-    ])
-    for task_id in range(5):
-      self.assertEqual(per_task_counts[task_id], 2)
-
-  async def test_concurrent_frozen_no_state_corruption(self):
-    """Verify no shared state leaks between concurrent executions."""
-    results_seen = []
-    lock = asyncio.Lock()
-
-    async def fn(x):
-      await asyncio.sleep(0.001)  # yield control
-      if x < 0:
-        raise ValueError('negative')
-      return x * 10
-
-    frozen = Chain().then(fn).retry(2, on=ValueError).freeze()
-
-    async def run_one(val):
-      try:
-        result = await frozen.run(val)
-        async with lock:
-          results_seen.append(('ok', val, result))
-      except ValueError:
-        async with lock:
-          results_seen.append(('err', val, None))
-
-    tasks = [asyncio.create_task(run_one(v)) for v in [1, -1, 2, -2, 3]]
-    await asyncio.gather(*tasks)
-
-    ok_results = [(tag, v, r) for tag, v, r in results_seen if tag == 'ok']
-    err_results = [(tag, v, r) for tag, v, r in results_seen if tag == 'err']
-    self.assertEqual(len(ok_results), 3)
-    self.assertEqual(len(err_results), 2)
-    for tag, v, r in ok_results:
-      self.assertEqual(r, v * 10)
-
-  async def test_frozen_chain_retry_with_backoff_concurrent(self):
-    """Concurrent frozen chains with backoff don't interfere."""
-    call_counts = {}
-    lock = asyncio.Lock()
-
-    async def fn(x):
-      async with lock:
-        call_counts.setdefault(x, 0)
-        call_counts[x] += 1
-        count = call_counts[x]
-      if count <= 1:
-        raise ValueError('fail')
-      return x * 2
-
-    frozen = Chain().then(fn).retry(3, on=ValueError, backoff=0.001).freeze()
-    results = await asyncio.gather(*[frozen.run(i) for i in range(3)])
-    self.assertEqual(sorted(results), [0, 2, 4])
 
 
 # ===========================================================================

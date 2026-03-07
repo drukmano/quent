@@ -67,11 +67,6 @@ class TestThenCallableMatrix(unittest.TestCase):
     result = Chain(5).then(inner).run()
     self.assertEqual(result, 6)
 
-  def test_then_frozen_chain(self):
-    frozen = Chain().then(lambda x: x + 1).freeze()
-    result = Chain(5).then(frozen).run()
-    self.assertEqual(result, 6)
-
 
 # ---------------------------------------------------------------------------
 # then() -- callable matrix (async)

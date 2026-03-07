@@ -96,13 +96,12 @@ class TestEllipsisAsData(unittest.TestCase):
     self.assertEqual(result, 'no_args')
 
   def test_ellipsis_with_trailing_args(self):
-    """Ellipsis as first arg with trailing args: v() is called with no args.
-    The trailing args in the tuple are ignored (only first element checked).
-    Actually: args=(Ellipsis, 2, 3) -> args[0] is ... -> v() called.
+    """Ellipsis as first arg with trailing args now raises QuentException.
+    Combining ... with other arguments is no longer allowed.
     """
-    # _evaluate_value: args[0] is ... -> return v()
-    result = Chain(5).then(lambda: 'ok', ..., 2, 3).run()
-    self.assertEqual(result, 'ok')
+    with self.assertRaises(QuentException) as cm:
+      Chain(5).then(lambda: 'ok', ..., 2, 3).run()
+    self.assertIn('cannot be combined', str(cm.exception))
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +210,12 @@ class TestTypeErrors(unittest.TestCase):
       Chain(42).filter(lambda x: True).run()
 
   def test_with_on_non_cm(self):
-    """Calling .with_() on a non-context-manager raises AttributeError
+    """Calling .with_() on a non-context-manager raises TypeError
     because int has no __aenter__ or __enter__.
     """
-    with self.assertRaises(AttributeError):
+    with self.assertRaises(TypeError) as ctx:
       Chain(42).with_(lambda x: x).run()
+    self.assertIn('does not support the context manager protocol', str(ctx.exception))
 
   def test_map_on_none(self):
     with self.assertRaises(TypeError):
@@ -233,38 +233,35 @@ class TestTypeErrors(unittest.TestCase):
 class TestExplicitStopIteration(unittest.TestCase):
 
   def test_stop_iteration_in_map_fn(self):
-    """When fn raises StopIteration, it is caught by the `except StopIteration`
-    clause in the while/next loop of _foreach_op, ending iteration early.
-    Only items processed *before* the raise are included.
-
-    Processing: item=1 -> fn(1)=10 -> appended. item=2 -> fn(2) raises
-    StopIteration -> caught -> return [10].
+    """StopIteration raised by fn propagates as a regular exception.
+    The while/next loop only catches StopIteration from next(it),
+    not from fn(item).
     """
     def fn(x):
       if x == 2:
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [10])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
   def test_stop_iteration_on_first_item(self):
-    """StopIteration on the very first item: nothing appended yet -> []."""
+    """StopIteration on the very first item propagates."""
     def fn(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
   def test_stop_iteration_on_last_item(self):
-    """StopIteration on the last item: all previous items included."""
+    """StopIteration on the last item propagates."""
     def fn(x):
       if x == 3:
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3]).map(fn).run()
-    self.assertEqual(result, [10, 20])
+    with self.assertRaises(StopIteration):
+      Chain([1, 2, 3]).map(fn).run()
 
 
 # ---------------------------------------------------------------------------

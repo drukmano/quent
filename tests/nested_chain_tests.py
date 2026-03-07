@@ -30,14 +30,6 @@ class TestNestedDetection(unittest.TestCase):
     Chain().then(inner)
     self.assertTrue(inner.is_nested)
 
-  def test_frozen_not_detected_as_nested(self):
-    """_FrozenChain does NOT have _is_chain, so Link.is_chain is False."""
-    frozen = Chain().freeze()
-    link = Link(frozen)
-    self.assertFalse(link.is_chain)
-    # Also verify _FrozenChain lacks the attribute entirely.
-    self.assertFalse(hasattr(frozen, '_is_chain'))
-
   def test_deeply_nested_3_levels(self):
     """Three levels of nesting: all inner chains are detected."""
     level3 = Chain()

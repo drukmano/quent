@@ -1,7 +1,7 @@
 """Tests for interactions between Chain operations: verifying that pairs and
 sequences of operations compose correctly (then/do, except/finally, map
 with except, filter with except, gather with except, with_ with except,
-nested chains, decorators, freeze, long mixed chains, return_ in various
+nested chains, decorators, long mixed chains, return_ in various
 contexts, and async mixed interactions).
 """
 from __future__ import annotations
@@ -254,54 +254,6 @@ class TestDecoratorWithAllOps(unittest.TestCase):
     result = fn(5)
     # SyncCM.__enter__ returns 'ctx_value'
     self.assertEqual(result, 'ctx_value')
-
-
-# ---------------------------------------------------------------------------
-# freeze with various ops
-# ---------------------------------------------------------------------------
-
-class TestFreezeWithAllOps(unittest.TestCase):
-
-  def test_frozen_with_except(self):
-    frozen = (
-      Chain()
-      .then(raise_fn)
-      .except_(lambda rv, e: 'frozen_caught')
-      .freeze()
-    )
-    result = frozen.run(5)
-    self.assertEqual(result, 'frozen_caught')
-
-  def test_frozen_with_finally(self):
-    tracker = []
-    frozen = (
-      Chain()
-      .then(lambda x: x * 2)
-      .finally_(lambda rv: tracker.append(rv))
-      .freeze()
-    )
-    result = frozen.run(5)
-    self.assertEqual(result, 10)
-    self.assertEqual(tracker, [5])
-
-  def test_frozen_with_map(self):
-    frozen = (
-      Chain()
-      .then(lambda x: list(range(x)))
-      .map(lambda i: i * 3)
-      .freeze()
-    )
-    result = frozen.run(4)
-    self.assertEqual(result, [0, 3, 6, 9])
-
-  def test_frozen_with_gather(self):
-    frozen = (
-      Chain()
-      .gather(lambda x: x + 1, lambda x: x - 1)
-      .freeze()
-    )
-    result = frozen.run(10)
-    self.assertEqual(result, [11, 9])
 
 
 # ---------------------------------------------------------------------------

@@ -395,16 +395,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     # item 5: 5 > 2 True => 50
     self.assertEqual(r, [1, 2, 30, 40, 50])
 
-  # 8. if_ with frozen chain containing async operations
-  async def test_if_with_frozen_chain_async(self):
-    async def async_double(v):
-      return v * 2
-
-    frozen = Chain().then(async_double).freeze()
-    r = await Chain(V).if_(pred_sync_true, then=frozen).run()
-    self.assertEqual(r, 20)
-
-  # 9. Chain with except_ handler + if_ that has async predicate raising
+  # 8. Chain with except_ handler + if_ that has async predicate raising
   async def test_except_handler_with_async_pred_raising(self):
     async def bad_pred(v):
       raise RuntimeError('pred error')

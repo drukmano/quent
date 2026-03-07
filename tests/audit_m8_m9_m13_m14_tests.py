@@ -171,13 +171,6 @@ class TestM9_FrozenChainLike(unittest.TestCase):
     self.assertTrue(link.ignore_result)
     self.assertIsNone(link.next_link)
 
-  def test_real_frozen_chain_wraps_without_crash(self):
-    """A real FrozenChain has no _is_chain attribute, so is_chain should be False."""
-    frozen = Chain(42).freeze()
-    link = Link(frozen)
-    # _FrozenChain intentionally lacks _is_chain, treated as non-chain
-    self.assertFalse(link.is_chain)
-
 
 # =========================================================================
 # M13: Async CM suppresses body exception -> result is None, not stale coro

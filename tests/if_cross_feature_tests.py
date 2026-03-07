@@ -1,12 +1,11 @@
 """Tests for if_()/else_() interacting with every other chain method,
 in both sync and async modes. Covers the full cross-feature matrix:
 map, filter, with_, gather, iterate, except_/finally_, decorator,
-freeze, do, return_/break_, multiple if_ chaining, and nested chains.
+do, return_/break_, multiple if_ chaining, and nested chains.
 """
 from __future__ import annotations
 
 import asyncio
-import threading
 import unittest
 from unittest import IsolatedAsyncioTestCase
 
@@ -633,17 +632,6 @@ class TestIfDecorator(unittest.TestCase):
     self.assertEqual(my_fn(-3), 'non_positive')
     self.assertEqual(my_fn(0), 'non_positive')
 
-  def test_decorator_with_frozen_chain_if(self):
-    frozen = Chain().if_(lambda v: v > 0, then=lambda v: v + 100).freeze()
-    chain = Chain().then(frozen)
-
-    @chain.decorator()
-    def my_fn(x):
-      return x
-
-    self.assertEqual(my_fn(5), 105)
-    self.assertEqual(my_fn(-5), -5)
-
   def test_decorator_preserves_fn_name(self):
     chain = Chain().if_(lambda v: True, then=lambda v: v)
 
@@ -681,78 +669,6 @@ class TestIfDecoratorAsync(IsolatedAsyncioTestCase):
 
     self.assertEqual(await my_fn(5), 'pos')
     self.assertEqual(await my_fn(-1), 'neg')
-
-
-# ---------------------------------------------------------------------------
-# 8. if_ x freeze (sync + async)
-# ---------------------------------------------------------------------------
-
-class TestIfFreeze(unittest.TestCase):
-
-  def test_frozen_if_reused_truthy(self):
-    frozen = Chain().if_(lambda v: v > 0, then=lambda v: v * 2).else_(lambda v: v * -1).freeze()
-    self.assertEqual(frozen(5), 10)
-    self.assertEqual(frozen(-3), 3)
-    self.assertEqual(frozen(0), 0)
-
-  def test_frozen_if_multiple_calls(self):
-    """Frozen chain is safe for repeated calls."""
-    frozen = Chain().if_(lambda v: v % 2 == 0, then=lambda v: 'even').else_(lambda v: 'odd').freeze()
-    results = [frozen(i) for i in range(6)]
-    self.assertEqual(results, ['even', 'odd', 'even', 'odd', 'even', 'odd'])
-
-  def test_frozen_chain_thread_safety(self):
-    """Frozen chain with if_ can be called concurrently from threads."""
-    frozen = Chain().if_(lambda v: v > 0, then=lambda v: v * 2).else_(lambda v: 0).freeze()
-    results = [None] * 100
-    errors = []
-
-    def worker(idx, val):
-      try:
-        results[idx] = frozen(val)
-      except Exception as e:
-        errors.append(e)
-
-    threads = [threading.Thread(target=worker, args=(i, i - 50)) for i in range(100)]
-    for t in threads:
-      t.start()
-    for t in threads:
-      t.join()
-
-    self.assertEqual(errors, [])
-    for i in range(100):
-      val = i - 50
-      expected = val * 2 if val > 0 else 0
-      self.assertEqual(results[i], expected)
-
-  def test_frozen_if_nested_inside_unfrozen(self):
-    frozen = Chain().if_(lambda v: v > 10, then=lambda v: v * 100).freeze()
-    result = Chain(15).then(frozen).run()
-    self.assertEqual(result, 1500)
-
-  def test_frozen_if_nested_inside_unfrozen_falsy(self):
-    frozen = Chain().if_(lambda v: v > 10, then=lambda v: v * 100).freeze()
-    result = Chain(5).then(frozen).run()
-    self.assertEqual(result, 5)
-
-  def test_return_inside_frozen_if_fn(self):
-    """return_ inside frozen if_ fn does NOT propagate to outer chain."""
-    frozen = Chain().if_(lambda v: True, then=lambda v: Chain.return_(999)).freeze()
-    result = Chain(1).then(frozen).then(lambda v: v + 1).run()
-    # Frozen chain catches _Return, returns 999.
-    # Outer chain's .then(lambda v: v + 1) runs on 999.
-    self.assertEqual(result, 1000)
-
-
-class TestIfFreezeAsync(IsolatedAsyncioTestCase):
-
-  async def test_frozen_if_async_pred(self):
-    async def pred(v):
-      return v > 0
-
-    frozen = Chain().if_(pred, then=lambda v: 'positive').else_(lambda v: 'non_positive').freeze()
-    self.assertEqual(await frozen(5), 'positive')
-    self.assertEqual(await frozen(-1), 'non_positive')
 
 
 # ---------------------------------------------------------------------------
@@ -1385,32 +1301,6 @@ class TestIfMapWithBreakAndReturnAsync(IsolatedAsyncioTestCase):
       .run()
     )
     self.assertEqual(result, 'found')
-
-
-class TestIfWithFreezeAndForEach(unittest.TestCase):
-
-  def test_frozen_if_used_in_map(self):
-    """Frozen chain with if_ used as map fn."""
-    frozen = Chain().if_(lambda x: x > 2, then=lambda x: x * 10).else_(lambda x: x).freeze()
-    result = Chain([1, 2, 3, 4]).map(frozen).run()
-    self.assertEqual(result, [1, 2, 30, 40])
-
-  def test_frozen_if_else_used_in_filter(self):
-    """Frozen chain with if_/else_ used as filter predicate."""
-    frozen = Chain().if_(lambda x: x > 2, then=lambda x: True).else_(lambda x: False).freeze()
-    result = Chain([1, 2, 3, 4]).filter(frozen).run()
-    self.assertEqual(result, [3, 4])
-
-
-class TestIfWithFreezeAndForEachAsync(IsolatedAsyncioTestCase):
-
-  async def test_async_frozen_if_in_map(self):
-    async def pred(x):
-      return x > 2
-
-    frozen = Chain().if_(pred, then=lambda x: x * 10).else_(lambda x: x).freeze()
-    result = await Chain([1, 2, 3, 4]).map(frozen).run()
-    self.assertEqual(result, [1, 2, 30, 40])
 
 
 if __name__ == '__main__':

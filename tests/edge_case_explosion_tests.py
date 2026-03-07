@@ -1,16 +1,14 @@
 """Exhaustive edge case and boundary testing across the entire quent library.
 
 Covers: falsy values, Ellipsis convention, empty chains, type preservation,
-exception propagation, nested chains, concurrent frozen chains, large data,
+exception propagation, nested chains, large data,
 special callable types, and run() arg matrix.
 """
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import dataclasses
 import functools
-import threading
 import unittest
 from typing import Any
 
@@ -285,10 +283,6 @@ class TestEmptyChainVariations(unittest.TestCase):
     result = Chain().finally_(lambda: tracker.append('finally')).run()
     self.assertIsNone(result)
     self.assertEqual(tracker, ['finally'])
-
-  def test_chain_freeze_run(self):
-    result = Chain().freeze().run()
-    self.assertIsNone(result)
 
   def test_chain_run_with_value(self):
     result = Chain().run(5)
@@ -703,12 +697,6 @@ class TestNestedChainDepth(unittest.TestCase):
     Chain(5).finally_(inner).run()
     self.assertEqual(tracker, ['inner_finally'])
 
-  def test_nested_chain_in_map_via_freeze(self):
-    inner = Chain().then(lambda v: v * 2)
-    # FrozenChain is treated as a regular callable (not sub-chain)
-    result = Chain([1, 2, 3]).map(inner.freeze()).run()
-    self.assertEqual(result, [2, 4, 6])
-
   def test_deep_nesting_5_levels(self):
     c = Chain().then(lambda v: v + 1)
     for _ in range(4):
@@ -757,118 +745,6 @@ class TestNestedChainDepthAsync(unittest.IsolatedAsyncioTestCase):
     l2 = Chain().then(l3)
     result = await Chain(3).then(l2).run()
     self.assertEqual(result, 6)
-
-
-# ---------------------------------------------------------------------------
-# PART 7: Concurrent frozen chain usage (6+ tests)
-# ---------------------------------------------------------------------------
-
-class TestConcurrentFrozenChain(unittest.TestCase):
-  """Multiple threads calling frozen chain simultaneously."""
-
-  def test_frozen_chain_concurrent_reads(self):
-    # Use .then() so fn gets the run value
-    fc = Chain().then(lambda v: v * 2).freeze()
-    results = []
-    errors = []
-
-    def worker(val):
-      try:
-        results.append(fc(val))
-      except Exception as e:
-        errors.append(e)
-
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
-    for t in threads:
-      t.start()
-    for t in threads:
-      t.join()
-
-    self.assertEqual(errors, [])
-    self.assertEqual(sorted(results), [i * 2 for i in range(20)])
-
-  def test_frozen_with_if_concurrent(self):
-    fc = (
-      Chain()
-      .if_(lambda v: v > 5, then=lambda v: v * 10)
-      .else_(lambda v: v * -1)
-      .freeze()
-    )
-    results = {}
-    errors = []
-
-    def worker(val):
-      try:
-        results[val] = fc(val)
-      except Exception as e:
-        errors.append(e)
-
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(20)]
-    for t in threads:
-      t.start()
-    for t in threads:
-      t.join()
-
-    self.assertEqual(errors, [])
-    for i in range(20):
-      expected = i * 10 if i > 5 else i * -1
-      self.assertEqual(results[i], expected)
-
-  def test_frozen_with_map_concurrent(self):
-    fc = Chain().then(lambda v: list(range(v))).map(lambda x: x * 2).freeze()
-    results = {}
-    errors = []
-
-    def worker(val):
-      try:
-        results[val] = fc(val)
-      except Exception as e:
-        errors.append(e)
-
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(1, 11)]
-    for t in threads:
-      t.start()
-    for t in threads:
-      t.join()
-
-    self.assertEqual(errors, [])
-    for i in range(1, 11):
-      self.assertEqual(results[i], [x * 2 for x in range(i)])
-
-  def test_frozen_thread_pool_executor(self):
-    fc = Chain().then(lambda v: v ** 2).freeze()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-      futures = [executor.submit(fc, i) for i in range(50)]
-      results = [f.result() for f in futures]
-    self.assertEqual(sorted(results), [i ** 2 for i in range(50)])
-
-  def test_frozen_filter_concurrent(self):
-    fc = Chain().then(lambda v: list(range(v))).filter(lambda x: x % 2 == 0).freeze()
-    results = {}
-    errors = []
-
-    def worker(val):
-      try:
-        results[val] = fc(val)
-      except Exception as e:
-        errors.append(e)
-
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(1, 11)]
-    for t in threads:
-      t.start()
-    for t in threads:
-      t.join()
-
-    self.assertEqual(errors, [])
-    for i in range(1, 11):
-      self.assertEqual(results[i], [x for x in range(i) if x % 2 == 0])
-
-  def test_frozen_gather_concurrent(self):
-    fc = Chain().gather(lambda v: v + 1, lambda v: v * 2).freeze()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-      futures = {i: executor.submit(fc, i) for i in range(20)}
-      for i, f in futures.items():
-        self.assertEqual(f.result(), [i + 1, i * 2])
 
 
 # ---------------------------------------------------------------------------
@@ -1139,10 +1015,6 @@ class TestChainMiscEdgeCases(unittest.TestCase):
     self.assertTrue(bool(Chain(None)))
     self.assertTrue(bool(Chain(False)))
 
-  def test_frozen_chain_bool_always_true(self):
-    self.assertTrue(bool(Chain().freeze()))
-    self.assertTrue(bool(Chain(0).freeze()))
-
   def test_chain_repr_basic(self):
     r = repr(Chain(42))
     self.assertIn('Chain(', r)
@@ -1151,20 +1023,6 @@ class TestChainMiscEdgeCases(unittest.TestCase):
     c = Chain(42).then(lambda v: v)
     r = repr(c)
     self.assertIn('Chain(', r)
-
-  def test_frozen_repr(self):
-    fc = Chain(42).freeze()
-    r = repr(fc)
-    self.assertIn('Frozen(', r)
-
-  def test_freeze_preserves_behavior(self):
-    c = Chain(5).then(lambda v: v * 2)
-    fc = c.freeze()
-    self.assertEqual(fc.run(), 10)
-
-  def test_freeze_run_with_arg(self):
-    fc = Chain().then(lambda v: v * 3).freeze()
-    self.assertEqual(fc(5), 15)
 
   def test_double_except_raises(self):
     with self.assertRaises(QuentException):

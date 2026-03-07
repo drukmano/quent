@@ -523,25 +523,6 @@ class LowTests(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(my_fn.__name__, 'my_fn')
     self.assertEqual(my_fn.__doc__, 'My docstring.')
 
-  def test_frozen_run_with_kwargs(self):
-    """L6: frozen chain run with value and callable+kwargs, verifying reuse."""
-    frozen = Chain().then(lambda x: x * 2).freeze()
-    result = frozen.run(5)
-    self.assertEqual(result, 10)
-    result2 = frozen.run(7)
-    self.assertEqual(result2, 14)
-
-    # Also verify that run(callable, arg, kwarg=val) works through frozen chains.
-    def source(x, multiplier=1):
-      return x * multiplier
-
-    frozen2 = Chain().then(lambda x: x + 100).freeze()
-    # run(source, 3, multiplier=2) -> Link(source, (3,), {multiplier:2})
-    # _evaluate_value calls source(3, multiplier=2) -> 6
-    # then lambda(6) -> 106
-    result3 = frozen2.run(source, 3, multiplier=2)
-    self.assertEqual(result3, 106)
-
   def test_iterate_do_no_fn_sync(self):
     """L7: iterate_do with fn=None. Sync path yields items unchanged."""
     g = Chain([1, 2, 3]).iterate_do()

@@ -1,5 +1,5 @@
 """Exhaustive tests for retry's interaction with map, filter, gather,
-with_, iterate, freeze, decorator, nested chains, and edge cases.
+with_, iterate, decorator, nested chains, and edge cases.
 """
 from __future__ import annotations
 
@@ -610,96 +610,6 @@ class TestRetryIterateAsync(IsolatedAsyncioTestCase):
     async for item in gen:
       result.append(item)
     self.assertEqual(result, [10, 20])
-
-
-# ---------------------------------------------------------------------------
-# Category 6: retry x freeze()
-# ---------------------------------------------------------------------------
-
-class TestRetryFreeze(unittest.TestCase):
-
-  def test_freeze_preserves_retry_config(self):
-    """Frozen chain preserves retry config and retries correctly."""
-    attempts = []
-
-    def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 3:
-        raise ValueError('retry')
-      return x * 2
-
-    frozen = Chain().then(flaky).retry(5, on=(ValueError,)).freeze()
-    result = frozen(10)
-    self.assertEqual(result, 20)
-    self.assertEqual(attempts, [10, 10, 10])
-
-  def test_freeze_after_retry_config_preserved(self):
-    """freeze() after retry() preserves the retry config."""
-    attempts = []
-
-    def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x + 100
-
-    c = Chain().then(flaky)
-    c.retry(3, on=(ValueError,))
-    frozen = c.freeze()
-    result = frozen(5)
-    self.assertEqual(result, 105)
-    self.assertEqual(len(attempts), 2)
-
-  def test_frozen_chain_independent_per_invocation(self):
-    """Each invocation of a frozen chain with retry has independent retry state."""
-    call_count = [0]
-
-    def flaky(x):
-      call_count[0] += 1
-      if call_count[0] % 2 == 1:
-        raise ValueError('odd attempt')
-      return x * 2
-
-    frozen = Chain().then(flaky).retry(3, on=(ValueError,)).freeze()
-    # Call 1: attempt 1 fails (odd=1), attempt 2 succeeds (even=2).
-    r1 = frozen(5)
-    self.assertEqual(r1, 10)
-    # Call 2: attempt 3 fails (odd=3), attempt 4 succeeds (even=4).
-    r2 = frozen(10)
-    self.assertEqual(r2, 20)
-
-  def test_frozen_chain_used_as_nested_with_retry(self):
-    """Frozen chain used as nested chain in outer chain, frozen chain has its own retry."""
-    inner_attempts = []
-
-    def inner_fn(x):
-      inner_attempts.append(x)
-      if len(inner_attempts) < 2:
-        raise ConnectionError('inner fail')
-      return x * 2
-
-    frozen_inner = Chain().then(inner_fn).retry(3, on=(ConnectionError,)).freeze()
-    result = Chain(5).then(frozen_inner).run()
-    self.assertEqual(result, 10)
-    self.assertEqual(inner_attempts, [5, 5])
-
-
-class TestRetryFreezeAsync(IsolatedAsyncioTestCase):
-
-  async def test_frozen_async_retry(self):
-    """Frozen chain with async step + retry."""
-    attempts = []
-
-    async def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x * 3
-
-    frozen = Chain().then(flaky).retry(3, on=(ValueError,)).freeze()
-    result = await frozen(7)
-    self.assertEqual(result, 21)
-    self.assertEqual(attempts, [7, 7])
 
 
 # ---------------------------------------------------------------------------
@@ -1593,7 +1503,7 @@ class TestRetryRunValueAsync(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Category: Combined operation chains + kwargs + frozen-iterate with retry
+# Category: Combined operation chains + kwargs + iterate with retry
 # ---------------------------------------------------------------------------
 
 class TestRetryCombinedOps(unittest.TestCase):
@@ -1703,42 +1613,6 @@ class TestRetryCombinedOps(unittest.TestCase):
     for att in attempts:
       self.assertEqual(att, {'x': 10, 'multiplier': 3})
 
-  def test_frozen_chain_with_retry_inside_iterate(self):
-    """Frozen chain with retry used as the transform fn in iterate()."""
-    call_count = [0]
-
-    def flaky_double(x):
-      call_count[0] += 1
-      # Fail on every other call to exercise retry within each iteration
-      if call_count[0] % 2 == 1:
-        raise ValueError('retry')
-      return x * 2
-
-    frozen = Chain().then(flaky_double).retry(3, on=(ValueError,)).freeze()
-    # Use frozen chain as a step applied to each element via map
-    result = Chain([1, 2, 3]).map(frozen).run()
-    # Each element: 1*2=2, 2*2=4, 3*2=6 (each required 1 retry)
-    self.assertEqual(result, [2, 4, 6])
-    # 3 elements * 2 calls each (1 fail + 1 success) = 6
-    self.assertEqual(call_count[0], 6)
-
-  def test_iterate_over_chain_with_retry(self):
-    """iterate() on a chain that has retry: source retries, then yields elements."""
-    attempts = []
-
-    def flaky_source():
-      attempts.append(1)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return [10, 20, 30]
-
-    frozen = Chain(flaky_source, ...).retry(3, on=(ValueError,)).freeze()
-    gen = Chain(frozen, ...).iterate()
-    result = list(gen)
-    self.assertEqual(result, [10, 20, 30])
-    self.assertEqual(len(attempts), 2)
-
-
 class TestRetryCombinedOpsAsync(IsolatedAsyncioTestCase):
 
   async def test_gather_then_do_retry_async(self):
@@ -1786,20 +1660,6 @@ class TestRetryCombinedOpsAsync(IsolatedAsyncioTestCase):
     for att in attempts:
       self.assertEqual(att, {'timeout': 7, 'retries': 4})
 
-  async def test_frozen_chain_with_retry_inside_map_async(self):
-    """Async: Frozen chain with retry used inside map."""
-    call_count = [0]
-
-    async def flaky_double(x):
-      call_count[0] += 1
-      if call_count[0] % 2 == 1:
-        raise ValueError('retry')
-      return x * 2
-
-    frozen = Chain().then(flaky_double).retry(3, on=(ValueError,)).freeze()
-    result = await Chain([1, 2, 3]).map(frozen).run()
-    self.assertEqual(result, [2, 4, 6])
-    self.assertEqual(call_count[0], 6)
 
 
 if __name__ == '__main__':

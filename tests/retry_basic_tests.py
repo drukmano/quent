@@ -1280,39 +1280,6 @@ class TestRetryExceptFinallyInteractionAsync(unittest.IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Additional: retry with freeze
-# ---------------------------------------------------------------------------
-
-class TestRetryWithFreeze(unittest.TestCase):
-  """Retry works through frozen chains."""
-
-  def test_frozen_chain_retries(self):
-    fn = make_fail_then_succeed(1, success_value='frozen_ok')
-    frozen = Chain(fn).retry(max_attempts=3).freeze()
-    result = frozen.run()
-    self.assertEqual(result, 'frozen_ok')
-    self.assertEqual(len(fn.counter), 2)
-
-  def test_frozen_chain_reusable_with_retry(self):
-    """A frozen chain with retry can be called multiple times."""
-    call_count = []
-
-    def fn(x=None):
-      call_count.append(1)
-      total = len(call_count)
-      # First two calls of each batch fail
-      if total % 3 != 0:
-        raise ValueError('fail')
-      return total
-
-    frozen = Chain(fn).retry(max_attempts=3).freeze()
-    r1 = frozen.run()
-    self.assertEqual(r1, 3)
-    r2 = frozen.run()
-    self.assertEqual(r2, 6)
-
-
-# ---------------------------------------------------------------------------
 # Additional: retry with __call__
 # ---------------------------------------------------------------------------
 

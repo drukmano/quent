@@ -18,6 +18,7 @@ from quent._core import (
   _task_done_callback,
   _task_registry_lock,
 )
+from quent._ops import _make_gather
 from quent._traceback import _get_obj_name
 
 
@@ -82,11 +83,22 @@ class TestEnsureFuture(IsolatedAsyncioTestCase):
       coro.send(None)
 
 
+class _FakeTask:
+  """Minimal mock that satisfies _task_done_callback's interface."""
+  __slots__ = ()
+
+  def cancelled(self) -> bool:
+    return False
+
+  def exception(self) -> BaseException | None:
+    return None
+
+
 class TestTaskDoneCallback(unittest.TestCase):
 
   def test_task_done_callback_removes_task(self):
     """_task_done_callback removes a mock task from the registry."""
-    sentinel = object()
+    sentinel = _FakeTask()
     _task_registry.add(sentinel)  # type: ignore[arg-type]
     self.assertIn(sentinel, _task_registry)
     _task_done_callback(sentinel)  # type: ignore[arg-type]
@@ -94,7 +106,7 @@ class TestTaskDoneCallback(unittest.TestCase):
 
   def test_task_done_callback_absent_is_noop(self):
     """Discarding a task not in the registry does not raise."""
-    sentinel = object()
+    sentinel = _FakeTask()
     _task_done_callback(sentinel)  # type: ignore[arg-type]
 
 
@@ -104,30 +116,40 @@ class TestTaskDoneCallback(unittest.TestCase):
 
 
 class TestGatherIndexAnnotationSync(unittest.TestCase):
+  """Test gather index annotation by calling _make_gather directly.
+
+  _modify_traceback deletes __quent_gather_index__ and __quent_gather_fn__
+  after consuming them for the chain visualization, so we test the gather
+  operation at the _ops level to verify the attributes are set correctly.
+  """
 
   def test_gather_error_has_index_attribute(self):
     """When a gathered fn raises, the exception has __quent_gather_index__."""
     failing = lambda x: 1 / 0  # noqa: E731
+    gather_op = _make_gather((lambda x: x, failing))
     with self.assertRaises(ZeroDivisionError) as cm:
-      Chain(5).then(Chain().gather(lambda x: x, failing)).run()
+      gather_op(5)
     self.assertEqual(cm.exception.__quent_gather_index__, 1)
 
   def test_gather_error_has_fn_attribute(self):
     """When a gathered fn raises, the exception has __quent_gather_fn__."""
     failing = lambda x: 1 / 0  # noqa: E731
+    gather_op = _make_gather((lambda x: x, failing))
     with self.assertRaises(ZeroDivisionError) as cm:
-      Chain(5).then(Chain().gather(lambda x: x, failing)).run()
+      gather_op(5)
     self.assertIs(cm.exception.__quent_gather_fn__, failing)
 
   def test_gather_first_fn_fails_index_zero(self):
     """When the first gathered fn raises, __quent_gather_index__ == 0."""
     failing = lambda x: 1 / 0  # noqa: E731
+    gather_op = _make_gather((failing, lambda x: x))
     with self.assertRaises(ZeroDivisionError) as cm:
-      Chain(5).then(Chain().gather(failing, lambda x: x)).run()
+      gather_op(5)
     self.assertEqual(cm.exception.__quent_gather_index__, 0)
 
 
 class TestGatherIndexAnnotationAsync(IsolatedAsyncioTestCase):
+  """Test gather index annotation with async fns by calling _make_gather directly."""
 
   async def test_gather_async_error_has_index(self):
     """When a sync fn raises in a gather that also contains async fns,
@@ -140,8 +162,9 @@ class TestGatherIndexAnnotationAsync(IsolatedAsyncioTestCase):
 
     # The sync `failing` raises during the setup loop in _gather_op,
     # before _to_async is ever called.
+    gather_op = _make_gather((ok, failing))
     with self.assertRaises(ZeroDivisionError) as cm:
-      await Chain(5).then(Chain().gather(ok, failing)).run()
+      gather_op(5)
     self.assertEqual(cm.exception.__quent_gather_index__, 1)
     self.assertIs(cm.exception.__quent_gather_fn__, failing)
 

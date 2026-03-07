@@ -1400,36 +1400,5 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
       self.fail('ValueError was not raised')
 
 
-# ===========================================================================
-# FROZEN CHAIN TRANSITIONS
-# ===========================================================================
-
-class TestFrozenChainTransitions(IsolatedAsyncioTestCase):
-  """Verify that frozen chains handle sync/async transitions correctly."""
-
-  async def test_frozen_async_chain(self):
-    chain = Chain().then(async_fn).then(lambda x: x + 10).freeze()
-    result = await chain.run(5)
-    # async_fn(5)=6 -> +10=16
-    self.assertEqual(result, 16)
-
-  async def test_frozen_chain_reuse(self):
-    chain = Chain().then(async_fn).freeze()
-    r1 = await chain.run(1)
-    r2 = await chain.run(10)
-    self.assertEqual(r1, 2)
-    self.assertEqual(r2, 11)
-
-  def test_frozen_sync_chain(self):
-    chain = Chain().then(lambda x: x * 2).freeze()
-    result = chain.run(5)
-    self.assertEqual(result, 10)
-
-  async def test_frozen_map_async(self):
-    chain = Chain().map(async_fn).freeze()
-    result = await chain.run([1, 2, 3])
-    self.assertEqual(result, [2, 3, 4])
-
-
 if __name__ == '__main__':
   unittest.main()

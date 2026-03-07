@@ -968,12 +968,6 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
     # 1 -> 2 (async) -> 3 (inner async) -> 6
     self.assertEqual(result, 6)
 
-  async def test_frozen_inner_chain_with_async_step(self):
-    """Frozen inner chain with async step."""
-    inner = Chain().then(async_double).freeze()
-    result = await Chain(5).then(inner).run()
-    self.assertEqual(result, 10)
-
   async def test_nested_chain_in_if_fn_with_async_step(self):
     """Nested chain used as if_ fn with async step."""
     inner = Chain().then(async_double)
@@ -994,13 +988,6 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
     # 1 -> middle -> inner_most -> async_add1 -> 2
     self.assertEqual(result, 2)
 
-  async def test_frozen_chain_nested_in_sync_outer(self):
-    """Frozen chain with async step nested in otherwise sync outer."""
-    frozen = Chain().then(async_double).freeze()
-    result = await Chain(7).then(sync_add1).then(frozen).then(sync_add1).run()
-    # 7 -> 8 -> frozen(8) = 16 -> 17
-    self.assertEqual(result, 17)
-
   async def test_nested_chain_with_except_handler(self):
     """Nested chain that raises, with except_ on outer chain."""
     inner = Chain().then(async_raise_value_error)
@@ -1017,19 +1004,6 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
     inner = Chain().then(async_double)
     result = await Chain(5).if_(sync_falsy, then=sync_identity).else_(inner).run()
     self.assertEqual(result, 10)
-
-  async def test_outer_sync_inner_frozen_async_then_more_sync(self):
-    """Outer sync -> frozen inner (async) -> more sync steps."""
-    frozen = Chain().then(async_add1).freeze()
-    result = await (
-      Chain(10)
-      .then(sync_add1)    # 11
-      .then(frozen)       # 12 (async transition in frozen)
-      .then(sync_double)  # 24
-      .then(sync_add1)    # 25
-      .run()
-    )
-    self.assertEqual(result, 25)
 
 
 # ===========================================================================
@@ -1135,12 +1109,6 @@ class TestEdgeCaseTransitions(IsolatedAsyncioTestCase):
   async def test_chain_call_with_async_transition(self):
     """Chain.__call__() triggers async transition."""
     c = Chain().then(async_double)
-    result = await c(5)
-    self.assertEqual(result, 10)
-
-  async def test_frozen_chain_call_with_async(self):
-    """Frozen chain __call__() with async step."""
-    c = Chain().then(async_double).freeze()
     result = await c(5)
     self.assertEqual(result, 10)
 
@@ -1322,42 +1290,6 @@ class TestTransitionWithDecorator(IsolatedAsyncioTestCase):
     result = await my_fn(5)
     # my_fn(5)=5 -> async_add1=6 -> sync_double=12
     self.assertEqual(result, 12)
-
-
-class TestTransitionWithFreeze(IsolatedAsyncioTestCase):
-  """Test async transitions with frozen chains."""
-
-  async def test_frozen_chain_with_async_step_reused(self):
-    """Frozen chain with async step can be reused."""
-    frozen = Chain().then(async_double).freeze()
-    r1 = await frozen(5)
-    r2 = await frozen(10)
-    self.assertEqual(r1, 10)
-    self.assertEqual(r2, 20)
-
-  async def test_frozen_chain_complex_pipeline(self):
-    """Frozen chain with multiple async/sync steps."""
-    frozen = (
-      Chain()
-      .then(sync_add1)
-      .then(async_double)
-      .then(sync_add1)
-      .freeze()
-    )
-    result = await frozen(5)
-    # 5 -> 6 -> 12 -> 13
-    self.assertEqual(result, 13)
-
-  async def test_frozen_chain_with_map_async(self):
-    """Frozen chain containing async map."""
-    frozen = (
-      Chain()
-      .then(lambda x: list(range(x)))
-      .map(async_double)
-      .freeze()
-    )
-    result = await frozen(4)
-    self.assertEqual(result, [0, 2, 4, 6])
 
 
 class TestTransitionWithExceptAndFinally(IsolatedAsyncioTestCase):

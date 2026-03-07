@@ -102,9 +102,6 @@ class TestChainBool(unittest.TestCase):
   def test_chain_with_false(self):
     self.assertTrue(bool(Chain(False)))
 
-  def test_frozen_chain(self):
-    self.assertTrue(bool(Chain().freeze()))
-
 
 # ---------------------------------------------------------------------------
 # 4. Retry validation tests

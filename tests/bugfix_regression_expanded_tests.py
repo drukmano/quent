@@ -21,7 +21,7 @@ from typing import Any
 from unittest.mock import patch
 
 from quent import Chain, Null
-from quent._chain import _except_handler_body, _finally_handler_body, _FrozenChain
+from quent._chain import _except_handler_body, _finally_handler_body
 from quent._core import Link, _Break, _ControlFlowSignal, _Return
 from quent._ops import _make_gather, _make_with, _sync_generator
 from quent._traceback import (
@@ -1165,35 +1165,6 @@ class TestM6ErrorGuardsExpanded(unittest.TestCase):
 class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
   """Tests that combine multiple fixed behaviors."""
 
-  async def test_with_inside_frozen_chain_async_exit(self):
-    """Frozen chain with with_ that has async exit -- works correctly."""
-    class CM:
-      def __enter__(self):
-        return 'ctx'
-      def __exit__(self, *args):
-        async def _exit():
-          return False
-        return _exit()
-
-    c = Chain(CM()).with_(lambda ctx: ctx + '_done').freeze()
-    result = await c.run()
-    self.assertEqual(result, 'ctx_done')
-
-  async def test_with_do_inside_frozen_chain_async_exit(self):
-    """Frozen chain with with_do that has async exit."""
-    class CM:
-      def __enter__(self):
-        return 'ctx'
-      def __exit__(self, *args):
-        async def _exit():
-          return False
-        return _exit()
-
-    cm = CM()
-    c = Chain(cm).with_do(lambda ctx: 'ignored').freeze()
-    result = await c.run()
-    self.assertIs(result, cm)
-
   async def test_gather_with_except_and_async_coro(self):
     """Gather with mixed sync/async where last raises, except handler catches."""
     async def async_fn(v):
@@ -1249,21 +1220,6 @@ class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
     with self.assertRaises(ValueError) as ctx:
       current.run()
     self.assertEqual(str(ctx.exception), 'deep fail')
-
-  def test_frozen_chain_with_except_and_finally(self):
-    """Frozen chain with except and finally handlers."""
-    handler_order = []
-    c = (
-      Chain(5)
-      .then(lambda x: 1 / 0)
-      .except_(lambda rv, e: handler_order.append('except') or 'caught')
-      .finally_(lambda v: handler_order.append('finally'))
-      .freeze()
-    )
-    result = c.run()
-    self.assertEqual(result, 'caught')
-    self.assertIn('except', handler_order)
-    self.assertIn('finally', handler_order)
 
   def test_chain_exception_cleaning_after_if_else(self):
     """Exception from if_/else_ path -- exception chains cleaned."""
@@ -1346,13 +1302,6 @@ class TestAdditionalEdgeCases(unittest.TestCase):
     c = Chain(1)
     result = _get_obj_name(c)
     self.assertEqual(result, 'Chain')
-
-  def test_get_obj_name_frozen_chain(self):
-    """_get_obj_name with FrozenChain."""
-    fc = Chain(1).freeze()
-    result = _get_obj_name(fc)
-    # FrozenChain doesn't have _is_chain, so falls through to repr
-    self.assertIsInstance(result, str)
 
   def test_clean_internal_frames_none(self):
     """_clean_internal_frames with None returns None."""

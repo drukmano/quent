@@ -19,7 +19,7 @@ from typing import Any
 from unittest.mock import patch
 
 from quent import Chain, Null
-from quent._chain import _except_handler_body, _FrozenChain
+from quent._chain import _except_handler_body
 from quent._core import Link
 from quent._ops import _make_gather, _make_with, _sync_generator
 from quent._traceback import (
