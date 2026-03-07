@@ -150,7 +150,7 @@ class TestDecoratorReuse(unittest.TestCase):
 class TestDecoratorWithExceptFinally(unittest.TestCase):
 
   def test_except_handler_in_decorator(self):
-    @Chain().then(lambda x: 1 / 0).except_(lambda e: 'caught').decorator()
+    @Chain().then(lambda x: 1 / 0).except_(lambda rv, e: 'caught').decorator()
     def fn(n):
       return n
 
@@ -174,7 +174,7 @@ class TestDecoratorWithExceptFinally(unittest.TestCase):
     @(
       Chain()
       .then(lambda x: 1 / 0)
-      .except_(lambda e: 'recovered')
+      .except_(lambda rv, e: 'recovered')
       .finally_(lambda rv: tracker.append(rv))
       .decorator()
     )

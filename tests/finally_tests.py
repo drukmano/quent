@@ -42,7 +42,7 @@ class TestFinallyExecution(unittest.TestCase):
     result = (
       Chain(10)
       .then(raise_fn)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda rv: tracker.append(rv))
       .run()
     )
@@ -93,7 +93,7 @@ class TestFinallyExecution(unittest.TestCase):
     result = (
       Chain(7)
       .then(raise_fn)
-      .except_(lambda exc: (order.append('except'), 'recovered')[1])
+      .except_(lambda rv, exc: (order.append('except'), 'recovered')[1])
       .finally_(lambda rv: order.append(('finally', rv)))
       .run()
     )
@@ -190,7 +190,7 @@ class TestFinallyAsync(unittest.IsolatedAsyncioTestCase):
     result = await (
       Chain(5)
       .then(async_raise_fn)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(async_handler)
       .run()
     )
@@ -330,7 +330,7 @@ class TestFinallyIgnoredOnAsyncTransition(unittest.IsolatedAsyncioTestCase):
     result = await (
       Chain(5)
       .then(async_raise_fn)
-      .except_(lambda exc: 'recovered')
+      .except_(lambda rv, exc: 'recovered')
       .finally_(lambda rv: tracker.append(rv))
       .run()
     )

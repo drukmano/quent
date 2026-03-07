@@ -1,4 +1,4 @@
-"""Chain and FrozenChain: the primary execution engine."""
+"""Chain: the primary execution engine."""
 
 from __future__ import annotations
 
@@ -43,18 +43,41 @@ async def _await_run(
     raise _modify_traceback(exc, chain, link, root_link) from None
 
 
-def _except_handler_body(exc: BaseException, chain: Chain, link: Link, root_link: Link | None) -> Any:
+def _except_handler_body(
+  exc: BaseException,
+  chain: Chain,
+  link: Link,
+  root_link: Link | None,
+  root_value: Any,
+) -> Any:
   """Shared except handler logic: modify traceback, evaluate handler, return result."""
   with contextlib.suppress(Exception):
     _modify_traceback(exc, chain, link, root_link)
   if chain.on_except_link is None or not isinstance(exc, chain.on_except_exceptions):  # type: ignore[arg-type]
     raise exc
   try:
-    result = _evaluate_value(chain.on_except_link, exc)
+    on_except = chain.on_except_link
+    v, args, kwargs = on_except.v, on_except.args, on_except.kwargs
+    rv = None if root_value is Null else root_value
+    if on_except.is_chain:
+      if args and args[0] is ...:
+        result = v._run(Null, None, None)
+      elif args or kwargs:
+        result = v._run(args[0] if args else rv, args[1:] if args else None, kwargs or {})
+      else:
+        result = v._run(rv, None, None)
+    elif args and args[0] is ...:
+      result = v()
+    elif args or kwargs:
+      result = v(*(args or ()), **(kwargs or {}))
+    elif callable(v):
+      result = v(rv, exc)
+    else:
+      result = v
   except _ControlFlowSignal:
     raise QuentException('Using control flow signals inside except handlers is not allowed.') from None
   except BaseException as exc_:
-    _set_link_temp_args(exc_, chain.on_except_link, exc=exc)
+    _set_link_temp_args(exc_, chain.on_except_link, root_value=root_value, exc=exc)
     _modify_traceback(exc_, chain, chain.on_except_link, root_link)
     raise exc_ from exc
   return result
@@ -74,6 +97,48 @@ def _finally_handler_body(chain: Chain, root_value: Any, root_link: Link | None)
     raise exc_
 
 
+def _init_attempt_links(
+  chain: Chain,
+  has_run_value: bool,
+  v: Any,
+  args: tuple[Any, ...] | None,
+  kwargs: dict[str, Any] | None,
+) -> tuple[Link | None, Link | None]:
+  """Compute the starting link and root_link for a chain execution attempt.
+
+  Returns (link, root_link) — the first link to evaluate and the root link
+  for traceback/finally purposes.
+  """
+  root_link = chain.root_link
+  if has_run_value:
+    link = Link(v, args, kwargs)
+    link.next_link = chain.first_link
+    root_link = link
+  elif root_link is not None:
+    link = root_link
+  else:
+    link = chain.first_link
+  return link, root_link
+
+
+def _stamp_exception_source(exc: BaseException, link: Link | None, current_value: Any) -> None:
+  """Stamp the failing link onto the exception for traceback display.
+
+  Sets __quent_source_link__ (first-write-wins) and attaches temp args
+  when the link has no explicit args/kwargs and is not a chain or operation.
+  """
+  if getattr(exc, '__quent_source_link__', None) is None:
+    exc.__quent_source_link__ = link  # type: ignore[attr-defined]
+  if (
+    current_value is not Null
+    and not link.args  # type: ignore[union-attr]
+    and not link.kwargs  # type: ignore[union-attr]
+    and not link.is_chain  # type: ignore[union-attr]
+    and not getattr(link.v, '_quent_op', None)  # type: ignore[union-attr]
+  ):
+    _set_link_temp_args(exc, link, current_value=current_value)  # type: ignore[arg-type]
+
+
 class Chain:
   """Sequential pipeline that transparently bridges synchronous and asynchronous operations."""
 
@@ -90,6 +155,7 @@ class Chain:
     'is_nested',
     'on_except_exceptions',
     'on_except_link',
+    'on_except_raise',
     'on_finally_link',
     'root_link',
   )
@@ -102,6 +168,7 @@ class Chain:
   is_nested: bool
   on_except_exceptions: tuple[type[BaseException], ...] | None
   on_except_link: Link | None
+  on_except_raise: bool
   on_finally_link: Link | None
   root_link: Link | None
 
@@ -115,6 +182,7 @@ class Chain:
     self.on_finally_link = None
     self.on_except_link = None
     self.on_except_exceptions = None
+    self.on_except_raise = False
     self._retry_max_attempts = None
     self._retry_on = None
     self._retry_backoff = None
@@ -133,12 +201,11 @@ class Chain:
     return self
 
   def _run(self, v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> Any:
-    link = self.root_link
-    root_link = link
-    current_value = Null
-    root_value = Null
+    root_link: Link | None = self.root_link
+    current_value: Any = Null
+    root_value: Any = Null
     has_run_value = v is not Null
-    has_root_value = has_run_value or link is not None
+    has_root_value = has_run_value or root_link is not None
     # When the sync path discovers an awaitable and delegates to _run_async,
     # the finally block here must NOT fire — it would run before the async work
     # completes. _run_async has its own finally handling.
@@ -149,26 +216,16 @@ class Chain:
     set_initial_values = False
     max_attempts = self._retry_max_attempts or 1
     retry_on = self._retry_on or ()
+    link: Link | None = None
 
     try:
       for _retry_attempt in range(max_attempts):
         try:
           # Reset state for each attempt
-          root_link = self.root_link
           root_value = Null
           current_value = Null
           set_initial_values = False
-
-          # When run(v) is called with a value, wrap it in a temporary Link and splice
-          # it before first_link, so it becomes the root of this execution.
-          if has_run_value:
-            link = Link(v, args, kwargs)
-            link.next_link = self.first_link
-            root_link = link
-          elif has_root_value:
-            link = self.root_link
-          else:
-            link = self.first_link
+          link, root_link = _init_attempt_links(self, has_run_value, v, args, kwargs)
 
           while link is not None:
             result = _evaluate_value(link, current_value)
@@ -222,19 +279,12 @@ class Chain:
 
     except BaseException as exc:
       _active_exc = exc
-      # Stamp the failing link onto the exception (first-write-wins) so the
-      # traceback formatter can highlight where the error originated.
-      if getattr(exc, '__quent_source_link__', None) is None:
-        exc.__quent_source_link__ = link  # type: ignore[attr-defined]
-      if (
-        current_value is not Null
-        and not link.args  # type: ignore[union-attr]
-        and not link.kwargs  # type: ignore[union-attr]
-        and not link.is_chain  # type: ignore[union-attr]
-        and not getattr(link.v, '_quent_op', None)  # type: ignore[union-attr]
-      ):
-        _set_link_temp_args(exc, link, current_value=current_value)  # type: ignore[arg-type]
-      result = _except_handler_body(exc, self, link, root_link)  # type: ignore[arg-type]
+      _stamp_exception_source(exc, link, current_value)
+      result = _except_handler_body(exc, self, link, root_link, root_value)  # type: ignore[arg-type]
+      if self.on_except_raise:
+        if isawaitable(result) and hasattr(result, 'close'):
+          result.close()
+        raise
       if isawaitable(result):
         # _ensure_future may raise RuntimeError if no event loop is running.
         # In that case, close both coroutines to avoid ResourceWarning.
@@ -309,18 +359,10 @@ class Chain:
             link = link.next_link  # type: ignore[assignment]
           else:
             # Retry — restart from scratch
-            root_link = self.root_link
             root_value = Null
             current_value = Null
             has_root_value = has_run_value or self.root_link is not None
-            if has_run_value:
-              link = Link(run_v, run_args, run_kwargs)
-              link.next_link = self.first_link
-              root_link = link
-            elif has_root_value:
-              link = self.root_link  # type: ignore[assignment]
-            else:
-              link = self.first_link  # type: ignore[assignment]
+            link, root_link = _init_attempt_links(self, has_run_value, run_v, run_args, run_kwargs)
             set_initial_values = False
 
           while link is not None:
@@ -364,20 +406,13 @@ class Chain:
 
     except BaseException as exc:
       _active_exc = exc
-      if getattr(exc, '__quent_source_link__', None) is None:
-        exc.__quent_source_link__ = link  # type: ignore[attr-defined]
-      if (
-        current_value is not Null
-        and not link.args
-        and not link.kwargs
-        and not link.is_chain
-        and not getattr(link.v, '_quent_op', None)
-      ):
-        _set_link_temp_args(exc, link, current_value=current_value)
+      _stamp_exception_source(exc, link, current_value)
       try:
-        result = _except_handler_body(exc, self, link, root_link)
+        result = _except_handler_body(exc, self, link, root_link, root_value)
         if isawaitable(result):
           result = await result
+        if self.on_except_raise:
+          raise exc
       except _ControlFlowSignal:
         raise QuentException('A control flow signal escaped the chain.') from None
       if result is Null:
@@ -408,7 +443,6 @@ class Chain:
 
     Warning: The decorator captures the chain by reference. Modifying
     the chain after calling decorator() affects the decorated function.
-    Use freeze() first if you need an immutable snapshot.
     """
     chain = self
 
@@ -453,9 +487,10 @@ class Chain:
     /,
     *args: Any,
     exceptions: type[BaseException] | Iterable[type[BaseException]] | None = None,
+    raise_: bool = False,
     **kwargs: Any,
   ) -> Chain:
-    """Register an exception handler. Receives the caught exception."""
+    """Register an exception handler. Receives the root value and the caught exception."""
     if self.on_except_link is not None:
       raise QuentException("You can only register one 'except' callback.")
     if exceptions is not None:
@@ -473,6 +508,7 @@ class Chain:
     else:
       self.on_except_exceptions = (Exception,)
     self.on_except_link = Link(v, args, kwargs)
+    self.on_except_raise = raise_
     return self
 
   def finally_(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
@@ -583,15 +619,42 @@ class Chain:
     inner = Link(v, args, kwargs)
     return self._then(Link(_make_with(inner, True), ignore_result=True, original_value=inner))
 
-  def if_(self, predicate: Callable[..., Any], v: Any, /, *args: Any, **kwargs: Any) -> Chain:
-    """Conditionally apply v if predicate(current_value) is truthy.
+  def if_(
+    self,
+    predicate: Callable[..., Any] | None = None,
+    *,
+    then: Any,
+    args: tuple[Any, ...] | None = None,
+    kwargs: dict[str, Any] | None = None,
+  ) -> Chain:
+    """Conditionally apply ``then`` if predicate is truthy.
 
-    If predicate returns truthy, v is evaluated and its result replaces
-    the current value. If falsy, the current value passes through unchanged.
-    Both predicate and v can be sync or async.
+    If predicate is None, the truthiness of the current pipeline value
+    is used. If predicate returns truthy, ``then`` is evaluated and its
+    result replaces the current value. Both predicate and ``then`` can be
+    sync or async.
+
+    ``then`` accepts a callable or a tuple:
+    ``(fn, args)``, ``(fn, kwargs)``, or ``(fn, args, kwargs)``.
     """
-    fn_link = Link(v, args, kwargs)
-    return self._then(Link(_make_if(Link(predicate), fn_link), original_value=fn_link))
+    if isinstance(then, tuple):
+      if len(then) == 2:
+        fn, extra = then
+        if isinstance(extra, dict):
+          fn_args, fn_kwargs = None, extra
+        else:
+          fn_args, fn_kwargs = extra, None
+      elif len(then) == 3:
+        fn, fn_args, fn_kwargs = then
+      else:
+        raise TypeError(f'`then` tuple must have 2 or 3 elements, got {len(then)}')
+    else:
+      fn = then
+      fn_args = args
+      fn_kwargs = kwargs
+    fn_link = Link(fn, fn_args, fn_kwargs)
+    predicate_link = Link(predicate) if predicate is not None else None
+    return self._then(Link(_make_if(predicate_link, fn_link), original_value=fn_link))
 
   def else_(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
     """Register an else branch for the preceding if_() step.
@@ -601,20 +664,9 @@ class Chain:
     """
     last = self.current_link if self.current_link is not None else self.first_link
     if last is None or getattr(last.v, '_quent_op', None) != 'if':
-      raise QuentException('else_() can only be used immediately after if_()')
+      raise QuentException('else_() must be called immediately after if_() with no operations in between')
     last.v._else_link = Link(v, args, kwargs)
     return self
-
-  def freeze(self) -> _FrozenChain:
-    """Compile the chain into a frozen form.
-
-    The chain must not be modified after freezing. Adding links, except
-    handlers, or finally handlers after freeze() produces undefined behavior.
-
-    Note: return_() and break_() inside a frozen sub-chain do NOT propagate
-    to the outer chain. The frozen boundary acts as an opaque execution scope.
-    """
-    return _FrozenChain(self)
 
   @classmethod
   def return_(cls, v: Any = Null, /, *args: Any, **kwargs: Any) -> NoReturn:
@@ -644,25 +696,3 @@ class Chain:
       result += f'.{_get_link_name(link)}(...)'
       link = link.next_link
     return result
-
-
-class _FrozenChain:
-  """Frozen chain: delegates to the underlying Chain.
-  The chain must not be modified after freezing.
-  """
-
-  __slots__ = ('_chain',)
-
-  def __init__(self, chain: Chain) -> None:
-    self._chain = chain
-
-  def run(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> Any:
-    return self._chain.run(v, *args, **kwargs)
-
-  __call__ = run
-
-  def __bool__(self) -> bool:
-    return True
-
-  def __repr__(self) -> str:
-    return f'Frozen({self._chain!r})'

@@ -96,7 +96,7 @@ class TestExceptDuplicate(unittest.TestCase):
 
   def test_except_duplicate_raises(self):
     with self.assertRaises(QuentException):
-      Chain().except_(lambda e: None).except_(lambda e: None)
+      Chain().except_(lambda rv, e: None).except_(lambda rv, e: None)
 
 
 class TestFinallyDuplicate(unittest.TestCase):

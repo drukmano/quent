@@ -149,7 +149,7 @@ class NegativeEdgeTests(unittest.TestCase):
     """FrozenChain doesn't have .except_(). Should raise AttributeError."""
     frozen = Chain(1).freeze()
     with self.assertRaises(AttributeError):
-      frozen.except_(lambda e: None)  # type: ignore[attr-defined]
+      frozen.except_(lambda rv, e: None)  # type: ignore[attr-defined]
 
   def test_frozen_chain_has_no_finally(self):
     """FrozenChain doesn't have .finally_(). Should raise AttributeError."""
@@ -159,9 +159,9 @@ class NegativeEdgeTests(unittest.TestCase):
 
   def test_double_except_raises(self):
     """Registering two except_ handlers should raise QuentException."""
-    c = Chain(1).except_(lambda e: None)
+    c = Chain(1).except_(lambda rv, e: None)
     with self.assertRaises(QuentException):
-      c.except_(lambda e: None)
+      c.except_(lambda rv, e: None)
 
   def test_double_finally_raises(self):
     """Registering two finally_ handlers should raise QuentException."""

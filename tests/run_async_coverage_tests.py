@@ -151,7 +151,7 @@ class TestRunAsyncFinallyControlFlow(unittest.IsolatedAsyncioTestCase):
     brand new exception with no implicit __context__.
     The code at line 306 sets finally_exc.__context__ = _active_exc.
     """
-    def except_handler(exc):
+    def except_handler(rv, exc):
       return 'recovered'
 
     async def async_body(x):
@@ -430,7 +430,7 @@ class TestRunAsyncExceptCoroutine(unittest.IsolatedAsyncioTestCase):
 
   async def test_except_returns_coroutine_awaited(self):
     """_run_async except block: handler result is awaitable → awaited (line 285-286)."""
-    async def async_handler(exc):
+    async def async_handler(rv, exc):
       return f'async_caught:{type(exc).__name__}'
 
     result = await (
@@ -444,7 +444,7 @@ class TestRunAsyncExceptCoroutine(unittest.IsolatedAsyncioTestCase):
     """When except handler returns Null, _run_async returns None (line 287-288)."""
     result = await (
       Chain(_async_raise_value_error)
-      .except_(lambda exc: Null)
+      .except_(lambda rv, exc: Null)
       .run()
     )
     self.assertIsNone(result)
@@ -453,7 +453,7 @@ class TestRunAsyncExceptCoroutine(unittest.IsolatedAsyncioTestCase):
     """Except handler returns a non-Null, non-awaitable value (line 289)."""
     result = await (
       Chain(_async_raise_value_error)
-      .except_(lambda exc: 'recovered')
+      .except_(lambda rv, exc: 'recovered')
       .run()
     )
     self.assertEqual(result, 'recovered')
@@ -624,7 +624,7 @@ class TestRunAsyncExceptEdgeCases(unittest.IsolatedAsyncioTestCase):
 
   async def test_except_handler_raises_in_async_path(self):
     """Except handler raises a new exception in async path (lines 272-289)."""
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler boom') from exc
 
     with self.assertRaises(RuntimeError) as ctx:
@@ -637,7 +637,7 @@ class TestRunAsyncExceptEdgeCases(unittest.IsolatedAsyncioTestCase):
     with self.assertRaises(ValueError):
       await (
         Chain(_async_raise_value_error)
-        .except_(lambda e: 'caught', exceptions=TypeError)
+        .except_(lambda rv, e: 'caught', exceptions=TypeError)
         .run()
       )
 
@@ -645,7 +645,7 @@ class TestRunAsyncExceptEdgeCases(unittest.IsolatedAsyncioTestCase):
     """Line 274-275: __quent_source_link__ is stamped on the exception."""
     captured = {}
 
-    def handler(exc):
+    def handler(rv, exc):
       captured['has_source_link'] = hasattr(exc, '__quent_source_link__')
       return 'caught'
 
@@ -769,7 +769,7 @@ class TestRunAsyncMiscEdgeCases(unittest.IsolatedAsyncioTestCase):
     result = await (
       Chain(5)
       .then(_async_raise_value_error)
-      .except_(lambda exc: (order.append('except'), 'recovered')[1])
+      .except_(lambda rv, exc: (order.append('except'), 'recovered')[1])
       .finally_(lambda rv: order.append(('finally', rv)))
       .run()
     )

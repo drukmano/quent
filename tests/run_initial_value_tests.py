@@ -417,7 +417,7 @@ class TestSetInitialValuesAsync(unittest.IsolatedAsyncioTestCase):
     result = await (
       Chain(7)
       .then(fail)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .finally_(tracker)
       .run()
     )

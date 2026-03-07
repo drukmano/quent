@@ -108,27 +108,27 @@ class TestBug4ExceptValidation(unittest.TestCase):
   def test_except_with_int_raises_at_registration(self):
     """exceptions=42 should raise TypeError at registration, not runtime."""
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions=42)
+      Chain().except_(lambda rv, e: e, exceptions=42)
 
   def test_except_with_non_exception_class_raises(self):
     """exceptions=str should raise TypeError (str is not BaseException subclass)."""
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions=str)
+      Chain().except_(lambda rv, e: e, exceptions=str)
 
   def test_except_with_valid_exception_works(self):
     """exceptions=ValueError should work fine."""
-    c = Chain(lambda: 1 / 0).except_(lambda e: 'caught', exceptions=ZeroDivisionError)
+    c = Chain(lambda: 1 / 0).except_(lambda rv, e: 'caught', exceptions=ZeroDivisionError)
     self.assertEqual(c.run(), 'caught')
 
   def test_except_with_list_of_valid_exceptions(self):
     """exceptions=[ValueError, TypeError] should work fine."""
-    c = Chain(lambda: 1 / 0).except_(lambda e: 'caught', exceptions=[ZeroDivisionError, TypeError])
+    c = Chain(lambda: 1 / 0).except_(lambda rv, e: 'caught', exceptions=[ZeroDivisionError, TypeError])
     self.assertEqual(c.run(), 'caught')
 
   def test_except_with_list_containing_invalid_raises(self):
     """exceptions=[ValueError, 42] should raise TypeError at registration."""
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions=[ValueError, 42])
+      Chain().except_(lambda rv, e: e, exceptions=[ValueError, 42])
 
 
 # ---------------------------------------------------------------------------

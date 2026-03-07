@@ -7,6 +7,7 @@ import contextlib
 import functools
 import sys
 import threading
+import warnings
 from collections.abc import Coroutine
 from typing import Any
 
@@ -15,12 +16,6 @@ class _Null:
   """Sentinel for 'no value provided'. Distinct from None, which is a valid chain value."""
 
   __slots__ = ()
-  _instance: _Null | None = None
-
-  def __new__(cls) -> _Null:
-    if cls._instance is None:
-      cls._instance = object.__new__(cls)
-    return cls._instance
 
   def __repr__(self) -> str:
     return '<Null>'
@@ -35,7 +30,7 @@ class _Null:
     return 'Null'
 
 
-Null = _Null()
+Null: _Null = object.__new__(_Null)
 
 
 class QuentException(Exception):
@@ -55,9 +50,8 @@ class _ControlFlowSignal(Exception):
 
   __slots__ = ('args_', 'kwargs_', 'value')
 
-  # Intentionally skips super().__init__() — these are internal control-flow
-  # signals that are never displayed to users, so the standard Exception
-  # args tuple and message string are unnecessary.
+  # Intentionally skip super().__init__() — we use custom slots instead of Exception.args
+  # for internal data. Note: self.args is still set by BaseException.__new__.
   def __init__(self, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
     self.value = v
     self.args_ = args
@@ -86,6 +80,8 @@ def _resolve_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, Any] 
   args = args or ()
   kwargs = kwargs or {}
   if args and args[0] is ...:
+    if len(args) > 1 or kwargs:
+      raise QuentException('Ellipsis (...) cannot be combined with other arguments')
     return v()
   if args or kwargs:
     return v(*args, **kwargs)
@@ -143,15 +139,23 @@ def _ensure_future(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
     raise
   with _task_registry_lock:
     _task_registry.add(task)
-  # Auto-removes from registry on completion to avoid unbounded growth.
-  task.add_done_callback(_task_registry_discard)
+  # Auto-removes from registry on completion and logs unhandled exceptions.
+  task.add_done_callback(_task_done_callback)
   return task
 
 
-def _task_registry_discard(task: asyncio.Task[Any]) -> None:
-  """Thread-safe removal of a completed task from the registry."""
+def _task_done_callback(task: asyncio.Task[Any]) -> None:
+  """Thread-safe cleanup and error reporting for fire-and-forget tasks."""
   with _task_registry_lock:
     _task_registry.discard(task)
+  if not task.cancelled():
+    exc = task.exception()
+    if exc is not None:
+      warnings.warn(
+        f'Exception in quent fire-and-forget task: {exc!r}',
+        RuntimeWarning,
+        stacklevel=1,
+      )
 
 
 class Link:
@@ -217,14 +221,20 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
   # _ControlFlowSignal trap, so _Return/_Break propagate to the outer chain.
   if link.is_chain:
     if args and args[0] is ...:
+      if len(args) > 1 or kwargs:
+        raise QuentException('Ellipsis (...) cannot be combined with other arguments')
       return v._run(Null, None, None)
     if args or kwargs:
       return v._run(args[0] if args else current_value, args[1:] if args else None, kwargs or {})
     return v._run(current_value, None, None)
 
   if args and args[0] is ...:
+    if len(args) > 1 or kwargs:
+      raise QuentException('Ellipsis (...) cannot be combined with other arguments')
     return v()
   if args or kwargs:
+    if not callable(v):
+      raise TypeError(f'{v!r} is not callable but received {"arguments" if args else "keyword arguments"}')
     return v(*(args or ()), **(kwargs or {}))
   if callable(v):
     return v(current_value) if current_value is not Null else v()

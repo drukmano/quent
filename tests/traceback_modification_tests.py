@@ -93,7 +93,7 @@ class TestModifyTracebackBasics(unittest.TestCase):
 
   def test_chained_exceptions_cleaned(self):
     """__cause__ and __context__ have internal frames removed."""
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler error') from exc
 
     try:

@@ -247,7 +247,7 @@ class TestElseBranchVisualization(unittest.TestCase):
 
   def test_else_appears_in_stringify(self):
     """_stringify_chain output contains '.else_(...)' for chains with else_()."""
-    c = Chain(10).if_(lambda x: x > 5, lambda x: x * 2).else_(lambda x: x + 1)
+    c = Chain(10).if_(lambda x: x > 5, then=lambda x: x * 2).else_(lambda x: x + 1)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _stringify_chain(c, nest_lvl=0, ctx=ctx)
     self.assertIn('.else_', result)
@@ -256,7 +256,7 @@ class TestElseBranchVisualization(unittest.TestCase):
     """else_() is visible in the traceback visualization when the chain errors."""
     c = (
       Chain(10)
-      .if_(lambda x: x > 5, lambda x: x * 2)
+      .if_(lambda x: x > 5, then=lambda x: x * 2)
       .else_(lambda x: x + 1)
       .then(raise_fn)
     )
@@ -268,7 +268,7 @@ class TestElseBranchVisualization(unittest.TestCase):
 
   def test_else_and_if_both_visible(self):
     """Both .if_(...) and .else_(...) appear in the visualization."""
-    c = Chain(10).if_(lambda x: x > 5, lambda x: x * 2).else_(lambda x: x + 1)
+    c = Chain(10).if_(lambda x: x > 5, then=lambda x: x * 2).else_(lambda x: x + 1)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _stringify_chain(c, nest_lvl=0, ctx=ctx)
     self.assertIn('.if_', result)
@@ -279,7 +279,7 @@ class TestElseBranchVisualization(unittest.TestCase):
     def my_else_handler(x):
       return x + 1
 
-    c = Chain(10).if_(lambda x: x > 5, lambda x: x * 2).else_(my_else_handler)
+    c = Chain(10).if_(lambda x: x > 5, then=lambda x: x * 2).else_(my_else_handler)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _stringify_chain(c, nest_lvl=0, ctx=ctx)
     self.assertIn('my_else_handler', result)
@@ -289,7 +289,7 @@ class TestElseBranchVisualization(unittest.TestCase):
     def my_else_fn(x):
       raise ValueError('else error')
 
-    c = Chain(3).if_(lambda x: x > 5, sync_fn).else_(my_else_fn)
+    c = Chain(3).if_(lambda x: x > 5, then=sync_fn).else_(my_else_fn)
     # The else link is stored on the if op's _else_link attribute
     if_link = c.first_link
     else_link = if_link.v._else_link
@@ -315,13 +315,13 @@ class TestGetLinkNameIfOp(unittest.TestCase):
 
   def test_if_via_chain_api(self):
     """Chain.if_() creates a link whose _get_link_name is 'if_'."""
-    c = Chain(1).if_(lambda x: x > 0, sync_fn)
+    c = Chain(1).if_(lambda x: x > 0, then=sync_fn)
     link = c.first_link
     self.assertEqual(_get_link_name(link), 'if_')
 
   def test_if_in_stringify(self):
     """_stringify_chain shows .if_(...) for if operations."""
-    c = Chain(1).if_(lambda x: x > 0, sync_fn)
+    c = Chain(1).if_(lambda x: x > 0, then=sync_fn)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _stringify_chain(c, nest_lvl=0, ctx=ctx)
     self.assertIn('.if_', result)
@@ -422,7 +422,7 @@ class TestFormatLinkWithIfElse(unittest.TestCase):
 
   def test_format_link_if_operation(self):
     """_format_link renders an if link with its predicate name."""
-    c = Chain(10).if_(lambda x: x > 5, sync_fn)
+    c = Chain(10).if_(lambda x: x > 5, then=sync_fn)
     link = c.first_link
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _format_link(link, nest_lvl=0, ctx=ctx, method_name='if_')
@@ -431,7 +431,7 @@ class TestFormatLinkWithIfElse(unittest.TestCase):
 
   def test_format_link_else_operation(self):
     """_format_link renders an else link with its callable name."""
-    c = Chain(10).if_(lambda x: x > 5, sync_fn).else_(sync_identity)
+    c = Chain(10).if_(lambda x: x > 5, then=sync_fn).else_(sync_identity)
     if_link = c.first_link
     else_link = if_link.v._else_link
     ctx = _Ctx(source_link=None, link_temp_args=None)

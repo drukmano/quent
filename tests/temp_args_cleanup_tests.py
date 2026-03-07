@@ -95,7 +95,7 @@ class TestTempArgsLifecycle(unittest.TestCase):
 
   def test_temp_args_not_cleaned_after_handling(self):
     """Except_ handler can handle the error; temp args were consumed for traceback."""
-    def _handler(exc):
+    def _handler(rv, exc):
       return 'handled'
 
     def _boom(x):

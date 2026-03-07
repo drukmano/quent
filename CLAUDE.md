@@ -23,14 +23,13 @@ quent is a **transparent sync/async bridge**. It is not a collections library, n
 
 ## Public API
 
-Seven exports in `__all__` (defined in `__init__.py`):
+Six exports in `__all__` (defined in `__init__.py`):
 
 | Export | Source | Description |
 |--------|--------|-------------|
 | `Chain` | `_chain.py` | Main user-facing pipeline class |
 | `Null` | `_core.py` | Singleton sentinel for "no value provided" |
 | `QuentException` | `_core.py` | Public exception type |
-| `X` | `_x.py` | Lambda-free expression placeholder |
 | `__version__` | package metadata | Dynamic version string |
 | `enable_traceback_patching()` | `_traceback.py` | Enable traceback enhancement |
 | `disable_traceback_patching()` | `_traceback.py` | Disable traceback enhancement |
@@ -39,7 +38,7 @@ Seven exports in `__all__` (defined in `__init__.py`):
 
 ## Source Modules
 
-Five source files in `quent/`:
+Four source files in `quent/`:
 
 | Module | Responsibility |
 |--------|---------------|
@@ -48,7 +47,6 @@ Five source files in `quent/`:
 | `_core.py` | Link node class, Null sentinel, _ControlFlowSignal exceptions (_Return, _Break), evaluation dispatch (_evaluate_value), fire-and-forget task registry (_ensure_future, _task_registry) |
 | `_ops.py` | Operation factory functions (_make_foreach, _make_filter, _make_gather, _make_with, _make_if) and _Generator class for iteration |
 | `_traceback.py` | Exception traceback enhancement; chain visualization injection; frame cleaning; sys.excepthook and TracebackException patching |
-| `_x.py` | X placeholder: _XExpr and _XAttr classes implementing deferred expression recording and replay |
 
 ## Architecture: The Chain
 
@@ -85,8 +83,8 @@ The main user-facing class. A Chain is a sequential pipeline of Link nodes formi
 - **`.gather(*fns)`** — Run multiple functions concurrently on the current value. Returns a list of results in the same order as `fns`. If any fn returns an awaitable, all awaitables are gathered via `asyncio.gather`.
 - **`.with_(fn, /, *args, **kwargs)`** — Enter current value as context manager, call `fn` with the context value, fn's result **replaces** the current value.
 - **`.with_do(fn, /, *args, **kwargs)`** — Same as `.with_()` but fn's result is discarded (side-effect).
-- **`.if_(predicate, fn, /, *args, **kwargs)`** — If `predicate(current_value)` is truthy, evaluate `fn` and replace current value. If falsy, current value passes through unchanged. Both predicate and fn can be sync or async.
-- **`.else_(fn, /, *args, **kwargs)`** — Must be called immediately after `.if_()`. Registers the else branch. If the preceding if\_'s predicate was falsy, `fn` is evaluated instead. Raises QuentException if not preceded by if\_().
+- **`.if_(predicate=None, *, then, args=None, kwargs=None)`** — Conditionally apply `then` if predicate is truthy. When `predicate` is `None`, the truthiness of the current pipeline value is used. `then` accepts a callable or a tuple: `(fn, args)`, `(fn, kwargs)`, or `(fn, args, kwargs)`. Separate `args` and `kwargs` keyword params apply when `then` is just a callable. Both predicate and `then` can be sync or async.
+- **`.else_(fn, /, *args, **kwargs)`** — Must be called immediately after `.if_()`. Registers the else branch. If the preceding if\_'s predicate was falsy (or the current value was falsy when no predicate was provided), `fn` is evaluated instead. Raises QuentException if not preceded by if\_().
 - **`.except_(fn, /, *args, exceptions=None, **kwargs)`** — Register exception handler. Only one per chain. `exceptions` can be a single type or iterable of exception types (defaults to `Exception`). Handler receives the exception object. Its return value becomes the chain's result.
 - **`.finally_(fn, /, *args, **kwargs)`** — Register cleanup handler. Only one per chain. Always runs (success or failure). Receives the chain's root value. Its return value is discarded. If it raises, that exception propagates.
 - **`.retry(max_attempts=3, on=(Exception,), backoff=None)`** — Configure chain-level retry. Only one per chain. `max_attempts` is total attempts (3 = 1 initial + 2 retries, must be >= 1). `on` filters which exception types trigger retry. `backoff` can be None, a float, or a callable(attempt_index) -> float.
@@ -287,7 +285,8 @@ Creates the callable for `.with_()` and `.with_do()`.
 ### _make_if(predicate_link, fn_link)
 
 Creates the callable for `.if_()`.
-- Evaluates predicate with current_value (or no args if Null)
+- `predicate_link` can be `None` — when None, the truthiness of the current pipeline value is used as the predicate (no function call)
+- When `predicate_link` is provided, evaluates predicate with current_value (or no args if Null)
 - Truthy — evaluate fn_link
 - Falsy + `_else_link` set — evaluate else branch
 - Falsy + no else — pass current value through
@@ -301,58 +300,6 @@ Wraps chain output as a dual sync/async iterable.
 - `__call__(v, *args, **kwargs)` returns a new _Generator with updated run args (makes it reusable with different inputs)
 - Handles `_Break` for early termination
 - Raises TypeError if fn returns coroutine in sync iteration mode
-
-## X Placeholder (`_x.py`)
-
-`X` is a module-level singleton `_XExpr` instance that enables lambda-free expressions in chain pipelines.
-
-### Usage
-
-```python
-# Instead of lambdas:
-Chain([1, 2, 3, 4]).filter(lambda x: x % 2 == 0).map(lambda x: x * 10)
-
-# Use X:
-Chain([1, 2, 3, 4]).filter(X % 2 == 0).map(X * 10)
-```
-
-### Mechanism
-
-_XExpr records operations as an immutable tuple of `(op_type, op_args)` pairs. When called with a value, it replays all operations sequentially.
-
-### Operation types
-
-| Type | Trigger | Example |
-|------|---------|---------|
-| `'attr'` | Attribute access | `X.upper` |
-| `'item'` | Item access | `X[0]` |
-| `'call'` | Method call | `X.method(args)` |
-| `'binop'` | Binary operation | `X + 1`, `X == 5` |
-| `'rbinop'` | Reverse binary operation | `1 + X` |
-| `'unop'` | Unary operation | `-X`, `abs(X)` |
-
-### Supported operators
-
-- **Arithmetic:** `+`, `-`, `*`, `/`, `//`, `%`, `**` (and reverse variants)
-- **Bitwise:** `&`, `|`, `^`, `<<`, `>>` (and reverse variants)
-- **Comparison:** `==`, `!=`, `<`, `<=`, `>`, `>=`
-- **Unary:** `-`, `+`, `abs()`, `~`
-
-### _XAttr subclass
-
-Handles attribute access with dual-role `__call__`:
-- Single-arg call (1 positional, no kwargs): Treated as runtime replay (chain engine passes current_value)
-- Zero-arg or multi-arg call: Treated as build-time method call recording
-
-### Guards (prevent misuse)
-
-- `__contains__` — TypeError (no `in` operator)
-- `__iter__` — TypeError (not iterable)
-- `__copy__`, `__deepcopy__`, `__reduce__` — TypeError (not copyable/picklable)
-- `__setattr__` — AttributeError (immutable)
-- `__getattr__` rejects names starting with `_`
-- `__bool__` intentionally NOT overridden (allows truthiness checks to work naturally)
-- `__hash__` is implicitly None (unhashable due to `__eq__` override)
 
 ## Traceback Enhancement (`_traceback.py`)
 
@@ -433,7 +380,7 @@ Operations attach attributes (`_quent_op`, `_fns`, `_else_link`, `_predicate_lin
 - **Single quotes** for strings
 - **Ruff rules:** E, W, F, I, UP, B, SIM, RUF (with ignores: E741, B905, SIM108, UP007)
 - **Mypy:** Python 3.10 target, strict mode (warn_return_any, check_untyped_defs, disallow_incomplete_defs)
-- **Type ignore comments** used for legitimate type violations (e.g., `__eq__` override on _XExpr)
+- **Type ignore comments** used for legitimate type violations
 
 ## Commands
 

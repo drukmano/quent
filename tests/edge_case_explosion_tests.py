@@ -92,19 +92,19 @@ class TestFalsyValueMatrix(unittest.TestCase):
 
   def test_if_with_falsy_none(self):
     # predicate receives None (current value), bool(None) is False -> passthrough
-    result = Chain(None).if_(lambda v: v, lambda v: 'yes').run()
+    result = Chain(None).if_(lambda v: v, then=lambda v: 'yes').run()
     self.assertIsNone(result)
 
   def test_if_with_falsy_zero(self):
-    result = Chain(0).if_(lambda v: v, lambda v: 'yes').run()
+    result = Chain(0).if_(lambda v: v, then=lambda v: 'yes').run()
     self.assertEqual(result, 0)
 
   def test_if_with_falsy_false(self):
-    result = Chain(False).if_(lambda v: v, lambda v: 'yes').run()
+    result = Chain(False).if_(lambda v: v, then=lambda v: 'yes').run()
     self.assertIs(result, False)
 
   def test_if_with_falsy_empty_list(self):
-    result = Chain([]).if_(lambda v: v, lambda v: 'yes').run()
+    result = Chain([]).if_(lambda v: v, then=lambda v: 'yes').run()
     self.assertEqual(result, [])
 
   def test_run_with_each_falsy_value(self):
@@ -159,11 +159,11 @@ class TestEllipsisConvention(unittest.TestCase):
     self.assertEqual(tracker, ['called'])
 
   def test_if_fn_with_ellipsis(self):
-    result = Chain(10).if_(lambda v: True, lambda: 42, ...).run()
+    result = Chain(10).if_(lambda v: True, then=lambda: 42, args=(...,)).run()
     self.assertEqual(result, 42)
 
   def test_if_fn_with_ellipsis_false_predicate(self):
-    result = Chain(10).if_(lambda v: False, lambda: 42, ...).run()
+    result = Chain(10).if_(lambda v: False, then=lambda: 42, args=(...,)).run()
     self.assertEqual(result, 10)
 
   def test_nested_chain_ellipsis_with_root(self):
@@ -242,7 +242,7 @@ class TestEllipsisAsync(unittest.IsolatedAsyncioTestCase):
     async def afn():
       return 'replaced'
 
-    result = await Chain(10).if_(lambda v: True, afn, ...).run()
+    result = await Chain(10).if_(lambda v: True, then=afn, args=(...,)).run()
     self.assertEqual(result, 'replaced')
 
 
@@ -269,15 +269,15 @@ class TestEmptyChainVariations(unittest.TestCase):
 
   def test_chain_if_no_root_with_run_value(self):
     """If there's no root but run(v) is provided, predicate gets v."""
-    result = Chain().if_(lambda v: v > 5, lambda v: 'big').else_(lambda v: 'small').run(10)
+    result = Chain().if_(lambda v: v > 5, then=lambda v: 'big').else_(lambda v: 'small').run(10)
     self.assertEqual(result, 'big')
 
   def test_chain_if_no_root_false_with_run_value(self):
-    result = Chain().if_(lambda v: v > 5, lambda v: 'big').else_(lambda v: 'small').run(3)
+    result = Chain().if_(lambda v: v > 5, then=lambda v: 'big').else_(lambda v: 'small').run(3)
     self.assertEqual(result, 'small')
 
   def test_chain_except_no_error(self):
-    result = Chain().except_(lambda e: 'handled').run()
+    result = Chain().except_(lambda rv, e: 'handled').run()
     self.assertIsNone(result)
 
   def test_chain_finally_handler_called(self):
@@ -312,7 +312,7 @@ class TestEmptyChainVariations(unittest.TestCase):
     tracker = []
     result = (
       Chain()
-      .except_(lambda e: 'handled')
+      .except_(lambda rv, e: 'handled')
       .finally_(lambda: tracker.append('done'))
       .run()
     )
@@ -414,7 +414,7 @@ class TestReturnValueTypePreservation(unittest.TestCase):
 
   def test_if_passthrough_preserves_type(self):
     p = Point(3, 4)
-    result = Chain(p).if_(lambda v: False, lambda v: 'replaced').run()
+    result = Chain(p).if_(lambda v: False, then=lambda v: 'replaced').run()
     self.assertIs(result, p)
 
   def test_then_identity_preserves(self):
@@ -518,22 +518,22 @@ class TestExceptionPropagation(unittest.TestCase):
     def bad_pred(v):
       raise RuntimeError('pred err')
     with self.assertRaises(RuntimeError):
-      Chain(5).if_(bad_pred, lambda v: v).run()
+      Chain(5).if_(bad_pred, then=lambda v: v).run()
 
   def test_exception_in_if_fn(self):
     def bad_fn(v):
       raise RuntimeError('if fn err')
     with self.assertRaises(RuntimeError):
-      Chain(5).if_(lambda v: True, bad_fn).run()
+      Chain(5).if_(lambda v: True, then=bad_fn).run()
 
   def test_exception_in_else_fn(self):
     def bad_fn(v):
       raise RuntimeError('else fn err')
     with self.assertRaises(RuntimeError):
-      Chain(5).if_(lambda v: False, lambda v: v).else_(bad_fn).run()
+      Chain(5).if_(lambda v: False, then=lambda v: v).else_(bad_fn).run()
 
   def test_except_handler_double_fault(self):
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('handler err')
     with self.assertRaises(RuntimeError) as ctx:
       Chain(lambda: (_ for _ in ()).throw(ValueError('orig'))).except_(bad_handler).run()
@@ -548,7 +548,7 @@ class TestExceptionPropagation(unittest.TestCase):
   def test_except_receives_correct_type(self):
     received = []
 
-    def handler(exc):
+    def handler(rv, exc):
       received.append(type(exc))
       return 'handled'
 
@@ -564,13 +564,13 @@ class TestExceptionPropagation(unittest.TestCase):
     with self.assertRaises(TypeError):
       (
         Chain(lambda: (_ for _ in ()).throw(TypeError('test')))
-        .except_(lambda e: 'handled', exceptions=ValueError)
+        .except_(lambda rv, e: 'handled', exceptions=ValueError)
         .run()
       )
 
   def test_context_chain_preserved(self):
     """__cause__ is set on double faults."""
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('double fault')
     try:
       Chain(lambda: (_ for _ in ()).throw(ValueError('orig'))).except_(bad_handler).run()
@@ -594,12 +594,12 @@ class TestExceptionPropagation(unittest.TestCase):
     def raise_base():
       raise KeyboardInterrupt()
     with self.assertRaises(KeyboardInterrupt):
-      Chain(raise_base).except_(lambda e: 'handled').run()
+      Chain(raise_base).except_(lambda rv, e: 'handled').run()
 
   def test_base_exception_caught_when_specified(self):
     result = (
       Chain(lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
-      .except_(lambda e: 'handled', exceptions=KeyboardInterrupt)
+      .except_(lambda rv, e: 'handled', exceptions=KeyboardInterrupt)
       .run()
     )
     self.assertEqual(result, 'handled')
@@ -646,7 +646,7 @@ class TestExceptionPropagationAsync(unittest.IsolatedAsyncioTestCase):
     result = await (
       Chain(5)
       .then(bad)
-      .except_(lambda e: 'recovered')
+      .except_(lambda rv, e: 'recovered')
       .run()
     )
     self.assertEqual(result, 'recovered')
@@ -677,12 +677,12 @@ class TestNestedChainDepth(unittest.TestCase):
 
   def test_nested_chain_with_if(self):
     inner = Chain().then(lambda v: v * 10)
-    result = Chain(5).if_(lambda v: v > 3, inner).run()
+    result = Chain(5).if_(lambda v: v > 3, then=inner).run()
     self.assertEqual(result, 50)
 
   def test_nested_chain_with_if_false(self):
     inner = Chain().then(lambda v: v * 10)
-    result = Chain(5).if_(lambda v: v > 10, inner).run()
+    result = Chain(5).if_(lambda v: v > 10, then=inner).run()
     self.assertEqual(result, 5)
 
   def test_nested_chain_with_except(self):
@@ -724,7 +724,7 @@ class TestNestedChainDepth(unittest.TestCase):
     inner_false = Chain().then(lambda v: 'small')
     result = (
       Chain(3)
-      .if_(lambda v: v > 5, inner_true)
+      .if_(lambda v: v > 5, then=inner_true)
       .else_(inner_false)
       .run()
     )
@@ -787,7 +787,7 @@ class TestConcurrentFrozenChain(unittest.TestCase):
   def test_frozen_with_if_concurrent(self):
     fc = (
       Chain()
-      .if_(lambda v: v > 5, lambda v: v * 10)
+      .if_(lambda v: v > 5, then=lambda v: v * 10)
       .else_(lambda v: v * -1)
       .freeze()
     )
@@ -1165,7 +1165,7 @@ class TestChainMiscEdgeCases(unittest.TestCase):
 
   def test_double_except_raises(self):
     with self.assertRaises(QuentException):
-      Chain().except_(lambda e: e).except_(lambda e: e)
+      Chain().except_(lambda rv, e: e).except_(lambda rv, e: e)
 
   def test_double_finally_raises(self):
     with self.assertRaises(QuentException):
@@ -1215,7 +1215,7 @@ class TestChainMiscEdgeCases(unittest.TestCase):
     from quent._core import Null as NullSentinel
     result = (
       Chain(lambda: (_ for _ in ()).throw(ValueError('test')))
-      .except_(lambda e: NullSentinel)
+      .except_(lambda rv, e: NullSentinel)
       .run()
     )
     self.assertIsNone(result)
@@ -1230,7 +1230,7 @@ class TestChainMiscEdgeCases(unittest.TestCase):
 
   def test_chain_except_returns_self(self):
     c = Chain()
-    self.assertIs(c.except_(lambda e: e), c)
+    self.assertIs(c.except_(lambda rv, e: e), c)
 
   def test_chain_finally_returns_self(self):
     c = Chain()
@@ -1325,13 +1325,13 @@ class TestIfElseEdgeCases(unittest.TestCase):
   """Edge cases for if_/else_ chains."""
 
   def test_if_with_none_value(self):
-    result = Chain(None).if_(lambda v: v is None, lambda v: 'was_none').run()
+    result = Chain(None).if_(lambda v: v is None, then=lambda v: 'was_none').run()
     self.assertEqual(result, 'was_none')
 
   def test_if_else_chain(self):
     result = (
       Chain(3)
-      .if_(lambda v: v > 5, lambda v: 'big')
+      .if_(lambda v: v > 5, then=lambda v: 'big')
       .else_(lambda v: 'small')
       .run()
     )
@@ -1340,7 +1340,7 @@ class TestIfElseEdgeCases(unittest.TestCase):
   def test_if_else_true_branch(self):
     result = (
       Chain(10)
-      .if_(lambda v: v > 5, lambda v: 'big')
+      .if_(lambda v: v > 5, then=lambda v: 'big')
       .else_(lambda v: 'small')
       .run()
     )
@@ -1349,20 +1349,20 @@ class TestIfElseEdgeCases(unittest.TestCase):
   def test_chained_if_else(self):
     result = (
       Chain(5)
-      .if_(lambda v: v > 10, lambda v: 'very_big')
+      .if_(lambda v: v > 10, then=lambda v: 'very_big')
       .else_(lambda v: v)
-      .if_(lambda v: v > 3, lambda v: 'medium')
+      .if_(lambda v: v > 3, then=lambda v: 'medium')
       .else_(lambda v: 'small')
       .run()
     )
     self.assertEqual(result, 'medium')
 
   def test_if_with_plain_value_fn(self):
-    result = Chain(10).if_(lambda v: v > 5, 42).run()
+    result = Chain(10).if_(lambda v: v > 5, then=42).run()
     self.assertEqual(result, 42)
 
   def test_if_false_plain_value_passthrough(self):
-    result = Chain(3).if_(lambda v: v > 5, 42).run()
+    result = Chain(3).if_(lambda v: v > 5, then=42).run()
     self.assertEqual(result, 3)
 
 
@@ -1601,7 +1601,7 @@ class TestFinallyHandlerVariations(unittest.TestCase):
     order = []
     result = (
       Chain(lambda: (_ for _ in ()).throw(ValueError('err')))
-      .except_(lambda e: (order.append('except'), 'handled')[1])
+      .except_(lambda rv, e: (order.append('except'), 'handled')[1])
       .finally_(lambda: order.append('finally'), ...)
       .run()
     )
@@ -1615,7 +1615,7 @@ class TestExceptHandlerVariations(unittest.TestCase):
   def test_except_with_multiple_exception_types(self):
     result = (
       Chain(lambda: (_ for _ in ()).throw(TypeError('err')))
-      .except_(lambda e: 'handled', exceptions=[ValueError, TypeError])
+      .except_(lambda rv, e: 'handled', exceptions=[ValueError, TypeError])
       .run()
     )
     self.assertEqual(result, 'handled')
@@ -1623,7 +1623,7 @@ class TestExceptHandlerVariations(unittest.TestCase):
   def test_except_with_parent_exception_type(self):
     result = (
       Chain(lambda: (_ for _ in ()).throw(ValueError('err')))
-      .except_(lambda e: 'handled', exceptions=Exception)
+      .except_(lambda rv, e: 'handled', exceptions=Exception)
       .run()
     )
     self.assertEqual(result, 'handled')
@@ -1631,7 +1631,7 @@ class TestExceptHandlerVariations(unittest.TestCase):
   def test_except_handler_receives_exception_object(self):
     received = []
 
-    def handler(exc):
+    def handler(rv, exc):
       received.append(exc)
       return 'ok'
 
@@ -1642,15 +1642,15 @@ class TestExceptHandlerVariations(unittest.TestCase):
 
   def test_except_with_empty_exceptions_raises(self):
     with self.assertRaises(QuentException):
-      Chain().except_(lambda e: e, exceptions=[])
+      Chain().except_(lambda rv, e: e, exceptions=[])
 
   def test_except_with_string_exceptions_raises(self):
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions='ValueError')
+      Chain().except_(lambda rv, e: e, exceptions='ValueError')
 
   def test_except_with_non_exception_type_raises(self):
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions=int)
+      Chain().except_(lambda rv, e: e, exceptions=int)
 
 
 if __name__ == '__main__':

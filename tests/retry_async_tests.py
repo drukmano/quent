@@ -442,7 +442,7 @@ class TestPureAsyncRetry(IsolatedAsyncioTestCase):
     result = await (
       Chain(fn)
       .retry(3, on=ValueError)
-      .except_(lambda exc: handler_calls.append(str(exc)) or 'handled')
+      .except_(lambda rv, exc: handler_calls.append(str(exc)) or 'handled')
       .run()
     )
     self.assertEqual(result, 'handled')
@@ -667,7 +667,7 @@ class TestSyncToAsyncTransitionRetry(IsolatedAsyncioTestCase):
       Chain(sync_root)
       .then(fn)
       .retry(3, on=ValueError)
-      .except_(lambda exc: handler_result.append(str(exc)) or 'handled')
+      .except_(lambda rv, exc: handler_result.append(str(exc)) or 'handled')
       .run()
     )
     self.assertEqual(result, 'handled')
@@ -1173,7 +1173,7 @@ class TestRetryEdgeCases(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(5)
-      .if_(check, lambda x: x * 10)
+      .if_(check, then=lambda x: x * 10)
       .retry(3, on=ValueError)
       .run()
     )

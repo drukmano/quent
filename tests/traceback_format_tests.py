@@ -297,7 +297,7 @@ class TestFrameCleaning(unittest.TestCase):
     self.assertNotIn('_ops.py', tb_str)
 
   def test_clean_chained_cause(self):
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler error') from exc
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(handler).run())
@@ -305,7 +305,7 @@ class TestFrameCleaning(unittest.TestCase):
     self.assertNotIn('_core.py', tb_str)
 
   def test_clean_chained_context(self):
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler error')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(handler).run())
@@ -598,7 +598,7 @@ class TestEndToEndAsync(unittest.IsolatedAsyncioTestCase):
     _assert_no_internal_frames(self, tb_str)
 
   async def test_async_except_handler_fails(self):
-    async def bad_handler(exc):
+    async def bad_handler(rv, exc):
       raise RuntimeError('handler failed')
 
     tb_str = await _capture_tb_async(Chain(async_raise_fn).except_(bad_handler).run())
@@ -721,7 +721,7 @@ class TestArrowPrecision(unittest.TestCase):
     _assert_arrow_on(self, tb_str, 'raise_fn')
 
   def test_arrow_on_except_handler(self):
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('handler failed')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(bad_handler).run())
@@ -760,7 +760,7 @@ class TestArrowPrecision(unittest.TestCase):
     _assert_arrow_on(self, tb_str, 'map')
 
   def test_chained_exc_both_have_arrows(self):
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('handler fail')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(bad_handler).run())
@@ -823,11 +823,11 @@ class TestChainedExceptions(unittest.TestCase):
   """Tests for chained exception traceback formatting (except_/finally_ handlers)."""
 
   def test_except_catches_no_traceback(self):
-    result = Chain(raise_fn).except_(lambda exc: 'caught').run()
+    result = Chain(raise_fn).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_except_raises_shows_both(self):
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('handler error') from exc
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(bad_handler).run())
@@ -838,7 +838,7 @@ class TestChainedExceptions(unittest.TestCase):
   def test_except_shows_original_exc(self):
     """except_ handler shows caught exception in chain visualization."""
 
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('handler error')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(bad_handler).run())
@@ -882,7 +882,7 @@ class TestChainedExceptions(unittest.TestCase):
     tracker = []
     result = (
       Chain(raise_fn)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda rv=None: tracker.append('finally_ran'))
       .run()
     )
@@ -899,7 +899,7 @@ class TestChainedExceptionsAsync(unittest.IsolatedAsyncioTestCase):
   """Async counterparts for chained exception tests."""
 
   async def test_async_except_raises_chained(self):
-    async def bad_handler(exc):
+    async def bad_handler(rv, exc):
       raise RuntimeError('async handler error') from exc
 
     tb_str = await _capture_tb_async(Chain(async_raise_fn).except_(bad_handler).run())
@@ -1226,14 +1226,14 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
 
   def test_except_shows_exc_type_and_message(self):
     """except_ handler shows the caught exception with type and message."""
-    def handler(exc): raise RuntimeError('handler fail')
+    def handler(rv, exc): raise RuntimeError('handler fail')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(handler).run())
     self.assertIn("exc=ValueError('test error')", tb_str)
 
   def test_except_exc_on_arrow_line(self):
     """The exc= info appears on the <---- line for except_."""
-    def handler(exc): raise RuntimeError('handler fail')
+    def handler(rv, exc): raise RuntimeError('handler fail')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(handler).run())
     # exc= appears on the second <---- line (the handler's chain viz)
@@ -1244,7 +1244,7 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
   def test_except_runtime_error_type(self):
     """except_ correctly shows RuntimeError when that's what was caught."""
     def fn(x): raise RuntimeError('rt error')
-    def handler(exc): raise TypeError('handler fail')
+    def handler(rv, exc): raise TypeError('handler fail')
 
     tb_str = _capture_tb(lambda: Chain(1).then(fn).except_(handler).run())
     self.assertIn("exc=RuntimeError('rt error')", tb_str)
@@ -1321,7 +1321,7 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
 
   def test_no_internal_frames_with_exc(self):
     """Internal frames still stripped when except_ shows exc."""
-    def handler(exc): raise RuntimeError('fail')
+    def handler(rv, exc): raise RuntimeError('fail')
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(handler).run())
     # The second traceback section (for RuntimeError) should be clean
@@ -1426,7 +1426,7 @@ class TestRuntimeValueAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_except_shows_exc(self):
     """except_ shows caught exception in async chain (sync handler)."""
-    def bad_handler(exc): raise RuntimeError('handler fail')
+    def bad_handler(rv, exc): raise RuntimeError('handler fail')
 
     tb_str = await _capture_tb_async(Chain(async_raise_fn).except_(bad_handler).run())
     self.assertIn("exc=ValueError('test error')", tb_str)
@@ -1563,7 +1563,7 @@ class TestEdgeCases(unittest.TestCase):
     _assert_chain_contains(self, tb_str, 'Chain(raise_fn) <----')
 
   def test_frozen_with_except_catches(self):
-    frozen = Chain().then(raise_fn).except_(lambda exc: 'caught').freeze()
+    frozen = Chain().then(raise_fn).except_(lambda rv, exc: 'caught').freeze()
     result = frozen(1)
     self.assertEqual(result, 'caught')
 
@@ -1829,13 +1829,13 @@ class TestControlFlowTraceback(unittest.TestCase):
 
   def test_except_non_matching_type(self):
     tb_str = _capture_tb(
-      lambda: Chain(1).then(lambda x: 1 / 0).except_(lambda e: 'caught', exceptions=TypeError).run()
+      lambda: Chain(1).then(lambda x: 1 / 0).except_(lambda rv, e: 'caught', exceptions=TypeError).run()
     )
     self.assertIsNotNone(tb_str)
     self.assertIn('ZeroDivisionError', tb_str)
 
   def test_nested_inner_except_catches(self):
-    inner = Chain().then(raise_fn).except_(lambda exc: 'inner_caught')
+    inner = Chain().then(raise_fn).except_(lambda rv, exc: 'inner_caught')
     result = Chain(1).then(inner).then(lambda x: f'outer got: {x}').run()
     self.assertEqual(result, 'outer got: inner_caught')
 

@@ -96,7 +96,7 @@ class TestFreezeWithAllOperations(unittest.TestCase):
       self.assertEqual(result, 'ctx_value_used')
 
   def test_frozen_with_except(self):
-    frozen = Chain(10).then(lambda x: 1 / 0).except_(lambda e: 'caught').freeze()
+    frozen = Chain(10).then(lambda x: 1 / 0).except_(lambda rv, e: 'caught').freeze()
     with self.subTest(msg='except handler'):
       self.assertEqual(frozen.run(), 'caught')
 
@@ -246,7 +246,7 @@ class TestFreezeAsync(unittest.IsolatedAsyncioTestCase):
     async def fail(x):
       raise ValueError('async boom')
 
-    frozen = Chain().then(fail).except_(lambda e: 'caught_async').freeze()
+    frozen = Chain().then(fail).except_(lambda rv, e: 'caught_async').freeze()
     result = await frozen.run(1)
     self.assertEqual(result, 'caught_async')
 

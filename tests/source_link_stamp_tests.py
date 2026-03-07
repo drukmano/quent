@@ -98,7 +98,7 @@ class TestSourceLinkStampSync(unittest.TestCase):
 
   def test_stamp_survives_through_except_handler(self):
     """When except_ catches and re-raises, the stamp from the original link persists."""
-    def reraise(exc):
+    def reraise(rv, exc):
       raise exc
 
     try:
@@ -109,7 +109,7 @@ class TestSourceLinkStampSync(unittest.TestCase):
 
   def test_except_handler_new_exception_gets_own_stamp(self):
     """When except_ handler raises a NEW exception, that gets its own stamp."""
-    def handler_raises(exc):
+    def handler_raises(rv, exc):
       raise RuntimeError('handler error') from exc
 
     try:
@@ -142,12 +142,12 @@ class TestSourceLinkStampSync(unittest.TestCase):
 
   def test_stamp_with_multiple_except_in_nested(self):
     """Nested chains with separate except_ handlers: stamp from inner survives."""
-    inner = Chain().then(_raise_value_error).except_(lambda e: (_ for _ in ()).throw(e))
+    inner = Chain().then(_raise_value_error).except_(lambda rv, e: (_ for _ in ()).throw(e))
     # The inner except_ re-raises via generator trick won't work, use direct re-raise:
     inner2 = Chain().then(_raise_value_error)
 
     try:
-      Chain(5).then(inner2).except_(lambda e: 'outer_caught').run()
+      Chain(5).then(inner2).except_(lambda rv, e: 'outer_caught').run()
     except Exception:
       self.fail('Should not propagate — outer except_ catches it')
 
@@ -277,7 +277,7 @@ class TestSourceLinkStampAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_except_handler_reraise(self):
     """Async except_ handler that re-raises preserves the stamp."""
-    async def reraise(exc):
+    async def reraise(rv, exc):
       raise exc
 
     try:
@@ -295,7 +295,7 @@ class TestSourceLinkStampAsync(unittest.IsolatedAsyncioTestCase):
     where the raise happens inside _except_handler_body's except clause).
     So the new exception does NOT get __quent__ stamped.
     """
-    async def handler_raises(exc):
+    async def handler_raises(rv, exc):
       raise RuntimeError('async handler error') from exc
 
     try:

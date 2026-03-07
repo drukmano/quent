@@ -371,7 +371,7 @@ class TestGatherWithChainOps(IsolatedAsyncioTestCase):
     result = (
       Chain(5)
       .gather(lambda x: 1 / 0)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -381,7 +381,7 @@ class TestGatherWithChainOps(IsolatedAsyncioTestCase):
     result = await (
       Chain(5)
       .gather(async_raise_fn)
-      .except_(lambda exc: 'async_caught')
+      .except_(lambda rv, exc: 'async_caught')
       .run()
     )
     self.assertEqual(result, 'async_caught')

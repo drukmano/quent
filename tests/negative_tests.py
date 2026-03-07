@@ -21,7 +21,7 @@ class TestDoubleRegistration(unittest.TestCase):
 
   def test_double_except_raises(self):
     with self.assertRaises(QuentException):
-      Chain(5).except_(lambda e: e).except_(lambda e: e)
+      Chain(5).except_(lambda rv, e: e).except_(lambda rv, e: e)
 
   def test_double_finally_raises(self):
     with self.assertRaises(QuentException):
@@ -29,7 +29,7 @@ class TestDoubleRegistration(unittest.TestCase):
 
   def test_except_message(self):
     with self.assertRaises(QuentException) as ctx:
-      Chain(5).except_(lambda e: e).except_(lambda e: e)
+      Chain(5).except_(lambda rv, e: e).except_(lambda rv, e: e)
     self.assertIn('one', str(ctx.exception).lower())
 
   def test_finally_message(self):
@@ -113,13 +113,13 @@ class TestControlFlowInHandlers(unittest.TestCase):
   """Control flow signals in except/finally handlers are forbidden."""
 
   def test_return_in_except(self):
-    c = Chain(lambda: 1 / 0).except_(lambda exc: Chain.return_(99))
+    c = Chain(lambda: 1 / 0).except_(lambda rv, exc: Chain.return_(99))
     with self.assertRaises(QuentException) as ctx:
       c.run()
     self.assertIn('except', str(ctx.exception).lower())
 
   def test_break_in_except(self):
-    c = Chain(lambda: 1 / 0).except_(lambda exc: Chain.break_())
+    c = Chain(lambda: 1 / 0).except_(lambda rv, exc: Chain.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
     self.assertIn('except', str(ctx.exception).lower())
@@ -180,7 +180,7 @@ class TestEmptyChainEdgeCases(unittest.TestCase):
 
   def test_chain_only_except(self):
     handler_called = []
-    result = Chain().except_(lambda exc: handler_called.append(exc)).run()
+    result = Chain().except_(lambda rv, exc: handler_called.append(exc)).run()
     # No error raised, handler not called, result is None
     self.assertIsNone(result)
     self.assertEqual(handler_called, [])
@@ -481,19 +481,19 @@ class TestExceptRegistrationEdgeCases(unittest.TestCase):
 
   def test_except_with_empty_list_raises(self):
     with self.assertRaises(QuentException):
-      Chain().except_(lambda e: e, exceptions=[])
+      Chain().except_(lambda rv, e: e, exceptions=[])
 
   def test_except_with_string_raises(self):
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions='ValueError')
+      Chain().except_(lambda rv, e: e, exceptions='ValueError')
 
   def test_except_with_non_exception_type_raises(self):
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions=[int])
+      Chain().except_(lambda rv, e: e, exceptions=[int])
 
   def test_except_with_int_as_exception_raises(self):
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions=42)
+      Chain().except_(lambda rv, e: e, exceptions=42)
 
 
 class TestControlFlowInAsyncHandlers(IsolatedAsyncioTestCase):
@@ -503,7 +503,7 @@ class TestControlFlowInAsyncHandlers(IsolatedAsyncioTestCase):
     async def async_step(x):
       raise ValueError('boom')
 
-    c = Chain(5).then(async_step).except_(lambda exc: Chain.return_(99))
+    c = Chain(5).then(async_step).except_(lambda rv, exc: Chain.return_(99))
     with self.assertRaises(QuentException):
       await c.run()
 
@@ -563,7 +563,7 @@ class TestEmptyChainWithHandlersOnly(unittest.TestCase):
 
   def test_except_only_no_error(self):
     tracker = []
-    result = Chain().except_(lambda exc: tracker.append('called')).run()
+    result = Chain().except_(lambda rv, exc: tracker.append('called')).run()
     self.assertIsNone(result)
     self.assertEqual(tracker, [])
 

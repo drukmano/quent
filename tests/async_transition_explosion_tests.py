@@ -446,43 +446,43 @@ class TestIfTransition(IsolatedAsyncioTestCase):
 
   async def test_async_predicate_sync_fn(self):
     """Async predicate, sync fn."""
-    result = await Chain(5).if_(async_truthy, sync_double).run()
+    result = await Chain(5).if_(async_truthy, then=sync_double).run()
     self.assertEqual(result, 10)
 
   async def test_sync_predicate_async_fn(self):
     """Sync predicate, async fn."""
-    result = await Chain(5).if_(sync_truthy, async_double).run()
+    result = await Chain(5).if_(sync_truthy, then=async_double).run()
     self.assertEqual(result, 10)
 
   async def test_async_predicate_async_fn(self):
     """Both predicate and fn are async."""
-    result = await Chain(5).if_(async_truthy, async_double).run()
+    result = await Chain(5).if_(async_truthy, then=async_double).run()
     self.assertEqual(result, 10)
 
   async def test_async_predicate_falsy_passthrough(self):
     """Async predicate returns falsy -> no fn evaluation, value passes through."""
-    result = await Chain(5).if_(async_falsy, sync_double).run()
+    result = await Chain(5).if_(async_falsy, then=sync_double).run()
     self.assertEqual(result, 5)
 
   async def test_async_else_fn(self):
     """Sync predicate falsy -> async else_ fn."""
-    result = await Chain(5).if_(sync_falsy, sync_double).else_(async_add1).run()
+    result = await Chain(5).if_(sync_falsy, then=sync_double).else_(async_add1).run()
     self.assertEqual(result, 6)
 
   async def test_sync_pred_sync_fn_then_async_next_step(self):
     """Sync if_ followed by async next step."""
-    result = await Chain(5).if_(sync_truthy, sync_double).then(async_add1).run()
+    result = await Chain(5).if_(sync_truthy, then=sync_double).then(async_add1).run()
     # 5 -> 10 -> 11
     self.assertEqual(result, 11)
 
   async def test_if_is_last_step_returns_awaitable(self):
     """if_ is the last step and its fn returns an awaitable."""
-    result = await Chain(3).if_(sync_truthy, async_double).run()
+    result = await Chain(3).if_(sync_truthy, then=async_double).run()
     self.assertEqual(result, 6)
 
   async def test_if_is_first_step_returns_awaitable(self):
     """if_ is the first step (no root) and returns an awaitable."""
-    result = await Chain(7).if_(sync_truthy, async_add1).run()
+    result = await Chain(7).if_(sync_truthy, then=async_add1).run()
     self.assertEqual(result, 8)
 
 
@@ -522,7 +522,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     result = await (
       Chain([1, 2, 3, 4])
       .filter(sync_is_even)
-      .if_(async_truthy, sync_identity)
+      .if_(async_truthy, then=sync_identity)
       .then(len)
       .run()
     )
@@ -630,7 +630,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
       .then(sync_identity)  # 5
       .then(make_range)  # [0,1,2,3,4]
       .map(sync_double)  # [0,2,4,6,8]
-      .if_(sync_truthy, sync_identity)
+      .if_(sync_truthy, then=sync_identity)
       .run()
     )
     self.assertEqual(result, [0, 2, 4, 6, 8])
@@ -656,7 +656,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     """if_(async pred) -> gather(mixed sync/async)."""
     result = await (
       Chain(5)
-      .if_(async_truthy, sync_identity)
+      .if_(async_truthy, then=sync_identity)
       .gather(sync_add1, async_double)
       .run()
     )
@@ -680,7 +680,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     result = await (
       Chain(cm)
       .with_(sync_identity)
-      .if_(sync_truthy, sync_identity)
+      .if_(sync_truthy, then=sync_identity)
       .map(sync_double)
       .run()
     )
@@ -741,7 +741,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     """if_(falsy) -> else_(async) -> then(sync) -> then(sync)."""
     result = await (
       Chain(5)
-      .if_(sync_falsy, sync_double).else_(async_add1)
+      .if_(sync_falsy, then=sync_double).else_(async_add1)
       .then(sync_double)
       .then(sync_add1)
       .run()
@@ -756,7 +756,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
       Chain(cm)
       .with_(async_identity)
       .then(sync_double)       # 20
-      .if_(sync_truthy, sync_identity)
+      .if_(sync_truthy, then=sync_identity)
       .gather(sync_add1, async_double)
       .run()
     )
@@ -785,7 +785,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
     result = await (
       Chain(1)
       .then(async_raise_value_error)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -796,7 +796,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
       Chain(1)
       .then(async_add1)
       .then(sync_raise_value_error)
-      .except_(lambda e: 'caught_after')
+      .except_(lambda rv, e: 'caught_after')
       .run()
     )
     self.assertEqual(result, 'caught_after')
@@ -855,7 +855,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
     async def bad_pred(x):
       raise RuntimeError('pred error')
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(5).if_(bad_pred, sync_double).run()
+      await Chain(5).if_(bad_pred, then=sync_double).run()
     self.assertIn('pred error', str(ctx.exception))
 
   async def test_exception_in_async_else_fn(self):
@@ -863,7 +863,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
     async def bad_else(x):
       raise RuntimeError('else error')
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(5).if_(sync_falsy, sync_double).else_(bad_else).run()
+      await Chain(5).if_(sync_falsy, then=sync_double).else_(bad_else).run()
     self.assertIn('else error', str(ctx.exception))
 
   async def test_exception_in_async_map_fn(self):
@@ -902,7 +902,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
     result = await (
       Chain(1)
       .then(async_raise_value_error)
-      .except_(lambda e: 'caught_value', exceptions=ValueError)
+      .except_(lambda rv, e: 'caught_value', exceptions=ValueError)
       .run()
     )
     self.assertEqual(result, 'caught_value')
@@ -923,7 +923,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
     result = await (
       Chain(1)
       .then(async_raise_value_error)
-      .except_(lambda e: (tracker.append('except'), 'recovered')[1])
+      .except_(lambda rv, e: (tracker.append('except'), 'recovered')[1])
       .finally_(lambda x: tracker.append('finally'))
       .run()
     )
@@ -977,7 +977,7 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
   async def test_nested_chain_in_if_fn_with_async_step(self):
     """Nested chain used as if_ fn with async step."""
     inner = Chain().then(async_double)
-    result = await Chain(5).if_(sync_truthy, inner).run()
+    result = await Chain(5).if_(sync_truthy, then=inner).run()
     self.assertEqual(result, 10)
 
   async def test_nested_chain_in_map_fn_with_async_step(self):
@@ -1007,7 +1007,7 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
     result = await (
       Chain(1)
       .then(inner)
-      .except_(lambda e: 'outer_caught')
+      .except_(lambda rv, e: 'outer_caught')
       .run()
     )
     self.assertEqual(result, 'outer_caught')
@@ -1015,7 +1015,7 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
   async def test_nested_chain_in_else_branch(self):
     """Nested chain used in else_ branch with async step."""
     inner = Chain().then(async_double)
-    result = await Chain(5).if_(sync_falsy, sync_identity).else_(inner).run()
+    result = await Chain(5).if_(sync_falsy, then=sync_identity).else_(inner).run()
     self.assertEqual(result, 10)
 
   async def test_outer_sync_inner_frozen_async_then_more_sync(self):
@@ -1162,21 +1162,21 @@ class TestEdgeCaseTransitions(IsolatedAsyncioTestCase):
     """if_ with async predicate that returns truthy, sync fn body."""
     async def is_positive(x):
       return x > 0
-    result = await Chain(5).if_(is_positive, sync_double).run()
+    result = await Chain(5).if_(is_positive, then=sync_double).run()
     self.assertEqual(result, 10)
 
   async def test_if_async_pred_falsy_with_else(self):
     """if_ with async predicate falsy -> else_ (sync)."""
     async def is_negative(x):
       return x < 0
-    result = await Chain(5).if_(is_negative, sync_double).else_(sync_add1).run()
+    result = await Chain(5).if_(is_negative, then=sync_double).else_(sync_add1).run()
     self.assertEqual(result, 6)
 
   async def test_if_async_pred_falsy_async_else(self):
     """if_ with async predicate falsy -> async else_."""
     async def is_negative(x):
       return x < 0
-    result = await Chain(5).if_(is_negative, sync_double).else_(async_add1).run()
+    result = await Chain(5).if_(is_negative, then=sync_double).else_(async_add1).run()
     self.assertEqual(result, 6)
 
   async def test_map_break_with_value(self):
@@ -1249,7 +1249,7 @@ class TestEdgeCaseTransitions(IsolatedAsyncioTestCase):
 
   async def test_if_async_fn_body_result_replaces_value(self):
     """if_ with async fn body: result replaces current value."""
-    result = await Chain(5).if_(sync_truthy, async_double).then(sync_add1).run()
+    result = await Chain(5).if_(sync_truthy, then=async_double).then(sync_add1).run()
     # 5 -> async_double -> 10 -> 11
     self.assertEqual(result, 11)
 
@@ -1365,7 +1365,7 @@ class TestTransitionWithExceptAndFinally(IsolatedAsyncioTestCase):
 
   async def test_async_except_handler(self):
     """Async except_ handler fn."""
-    async def async_handler(e):
+    async def async_handler(rv, e):
       return 'async_caught'
     result = await (
       Chain(1)
@@ -1395,7 +1395,7 @@ class TestTransitionWithExceptAndFinally(IsolatedAsyncioTestCase):
       Chain(1)
       .then(sync_add1)
       .then(async_raise_value_error)
-      .except_(lambda e: f'caught: {e}')
+      .except_(lambda rv, e: f'caught: {e}')
       .run()
     )
     self.assertEqual(result, 'caught: async value error')

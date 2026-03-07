@@ -148,7 +148,7 @@ class TestDecoratorWithAllOperations(unittest.TestCase):
     self.assertEqual(result, 'ctx_value_used')
 
   def test_decorator_with_except(self):
-    @Chain().then(lambda x: 1 / 0).except_(lambda e: 'handled').decorator()
+    @Chain().then(lambda x: 1 / 0).except_(lambda rv, e: 'handled').decorator()
     def fn(n):
       return n
 

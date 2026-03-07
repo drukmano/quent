@@ -70,18 +70,18 @@ class TestThenPairs(unittest.TestCase):
     self.assertEqual(result, 'tracked_ctx_used')
 
   def test_then_if_true(self):
-    result = Chain(5).then(lambda x: x + 1).if_(lambda x: x > 3, lambda x: x * 10).run()
+    result = Chain(5).then(lambda x: x + 1).if_(lambda x: x > 3, then=lambda x: x * 10).run()
     self.assertEqual(result, 60)
 
   def test_then_if_false(self):
-    result = Chain(5).then(lambda x: x + 1).if_(lambda x: x > 100, lambda x: x * 10).run()
+    result = Chain(5).then(lambda x: x + 1).if_(lambda x: x > 100, then=lambda x: x * 10).run()
     self.assertEqual(result, 6)
 
   def test_then_if_else_true(self):
     result = (
       Chain(5)
       .then(lambda x: x + 1)
-      .if_(lambda x: x > 3, lambda x: 'big')
+      .if_(lambda x: x > 3, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .run()
     )
@@ -91,7 +91,7 @@ class TestThenPairs(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: x + 1)
-      .if_(lambda x: x > 100, lambda x: 'big')
+      .if_(lambda x: x > 100, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .run()
     )
@@ -101,7 +101,7 @@ class TestThenPairs(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: (_ for _ in ()).throw(ValueError('oops')))
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -109,7 +109,7 @@ class TestThenPairs(unittest.TestCase):
   def test_then_except_with_error(self):
     def raiser(x):
       raise ValueError('boom')
-    result = Chain(5).then(raiser).except_(lambda exc: 'handled').run()
+    result = Chain(5).then(raiser).except_(lambda rv, exc: 'handled').run()
     self.assertEqual(result, 'handled')
 
   def test_then_finally(self):
@@ -190,7 +190,7 @@ class TestDoPairs(unittest.TestCase):
     result = (
       Chain(5)
       .do(lambda x: tracker.append(x))
-      .if_(lambda x: x > 3, lambda x: x * 10)
+      .if_(lambda x: x > 3, then=lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, 50)
@@ -212,7 +212,7 @@ class TestDoPairs(unittest.TestCase):
     def raiser(x):
       tracker.append('do_ran')
       raise ValueError('boom')
-    result = Chain(5).do(raiser).except_(lambda exc: 'caught').run()
+    result = Chain(5).do(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
     self.assertEqual(tracker, ['do_ran'])
 
@@ -279,7 +279,7 @@ class TestMapPairs(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(lambda x: x * 2)
-      .if_(lambda x: len(x) > 2, lambda x: x[:2])
+      .if_(lambda x: len(x) > 2, then=lambda x: x[:2])
       .run()
     )
     self.assertEqual(result, [2, 4])
@@ -288,7 +288,7 @@ class TestMapPairs(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(lambda x: x * 2)
-      .if_(lambda x: len(x) > 100, lambda x: [])
+      .if_(lambda x: len(x) > 100, then=lambda x: [])
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
@@ -301,7 +301,7 @@ class TestMapPairs(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -357,7 +357,7 @@ class TestFilterPairs(unittest.TestCase):
     result = (
       Chain([1, 2, 3, 4, 5])
       .filter(lambda x: x > 3)
-      .if_(lambda x: len(x) > 0, lambda x: x[0])
+      .if_(lambda x: len(x) > 0, then=lambda x: x[0])
       .run()
     )
     self.assertEqual(result, 4)
@@ -366,7 +366,7 @@ class TestFilterPairs(unittest.TestCase):
     result = (
       Chain([1, 2, 3, 4, 5])
       .filter(lambda x: x > 3)
-      .if_(lambda x: len(x) > 100, lambda x: [])
+      .if_(lambda x: len(x) > 100, then=lambda x: [])
       .run()
     )
     self.assertEqual(result, [4, 5])
@@ -374,7 +374,7 @@ class TestFilterPairs(unittest.TestCase):
   def test_filter_except(self):
     def raiser(x):
       raise ValueError('bad filter')
-    result = Chain([1, 2]).filter(raiser).except_(lambda exc: 'caught').run()
+    result = Chain([1, 2]).filter(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
 
@@ -424,7 +424,7 @@ class TestGatherPairs(unittest.TestCase):
     result = (
       Chain(5)
       .gather(lambda x: x + 1, lambda x: x + 2)
-      .if_(lambda x: len(x) == 2, lambda x: x[0] + x[1])
+      .if_(lambda x: len(x) == 2, then=lambda x: x[0] + x[1])
       .run()
     )
     self.assertEqual(result, 13)
@@ -433,7 +433,7 @@ class TestGatherPairs(unittest.TestCase):
     result = (
       Chain(5)
       .gather(lambda x: x + 1, lambda x: x + 2)
-      .if_(lambda x: len(x) > 100, lambda x: 999)
+      .if_(lambda x: len(x) > 100, then=lambda x: 999)
       .run()
     )
     self.assertEqual(result, [6, 7])
@@ -479,7 +479,7 @@ class TestWithPairs(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: ctx + '_body')
-      .if_(lambda x: len(x) > 5, lambda x: 'long')
+      .if_(lambda x: len(x) > 5, then=lambda x: 'long')
       .run()
     )
     self.assertEqual(result, 'long')
@@ -499,7 +499,7 @@ class TestWithPairs(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: (_ for _ in ()).throw(ValueError('fail')))
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -535,18 +535,18 @@ class TestWithPairs(unittest.TestCase):
 class TestIfPairs(unittest.TestCase):
 
   def test_if_then_true(self):
-    result = Chain(5).if_(lambda x: x > 3, lambda x: x * 2).then(lambda x: x + 1).run()
+    result = Chain(5).if_(lambda x: x > 3, then=lambda x: x * 2).then(lambda x: x + 1).run()
     self.assertEqual(result, 11)
 
   def test_if_then_false(self):
-    result = Chain(5).if_(lambda x: x > 100, lambda x: x * 2).then(lambda x: x + 1).run()
+    result = Chain(5).if_(lambda x: x > 100, then=lambda x: x * 2).then(lambda x: x + 1).run()
     self.assertEqual(result, 6)
 
   def test_if_do(self):
     tracker = []
     result = (
       Chain(5)
-      .if_(lambda x: x > 3, lambda x: x * 2)
+      .if_(lambda x: x > 3, then=lambda x: x * 2)
       .do(lambda x: tracker.append(x))
       .run()
     )
@@ -556,7 +556,7 @@ class TestIfPairs(unittest.TestCase):
   def test_if_map(self):
     result = (
       Chain([1, 2, 3])
-      .if_(lambda x: len(x) > 0, lambda x: [i * 2 for i in x])
+      .if_(lambda x: len(x) > 0, then=lambda x: [i * 2 for i in x])
       .map(lambda x: x + 1)
       .run()
     )
@@ -565,7 +565,7 @@ class TestIfPairs(unittest.TestCase):
   def test_if_filter(self):
     result = (
       Chain([1, 2, 3, 4, 5])
-      .if_(lambda x: len(x) > 3, lambda x: x)
+      .if_(lambda x: len(x) > 3, then=lambda x: x)
       .filter(lambda x: x > 3)
       .run()
     )
@@ -574,7 +574,7 @@ class TestIfPairs(unittest.TestCase):
   def test_if_gather(self):
     result = (
       Chain(5)
-      .if_(lambda x: x > 0, lambda x: x * 2)
+      .if_(lambda x: x > 0, then=lambda x: x * 2)
       .gather(lambda x: x + 1, lambda x: x + 2)
       .run()
     )
@@ -584,7 +584,7 @@ class TestIfPairs(unittest.TestCase):
     cm = TrackingCM()
     result = (
       Chain(cm)
-      .if_(lambda x: True, lambda x: x)
+      .if_(lambda x: True, then=lambda x: x)
       .with_(lambda ctx: ctx + '_used')
       .run()
     )
@@ -593,8 +593,8 @@ class TestIfPairs(unittest.TestCase):
   def test_if_if_chained(self):
     result = (
       Chain(5)
-      .if_(lambda x: x > 3, lambda x: x * 2)
-      .if_(lambda x: x > 8, lambda x: x + 100)
+      .if_(lambda x: x > 3, then=lambda x: x * 2)
+      .if_(lambda x: x > 8, then=lambda x: x + 100)
       .run()
     )
     self.assertEqual(result, 110)
@@ -604,8 +604,8 @@ class TestIfPairs(unittest.TestCase):
       raise ValueError('if body error')
     result = (
       Chain(5)
-      .if_(lambda x: True, raiser)
-      .except_(lambda exc: 'caught')
+      .if_(lambda x: True, then=raiser)
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -613,7 +613,7 @@ class TestIfPairs(unittest.TestCase):
   def test_if_else_then(self):
     result = (
       Chain(5)
-      .if_(lambda x: x > 100, lambda x: 'big')
+      .if_(lambda x: x > 100, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .then(lambda x: x + '_value')
       .run()
@@ -651,7 +651,7 @@ class TestTripleCombinations(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .then(lambda x: x)
-      .if_(lambda x: len(x) > 0, lambda x: [i * 2 for i in x])
+      .if_(lambda x: len(x) > 0, then=lambda x: [i * 2 for i in x])
       .map(lambda x: x + 1)
       .run()
     )
@@ -673,7 +673,7 @@ class TestTripleCombinations(unittest.TestCase):
     result = (
       Chain(5)
       .gather(lambda x: x + 1, lambda x: x + 2)
-      .if_(lambda x: len(x) == 2, lambda x: sum(x))
+      .if_(lambda x: len(x) == 2, then=lambda x: sum(x))
       .then(lambda x: x * 2)
       .run()
     )
@@ -684,7 +684,7 @@ class TestTripleCombinations(unittest.TestCase):
       Chain([1, 2, 3, 4, 5])
       .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
-      .if_(lambda x: len(x) > 0, lambda x: x[0])
+      .if_(lambda x: len(x) > 0, then=lambda x: x[0])
       .run()
     )
     self.assertEqual(result, 6)
@@ -695,7 +695,7 @@ class TestTripleCombinations(unittest.TestCase):
       Chain(5)
       .then(lambda x: x + 1)
       .do(lambda x: tracker.append(x))
-      .if_(lambda x: x > 100, lambda x: 'big')
+      .if_(lambda x: x > 100, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .run()
     )
@@ -707,9 +707,9 @@ class TestTripleCombinations(unittest.TestCase):
       raise ValueError('oops')
     result = (
       Chain(5)
-      .if_(lambda x: True, raiser)
+      .if_(lambda x: True, then=raiser)
       .then(lambda x: 'never')
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -718,7 +718,7 @@ class TestTripleCombinations(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(lambda x: x * 2)
-      .if_(lambda x: len(x) > 10, lambda x: [])
+      .if_(lambda x: len(x) > 10, then=lambda x: [])
       .else_(lambda x: x)
       .then(lambda x: sum(x))
       .run()
@@ -730,7 +730,7 @@ class TestTripleCombinations(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: ctx)
-      .if_(lambda x: len(x) > 5, lambda x: 'long')
+      .if_(lambda x: len(x) > 5, then=lambda x: 'long')
       .else_(lambda x: 'short')
       .run()
     )
@@ -750,7 +750,7 @@ class TestTripleCombinations(unittest.TestCase):
     result = (
       Chain([1, 2, 3, 4, 5])
       .filter(lambda x: x > 2)
-      .if_(lambda x: len(x) > 0, lambda x: x)
+      .if_(lambda x: len(x) > 0, then=lambda x: x)
       .map(lambda x: x * 10)
       .run()
     )
@@ -838,7 +838,7 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
     result = (
       await Chain(5)
       .then(lambda x: x + 1)
-      .if_(async_pred, lambda x: x * 10)
+      .if_(async_pred, then=lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, 60)
@@ -846,13 +846,13 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
   async def test_async_if_sync_body(self):
     async def async_pred(x):
       return x > 0
-    result = await Chain(5).if_(async_pred, lambda x: x * 2).run()
+    result = await Chain(5).if_(async_pred, then=lambda x: x * 2).run()
     self.assertEqual(result, 10)
 
   async def test_async_if_async_body(self):
     async def async_pred(x):
       return x > 0
-    result = await Chain(5).if_(async_pred, async_fn).run()
+    result = await Chain(5).if_(async_pred, then=async_fn).run()
     self.assertEqual(result, 6)
 
   async def test_sync_with_async_body(self):
@@ -927,7 +927,7 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
     self.assertEqual(tracker, [5])
 
   async def test_async_except_handler(self):
-    async def async_handler(exc):
+    async def async_handler(rv, exc):
       return 'async_caught'
     def raiser(x):
       raise ValueError('boom')
@@ -952,7 +952,7 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
       return x > 100
     result = (
       await Chain(5)
-      .if_(async_pred, lambda x: 'yes')
+      .if_(async_pred, then=lambda x: 'yes')
       .else_(lambda x: 'no')
       .run()
     )
@@ -970,39 +970,39 @@ class TestExceptWithEveryMethod(unittest.TestCase):
       if x > 2:
         raise ValueError('too big')
       return x
-    result = Chain([1, 2, 3]).map(raiser).except_(lambda exc: 'caught').run()
+    result = Chain([1, 2, 3]).map(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_filter_raises_except_catches(self):
     def raiser(x):
       raise ValueError('bad filter')
-    result = Chain([1, 2]).filter(raiser).except_(lambda exc: 'caught').run()
+    result = Chain([1, 2]).filter(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_gather_raises_except_catches(self):
     def raiser(x):
       raise ValueError('gather fail')
-    result = Chain(5).gather(raiser, lambda x: x).except_(lambda exc: 'caught').run()
+    result = Chain(5).gather(raiser, lambda x: x).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_with_body_raises_except_catches(self):
     cm = TrackingCM()
     def raiser(ctx):
       raise ValueError('body fail')
-    result = Chain(cm).with_(raiser).except_(lambda exc: 'caught').run()
+    result = Chain(cm).with_(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
     self.assertTrue(cm.exited)
 
   def test_if_pred_raises_except_catches(self):
     def bad_pred(x):
       raise ValueError('pred fail')
-    result = Chain(5).if_(bad_pred, lambda x: x).except_(lambda exc: 'caught').run()
+    result = Chain(5).if_(bad_pred, then=lambda x: x).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_if_fn_raises_except_catches(self):
     def raiser(x):
       raise ValueError('fn fail')
-    result = Chain(5).if_(lambda x: True, raiser).except_(lambda exc: 'caught').run()
+    result = Chain(5).if_(lambda x: True, then=raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_else_fn_raises_except_catches(self):
@@ -1010,9 +1010,9 @@ class TestExceptWithEveryMethod(unittest.TestCase):
       raise ValueError('else fail')
     result = (
       Chain(5)
-      .if_(lambda x: False, lambda x: x)
+      .if_(lambda x: False, then=lambda x: x)
       .else_(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -1020,13 +1020,13 @@ class TestExceptWithEveryMethod(unittest.TestCase):
   def test_do_raises_except_catches(self):
     def raiser(x):
       raise ValueError('do fail')
-    result = Chain(5).do(raiser).except_(lambda exc: 'caught').run()
+    result = Chain(5).do(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_then_raises_except_catches(self):
     def raiser(x):
       raise ValueError('then fail')
-    result = Chain(5).then(raiser).except_(lambda exc: 'caught').run()
+    result = Chain(5).then(raiser).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_except_handler_receives_exception_type(self):
@@ -1035,7 +1035,7 @@ class TestExceptWithEveryMethod(unittest.TestCase):
     result = (
       Chain(5)
       .then(raiser)
-      .except_(lambda exc: type(exc).__name__, exceptions=TypeError)
+      .except_(lambda rv, exc: type(exc).__name__, exceptions=TypeError)
       .run()
     )
     self.assertEqual(result, 'TypeError')
@@ -1044,7 +1044,7 @@ class TestExceptWithEveryMethod(unittest.TestCase):
     def raiser(x):
       raise TypeError('type error')
     with self.assertRaises(TypeError):
-      Chain(5).then(raiser).except_(lambda exc: 'caught', exceptions=ValueError).run()
+      Chain(5).then(raiser).except_(lambda rv, exc: 'caught', exceptions=ValueError).run()
 
 
 class TestFinallyWithEveryMethod(unittest.TestCase):
@@ -1099,7 +1099,7 @@ class TestFinallyWithEveryMethod(unittest.TestCase):
     tracker = []
     result = (
       Chain(5)
-      .if_(lambda x: x > 0, lambda x: x * 10)
+      .if_(lambda x: x > 0, then=lambda x: x * 10)
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1135,7 +1135,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
     result = (
       Chain(5)
       .then(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1151,7 +1151,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1166,7 +1166,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1179,7 +1179,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: x + 1)
-      .except_(lambda exc: 'should_not_run')
+      .except_(lambda rv, exc: 'should_not_run')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1193,7 +1193,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
     result = (
       Chain(5)
       .gather(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1206,8 +1206,8 @@ class TestExceptFinallyCombo(unittest.TestCase):
       raise ValueError('if fail')
     result = (
       Chain(5)
-      .if_(lambda x: True, raiser)
-      .except_(lambda exc: 'caught')
+      .if_(lambda x: True, then=raiser)
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1225,7 +1225,7 @@ class TestAsyncExceptFinally(IsolatedAsyncioTestCase):
     result = (
       await Chain([1, 2, 3])
       .map(async_raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -1236,7 +1236,7 @@ class TestAsyncExceptFinally(IsolatedAsyncioTestCase):
     result = (
       await Chain([1, 2])
       .filter(async_raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -1248,7 +1248,7 @@ class TestAsyncExceptFinally(IsolatedAsyncioTestCase):
     result = (
       await Chain(cm)
       .with_(async_raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -1261,7 +1261,7 @@ class TestAsyncExceptFinally(IsolatedAsyncioTestCase):
     result = (
       await Chain(5)
       .then(async_raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1316,7 +1316,7 @@ class TestFreezePairs(unittest.TestCase):
     frozen = (
       Chain()
       .then(lambda x: x)
-      .if_(lambda x: x > 10, lambda x: 'big')
+      .if_(lambda x: x > 10, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .freeze()
     )
@@ -1337,7 +1337,7 @@ class TestFreezePairs(unittest.TestCase):
     frozen = (
       Chain()
       .then(maybe_raise)
-      .except_(lambda exc: -1)
+      .except_(lambda rv, exc: -1)
       .freeze()
     )
     self.assertEqual(frozen(5), 5)
@@ -1409,7 +1409,7 @@ class TestDecoratorPairs(unittest.TestCase):
     @(
       Chain()
       .then(lambda x: x)
-      .if_(lambda x: x > 10, lambda x: 'big')
+      .if_(lambda x: x > 10, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .decorator()
     )
@@ -1419,7 +1419,7 @@ class TestDecoratorPairs(unittest.TestCase):
     self.assertEqual(my_fn(5), 'small')
 
   def test_decorator_except(self):
-    @Chain().then(lambda x: 1 / x).except_(lambda exc: 'error').decorator()
+    @Chain().then(lambda x: 1 / x).except_(lambda rv, exc: 'error').decorator()
     def my_fn(x):
       return x
     self.assertEqual(my_fn(2), 0.5)
@@ -1573,7 +1573,7 @@ class TestReturnBreakCombinations(unittest.TestCase):
   def test_return_in_if_body(self):
     result = (
       Chain(5)
-      .if_(lambda x: x > 0, lambda x: Chain.return_(999))
+      .if_(lambda x: x > 0, then=lambda x: Chain.return_(999))
       .then(lambda x: 'not_reached')
       .run()
     )
@@ -1662,7 +1662,7 @@ class TestGatherAdvancedCombinations(unittest.TestCase):
     result = (
       Chain(5)
       .gather(lambda x: x + 1, raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -1673,7 +1673,7 @@ class TestIfElseCombinations(unittest.TestCase):
   def test_if_else_map(self):
     result = (
       Chain([1, 2, 3])
-      .if_(lambda x: len(x) > 10, lambda x: [])
+      .if_(lambda x: len(x) > 10, then=lambda x: [])
       .else_(lambda x: x)
       .map(lambda x: x * 2)
       .run()
@@ -1683,7 +1683,7 @@ class TestIfElseCombinations(unittest.TestCase):
   def test_if_else_filter(self):
     result = (
       Chain([1, 2, 3, 4, 5])
-      .if_(lambda x: True, lambda x: x)
+      .if_(lambda x: True, then=lambda x: x)
       .else_(lambda x: [])
       .filter(lambda x: x > 3)
       .run()
@@ -1693,7 +1693,7 @@ class TestIfElseCombinations(unittest.TestCase):
   def test_if_else_gather(self):
     result = (
       Chain(5)
-      .if_(lambda x: x > 0, lambda x: x * 2)
+      .if_(lambda x: x > 0, then=lambda x: x * 2)
       .else_(lambda x: 0)
       .gather(lambda x: x + 1, lambda x: x - 1)
       .run()
@@ -1704,7 +1704,7 @@ class TestIfElseCombinations(unittest.TestCase):
     cm = TrackingCM()
     result = (
       Chain(cm)
-      .if_(lambda x: True, lambda x: x)
+      .if_(lambda x: True, then=lambda x: x)
       .else_(lambda x: None)
       .with_(lambda ctx: ctx + '_used')
       .run()
@@ -1714,9 +1714,9 @@ class TestIfElseCombinations(unittest.TestCase):
   def test_nested_if_else(self):
     result = (
       Chain(5)
-      .if_(lambda x: x > 10, lambda x: 'very_big')
+      .if_(lambda x: x > 10, then=lambda x: 'very_big')
       .else_(lambda x: x)
-      .if_(lambda x: x > 3, lambda x: 'medium')
+      .if_(lambda x: x > 3, then=lambda x: 'medium')
       .else_(lambda x: 'small')
       .run()
     )
@@ -1747,7 +1747,7 @@ class TestComplexPipelines(unittest.TestCase):
       .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .then(lambda x: sum(x))
-      .if_(lambda x: x > 20, lambda x: 'big')
+      .if_(lambda x: x > 20, then=lambda x: 'big')
       .else_(lambda x: 'small')
       .run()
     )
@@ -1783,7 +1783,7 @@ class TestComplexPipelines(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(raiser)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .finally_(lambda root: tracker.append('final'))
       .run()
     )
@@ -1823,7 +1823,7 @@ class TestComplexAsyncPipelines(IsolatedAsyncioTestCase):
       return len(x) > 3
     result = (
       await Chain([1, 2, 3, 4, 5])
-      .if_(async_pred, lambda x: x)
+      .if_(async_pred, then=lambda x: x)
       .else_(lambda x: [])
       .map(lambda x: x * 2)
       .run()
@@ -1913,7 +1913,7 @@ class TestEdgeCasePairs(unittest.TestCase):
     self.assertEqual(result, [6])
 
   def test_if_with_none_result(self):
-    result = Chain(None).if_(lambda x: x is None, lambda x: 'was_none').run()
+    result = Chain(None).if_(lambda x: x is None, then=lambda x: 'was_none').run()
     self.assertEqual(result, 'was_none')
 
   def test_chain_no_root_then(self):
@@ -1927,7 +1927,7 @@ class TestEdgeCasePairs(unittest.TestCase):
   def test_except_returns_none(self):
     def raiser(x):
       raise ValueError('boom')
-    result = Chain(5).then(raiser).except_(lambda exc: None).run()
+    result = Chain(5).then(raiser).except_(lambda rv, exc: None).run()
     self.assertIsNone(result)
 
   def test_multiple_thens_with_different_types(self):
@@ -1979,7 +1979,7 @@ class TestCallSyntaxCombinations(unittest.TestCase):
     c = (
       Chain()
       .then(lambda x: x)
-      .if_(lambda x: x > 10, lambda x: 'big')
+      .if_(lambda x: x > 10, then=lambda x: 'big')
       .else_(lambda x: 'small')
     )
     self.assertEqual(c(20), 'big')

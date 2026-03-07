@@ -86,7 +86,7 @@ class TestExceptCallingConvention(unittest.TestCase):
     result = (
       Chain()
       .then(raise_fn)
-      .except_(lambda e: type(e).__name__)
+      .except_(lambda rv, e: type(e).__name__)
       .run()
     )
     self.assertEqual(result, 'ValueError')
@@ -187,10 +187,13 @@ class TestAsyncCallingConventions(IsolatedAsyncioTestCase):
     self.assertEqual(result, 5)
 
   async def test_except_async_fn(self):
+    async def async_handler(rv, exc):
+      return exc
+
     result = await (
       Chain()
       .then(raise_fn)
-      .except_(async_identity)
+      .except_(async_handler)
       .run()
     )
     self.assertIsInstance(result, ValueError)

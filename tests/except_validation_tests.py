@@ -17,7 +17,7 @@ from helpers import (
 
 # -- Local helpers --
 
-def _catch_handler(exc):
+def _catch_handler(rv, exc):
   return f'caught:{type(exc).__name__}'
 
 
@@ -170,24 +170,25 @@ class TestExceptHandlerBehavior(unittest.TestCase):
 
   def test_handler_receives_exception(self):
     received = []
-    def handler(exc):
-      received.append(exc)
+    def handler(rv, exc):
+      received.append((rv, exc))
       return 'ok'
     Chain(raise_fn).except_(handler).run()
     self.assertEqual(len(received), 1)
-    self.assertIsInstance(received[0], ValueError)
-    self.assertEqual(str(received[0]), 'test error')
+    self.assertIsNone(received[0][0])
+    self.assertIsInstance(received[0][1], ValueError)
+    self.assertEqual(str(received[0][1]), 'test error')
 
   def test_handler_return_value_becomes_result(self):
-    result = Chain(raise_fn).except_(lambda e: 42).run()
+    result = Chain(raise_fn).except_(lambda rv, e: 42).run()
     self.assertEqual(result, 42)
 
   def test_handler_return_null_becomes_none(self):
-    result = Chain(raise_fn).except_(lambda e: Null).run()
+    result = Chain(raise_fn).except_(lambda rv, e: Null).run()
     self.assertIsNone(result)
 
   def test_handler_raises_chains_exceptions(self):
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler error')
     with self.assertRaises(RuntimeError) as cm:
       Chain(raise_fn).except_(handler).run()
@@ -196,7 +197,7 @@ class TestExceptHandlerBehavior(unittest.TestCase):
     self.assertEqual(str(cm.exception.__cause__), 'test error')
 
   def test_control_flow_in_handler_raises(self):
-    def handler(exc):
+    def handler(rv, exc):
       Chain.return_('val')
     with self.assertRaises(QuentException) as cm:
       Chain(raise_fn).except_(handler).run()
@@ -208,21 +209,21 @@ class TestExceptHandlerBehavior(unittest.TestCase):
       Chain(_raise_keyboard_interrupt).except_(_catch_handler).run()
 
   def test_handler_returns_none_explicitly(self):
-    result = Chain(raise_fn).except_(lambda e: None).run()
+    result = Chain(raise_fn).except_(lambda rv, e: None).run()
     self.assertIsNone(result)
 
   def test_handler_returns_complex_object(self):
-    result = Chain(raise_fn).except_(lambda e: {'error': str(e), 'type': type(e).__name__}).run()
+    result = Chain(raise_fn).except_(lambda rv, e: {'error': str(e), 'type': type(e).__name__}).run()
     self.assertEqual(result, {'error': 'test error', 'type': 'ValueError'})
 
   def test_handler_that_returns_exception_object(self):
     # Handler returns the exception itself (does not raise it)
-    result = Chain(raise_fn).except_(lambda e: e).run()
+    result = Chain(raise_fn).except_(lambda rv, e: e).run()
     self.assertIsInstance(result, ValueError)
     self.assertEqual(str(result), 'test error')
 
   def test_handler_raises_completely_different_exception(self):
-    def handler(exc):
+    def handler(rv, exc):
       raise OSError('disk full')
     with self.assertRaises(OSError) as cm:
       Chain(raise_fn).except_(handler).run()
@@ -240,14 +241,15 @@ class TestExceptHandlerBehavior(unittest.TestCase):
       raise RichException('rich error', code=42)
 
     received = []
-    def handler(exc):
-      received.append(exc)
+    def handler(rv, exc):
+      received.append((rv, exc))
       return exc.code
 
     result = Chain(raise_rich).except_(handler).run()
     self.assertEqual(result, 42)
     self.assertEqual(len(received), 1)
-    self.assertEqual(received[0].code, 42)
+    self.assertIsNone(received[0][0])
+    self.assertEqual(received[0][1].code, 42)
 
   def test_system_exit_not_caught_by_default(self):
     # SystemExit is BaseException, not Exception
@@ -261,7 +263,7 @@ class TestExceptHandlerBehavior(unittest.TestCase):
     self.assertEqual(result, 'caught:SystemExit')
 
   def test_break_in_handler_raises_quent_exception(self):
-    def handler(exc):
+    def handler(rv, exc):
       Chain.break_()
     with self.assertRaises(QuentException) as cm:
       Chain(raise_fn).except_(handler).run()
@@ -270,7 +272,7 @@ class TestExceptHandlerBehavior(unittest.TestCase):
   def test_handler_is_async_returns_coroutine(self):
     # When handler is async and chain is sync, it becomes fire-and-forget
     # or raises QuentException if no event loop. Test the no-loop case.
-    async def async_handler(exc):
+    async def async_handler(rv, exc):
       return 'async result'
     with self.assertRaises(QuentException) as cm:
       Chain(raise_fn).except_(async_handler).run()
@@ -280,7 +282,7 @@ class TestExceptHandlerBehavior(unittest.TestCase):
     def raise_inner(x):
       raise TypeError('inner error')
 
-    inner = Chain().then(raise_inner).except_(lambda e: 'inner_caught')
+    inner = Chain().then(raise_inner).except_(lambda rv, e: 'inner_caught')
     result = Chain(5).then(inner).run()
     self.assertEqual(result, 'inner_caught')
 
@@ -290,11 +292,11 @@ class TestExceptHandlerBehavior(unittest.TestCase):
 
     # Inner chain catches TypeError
     inner = Chain().then(raise_inner).except_(
-      lambda e: 'inner_caught', exceptions=TypeError
+      lambda rv, e: 'inner_caught', exceptions=TypeError
     )
     # Outer chain catches ValueError (which inner does not raise)
     outer = Chain(5).then(inner).except_(
-      lambda e: 'outer_caught', exceptions=ValueError
+      lambda rv, e: 'outer_caught', exceptions=ValueError
     )
     result = outer.run()
     # Inner catches, so outer never sees an exception
@@ -306,11 +308,11 @@ class TestExceptHandlerBehavior(unittest.TestCase):
 
     # Inner chain only catches ValueError, not TypeError
     inner = Chain().then(raise_inner).except_(
-      lambda e: 'inner_caught', exceptions=ValueError
+      lambda rv, e: 'inner_caught', exceptions=ValueError
     )
     # Outer chain catches TypeError
     outer = Chain(5).then(inner).except_(
-      lambda e: f'outer_caught:{type(e).__name__}', exceptions=TypeError
+      lambda rv, e: f'outer_caught:{type(e).__name__}', exceptions=TypeError
     )
     result = outer.run()
     self.assertEqual(result, 'outer_caught:TypeError')
@@ -321,16 +323,17 @@ class TestExceptHandlerAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_handler_receives_exception(self):
     received = []
-    async def handler(exc):
-      received.append(exc)
+    async def handler(rv, exc):
+      received.append((rv, exc))
       return 'async_ok'
     result = await Chain(async_raise_fn).except_(handler).run()
     self.assertEqual(result, 'async_ok')
     self.assertEqual(len(received), 1)
-    self.assertIsInstance(received[0], ValueError)
+    self.assertIsNone(received[0][0])
+    self.assertIsInstance(received[0][1], ValueError)
 
   async def test_async_handler_return_value(self):
-    async def handler(exc):
+    async def handler(rv, exc):
       return {'caught': True}
     result = await Chain(async_raise_fn).except_(handler).run()
     self.assertEqual(result, {'caught': True})

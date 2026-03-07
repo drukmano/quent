@@ -37,7 +37,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
   def test_except_handler_raises_with_from(self):
     """Handler does `raise X from exc`: __cause__ is set."""
-    def handler(exc):
+    def handler(rv, exc):
       raise TypeError('handler error') from exc
 
     with self.assertRaises(TypeError) as cm:
@@ -52,7 +52,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
   def test_except_handler_raises_chains(self):
     """Handler raises without explicit `from`: framework does `raise exc_ from exc`."""
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler boom')
 
     with self.assertRaises(RuntimeError) as cm:
@@ -67,7 +67,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
   def test_except_suppress_context(self):
     """__suppress_context__ is True when framework chains with `from`."""
-    def handler(exc):
+    def handler(rv, exc):
       raise TypeError('handler error')
 
     with self.assertRaises(TypeError) as cm:
@@ -98,7 +98,7 @@ class TestExceptionChainingSync(unittest.TestCase):
     """Except handler re-raises, then finally also raises.
     Finally exception's __context__ should be the except handler's exception.
     """
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('except error') from exc
 
     def finally_handler(rv=None):
@@ -149,7 +149,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
   def test_no_circular_references(self):
     """Walk the __context__ chain and verify no cycles."""
-    def handler(exc):
+    def handler(rv, exc):
       raise TypeError('handler error') from exc
 
     with self.assertRaises(TypeError) as cm:
@@ -172,7 +172,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
       inner = make_chain(depth - 1)
 
-      def handler(exc):
+      def handler(rv, exc):
         raise RuntimeError(f'level_{depth}') from exc
 
       return Chain(lambda x=None, inner=inner: inner.run()).except_(handler)
@@ -195,7 +195,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
   def test_except_handler_raises_same_exception_type(self):
     """Handler raises the same type as the original but different message."""
-    def handler(exc):
+    def handler(rv, exc):
       raise ValueError('transformed') from exc
 
     with self.assertRaises(ValueError) as cm:
@@ -224,7 +224,7 @@ class TestExceptionChainingSync(unittest.TestCase):
     __cause__ is set by explicit `from`, __context__ is set by Python
     when raising during active exception handling.
     """
-    def handler(exc):
+    def handler(rv, exc):
       # No explicit `from`, but _except_handler_body adds it
       raise TypeError('handler error')
 
@@ -243,7 +243,7 @@ class TestExceptionChainingSync(unittest.TestCase):
     """Full chain: body raises, except re-raises, finally raises.
     Verify the complete context chain is intact.
     """
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('except boom') from exc
 
     def finally_handler(rv=None):
@@ -262,7 +262,7 @@ class TestExceptionChainingSync(unittest.TestCase):
 
   def test_traceback_present_on_chained_exceptions(self):
     """Verify chained exceptions have tracebacks during propagation."""
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler error')
 
     captured_tb = {}
@@ -284,7 +284,7 @@ class TestExceptionChainingSync(unittest.TestCase):
     def raise_nested(x=None):
       raise NestedCustomException('nested')
 
-    def handler(exc):
+    def handler(rv, exc):
       raise CustomException('caught nested') from exc
 
     with self.assertRaises(CustomException) as cm:
@@ -301,7 +301,7 @@ class TestExceptionChainingAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_except_handler_chains(self):
     """Async chain: handler raises, framework chains with `from`."""
-    def handler(exc):
+    def handler(rv, exc):
       raise TypeError('async handler error') from exc
 
     with self.assertRaises(TypeError) as cm:
@@ -334,7 +334,7 @@ class TestExceptionChainingAsync(unittest.IsolatedAsyncioTestCase):
     """Async: body raises, except re-raises, finally raises.
     Finally exception's __context__ should be the except exception.
     """
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('async except error') from exc
 
     async def finally_handler(rv=None):
@@ -369,7 +369,7 @@ class TestExceptionChainingAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_handler_raises_different_type(self):
     """Async handler raises a completely different exception type."""
-    async def handler(exc):
+    async def handler(rv, exc):
       raise OSError('disk full')
 
     with self.assertRaises(OSError) as cm:
@@ -387,7 +387,7 @@ class TestExceptionChainingAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_no_circular_references(self):
     """Walk async exception __context__ chain - no cycles."""
-    def handler(exc):
+    def handler(rv, exc):
       raise TypeError('handler error') from exc
 
     async def finally_handler(rv=None):
@@ -415,7 +415,7 @@ class TestExceptionChainingAsync(unittest.IsolatedAsyncioTestCase):
         return Chain(raise_val)
       inner = make_chain(depth - 1)
 
-      def handler(exc):
+      def handler(rv, exc):
         raise RuntimeError(f'async_level_{depth}') from exc
 
       return Chain(lambda x=None, inner=inner: inner.run()).except_(handler)
@@ -439,7 +439,7 @@ class TestExceptionChainingAsync(unittest.IsolatedAsyncioTestCase):
     async def raise_cancelled(x=None):
       raise asyncio.CancelledError('cancelled')
 
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler caught cancelled') from exc
 
     with self.assertRaises(RuntimeError) as cm:
@@ -474,7 +474,7 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
     The finally exception should not have the original body exception
     as __context__ because the except handler returned successfully.
     """
-    def except_handler(exc):
+    def except_handler(rv, exc):
       return 'recovered'
 
     def finally_handler(rv=None):
@@ -493,14 +493,14 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
 
   def test_handler_returns_original_exception(self):
     """Handler returns the exception object (not raises it)."""
-    result = Chain(_raise_value_error).except_(lambda e: e).run()
+    result = Chain(_raise_value_error).except_(lambda rv, e: e).run()
     self.assertIsInstance(result, ValueError)
     self.assertEqual(str(result), 'body error')
 
   def test_handler_returns_different_exception(self):
     """Handler returns (not raises) a different exception object."""
     result = Chain(_raise_value_error).except_(
-      lambda e: TypeError('different')
+      lambda rv, e: TypeError('different')
     ).run()
     self.assertIsInstance(result, TypeError)
     self.assertEqual(str(result), 'different')
@@ -513,7 +513,7 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
     def step2(x):
       raise ValueError(f'step2 failed with {x}')
 
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('handler') from exc
 
     with self.assertRaises(RuntimeError) as cm:
@@ -526,7 +526,7 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
 
   def test_exception_with_none_cause(self):
     """raise X from None: __cause__ is None, __suppress_context__ is True."""
-    def handler(exc):
+    def handler(rv, exc):
       raise TypeError('clean error') from None
 
     with self.assertRaises(TypeError) as cm:
@@ -545,10 +545,10 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
     def inner_raise(x):
       raise ValueError('inner')
 
-    def inner_handler(exc):
+    def inner_handler(rv, exc):
       raise TypeError('inner handler') from exc
 
-    def outer_handler(exc):
+    def outer_handler(rv, exc):
       raise RuntimeError('outer handler') from exc
 
     inner = Chain().then(inner_raise).except_(inner_handler)
@@ -568,7 +568,7 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
     """Except succeeds (returns value), finally raises.
     Verify the finally exception's context.
     """
-    def handler(exc):
+    def handler(rv, exc):
       return 'recovered'
 
     def finally_handler(rv=None):
@@ -582,7 +582,7 @@ class TestExceptionChainingEdgeCases(unittest.TestCase):
 
   def test_control_flow_signal_in_except_wraps_properly(self):
     """_ControlFlowSignal in except handler becomes QuentException."""
-    def handler(exc):
+    def handler(rv, exc):
       Chain.return_('escape')
 
     with self.assertRaises(QuentException) as cm:
@@ -611,7 +611,7 @@ class TestExceptionChainingAsyncEdgeCases(unittest.IsolatedAsyncioTestCase):
 
   async def test_async_handler_that_returns_exception(self):
     """Async handler returns (not raises) an exception object."""
-    async def handler(exc):
+    async def handler(rv, exc):
       return TypeError('returned not raised')
 
     result = await Chain(_async_raise_value_error).except_(handler).run()
@@ -623,10 +623,10 @@ class TestExceptionChainingAsyncEdgeCases(unittest.IsolatedAsyncioTestCase):
     async def inner_raise(x):
       raise ValueError('async inner')
 
-    def inner_handler(exc):
+    def inner_handler(rv, exc):
       raise TypeError('async inner handler') from exc
 
-    def outer_handler(exc):
+    def outer_handler(rv, exc):
       raise RuntimeError('async outer handler') from exc
 
     inner = Chain().then(inner_raise).except_(inner_handler)

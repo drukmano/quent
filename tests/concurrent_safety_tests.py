@@ -47,7 +47,7 @@ class TestFrozenChainConcurrency(unittest.IsolatedAsyncioTestCase):
         raise ValueError(f'even: {x}')
       return x * 10
 
-    frozen = Chain().then(maybe_fail).except_(lambda e: -1).freeze()
+    frozen = Chain().then(maybe_fail).except_(lambda rv, e: -1).freeze()
     results = await asyncio.gather(*[frozen.run(i) for i in range(10)])
     expected = [-1 if i % 2 == 0 else i * 10 for i in range(10)]
     self.assertEqual(results, expected)
@@ -182,7 +182,7 @@ class TestConcurrentFrozenWithExceptionInSome(unittest.IsolatedAsyncioTestCase):
         raise ValueError(f'bad: {x}')
       return x * 10
 
-    frozen = Chain().then(maybe_fail).except_(lambda e: -1).freeze()
+    frozen = Chain().then(maybe_fail).except_(lambda rv, e: -1).freeze()
     results = await asyncio.gather(*[frozen.run(i) for i in range(10)])
     expected = [-1 if i in (3, 7) else i * 10 for i in range(10)]
     self.assertEqual(results, expected)
@@ -191,7 +191,7 @@ class TestConcurrentFrozenWithExceptionInSome(unittest.IsolatedAsyncioTestCase):
     async def always_fail(x):
       raise ValueError('always')
 
-    frozen = Chain().then(always_fail).except_(lambda e: 'recovered').freeze()
+    frozen = Chain().then(always_fail).except_(lambda rv, e: 'recovered').freeze()
     results = await asyncio.gather(*[frozen.run(i) for i in range(10)])
     self.assertEqual(results, ['recovered'] * 10)
 
@@ -263,7 +263,7 @@ class TestThreadSafetyWithExcept(unittest.TestCase):
     frozen = (
       Chain()
       .then(lambda x: 1 / 0 if x % 2 == 0 else x * 10)
-      .except_(lambda e: -1)
+      .except_(lambda rv, e: -1)
       .freeze()
     )
     results = [None] * 20

@@ -704,7 +704,9 @@ class TestRunValueConventionMatrix(unittest.TestCase):
 class TestExceptCallableConventionMatrix(unittest.TestCase):
   """Cross-product: callable types x calling conventions via except_().
 
-  The except handler receives the caught exception as current_value.
+  When no explicit args are provided, the except handler receives
+  (root_value, exception) as arguments. root_value is None when the
+  chain has no root value (Null).
   """
 
   def _make_raiser(self):
@@ -718,7 +720,10 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
         fn = _make_tracker()
         result = Chain(self._make_raiser()).except_(fn, *conv_args, **conv_kwargs).run()
         if conv_name == 'no_args':
-          self.assertIsInstance(fn.calls[-1][0][0], ValueError)
+          # Handler receives (root_value, exc); root_value is None (Null root)
+          self.assertEqual(len(fn.calls[-1][0]), 2)
+          self.assertIsNone(fn.calls[-1][0][0])
+          self.assertIsInstance(fn.calls[-1][0][1], ValueError)
         elif conv_name == 'positional':
           self.assertEqual(fn.calls[-1], ((10, 20), {}))
         elif conv_name == 'kwargs_only':
@@ -749,7 +754,10 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
         result = Chain(self._make_raiser()).except_(method, *conv_args, **conv_kwargs).run()
         self.assertEqual(len(calls), 1)
         if conv_name == 'no_args':
-          self.assertIsInstance(calls[-1][0][0], ValueError)
+          # Handler receives (root_value, exc); root_value is None (Null root)
+          self.assertEqual(len(calls[-1][0]), 2)
+          self.assertIsNone(calls[-1][0][0])
+          self.assertIsInstance(calls[-1][0][1], ValueError)
         elif conv_name == 'positional':
           self.assertEqual(calls[-1], ((10, 20), {}))
         elif conv_name == 'kwargs_only':
@@ -763,8 +771,9 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
         if conv_name == 'no_args':
+          # Handler receives (root_value, exc); partial binds prefix
           handler = functools.partial(
-            lambda prefix, exc: f'{prefix}:{type(exc).__name__}', 'pfx'
+            lambda prefix, rv, exc: f'{prefix}:{type(exc).__name__}', 'pfx'
           )
           result = Chain(self._make_raiser()).except_(handler).run()
           self.assertEqual(result, 'pfx:ValueError')
@@ -788,10 +797,9 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
     for conv_name, conv_args, conv_kwargs in CONVENTIONS:
       with self.subTest(convention=conv_name):
         if conv_name == 'no_args':
-          # Adder(exc) -> Adder instance with x=exc
-          result = Chain(self._make_raiser()).except_(Adder).run()
-          self.assertIsInstance(result, Adder)
-          self.assertIsInstance(result.x, ValueError)
+          # Adder(rv, exc) -> TypeError (Adder only takes 1 arg)
+          with self.assertRaises(TypeError):
+            Chain(self._make_raiser()).except_(Adder).run()
         elif conv_name == 'positional':
           # Adder(10, 20) -> TypeError
           with self.assertRaises(TypeError):
@@ -816,23 +824,24 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           result = Chain(self._make_raiser()).except_(inner, *conv_args).run()
           self.assertEqual(result, 'chain_handled')
         elif conv_name == 'no_args':
-          inner = Chain().then(lambda exc: f'chain:{type(exc).__name__}')
+          # Nested chain receives rv (=None since root_value is Null)
+          inner = Chain().then(lambda rv: f'chain:{type(rv).__name__}')
           result = Chain(self._make_raiser()).except_(inner).run()
-          self.assertEqual(result, 'chain:ValueError')
+          self.assertEqual(result, 'chain:NoneType')
         elif conv_name == 'positional':
           # v._run(10, (20,), {}) -> Link(10, (20,), {}) -> 10(20) -> TypeError
-          inner = Chain().then(lambda exc: f'chain:{type(exc).__name__}')
+          inner = Chain().then(lambda rv: f'chain:{type(rv).__name__}')
           with self.assertRaises(TypeError):
             Chain(self._make_raiser()).except_(inner, 10, 20).run()
         elif conv_name == 'kwargs_only':
-          # v._run(exc, None, {x:10, y:20}) -> Link(exc, None, {x:10, y:20})
-          # exc is a ValueError instance, not callable -> exc(x=10, y=20) -> TypeError
-          inner = Chain().then(lambda exc: f'chain:{type(exc).__name__}')
+          # v._run(rv, None, {x:10, y:20}) -> Link(rv, None, {x:10, y:20})
+          # rv is None, not callable -> None(x=10, y=20) -> TypeError
+          inner = Chain().then(lambda rv: f'chain:{type(rv).__name__}')
           with self.assertRaises(TypeError):
             Chain(self._make_raiser()).except_(inner, **conv_kwargs).run()
         elif conv_name == 'args_kwargs':
           # v._run(10, (), {b:20}) -> Link(10, (), {b:20}) -> 10(b=20) -> TypeError
-          inner = Chain().then(lambda exc: f'chain:{type(exc).__name__}')
+          inner = Chain().then(lambda rv: f'chain:{type(rv).__name__}')
           with self.assertRaises(TypeError):
             Chain(self._make_raiser()).except_(inner, 10, b=20).run()
 
@@ -844,17 +853,13 @@ class TestExceptCallableConventionMatrix(unittest.TestCase):
           result = Chain(self._make_raiser()).except_(frozen, *conv_args).run()
           self.assertEqual(result, 'frozen_handled')
         elif conv_name == 'no_args':
-          # frozen(exc) -> frozen.run(exc) -> _run(exc, (), {})
-          # has_run_value=True -> Link(exc, (), {}) -> callable(exc) -> exc()
-          # ValueError is callable -> ValueError() -> new ValueError
-          # Actually no: _evaluate_value: args=() is falsy, kwargs={} is falsy
-          # -> callable(v) check: v is ValueError instance, not callable -> return v
-          # Wait: Link(exc, (), {}). args=() -> falsy. kwargs={} -> falsy.
-          # callable(exc)? ValueError instance is not callable -> return exc as-is
-          # then(lambda exc: ...) receives the ValueError -> formats it
+          # frozen(rv, exc) -> frozen.run(None, ValueError('boom'))
+          # -> _run(None, (ValueError('boom'),), {})
+          # has_run_value=True -> Link(None, (ValueError('boom'),), {})
+          # args truthy -> None(exc) -> TypeError (None not callable)
           frozen = Chain().then(lambda exc: f'frozen:{type(exc).__name__}').freeze()
-          result = Chain(self._make_raiser()).except_(frozen).run()
-          self.assertEqual(result, 'frozen:ValueError')
+          with self.assertRaises(TypeError):
+            Chain(self._make_raiser()).except_(frozen).run()
         elif conv_name == 'positional':
           # frozen(10, 20) -> frozen.run(10, 20) -> _run(10, (20,), {})
           # -> Link(10, (20,), {}) -> 10(20) -> TypeError
@@ -1201,7 +1206,10 @@ class TestAsyncCallableConventionMatrix(IsolatedAsyncioTestCase):
 
         result = await Chain(_async_raiser).except_(fn, *conv_args, **conv_kwargs).run()
         if conv_name == 'no_args':
-          self.assertIsInstance(fn.calls[-1][0][0], ValueError)
+          # Handler receives (root_value, exc); root_value is None (Null root)
+          self.assertEqual(len(fn.calls[-1][0]), 2)
+          self.assertIsNone(fn.calls[-1][0][0])
+          self.assertIsInstance(fn.calls[-1][0][1], ValueError)
         elif conv_name == 'positional':
           self.assertEqual(fn.calls[-1], ((10, 20), {}))
         elif conv_name == 'kwargs_only':

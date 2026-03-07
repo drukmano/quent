@@ -493,7 +493,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         Chain(5)
         .then(lambda x: 1 / 0)
         .then(_double)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -505,7 +505,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         .then(_double)
         .then(lambda x: 1 / 0)
         .then(_add1)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -517,7 +517,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         .then(_double)
         .then(_add1)
         .then(lambda x: 1 / 0)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -529,7 +529,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         .then(_to_list)
         .map(lambda x: 1 / 0)
         .then(_sum_list)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -541,7 +541,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         .then(_to_list)
         .filter(lambda x: 1 / 0)
         .then(_sum_list)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -552,7 +552,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         Chain(5)
         .then(_double)
         .gather(lambda x: 1 / 0, _add1)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -563,7 +563,7 @@ class TestPipelineWithExcept(unittest.TestCase):
         Chain(5)
         .then(lambda x: SyncCM())
         .with_(lambda ctx: 1 / 0)
-        .except_(lambda e: 'caught')
+        .except_(lambda rv, e: 'caught')
         .run()
       )
       self.assertEqual(result, 'caught')
@@ -577,7 +577,7 @@ class TestPipelineWithExcept(unittest.TestCase):
       .then(_double)
       .do(lambda x: tracker.append(('step2', x)))
       .then(lambda x: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -585,7 +585,7 @@ class TestPipelineWithExcept(unittest.TestCase):
 
   def test_except_handler_receives_correct_exception_type(self):
     received = []
-    def handler(exc):
+    def handler(rv, exc):
       received.append(type(exc))
       return 'ok'
 
@@ -598,7 +598,7 @@ class TestPipelineWithExcept(unittest.TestCase):
       Chain(5)
       .then(_double)
       .then(_add1)
-      .except_(lambda e: tracker.append('except'))
+      .except_(lambda rv, e: tracker.append('except'))
       .run()
     )
     self.assertEqual(result, 11)
@@ -655,7 +655,7 @@ class TestPipelineWithFinally(unittest.TestCase):
     result = (
       Chain(5)
       .then(_double)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .finally_(lambda rv: tracker.append(rv))
       .run()
     )
@@ -667,7 +667,7 @@ class TestPipelineWithFinally(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .finally_(lambda rv: tracker.append(rv))
       .run()
     )
@@ -676,7 +676,7 @@ class TestPipelineWithFinally(unittest.TestCase):
 
   def test_finally_runs_when_except_reraises(self):
     tracker = []
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('handler error') from exc
     with self.assertRaises(RuntimeError):
       (
@@ -860,7 +860,7 @@ class TestPipelineWithFrozenChains(unittest.TestCase):
     self.assertEqual(result, 22)
 
   def test_frozen_with_except(self):
-    frozen = Chain().then(lambda x: 1 / 0).except_(lambda e: 'caught').freeze()
+    frozen = Chain().then(lambda x: 1 / 0).except_(lambda rv, e: 'caught').freeze()
     result = Chain(5).then(frozen).run()
     self.assertEqual(result, 'caught')
 
@@ -968,7 +968,7 @@ class TestPipelineAsync(IsolatedAsyncioTestCase):
       Chain(5)
       .then(_async_double)
       .then(lambda x: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -992,7 +992,7 @@ class TestPipelineAsync(IsolatedAsyncioTestCase):
       Chain(5)
       .then(_async_double)
       .then(raiser)
-      .except_(lambda e: f'caught:{type(e).__name__}')
+      .except_(lambda rv, e: f'caught:{type(e).__name__}')
       .run()
     )
     self.assertEqual(result, 'caught:ValueError')

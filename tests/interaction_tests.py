@@ -47,7 +47,7 @@ class TestExceptFinallyInteraction(unittest.TestCase):
     result = (
       Chain(10)
       .then(raise_fn)
-      .except_(lambda e: (tracker.append('except'), 'caught')[1])
+      .except_(lambda rv, e: (tracker.append('except'), 'caught')[1])
       .finally_(lambda rv: tracker.append(('finally', rv)))
       .run()
     )
@@ -59,7 +59,7 @@ class TestExceptFinallyInteraction(unittest.TestCase):
   def test_exception_in_except_still_runs_finally(self):
     tracker = []
 
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       tracker.append('except')
       raise RuntimeError('handler boom')
 
@@ -80,7 +80,7 @@ class TestExceptFinallyInteraction(unittest.TestCase):
     result = (
       Chain(10)
       .then(raise_fn)
-      .except_(lambda e: 'recovered')
+      .except_(lambda rv, e: 'recovered')
       .finally_(lambda rv: tracker.append(rv))
       .run()
     )
@@ -99,7 +99,7 @@ class TestMapWithExcept(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(lambda x: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -112,7 +112,7 @@ class TestMapWithExcept(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(lambda x: Chain.break_() if x == 2 else x)
-      .except_(lambda e: except_called.append('called') or 'caught')
+      .except_(lambda rv, e: except_called.append('called') or 'caught')
       .run()
     )
     # break_ fires before item 2 is appended. Item 1 was already processed.
@@ -130,7 +130,7 @@ class TestFilterWithExcept(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .filter(lambda x: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -146,7 +146,7 @@ class TestGatherWithExcept(unittest.TestCase):
     result = (
       Chain(5)
       .gather(lambda x: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -162,7 +162,7 @@ class TestWithWithExcept(unittest.TestCase):
     result = (
       Chain(SyncCM())
       .with_(lambda ctx: 1 / 0)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -175,7 +175,7 @@ class TestWithWithExcept(unittest.TestCase):
     result = (
       Chain(SyncCMSuppresses())
       .with_(lambda ctx: 1 / 0)
-      .except_(lambda e: except_called.append('called') or 'caught')
+      .except_(lambda rv, e: except_called.append('called') or 'caught')
       .run()
     )
     # Exception was suppressed by the CM, so except_ is never invoked.
@@ -193,7 +193,7 @@ class TestNestedWithExceptFinally(unittest.TestCase):
 
   def test_inner_except_outer_finally(self):
     outer_tracker = []
-    inner = Chain().then(raise_fn).except_(lambda e: 'inner_caught')
+    inner = Chain().then(raise_fn).except_(lambda rv, e: 'inner_caught')
     result = (
       Chain(5)
       .then(inner)
@@ -213,7 +213,7 @@ class TestNestedWithExceptFinally(unittest.TestCase):
     result = (
       Chain(5)
       .then(inner)
-      .except_(lambda e: 'outer_caught')
+      .except_(lambda rv, e: 'outer_caught')
       .run()
     )
     self.assertEqual(result, 'outer_caught')
@@ -266,7 +266,7 @@ class TestFreezeWithAllOps(unittest.TestCase):
     frozen = (
       Chain()
       .then(raise_fn)
-      .except_(lambda e: 'frozen_caught')
+      .except_(lambda rv, e: 'frozen_caught')
       .freeze()
     )
     result = frozen.run(5)
@@ -401,7 +401,7 @@ class TestAsyncMixedInteractions(IsolatedAsyncioTestCase):
     result = await (
       Chain(5)
       .then(async_raiser)
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
       .finally_(lambda rv: tracker.append('finally'))
       .run()
     )

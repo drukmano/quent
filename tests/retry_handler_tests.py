@@ -119,7 +119,7 @@ class TestRetryExceptAllFail(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(3, on=ValueError)
-      .except_(lambda exc: 'recovered')
+      .except_(lambda rv, exc: 'recovered')
       .run()
     )
     self.assertEqual(len(fn.attempts), 3)
@@ -130,7 +130,7 @@ class TestRetryExceptAllFail(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(2, on=ValueError)
-      .except_(lambda exc: None)
+      .except_(lambda rv, exc: None)
       .run()
     )
     self.assertEqual(len(fn.attempts), 2)
@@ -139,7 +139,7 @@ class TestRetryExceptAllFail(unittest.TestCase):
   def test_except_reraises(self):
     fn = always_fail(ValueError)
 
-    def reraise(exc):
+    def reraise(rv, exc):
       raise exc
 
     with self.assertRaises(ValueError):
@@ -149,7 +149,7 @@ class TestRetryExceptAllFail(unittest.TestCase):
   def test_except_raises_different_exception(self):
     fn = always_fail(ValueError)
 
-    def raise_runtime(exc):
+    def raise_runtime(rv, exc):
       raise RuntimeError('handler error')
 
     with self.assertRaises(RuntimeError) as ctx:
@@ -249,7 +249,7 @@ class TestRetryExceptTypeMatching(unittest.TestCase):
     """except_ type doesn't match the exception -> propagates."""
     fn = always_fail(RuntimeError)
     with self.assertRaises(RuntimeError):
-      Chain(fn, ...).retry(5, on=ValueError).except_(lambda e: None, exceptions=ValueError).run()
+      Chain(fn, ...).retry(5, on=ValueError).except_(lambda rv, e: None, exceptions=ValueError).run()
     # Only 1 attempt: RuntimeError not retryable by on=ValueError
     self.assertEqual(len(fn.attempts), 1)
 
@@ -257,7 +257,7 @@ class TestRetryExceptTypeMatching(unittest.TestCase):
     """Retry on (Exception,) but except_ only catches TypeError -> ValueError propagates."""
     fn = always_fail(ValueError)
     with self.assertRaises(ValueError):
-      Chain(fn, ...).retry(2, on=Exception).except_(lambda e: None, exceptions=TypeError).run()
+      Chain(fn, ...).retry(2, on=Exception).except_(lambda rv, e: None, exceptions=TypeError).run()
     self.assertEqual(len(fn.attempts), 2)
 
 
@@ -272,7 +272,7 @@ class TestRetryExceptExceptionFromLastAttempt(unittest.TestCase):
       raise ValueError(f'attempt {len(attempts)}')
 
     caught = []
-    Chain(failing, ...).retry(3, on=ValueError).except_(lambda e: caught.append(str(e))).run()
+    Chain(failing, ...).retry(3, on=ValueError).except_(lambda rv, e: caught.append(str(e))).run()
     self.assertEqual(len(attempts), 3)
     self.assertEqual(caught, ['attempt 3'])
 
@@ -284,7 +284,7 @@ class TestRetryExceptAsync(IsolatedAsyncioTestCase):
     fn = async_always_fail(ValueError)
     caught = []
 
-    async def handler(exc):
+    async def handler(rv, exc):
       caught.append(str(exc))
       return 'async_recovered'
 
@@ -302,7 +302,7 @@ class TestRetryExceptAsync(IsolatedAsyncioTestCase):
     fn = AsyncFailNTimes(1, ValueError, 'async_ok')
     caught = []
 
-    async def handler(exc):
+    async def handler(rv, exc):
       caught.append(exc)
 
     result = await (
@@ -329,7 +329,7 @@ class TestRetryExceptAsync(IsolatedAsyncioTestCase):
       Chain(10)
       .then(flaky)
       .retry(3, on=ValueError)
-      .except_(lambda e: caught.append(e))
+      .except_(lambda rv, e: caught.append(e))
       .run()
     )
     self.assertEqual(result, 'done')
@@ -394,7 +394,7 @@ class TestRetryFinallyHandlerRaises(unittest.TestCase):
 
     # except_ handles the ValueError, but finally_ raises RuntimeError.
     with self.assertRaises(RuntimeError) as ctx:
-      Chain(fn, ...).retry(2, on=ValueError).except_(lambda e: 'handled').finally_(bad_finally).run()
+      Chain(fn, ...).retry(2, on=ValueError).except_(lambda rv, e: 'handled').finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'finally error')
 
   def test_finally_handler_raises_on_success(self):
@@ -451,7 +451,7 @@ class TestRetryExceptAndFinally(unittest.TestCase):
     fn = always_fail(ValueError)
     order = []
 
-    def exc_handler(e):
+    def exc_handler(rv, e):
       order.append('except')
       return 'handled'
 
@@ -476,7 +476,7 @@ class TestRetryExceptAndFinally(unittest.TestCase):
     fn = FailNTimes(1, ValueError, 'ok')
     order = []
 
-    def exc_handler(e):
+    def exc_handler(rv, e):
       order.append('except')
 
     def fin_handler(rv):
@@ -500,7 +500,7 @@ class TestRetryExceptAndFinally(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(2, on=ValueError)
-      .except_(lambda e: (order.append('except'), 'val')[1])
+      .except_(lambda rv, e: (order.append('except'), 'val')[1])
       .finally_(lambda: order.append('finally'))
       .run()
     )
@@ -515,7 +515,7 @@ class TestRetryExceptAndFinallyAsync(IsolatedAsyncioTestCase):
     fn = async_always_fail(ValueError)
     order = []
 
-    async def exc_handler(e):
+    async def exc_handler(rv, e):
       order.append('except')
       return 'async_handled'
 
@@ -538,7 +538,7 @@ class TestRetryExceptAndFinallyAsync(IsolatedAsyncioTestCase):
     fn = AsyncFailNTimes(1, ValueError, 'async_ok')
     order = []
 
-    async def exc_handler(e):
+    async def exc_handler(rv, e):
       order.append('except')
 
     async def fin_handler(rv):
@@ -747,7 +747,7 @@ class TestRetryIf(unittest.TestCase):
 
     result = (
       Chain(10)
-      .if_(pred, fn)
+      .if_(pred, then=fn)
       .retry(3, on=ValueError)
       .run()
     )
@@ -766,7 +766,7 @@ class TestRetryIf(unittest.TestCase):
 
     result = (
       Chain(10)
-      .if_(lambda x: False, lambda x: 'should_not')
+      .if_(lambda x: False, then=lambda x: 'should_not')
       .else_(fn)
       .retry(3, on=ValueError)
       .run()
@@ -786,7 +786,7 @@ class TestRetryIf(unittest.TestCase):
 
     result = (
       Chain(10)
-      .if_(pred, lambda x: 'branch_hit')
+      .if_(pred, then=lambda x: 'branch_hit')
       .retry(3, on=ValueError)
       .run()
     )
@@ -816,7 +816,7 @@ class TestRetryIf(unittest.TestCase):
 
     result = (
       Chain(10)
-      .if_(pred, if_fn)
+      .if_(pred, then=if_fn)
       .else_(else_fn)
       .retry(3, on=ValueError)
       .run()
@@ -831,7 +831,7 @@ class TestRetryIf(unittest.TestCase):
     pred_calls = []
     result = (
       Chain(5)
-      .if_(lambda x: (pred_calls.append(1), True)[1], lambda x: x * 2)
+      .if_(lambda x: (pred_calls.append(1), True)[1], then=lambda x: x * 2)
       .retry(3, on=ValueError)
       .run()
     )
@@ -853,7 +853,7 @@ class TestRetryIfAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(10)
-      .if_(pred, lambda x: 'hit')
+      .if_(pred, then=lambda x: 'hit')
       .retry(3, on=ValueError)
       .run()
     )
@@ -871,7 +871,7 @@ class TestRetryIfAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(10)
-      .if_(lambda x: True, fn)
+      .if_(lambda x: True, then=fn)
       .retry(3, on=ValueError)
       .run()
     )
@@ -893,7 +893,7 @@ class TestRetryTripleInteraction(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(3, on=ValueError)
-      .except_(lambda e: (order.append('except'), 'recovered')[1])
+      .except_(lambda rv, e: (order.append('except'), 'recovered')[1])
       .finally_(lambda: order.append('finally'))
       .run()
     )
@@ -907,7 +907,7 @@ class TestRetryTripleInteraction(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(3, on=ValueError)
-      .except_(lambda e: order.append('except'))
+      .except_(lambda rv, e: order.append('except'))
       .finally_(lambda rv: order.append('finally'))
       .run()
     )
@@ -921,7 +921,7 @@ class TestRetryTripleInteraction(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(2, on=ValueError)
-      .except_(lambda e: (order.append('except'), 42)[1])
+      .except_(lambda rv, e: (order.append('except'), 42)[1])
       .finally_(lambda: order.append('finally'))
       .run()
     )
@@ -936,7 +936,7 @@ class TestRetryTripleInteractionAsync(IsolatedAsyncioTestCase):
     fn = async_always_fail(ValueError)
     order = []
 
-    async def exc_handler(e):
+    async def exc_handler(rv, e):
       order.append('except')
       return 'async_recovered'
 
@@ -959,7 +959,7 @@ class TestRetryTripleInteractionAsync(IsolatedAsyncioTestCase):
     fn = AsyncFailNTimes(1, ValueError, 'async_ok')
     order = []
 
-    async def exc_handler(e):
+    async def exc_handler(rv, e):
       order.append('except')
 
     async def fin_handler(rv):
@@ -1139,7 +1139,7 @@ class TestRetryBackoffWithHandlers(unittest.TestCase):
     result = (
       Chain(fn, ...)
       .retry(2, on=ValueError, backoff=0.0)
-      .except_(lambda e: (order.append('except'), 'handled')[1])
+      .except_(lambda rv, e: (order.append('except'), 'handled')[1])
       .finally_(lambda: order.append('finally'))
       .run()
     )

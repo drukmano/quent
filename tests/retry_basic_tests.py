@@ -1193,7 +1193,7 @@ class TestRetryExceptFinallyInteraction(unittest.TestCase):
     fn = make_always_fail()
     except_calls = []
 
-    def handler(exc):
+    def handler(rv, exc):
       except_calls.append(str(exc))
       return 'handled'
 
@@ -1207,7 +1207,7 @@ class TestRetryExceptFinallyInteraction(unittest.TestCase):
     fn = make_fail_then_succeed(2)
     except_calls = []
 
-    def handler(exc):
+    def handler(rv, exc):
       except_calls.append(1)
       return 'handled'
 

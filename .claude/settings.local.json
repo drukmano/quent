@@ -16,7 +16,13 @@
       "Bash(gh repo:*)",
       "Bash(gh auth:*)",
       "Bash(git:*)",
-      "Bash(sort:*)"
+      "Bash(sort:*)",
+      "Bash(for f in /Users/user/Documents/libraries.nosync/pydruk/pydruk/services/apns/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/services/palgate/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/db/base_model.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/services/twilio/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/logger/__init__.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/db/alchemist/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/redis/client/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/db/hprop.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/services/ttlock/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/services/nexmo/sms/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/db/query/__init__.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/services/upsend/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/redis/lock/base.py /Users/user/Documents/libraries.nosync/pydruk/pydruk/redis/pipeline/__init__.py)",
+      "Bash(do echo \"=== $f ===\")",
+      "Read(//Users/user/Documents/quent/**)",
+      "Bash(done)",
+      "Bash(for file in /Users/user/Desktop/interqr.nosync/interqr_models/interqr_models/unlocker/base.py /Users/user/Desktop/interqr.nosync/interqr_models/interqr_models/models/group.py /Users/user/Desktop/interqr.nosync/interqr_models/interqr_models/models/building.py /Users/user/Desktop/interqr.nosync/interqr_models/interqr_models/register_model_events.py)",
+      "Bash(do echo \"=== $file ===\")"
     ],
     "deny": []
   },

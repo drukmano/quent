@@ -184,7 +184,7 @@ class TestH1AwaitExitSuppressExpanded(unittest.IsolatedAsyncioTestCase):
       c = Chain(CM()).with_(lambda ctx: (_ for _ in ()).throw(ValueError('if body')))
       return c.run()
 
-    c = Chain(10).if_(lambda v: v > 5, if_fn)
+    c = Chain(10).if_(lambda v: v > 5, then=if_fn)
     result = await c.run()
     self.assertIsNone(result)
 
@@ -204,7 +204,7 @@ class TestH1AwaitExitSuppressExpanded(unittest.IsolatedAsyncioTestCase):
           return _exit()
         return False
 
-    def handler(exc):
+    def handler(rv, exc):
       caught_exceptions.append(exc)
       return 'handled'
 
@@ -598,7 +598,7 @@ class TestH4CleanChainedExceptionsExpanded(unittest.TestCase):
     def bad_pred(x):
       raise ValueError('pred fail')
 
-    c = Chain(5).if_(bad_pred, lambda x: x)
+    c = Chain(5).if_(bad_pred, then=lambda x: x)
     try:
       c.run()
     except ValueError as exc:
@@ -664,7 +664,7 @@ class TestH5DepthGuardExpanded(unittest.TestCase):
     bottom = Chain(lambda: 'leaf')
     current = bottom
     for i in range(55):
-      current = Chain(current).if_(lambda v: True, lambda v: v)
+      current = Chain(current).if_(lambda v: True, then=lambda v: v)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _stringify_chain(current, nest_lvl=0, ctx=ctx, max_depth=50)
     self.assertIn('truncated at depth', result)
@@ -700,7 +700,7 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
     """then() raises -- except_ handler still runs despite traceback formatting."""
     handler_called = []
 
-    c = Chain(5).then(lambda x: 1 / 0).except_(lambda e: handler_called.append(type(e).__name__) or 'caught')
+    c = Chain(5).then(lambda x: 1 / 0).except_(lambda rv, e: handler_called.append(type(e).__name__) or 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
@@ -715,7 +715,7 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
         raise ValueError('map err')
       return x
 
-    c = Chain([1, 2, 3]).map(failing).except_(lambda e: handler_called.append(str(e)) or 'caught')
+    c = Chain([1, 2, 3]).map(failing).except_(lambda rv, e: handler_called.append(str(e)) or 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
@@ -726,14 +726,14 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
     def bad_filter(x):
       raise ValueError('filter err')
 
-    c = Chain([1, 2]).filter(bad_filter).except_(lambda e: 'caught')
+    c = Chain([1, 2]).filter(bad_filter).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
 
   def test_gather_fn_raises_except_catches(self):
     """gather() fn raises -- except_ catches."""
-    c = Chain(5).gather(lambda v: v + 1, lambda v: 1 / 0).except_(lambda e: 'caught')
+    c = Chain(5).gather(lambda v: v + 1, lambda v: 1 / 0).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
@@ -746,7 +746,7 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
       def __exit__(self, *args):
         return False
 
-    c = Chain(CM()).with_(lambda ctx: 1 / 0).except_(lambda e: 'caught')
+    c = Chain(CM()).with_(lambda ctx: 1 / 0).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
@@ -756,21 +756,21 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
     def bad_pred(x):
       raise ValueError('pred err')
 
-    c = Chain(5).if_(bad_pred, lambda x: x).except_(lambda e: 'caught')
+    c = Chain(5).if_(bad_pred, then=lambda x: x).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
 
   def test_if_fn_raises_except_catches(self):
     """if_() fn raises -- except_ catches."""
-    c = Chain(5).if_(lambda x: True, lambda x: 1 / 0).except_(lambda e: 'caught')
+    c = Chain(5).if_(lambda x: True, then=lambda x: 1 / 0).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
 
   def test_else_fn_raises_except_catches(self):
     """else_() fn raises -- except_ catches."""
-    c = Chain(5).if_(lambda x: False, lambda x: x).else_(lambda x: 1 / 0).except_(lambda e: 'caught')
+    c = Chain(5).if_(lambda x: False, then=lambda x: x).else_(lambda x: 1 / 0).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
@@ -787,7 +787,7 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
 
   def test_double_fault_except_handler_raises(self):
     """Double fault: except_ handler raises -- the handler exception propagates."""
-    def bad_handler(e):
+    def bad_handler(rv, e):
       raise RuntimeError('handler boom')
 
     c = Chain(5).then(lambda x: 1 / 0).except_(bad_handler)
@@ -805,7 +805,7 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
     c = (
       Chain(5)
       .then(lambda x: 1 / 0)
-      .except_(lambda e: handler_order.append('except') or 'caught')
+      .except_(lambda rv, e: handler_order.append('except') or 'caught')
       .finally_(lambda v: handler_order.append('finally'))
     )
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
@@ -830,7 +830,7 @@ class TestH6FailureSuppressionAsync(unittest.IsolatedAsyncioTestCase):
     async def failing(x):
       raise ValueError('async err')
 
-    c = Chain(5).then(failing).except_(lambda e: 'caught')
+    c = Chain(5).then(failing).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = await c.run()
     self.assertEqual(result, 'caught')
@@ -1318,7 +1318,7 @@ class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
     c = (
       Chain(10)
       .gather(async_fn, lambda v: (_ for _ in ()).throw(ValueError('err')))
-      .except_(lambda e: 'caught')
+      .except_(lambda rv, e: 'caught')
     )
     result = c.run()
     self.assertEqual(result, 'caught')
@@ -1372,7 +1372,7 @@ class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
     c = (
       Chain(5)
       .then(lambda x: 1 / 0)
-      .except_(lambda e: handler_order.append('except') or 'caught')
+      .except_(lambda rv, e: handler_order.append('except') or 'caught')
       .finally_(lambda v: handler_order.append('finally'))
       .freeze()
     )
@@ -1386,7 +1386,7 @@ class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
     def bad_fn(x):
       raise ValueError('else err')
 
-    c = Chain(5).if_(lambda x: False, lambda x: x).else_(bad_fn)
+    c = Chain(5).if_(lambda x: False, then=lambda x: x).else_(bad_fn)
     try:
       c.run()
     except ValueError as exc:
@@ -1400,7 +1400,7 @@ class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
     def raises_fn(v):
       raise ValueError('gather err')
 
-    c = Chain(10).gather(async_fn, raises_fn).except_(lambda e: 'caught')
+    c = Chain(10).gather(async_fn, raises_fn).except_(lambda rv, e: 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
@@ -1511,15 +1511,15 @@ class TestAdditionalEdgeCases(unittest.TestCase):
     exc = ValueError('test')
     link = Link(lambda: 1)
     with self.assertRaises(ValueError):
-      _except_handler_body(exc, c, link, None)
+      _except_handler_body(exc, c, link, None, 5)
 
   def test_except_handler_body_wrong_exception_type(self):
     """_except_handler_body with wrong exception type re-raises."""
-    c = Chain(5).except_(lambda e: 'caught', exceptions=[TypeError])
+    c = Chain(5).except_(lambda rv, e: 'caught', exceptions=[TypeError])
     exc = ValueError('test')
     link = Link(lambda: 1)
     with self.assertRaises(ValueError):
-      _except_handler_body(exc, c, link, None)
+      _except_handler_body(exc, c, link, None, 5)
 
 
 class TestAdditionalAsyncEdgeCases(unittest.IsolatedAsyncioTestCase):

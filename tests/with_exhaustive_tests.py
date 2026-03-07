@@ -466,7 +466,7 @@ class TestWithExceptInteraction(IsolatedAsyncioTestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: 1 / 0)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
@@ -480,7 +480,7 @@ class TestWithExceptInteraction(IsolatedAsyncioTestCase):
     result = await (
       Chain(cm)
       .with_(body)
-      .except_(lambda exc: 'async_caught')
+      .except_(lambda rv, exc: 'async_caught')
       .run()
     )
     self.assertEqual(result, 'async_caught')
@@ -491,7 +491,7 @@ class TestWithExceptInteraction(IsolatedAsyncioTestCase):
     result = (
       Chain(SyncCMSuppresses())
       .with_(lambda ctx: 1 / 0)
-      .except_(lambda exc: tracker.append('should_not_run'))
+      .except_(lambda rv, exc: tracker.append('should_not_run'))
       .run()
     )
     self.assertIsNone(result)

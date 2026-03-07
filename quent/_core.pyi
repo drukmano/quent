@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -34,8 +35,10 @@ def _set_link_temp_args(exc: BaseException, link: Link, /, **kwargs: Any) -> Non
 
 _create_task_fn: Callable[..., asyncio.Task[Any]]
 _task_registry: set[asyncio.Task[Any]]
+_task_registry_lock: threading.Lock
 
 def _ensure_future(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]: ...
+def _task_done_callback(task: asyncio.Task[Any]) -> None: ...
 
 class Link:
   __slots__: tuple[str, ...]

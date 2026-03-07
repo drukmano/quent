@@ -29,33 +29,33 @@ class TestIfMap(unittest.TestCase):
 
   def test_if_after_map_truthy(self):
     """if_ receives the map result (a list) and applies fn when truthy."""
-    result = Chain([1, 2, 3]).map(lambda x: x * 2).if_(lambda v: len(v) > 0, lambda v: sum(v)).run()
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).if_(lambda v: len(v) > 0, then=lambda v: sum(v)).run()
     self.assertEqual(result, 12)  # sum([2, 4, 6])
 
   def test_if_after_map_falsy(self):
     """if_ predicate falsy: map result passes through unchanged."""
-    result = Chain([1, 2, 3]).map(lambda x: x * 2).if_(lambda v: len(v) > 100, lambda v: 'nope').run()
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).if_(lambda v: len(v) > 100, then=lambda v: 'nope').run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_if_before_map_truthy(self):
     """if_ transforms the value before map consumes it."""
-    result = Chain([1, 2, 3]).if_(lambda v: True, lambda v: [x + 10 for x in v]).map(lambda x: x * 2).run()
+    result = Chain([1, 2, 3]).if_(lambda v: True, then=lambda v: [x + 10 for x in v]).map(lambda x: x * 2).run()
     self.assertEqual(result, [22, 24, 26])
 
   def test_if_before_map_falsy_passthrough(self):
     """if_ falsy: original value passes through to map."""
-    result = Chain([1, 2, 3]).if_(lambda v: False, lambda v: [99]).map(lambda x: x * 2).run()
+    result = Chain([1, 2, 3]).if_(lambda v: False, then=lambda v: [99]).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_if_inside_map_fn_nested_chain(self):
     """if_ nested inside the map callback via a sub-chain."""
-    inner = Chain().if_(lambda x: x > 1, lambda x: x * 100)
+    inner = Chain().if_(lambda x: x > 1, then=lambda x: x * 100)
     result = Chain([1, 2, 3]).map(inner).run()
     self.assertEqual(result, [1, 200, 300])
 
   def test_if_else_inside_map_fn_nested_chain(self):
     """if_/else_ nested inside map callback."""
-    inner = Chain().if_(lambda x: x % 2 == 0, lambda x: 'even').else_(lambda x: 'odd')
+    inner = Chain().if_(lambda x: x % 2 == 0, then=lambda x: 'even').else_(lambda x: 'odd')
     result = Chain([1, 2, 3, 4]).map(inner).run()
     self.assertEqual(result, ['odd', 'even', 'odd', 'even'])
 
@@ -64,7 +64,7 @@ class TestIfMap(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .foreach(lambda x: x * 100)  # side effect, original items preserved
-      .if_(lambda v: len(v) == 3, lambda v: v + [4])
+      .if_(lambda v: len(v) == 3, then=lambda v: v + [4])
       .run()
     )
     self.assertEqual(result, [1, 2, 3, 4])
@@ -73,7 +73,7 @@ class TestIfMap(unittest.TestCase):
     """if_ before foreach: transforms value then foreach keeps originals."""
     result = (
       Chain([10, 20, 30])
-      .if_(lambda v: True, lambda v: [x - 5 for x in v])
+      .if_(lambda v: True, then=lambda v: [x - 5 for x in v])
       .foreach(lambda x: None)
       .run()
     )
@@ -87,7 +87,7 @@ class TestIfMapAsync(IsolatedAsyncioTestCase):
     async def pred(v):
       return len(v) > 0
 
-    result = await Chain([1, 2]).map(lambda x: x + 1).if_(pred, lambda v: sum(v)).run()
+    result = await Chain([1, 2]).map(lambda x: x + 1).if_(pred, then=lambda v: sum(v)).run()
     self.assertEqual(result, 5)  # sum([2, 3])
 
   async def test_if_after_map_async_fn(self):
@@ -95,12 +95,12 @@ class TestIfMapAsync(IsolatedAsyncioTestCase):
     async def transform(v):
       return sorted(v, reverse=True)
 
-    result = await Chain([3, 1, 2]).map(lambda x: x * 2).if_(lambda v: True, transform).run()
+    result = await Chain([3, 1, 2]).map(lambda x: x * 2).if_(lambda v: True, then=transform).run()
     self.assertEqual(result, [6, 4, 2])
 
   async def test_async_map_then_if(self):
     """Async iterable map followed by sync if_."""
-    result = await Chain(AsyncRange(4)).map(lambda x: x * 10).if_(lambda v: True, lambda v: sum(v)).run()
+    result = await Chain(AsyncRange(4)).map(lambda x: x * 10).if_(lambda v: True, then=lambda v: sum(v)).run()
     self.assertEqual(result, 60)  # 0+10+20+30
 
   async def test_if_inside_map_async_nested(self):
@@ -108,7 +108,7 @@ class TestIfMapAsync(IsolatedAsyncioTestCase):
     async def pred(x):
       return x > 1
 
-    inner = Chain().if_(pred, lambda x: x * 100)
+    inner = Chain().if_(pred, then=lambda x: x * 100)
     result = await Chain([1, 2, 3]).map(inner).run()
     self.assertEqual(result, [1, 200, 300])
 
@@ -120,26 +120,26 @@ class TestIfMapAsync(IsolatedAsyncioTestCase):
 class TestIfFilter(unittest.TestCase):
 
   def test_if_after_filter_truthy(self):
-    result = Chain([1, 2, 3, 4, 5]).filter(lambda x: x > 2).if_(lambda v: len(v) > 0, lambda v: sum(v)).run()
+    result = Chain([1, 2, 3, 4, 5]).filter(lambda x: x > 2).if_(lambda v: len(v) > 0, then=lambda v: sum(v)).run()
     self.assertEqual(result, 12)  # 3+4+5
 
   def test_if_after_filter_falsy(self):
-    result = Chain([1, 2, 3]).filter(lambda x: x > 1).if_(lambda v: len(v) > 10, lambda v: 'nope').run()
+    result = Chain([1, 2, 3]).filter(lambda x: x > 1).if_(lambda v: len(v) > 10, then=lambda v: 'nope').run()
     self.assertEqual(result, [2, 3])
 
   def test_if_before_filter_truthy(self):
-    result = Chain([1, 2, 3, 4]).if_(lambda v: True, lambda v: [x * 2 for x in v]).filter(lambda x: x > 4).run()
+    result = Chain([1, 2, 3, 4]).if_(lambda v: True, then=lambda v: [x * 2 for x in v]).filter(lambda x: x > 4).run()
     self.assertEqual(result, [6, 8])
 
   def test_if_before_filter_falsy(self):
-    result = Chain([1, 2, 3, 4]).if_(lambda v: False, lambda v: [99]).filter(lambda x: x > 2).run()
+    result = Chain([1, 2, 3, 4]).if_(lambda v: False, then=lambda v: [99]).filter(lambda x: x > 2).run()
     self.assertEqual(result, [3, 4])
 
   def test_if_inside_filter_predicate_nested(self):
     """Use nested chain with if_ as the filter predicate."""
     # The filter predicate must return truthy/falsy.
     # Use a chain: if x > 2, return True, else return False.
-    inner = Chain().if_(lambda x: x > 2, lambda x: True).else_(lambda x: False)
+    inner = Chain().if_(lambda x: x > 2, then=lambda x: True).else_(lambda x: False)
     result = Chain([1, 2, 3, 4]).filter(inner).run()
     self.assertEqual(result, [3, 4])
 
@@ -148,7 +148,7 @@ class TestIfFilter(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .filter(lambda x: x > 100)
-      .if_(lambda v: len(v) > 0, lambda v: 'has_items')
+      .if_(lambda v: len(v) > 0, then=lambda v: 'has_items')
       .else_(lambda v: 'empty')
       .run()
     )
@@ -159,7 +159,7 @@ class TestIfFilter(unittest.TestCase):
     result = (
       Chain(range(10))
       .filter(lambda x: x % 2 == 0)
-      .if_(lambda v: True, lambda v: [x + 1 for x in v])
+      .if_(lambda v: True, then=lambda v: [x + 1 for x in v])
       .filter(lambda x: x > 5)
       .run()
     )
@@ -172,18 +172,18 @@ class TestIfFilterAsync(IsolatedAsyncioTestCase):
     async def pred(x):
       return x > 1
 
-    result = await Chain([1, 2, 3, 4]).filter(pred).if_(lambda v: True, lambda v: sum(v)).run()
+    result = await Chain([1, 2, 3, 4]).filter(pred).if_(lambda v: True, then=lambda v: sum(v)).run()
     self.assertEqual(result, 9)  # 2+3+4
 
   async def test_if_async_pred_then_filter(self):
     async def is_truthy(v):
       return True
 
-    result = await Chain([1, 2, 3]).if_(is_truthy, lambda v: [x * 3 for x in v]).filter(lambda x: x > 5).run()
+    result = await Chain([1, 2, 3]).if_(is_truthy, then=lambda v: [x * 3 for x in v]).filter(lambda x: x > 5).run()
     self.assertEqual(result, [6, 9])
 
   async def test_async_iterable_filter_then_if(self):
-    result = await Chain(AsyncRange(6)).filter(lambda x: x > 3).if_(lambda v: True, lambda v: sum(v)).run()
+    result = await Chain(AsyncRange(6)).filter(lambda x: x > 3).if_(lambda v: True, then=lambda v: sum(v)).run()
     self.assertEqual(result, 9)  # 4+5
 
 
@@ -195,13 +195,13 @@ class TestIfWith(unittest.TestCase):
 
   def test_if_after_with_truthy(self):
     cm = SyncCM()
-    result = Chain(cm).with_(lambda ctx: ctx.upper()).if_(lambda v: True, lambda v: v + '!').run()
+    result = Chain(cm).with_(lambda ctx: ctx.upper()).if_(lambda v: True, then=lambda v: v + '!').run()
     self.assertEqual(result, 'CTX_VALUE!')
     self.assertTrue(cm.exited)
 
   def test_if_after_with_falsy(self):
     cm = SyncCM()
-    result = Chain(cm).with_(lambda ctx: ctx.upper()).if_(lambda v: False, lambda v: 'nope').run()
+    result = Chain(cm).with_(lambda ctx: ctx.upper()).if_(lambda v: False, then=lambda v: 'nope').run()
     self.assertEqual(result, 'CTX_VALUE')
     self.assertTrue(cm.exited)
 
@@ -210,7 +210,7 @@ class TestIfWith(unittest.TestCase):
     cm = SyncCM()
     result = (
       Chain(None)
-      .if_(lambda v: True, lambda v: cm)
+      .if_(lambda v: True, then=lambda v: cm)
       .with_(lambda ctx: ctx + '_used')
       .run()
     )
@@ -221,7 +221,7 @@ class TestIfWith(unittest.TestCase):
   def test_if_inside_with_body_nested_chain(self):
     """Nested chain with if_ used as with_ body."""
     cm = SyncCM()
-    inner = Chain().if_(lambda ctx: ctx == 'ctx_value', lambda ctx: 'matched').else_(lambda ctx: 'unmatched')
+    inner = Chain().if_(lambda ctx: ctx == 'ctx_value', then=lambda ctx: 'matched').else_(lambda ctx: 'unmatched')
     result = Chain(cm).with_(inner).run()
     self.assertEqual(result, 'matched')
     self.assertTrue(cm.exited)
@@ -232,7 +232,7 @@ class TestIfWith(unittest.TestCase):
     result = (
       Chain(cm)
       .with_do(lambda ctx: 'discarded')
-      .if_(lambda v: hasattr(v, 'exited'), lambda v: 'is_cm')
+      .if_(lambda v: hasattr(v, 'exited'), then=lambda v: 'is_cm')
       .else_(lambda v: 'not_cm')
       .run()
     )
@@ -245,7 +245,7 @@ class TestIfWith(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: 'body_result')
-      .if_(lambda v: True, lambda v: v + '_transformed')
+      .if_(lambda v: True, then=lambda v: v + '_transformed')
       .run()
     )
     self.assertEqual(result, 'body_result_transformed')
@@ -255,7 +255,7 @@ class TestIfWithAsync(IsolatedAsyncioTestCase):
 
   async def test_async_cm_then_if(self):
     cm = AsyncCM()
-    result = await Chain(cm).with_(lambda ctx: ctx.upper()).if_(lambda v: True, lambda v: v + '!').run()
+    result = await Chain(cm).with_(lambda ctx: ctx.upper()).if_(lambda v: True, then=lambda v: v + '!').run()
     self.assertEqual(result, 'CTX_VALUE!')
     self.assertTrue(cm.exited)
 
@@ -264,7 +264,7 @@ class TestIfWithAsync(IsolatedAsyncioTestCase):
       return v == 'CTX_VALUE'
 
     cm = AsyncCM()
-    result = await Chain(cm).with_(lambda ctx: ctx.upper()).if_(pred, lambda v: 'yes').else_(lambda v: 'no').run()
+    result = await Chain(cm).with_(lambda ctx: ctx.upper()).if_(pred, then=lambda v: 'yes').else_(lambda v: 'no').run()
     self.assertEqual(result, 'yes')
 
   async def test_if_async_fn_inside_with_body(self):
@@ -273,7 +273,7 @@ class TestIfWithAsync(IsolatedAsyncioTestCase):
       return ctx + '_async'
 
     cm = SyncCM()
-    inner = Chain().if_(lambda ctx: True, transform)
+    inner = Chain().if_(lambda ctx: True, then=transform)
     result = await Chain(cm).with_(inner).run()
     self.assertEqual(result, 'ctx_value_async')
     self.assertTrue(cm.exited)
@@ -283,7 +283,7 @@ class TestIfWithAsync(IsolatedAsyncioTestCase):
     result = await (
       Chain(cm)
       .with_do(lambda ctx: 'discarded')
-      .if_(lambda v: True, lambda v: 'after_with_do')
+      .if_(lambda v: True, then=lambda v: 'after_with_do')
       .run()
     )
     self.assertEqual(result, 'after_with_do')
@@ -297,29 +297,29 @@ class TestIfWithAsync(IsolatedAsyncioTestCase):
 class TestIfGather(unittest.TestCase):
 
   def test_if_after_gather_truthy(self):
-    result = Chain(10).gather(lambda x: x + 1, lambda x: x + 2).if_(lambda v: True, lambda v: sum(v)).run()
+    result = Chain(10).gather(lambda x: x + 1, lambda x: x + 2).if_(lambda v: True, then=lambda v: sum(v)).run()
     self.assertEqual(result, 23)  # 11 + 12
 
   def test_if_after_gather_falsy(self):
-    result = Chain(10).gather(lambda x: x + 1, lambda x: x + 2).if_(lambda v: False, lambda v: 'nope').run()
+    result = Chain(10).gather(lambda x: x + 1, lambda x: x + 2).if_(lambda v: False, then=lambda v: 'nope').run()
     self.assertEqual(result, [11, 12])
 
   def test_if_before_gather_truthy(self):
-    result = Chain(5).if_(lambda v: True, lambda v: v * 2).gather(lambda x: x + 1, lambda x: x - 1).run()
+    result = Chain(5).if_(lambda v: True, then=lambda v: v * 2).gather(lambda x: x + 1, lambda x: x - 1).run()
     self.assertEqual(result, [11, 9])
 
   def test_if_before_gather_falsy(self):
-    result = Chain(5).if_(lambda v: False, lambda v: 99).gather(lambda x: x + 1, lambda x: x - 1).run()
+    result = Chain(5).if_(lambda v: False, then=lambda v: 99).gather(lambda x: x + 1, lambda x: x - 1).run()
     self.assertEqual(result, [6, 4])
 
   def test_if_inside_gather_fn_nested(self):
     """One of the gather fns is a nested chain with if_."""
-    inner = Chain().if_(lambda x: x > 5, lambda x: x * 10).else_(lambda x: x)
+    inner = Chain().if_(lambda x: x > 5, then=lambda x: x * 10).else_(lambda x: x)
     result = Chain(3).gather(inner, lambda x: x + 1).run()
     self.assertEqual(result, [3, 4])  # 3 <= 5, so passthrough
 
   def test_if_inside_gather_fn_truthy(self):
-    inner = Chain().if_(lambda x: x > 5, lambda x: x * 10).else_(lambda x: x)
+    inner = Chain().if_(lambda x: x > 5, then=lambda x: x * 10).else_(lambda x: x)
     result = Chain(10).gather(inner, lambda x: x + 1).run()
     self.assertEqual(result, [100, 11])
 
@@ -333,21 +333,21 @@ class TestIfGatherAsync(IsolatedAsyncioTestCase):
     async def fn2(x):
       return x + 2
 
-    result = await Chain(10).gather(fn1, fn2).if_(lambda v: True, lambda v: sum(v)).run()
+    result = await Chain(10).gather(fn1, fn2).if_(lambda v: True, then=lambda v: sum(v)).run()
     self.assertEqual(result, 23)
 
   async def test_if_async_pred_then_gather(self):
     async def pred(v):
       return v > 3
 
-    result = await Chain(5).if_(pred, lambda v: v * 2).gather(lambda x: x + 1, lambda x: x - 1).run()
+    result = await Chain(5).if_(pred, then=lambda v: v * 2).gather(lambda x: x + 1, lambda x: x - 1).run()
     self.assertEqual(result, [11, 9])
 
   async def test_if_inside_async_gather_fn(self):
     async def transform(x):
       return x * 100
 
-    inner = Chain().if_(lambda x: x > 5, transform).else_(lambda x: 0)
+    inner = Chain().if_(lambda x: x > 5, then=transform).else_(lambda x: 0)
     result = await Chain(10).gather(inner, lambda x: x).run()
     self.assertEqual(result, [1000, 10])
 
@@ -360,16 +360,16 @@ class TestIfIterate(unittest.TestCase):
 
   def test_if_before_iterate(self):
     """if_ transforms value before iterate consumes it."""
-    result = list(Chain([1, 2, 3]).if_(lambda v: True, lambda v: [x * 2 for x in v]).iterate())
+    result = list(Chain([1, 2, 3]).if_(lambda v: True, then=lambda v: [x * 2 for x in v]).iterate())
     self.assertEqual(result, [2, 4, 6])
 
   def test_if_before_iterate_falsy(self):
-    result = list(Chain([1, 2, 3]).if_(lambda v: False, lambda v: [99]).iterate())
+    result = list(Chain([1, 2, 3]).if_(lambda v: False, then=lambda v: [99]).iterate())
     self.assertEqual(result, [1, 2, 3])
 
   def test_if_inside_iterate_fn_nested(self):
     """iterate fn is a nested chain with if_."""
-    inner = Chain().if_(lambda x: x > 1, lambda x: x * 10)
+    inner = Chain().if_(lambda x: x > 1, then=lambda x: x * 10)
     result = list(Chain([1, 2, 3]).iterate(inner))
     self.assertEqual(result, [1, 20, 30])
 
@@ -378,14 +378,14 @@ class TestIfIterate(unittest.TestCase):
     tracker = []
     result = list(
       Chain([1, 2, 3])
-      .if_(lambda v: True, lambda v: [x + 10 for x in v])
+      .if_(lambda v: True, then=lambda v: [x + 10 for x in v])
       .iterate_do(lambda x: tracker.append(x))
     )
     self.assertEqual(result, [11, 12, 13])
     self.assertEqual(tracker, [11, 12, 13])
 
   def test_if_else_inside_iterate_fn(self):
-    inner = Chain().if_(lambda x: x % 2 == 0, lambda x: 'even').else_(lambda x: 'odd')
+    inner = Chain().if_(lambda x: x % 2 == 0, then=lambda x: 'even').else_(lambda x: 'odd')
     result = list(Chain([0, 1, 2, 3]).iterate(inner))
     self.assertEqual(result, ['even', 'odd', 'even', 'odd'])
 
@@ -396,7 +396,7 @@ class TestIfIterateAsync(IsolatedAsyncioTestCase):
     async def pred(v):
       return True
 
-    gen = Chain([1, 2, 3]).if_(pred, lambda v: [x * 5 for x in v]).iterate()
+    gen = Chain([1, 2, 3]).if_(pred, then=lambda v: [x * 5 for x in v]).iterate()
     result = [item async for item in gen]
     self.assertEqual(result, [5, 10, 15])
 
@@ -404,7 +404,7 @@ class TestIfIterateAsync(IsolatedAsyncioTestCase):
     async def transform(x):
       return x * 100
 
-    inner = Chain().if_(lambda x: x > 1, transform)
+    inner = Chain().if_(lambda x: x > 1, then=transform)
     gen = Chain([1, 2, 3]).iterate(inner)
     result = [item async for item in gen]
     self.assertEqual(result, [1, 200, 300])
@@ -415,7 +415,7 @@ class TestIfIterateAsync(IsolatedAsyncioTestCase):
     async def track(x):
       tracker.append(x)
 
-    gen = Chain([10, 20]).if_(lambda v: True, lambda v: v).iterate_do(track)
+    gen = Chain([10, 20]).if_(lambda v: True, then=lambda v: v).iterate_do(track)
     result = [item async for item in gen]
     self.assertEqual(result, [10, 20])
     self.assertEqual(tracker, [10, 20])
@@ -431,28 +431,28 @@ class TestIfExceptFinally(unittest.TestCase):
     def bad_pred(v):
       raise ValueError('pred error')
 
-    result = Chain(5).if_(bad_pred, lambda v: v).except_(lambda exc: 'caught').run()
+    result = Chain(5).if_(bad_pred, then=lambda v: v).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_if_fn_raises_caught_by_except(self):
     def bad_fn(v):
       raise ValueError('fn error')
 
-    result = Chain(5).if_(lambda v: True, bad_fn).except_(lambda exc: 'caught').run()
+    result = Chain(5).if_(lambda v: True, then=bad_fn).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_else_fn_raises_caught_by_except(self):
     def bad_else(v):
       raise ValueError('else error')
 
-    result = Chain(5).if_(lambda v: False, lambda v: v).else_(bad_else).except_(lambda exc: 'caught').run()
+    result = Chain(5).if_(lambda v: False, then=lambda v: v).else_(bad_else).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_if_with_finally_truthy_path(self):
     tracker = []
     result = (
       Chain(10)
-      .if_(lambda v: True, lambda v: v * 2)
+      .if_(lambda v: True, then=lambda v: v * 2)
       .finally_(lambda root: tracker.append(root))
       .run()
     )
@@ -463,7 +463,7 @@ class TestIfExceptFinally(unittest.TestCase):
     tracker = []
     result = (
       Chain(10)
-      .if_(lambda v: False, lambda v: v * 2)
+      .if_(lambda v: False, then=lambda v: v * 2)
       .finally_(lambda root: tracker.append(root))
       .run()
     )
@@ -478,8 +478,8 @@ class TestIfExceptFinally(unittest.TestCase):
 
     result = (
       Chain(5)
-      .if_(lambda v: True, bad_fn)
-      .except_(lambda exc: 'recovered')
+      .if_(lambda v: True, then=bad_fn)
+      .except_(lambda rv, exc: 'recovered')
       .finally_(lambda root: tracker.append('finally'))
       .run()
     )
@@ -491,13 +491,13 @@ class TestIfExceptFinally(unittest.TestCase):
       raise TypeError('type error')
 
     with self.assertRaises(TypeError):
-      Chain(5).if_(lambda v: True, bad_fn).except_(lambda exc: 'caught', exceptions=[ValueError]).run()
+      Chain(5).if_(lambda v: True, then=bad_fn).except_(lambda rv, exc: 'caught', exceptions=[ValueError]).run()
 
   def test_if_fn_raises_except_receives_exc(self):
     def bad_fn(v):
       raise ValueError('specific')
 
-    result = Chain(5).if_(lambda v: True, bad_fn).except_(lambda exc: str(exc)).run()
+    result = Chain(5).if_(lambda v: True, then=bad_fn).except_(lambda rv, exc: str(exc)).run()
     self.assertEqual(result, 'specific')
 
   def test_finally_receives_root_when_if_changes_value(self):
@@ -505,7 +505,7 @@ class TestIfExceptFinally(unittest.TestCase):
     root_tracker = []
     result = (
       Chain(42)
-      .if_(lambda v: True, lambda v: v * 100)
+      .if_(lambda v: True, then=lambda v: v * 100)
       .finally_(lambda root: root_tracker.append(root))
       .run()
     )
@@ -514,7 +514,7 @@ class TestIfExceptFinally(unittest.TestCase):
 
   def test_if_no_error_except_not_called(self):
     tracker = make_tracker()
-    result = Chain(5).if_(lambda v: True, lambda v: v + 1).except_(tracker).run()
+    result = Chain(5).if_(lambda v: True, then=lambda v: v + 1).except_(tracker).run()
     self.assertEqual(result, 6)
     self.assertEqual(tracker.calls, [])
 
@@ -522,9 +522,9 @@ class TestIfExceptFinally(unittest.TestCase):
     """Second if_ raises, caught by except_."""
     result = (
       Chain(5)
-      .if_(lambda v: True, lambda v: v + 1)
-      .if_(lambda v: True, lambda v: (_ for _ in ()).throw(ValueError('second')))
-      .except_(lambda exc: 'caught_second')
+      .if_(lambda v: True, then=lambda v: v + 1)
+      .if_(lambda v: True, then=lambda v: (_ for _ in ()).throw(ValueError('second')))
+      .except_(lambda rv, exc: 'caught_second')
       .run()
     )
     self.assertEqual(result, 'caught_second')
@@ -537,9 +537,9 @@ class TestIfExceptFinally(unittest.TestCase):
 
     result = (
       Chain(5)
-      .if_(lambda v: False, lambda v: v)
+      .if_(lambda v: False, then=lambda v: v)
       .else_(bad_else)
-      .except_(lambda exc: 'recovered')
+      .except_(lambda rv, exc: 'recovered')
       .finally_(lambda root: tracker.append(root))
       .run()
     )
@@ -553,24 +553,24 @@ class TestIfExceptFinallyAsync(IsolatedAsyncioTestCase):
     async def bad_pred(v):
       raise ValueError('async pred error')
 
-    result = await Chain(5).if_(bad_pred, lambda v: v).except_(lambda exc: 'caught').run()
+    result = await Chain(5).if_(bad_pred, then=lambda v: v).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   async def test_async_fn_raises_caught_by_except(self):
     async def bad_fn(v):
       raise ValueError('async fn error')
 
-    result = await Chain(5).if_(lambda v: True, bad_fn).except_(lambda exc: 'caught').run()
+    result = await Chain(5).if_(lambda v: True, then=bad_fn).except_(lambda rv, exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   async def test_async_if_fn_raises_async_except_handler(self):
     async def bad_fn(v):
       raise ValueError('async error')
 
-    async def handler(exc):
+    async def handler(rv, exc):
       return 'async_caught'
 
-    result = await Chain(5).if_(lambda v: True, bad_fn).except_(handler).run()
+    result = await Chain(5).if_(lambda v: True, then=bad_fn).except_(handler).run()
     self.assertEqual(result, 'async_caught')
 
   async def test_if_with_finally_async_pred(self):
@@ -581,7 +581,7 @@ class TestIfExceptFinallyAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(10)
-      .if_(pred, lambda v: v * 3)
+      .if_(pred, then=lambda v: v * 3)
       .finally_(lambda root: tracker.append(root))
       .run()
     )
@@ -592,7 +592,7 @@ class TestIfExceptFinallyAsync(IsolatedAsyncioTestCase):
     async def bad_else(v):
       raise ValueError('async else error')
 
-    result = await Chain(5).if_(lambda v: False, lambda v: v).else_(bad_else).except_(lambda e: 'caught').run()
+    result = await Chain(5).if_(lambda v: False, then=lambda v: v).else_(bad_else).except_(lambda rv, e: 'caught').run()
     self.assertEqual(result, 'caught')
 
 
@@ -603,7 +603,7 @@ class TestIfExceptFinallyAsync(IsolatedAsyncioTestCase):
 class TestIfDecorator(unittest.TestCase):
 
   def test_decorated_fn_with_if_truthy(self):
-    chain = Chain().if_(lambda v: v > 0, lambda v: v * 10)
+    chain = Chain().if_(lambda v: v > 0, then=lambda v: v * 10)
 
     @chain.decorator()
     def my_fn(x):
@@ -613,7 +613,7 @@ class TestIfDecorator(unittest.TestCase):
     self.assertEqual(result, 50)
 
   def test_decorated_fn_with_if_falsy(self):
-    chain = Chain().if_(lambda v: v > 100, lambda v: v * 10)
+    chain = Chain().if_(lambda v: v > 100, then=lambda v: v * 10)
 
     @chain.decorator()
     def my_fn(x):
@@ -623,7 +623,7 @@ class TestIfDecorator(unittest.TestCase):
     self.assertEqual(result, 5)
 
   def test_decorated_fn_with_if_else(self):
-    chain = Chain().if_(lambda v: v > 0, lambda v: 'positive').else_(lambda v: 'non_positive')
+    chain = Chain().if_(lambda v: v > 0, then=lambda v: 'positive').else_(lambda v: 'non_positive')
 
     @chain.decorator()
     def my_fn(x):
@@ -634,7 +634,7 @@ class TestIfDecorator(unittest.TestCase):
     self.assertEqual(my_fn(0), 'non_positive')
 
   def test_decorator_with_frozen_chain_if(self):
-    frozen = Chain().if_(lambda v: v > 0, lambda v: v + 100).freeze()
+    frozen = Chain().if_(lambda v: v > 0, then=lambda v: v + 100).freeze()
     chain = Chain().then(frozen)
 
     @chain.decorator()
@@ -645,7 +645,7 @@ class TestIfDecorator(unittest.TestCase):
     self.assertEqual(my_fn(-5), -5)
 
   def test_decorator_preserves_fn_name(self):
-    chain = Chain().if_(lambda v: True, lambda v: v)
+    chain = Chain().if_(lambda v: True, then=lambda v: v)
 
     @chain.decorator()
     def named_fn(x):
@@ -660,7 +660,7 @@ class TestIfDecoratorAsync(IsolatedAsyncioTestCase):
     async def pred(v):
       return v > 0
 
-    chain = Chain().if_(pred, lambda v: v * 10)
+    chain = Chain().if_(pred, then=lambda v: v * 10)
 
     @chain.decorator()
     def my_fn(x):
@@ -673,7 +673,7 @@ class TestIfDecoratorAsync(IsolatedAsyncioTestCase):
     async def pred(v):
       return v > 0
 
-    chain = Chain().if_(pred, lambda v: 'pos').else_(lambda v: 'neg')
+    chain = Chain().if_(pred, then=lambda v: 'pos').else_(lambda v: 'neg')
 
     @chain.decorator()
     def my_fn(x):
@@ -690,20 +690,20 @@ class TestIfDecoratorAsync(IsolatedAsyncioTestCase):
 class TestIfFreeze(unittest.TestCase):
 
   def test_frozen_if_reused_truthy(self):
-    frozen = Chain().if_(lambda v: v > 0, lambda v: v * 2).else_(lambda v: v * -1).freeze()
+    frozen = Chain().if_(lambda v: v > 0, then=lambda v: v * 2).else_(lambda v: v * -1).freeze()
     self.assertEqual(frozen(5), 10)
     self.assertEqual(frozen(-3), 3)
     self.assertEqual(frozen(0), 0)
 
   def test_frozen_if_multiple_calls(self):
     """Frozen chain is safe for repeated calls."""
-    frozen = Chain().if_(lambda v: v % 2 == 0, lambda v: 'even').else_(lambda v: 'odd').freeze()
+    frozen = Chain().if_(lambda v: v % 2 == 0, then=lambda v: 'even').else_(lambda v: 'odd').freeze()
     results = [frozen(i) for i in range(6)]
     self.assertEqual(results, ['even', 'odd', 'even', 'odd', 'even', 'odd'])
 
   def test_frozen_chain_thread_safety(self):
     """Frozen chain with if_ can be called concurrently from threads."""
-    frozen = Chain().if_(lambda v: v > 0, lambda v: v * 2).else_(lambda v: 0).freeze()
+    frozen = Chain().if_(lambda v: v > 0, then=lambda v: v * 2).else_(lambda v: 0).freeze()
     results = [None] * 100
     errors = []
 
@@ -726,18 +726,18 @@ class TestIfFreeze(unittest.TestCase):
       self.assertEqual(results[i], expected)
 
   def test_frozen_if_nested_inside_unfrozen(self):
-    frozen = Chain().if_(lambda v: v > 10, lambda v: v * 100).freeze()
+    frozen = Chain().if_(lambda v: v > 10, then=lambda v: v * 100).freeze()
     result = Chain(15).then(frozen).run()
     self.assertEqual(result, 1500)
 
   def test_frozen_if_nested_inside_unfrozen_falsy(self):
-    frozen = Chain().if_(lambda v: v > 10, lambda v: v * 100).freeze()
+    frozen = Chain().if_(lambda v: v > 10, then=lambda v: v * 100).freeze()
     result = Chain(5).then(frozen).run()
     self.assertEqual(result, 5)
 
   def test_return_inside_frozen_if_fn(self):
     """return_ inside frozen if_ fn does NOT propagate to outer chain."""
-    frozen = Chain().if_(lambda v: True, lambda v: Chain.return_(999)).freeze()
+    frozen = Chain().if_(lambda v: True, then=lambda v: Chain.return_(999)).freeze()
     result = Chain(1).then(frozen).then(lambda v: v + 1).run()
     # Frozen chain catches _Return, returns 999.
     # Outer chain's .then(lambda v: v + 1) runs on 999.
@@ -750,7 +750,7 @@ class TestIfFreezeAsync(IsolatedAsyncioTestCase):
     async def pred(v):
       return v > 0
 
-    frozen = Chain().if_(pred, lambda v: 'positive').else_(lambda v: 'non_positive').freeze()
+    frozen = Chain().if_(pred, then=lambda v: 'positive').else_(lambda v: 'non_positive').freeze()
     self.assertEqual(await frozen(5), 'positive')
     self.assertEqual(await frozen(-1), 'non_positive')
 
@@ -766,7 +766,7 @@ class TestIfDo(unittest.TestCase):
     tracker = []
     result = (
       Chain(10)
-      .if_(lambda v: True, lambda v: v * 2)
+      .if_(lambda v: True, then=lambda v: v * 2)
       .do(lambda v: tracker.append(v))
       .run()
     )
@@ -779,7 +779,7 @@ class TestIfDo(unittest.TestCase):
     result = (
       Chain(10)
       .do(lambda v: tracker.append(v))
-      .if_(lambda v: v > 5, lambda v: v * 3)
+      .if_(lambda v: v > 5, then=lambda v: v * 3)
       .run()
     )
     self.assertEqual(result, 30)
@@ -787,7 +787,7 @@ class TestIfDo(unittest.TestCase):
 
   def test_if_inside_do_nested_result_discarded(self):
     """if_ inside a do step: the if_ result is discarded."""
-    inner = Chain().if_(lambda v: True, lambda v: v * 999)
+    inner = Chain().if_(lambda v: True, then=lambda v: v * 999)
     tracker = []
     result = (
       Chain(7)
@@ -801,7 +801,7 @@ class TestIfDo(unittest.TestCase):
     tracker = []
     result = (
       Chain(10)
-      .if_(lambda v: False, lambda v: 99)
+      .if_(lambda v: False, then=lambda v: 99)
       .do(lambda v: tracker.append(v))
       .run()
     )
@@ -818,7 +818,7 @@ class TestIfDoAsync(IsolatedAsyncioTestCase):
     tracker = []
     result = await (
       Chain(10)
-      .if_(pred, lambda v: v * 2)
+      .if_(pred, then=lambda v: v * 2)
       .do(lambda v: tracker.append(v))
       .run()
     )
@@ -832,7 +832,7 @@ class TestIfDoAsync(IsolatedAsyncioTestCase):
     result = await (
       Chain(10)
       .do(side)
-      .if_(lambda v: v > 5, lambda v: v * 3)
+      .if_(lambda v: v > 5, then=lambda v: v * 3)
       .run()
     )
     self.assertEqual(result, 30)
@@ -848,7 +848,7 @@ class TestIfReturnBreak(unittest.TestCase):
     tracker = []
     result = (
       Chain(5)
-      .if_(lambda v: True, lambda v: Chain.return_(42))
+      .if_(lambda v: True, then=lambda v: Chain.return_(42))
       .then(lambda v: tracker.append('should_not_run'))
       .run()
     )
@@ -859,7 +859,7 @@ class TestIfReturnBreak(unittest.TestCase):
     tracker = []
     result = (
       Chain(5)
-      .if_(lambda v: False, lambda v: v)
+      .if_(lambda v: False, then=lambda v: v)
       .else_(lambda v: Chain.return_(99))
       .then(lambda v: tracker.append('should_not_run'))
       .run()
@@ -888,7 +888,7 @@ class TestIfReturnBreak(unittest.TestCase):
   def test_return_no_value_from_if(self):
     result = (
       Chain(5)
-      .if_(lambda v: True, lambda v: Chain.return_())
+      .if_(lambda v: True, then=lambda v: Chain.return_())
       .then(lambda v: 999)
       .run()
     )
@@ -897,7 +897,7 @@ class TestIfReturnBreak(unittest.TestCase):
   def test_return_with_callable_from_if(self):
     result = (
       Chain(5)
-      .if_(lambda v: True, lambda v: Chain.return_(lambda: 'early'))
+      .if_(lambda v: True, then=lambda v: Chain.return_(lambda: 'early'))
       .then(lambda v: 999)
       .run()
     )
@@ -913,7 +913,7 @@ class TestIfReturnBreakAsync(IsolatedAsyncioTestCase):
     tracker = []
     result = await (
       Chain(5)
-      .if_(pred, lambda v: Chain.return_(42))
+      .if_(pred, then=lambda v: Chain.return_(42))
       .then(lambda v: tracker.append('no'))
       .run()
     )
@@ -939,9 +939,9 @@ class TestMultipleIfChaining(unittest.TestCase):
   def test_cascading_all_true(self):
     result = (
       Chain(1)
-      .if_(lambda v: True, lambda v: v + 1)
-      .if_(lambda v: True, lambda v: v + 1)
-      .if_(lambda v: True, lambda v: v + 1)
+      .if_(lambda v: True, then=lambda v: v + 1)
+      .if_(lambda v: True, then=lambda v: v + 1)
+      .if_(lambda v: True, then=lambda v: v + 1)
       .run()
     )
     self.assertEqual(result, 4)
@@ -949,9 +949,9 @@ class TestMultipleIfChaining(unittest.TestCase):
   def test_cascading_all_false(self):
     result = (
       Chain(1)
-      .if_(lambda v: False, lambda v: v + 100)
-      .if_(lambda v: False, lambda v: v + 100)
-      .if_(lambda v: False, lambda v: v + 100)
+      .if_(lambda v: False, then=lambda v: v + 100)
+      .if_(lambda v: False, then=lambda v: v + 100)
+      .if_(lambda v: False, then=lambda v: v + 100)
       .run()
     )
     self.assertEqual(result, 1)
@@ -959,9 +959,9 @@ class TestMultipleIfChaining(unittest.TestCase):
   def test_cascading_mixed(self):
     result = (
       Chain(1)
-      .if_(lambda v: True, lambda v: v + 10)   # -> 11
-      .if_(lambda v: False, lambda v: v + 100)  # -> 11 (passthrough)
-      .if_(lambda v: True, lambda v: v * 2)     # -> 22
+      .if_(lambda v: True, then=lambda v: v + 10)   # -> 11
+      .if_(lambda v: False, then=lambda v: v + 100)  # -> 11 (passthrough)
+      .if_(lambda v: True, then=lambda v: v * 2)     # -> 22
       .run()
     )
     self.assertEqual(result, 22)
@@ -969,8 +969,8 @@ class TestMultipleIfChaining(unittest.TestCase):
   def test_alternating_if_else_first_true(self):
     result = (
       Chain(1)
-      .if_(lambda v: True, lambda v: 'a').else_(lambda v: 'b')
-      .if_(lambda v: v == 'a', lambda v: 'c').else_(lambda v: 'd')
+      .if_(lambda v: True, then=lambda v: 'a').else_(lambda v: 'b')
+      .if_(lambda v: v == 'a', then=lambda v: 'c').else_(lambda v: 'd')
       .run()
     )
     self.assertEqual(result, 'c')
@@ -978,8 +978,8 @@ class TestMultipleIfChaining(unittest.TestCase):
   def test_alternating_if_else_first_false(self):
     result = (
       Chain(1)
-      .if_(lambda v: False, lambda v: 'a').else_(lambda v: 'b')
-      .if_(lambda v: v == 'a', lambda v: 'c').else_(lambda v: 'd')
+      .if_(lambda v: False, then=lambda v: 'a').else_(lambda v: 'b')
+      .if_(lambda v: v == 'a', then=lambda v: 'c').else_(lambda v: 'd')
       .run()
     )
     self.assertEqual(result, 'd')
@@ -988,12 +988,12 @@ class TestMultipleIfChaining(unittest.TestCase):
     """Each if_ checks the current value and increments if condition met."""
     result = (
       Chain(0)
-      .if_(lambda v: v == 0, lambda v: v + 1)    # -> 1
-      .if_(lambda v: v == 1, lambda v: v + 1)    # -> 2
-      .if_(lambda v: v == 2, lambda v: v + 1)    # -> 3
-      .if_(lambda v: v == 3, lambda v: v + 1)    # -> 4
-      .if_(lambda v: v == 4, lambda v: v + 1)    # -> 5
-      .if_(lambda v: v == 5, lambda v: v + 1)    # -> 6
+      .if_(lambda v: v == 0, then=lambda v: v + 1)    # -> 1
+      .if_(lambda v: v == 1, then=lambda v: v + 1)    # -> 2
+      .if_(lambda v: v == 2, then=lambda v: v + 1)    # -> 3
+      .if_(lambda v: v == 3, then=lambda v: v + 1)    # -> 4
+      .if_(lambda v: v == 4, then=lambda v: v + 1)    # -> 5
+      .if_(lambda v: v == 5, then=lambda v: v + 1)    # -> 6
       .run()
     )
     self.assertEqual(result, 6)
@@ -1002,8 +1002,8 @@ class TestMultipleIfChaining(unittest.TestCase):
     """Cascading if_ with type changes."""
     result = (
       Chain(5)
-      .if_(lambda v: v > 3, lambda v: str(v)).else_(lambda v: v)
-      .if_(lambda v: isinstance(v, str), lambda v: v + '!').else_(lambda v: v * 2)
+      .if_(lambda v: v > 3, then=lambda v: str(v)).else_(lambda v: v)
+      .if_(lambda v: isinstance(v, str), then=lambda v: v + '!').else_(lambda v: v * 2)
       .run()
     )
     self.assertEqual(result, '5!')
@@ -1017,9 +1017,9 @@ class TestMultipleIfChainingAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(1)
-      .if_(pred, lambda v: v + 1)
-      .if_(pred, lambda v: v + 1)
-      .if_(pred, lambda v: v + 1)
+      .if_(pred, then=lambda v: v + 1)
+      .if_(pred, then=lambda v: v + 1)
+      .if_(pred, then=lambda v: v + 1)
       .run()
     )
     self.assertEqual(result, 4)
@@ -1030,9 +1030,9 @@ class TestMultipleIfChainingAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(1)
-      .if_(lambda v: True, lambda v: v + 10)        # sync pred -> 11
-      .if_(async_pred, lambda v: v * 2)               # async pred -> 22
-      .if_(lambda v: v > 20, lambda v: v + 100)       # sync pred -> 122
+      .if_(lambda v: True, then=lambda v: v + 10)        # sync pred -> 11
+      .if_(async_pred, then=lambda v: v * 2)               # async pred -> 22
+      .if_(lambda v: v > 20, then=lambda v: v + 100)       # sync pred -> 122
       .run()
     )
     self.assertEqual(result, 122)
@@ -1046,47 +1046,47 @@ class TestIfNestedChains(unittest.TestCase):
 
   def test_if_fn_is_chain_with_own_if(self):
     """if_ fn is a Chain that itself has if_/else_."""
-    inner = Chain().if_(lambda v: v > 10, lambda v: 'big').else_(lambda v: 'small')
-    result = Chain(15).if_(lambda v: True, inner).run()
+    inner = Chain().if_(lambda v: v > 10, then=lambda v: 'big').else_(lambda v: 'small')
+    result = Chain(15).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, 'big')
 
   def test_if_fn_is_chain_with_own_if_falsy_outer(self):
-    inner = Chain().if_(lambda v: v > 10, lambda v: 'big').else_(lambda v: 'small')
-    result = Chain(15).if_(lambda v: False, inner).run()
+    inner = Chain().if_(lambda v: v > 10, then=lambda v: 'big').else_(lambda v: 'small')
+    result = Chain(15).if_(lambda v: False, then=inner).run()
     self.assertEqual(result, 15)  # if_ falsy, passthrough
 
   def test_if_fn_is_chain_with_map(self):
     inner = Chain().then(lambda v: [v, v * 2, v * 3]).map(lambda x: x + 1)
-    result = Chain(5).if_(lambda v: True, inner).run()
+    result = Chain(5).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, [6, 11, 16])
 
   def test_if_fn_is_chain_with_except(self):
-    inner = Chain().then(lambda v: 1 / 0).except_(lambda exc: 'caught_inner')
-    result = Chain(5).if_(lambda v: True, inner).run()
+    inner = Chain().then(lambda v: 1 / 0).except_(lambda rv, exc: 'caught_inner')
+    result = Chain(5).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, 'caught_inner')
 
   def test_else_fn_is_chain(self):
     inner = Chain().then(lambda v: v * 100)
-    result = Chain(5).if_(lambda v: False, lambda v: v).else_(inner).run()
+    result = Chain(5).if_(lambda v: False, then=lambda v: v).else_(inner).run()
     self.assertEqual(result, 500)
 
   def test_nested_chain_with_finally(self):
     tracker = []
     inner = Chain().then(lambda v: v * 2).finally_(lambda root: tracker.append(root))
-    result = Chain(5).if_(lambda v: True, inner).run()
+    result = Chain(5).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, 10)
     self.assertEqual(tracker, [5])
 
   def test_doubly_nested_if(self):
     """Chain inside if_ fn, which itself has if_ with another chain."""
     innermost = Chain().then(lambda v: v + 1000)
-    inner = Chain().if_(lambda v: v > 10, innermost).else_(lambda v: v - 1)
-    result = Chain(20).if_(lambda v: True, inner).run()
+    inner = Chain().if_(lambda v: v > 10, then=innermost).else_(lambda v: v - 1)
+    result = Chain(20).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, 1020)
 
   def test_if_fn_chain_with_filter(self):
     inner = Chain().then(lambda v: list(range(v))).filter(lambda x: x % 2 == 0)
-    result = Chain(8).if_(lambda v: v > 5, inner).run()
+    result = Chain(8).if_(lambda v: v > 5, then=inner).run()
     self.assertEqual(result, [0, 2, 4, 6])
 
 
@@ -1096,8 +1096,8 @@ class TestIfNestedChainsAsync(IsolatedAsyncioTestCase):
     async def pred(v):
       return v > 10
 
-    inner = Chain().if_(pred, lambda v: 'big').else_(lambda v: 'small')
-    result = await Chain(15).if_(lambda v: True, inner).run()
+    inner = Chain().if_(pred, then=lambda v: 'big').else_(lambda v: 'small')
+    result = await Chain(15).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, 'big')
 
   async def test_async_else_fn_is_chain(self):
@@ -1105,7 +1105,7 @@ class TestIfNestedChainsAsync(IsolatedAsyncioTestCase):
       return v * 100
 
     inner = Chain().then(transform)
-    result = await Chain(5).if_(lambda v: False, lambda v: v).else_(inner).run()
+    result = await Chain(5).if_(lambda v: False, then=lambda v: v).else_(inner).run()
     self.assertEqual(result, 500)
 
   async def test_async_nested_chain_with_map(self):
@@ -1113,18 +1113,18 @@ class TestIfNestedChainsAsync(IsolatedAsyncioTestCase):
       return x * 2
 
     inner = Chain().then(lambda v: [v, v + 1, v + 2]).map(double)
-    result = await Chain(10).if_(lambda v: True, inner).run()
+    result = await Chain(10).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, [20, 22, 24])
 
   async def test_async_nested_chain_with_except(self):
     async def bad_fn(v):
       raise ValueError('async nested error')
 
-    async def handler(exc):
+    async def handler(rv, exc):
       return 'async_caught'
 
     inner = Chain().then(bad_fn).except_(handler)
-    result = await Chain(5).if_(lambda v: True, inner).run()
+    result = await Chain(5).if_(lambda v: True, then=inner).run()
     self.assertEqual(result, 'async_caught')
 
 
@@ -1136,41 +1136,41 @@ class TestIfEdgeCases(unittest.TestCase):
 
   def test_if_with_none_value(self):
     """if_ works when current value is None."""
-    result = Chain(None).if_(lambda v: v is None, lambda v: 'was_none').run()
+    result = Chain(None).if_(lambda v: v is None, then=lambda v: 'was_none').run()
     self.assertEqual(result, 'was_none')
 
   def test_if_with_zero_value(self):
     """if_ with 0 as current value -- pred receives 0."""
-    result = Chain(0).if_(lambda v: v == 0, lambda v: 'zero').else_(lambda v: 'nonzero').run()
+    result = Chain(0).if_(lambda v: v == 0, then=lambda v: 'zero').else_(lambda v: 'nonzero').run()
     self.assertEqual(result, 'zero')
 
   def test_if_with_empty_string(self):
-    result = Chain('').if_(lambda v: v == '', lambda v: 'empty').else_(lambda v: 'nonempty').run()
+    result = Chain('').if_(lambda v: v == '', then=lambda v: 'empty').else_(lambda v: 'nonempty').run()
     self.assertEqual(result, 'empty')
 
   def test_if_with_falsy_pred_result_zero(self):
     """Predicate returns 0 (falsy) -> else branch taken."""
-    result = Chain(5).if_(lambda v: 0, lambda v: 'yes').else_(lambda v: 'no').run()
+    result = Chain(5).if_(lambda v: 0, then=lambda v: 'yes').else_(lambda v: 'no').run()
     self.assertEqual(result, 'no')
 
   def test_if_with_truthy_pred_result_nonempty_list(self):
     """Predicate returns non-empty list (truthy) -> if branch taken."""
-    result = Chain(5).if_(lambda v: [1], lambda v: 'yes').else_(lambda v: 'no').run()
+    result = Chain(5).if_(lambda v: [1], then=lambda v: 'yes').else_(lambda v: 'no').run()
     self.assertEqual(result, 'yes')
 
   def test_if_fn_returns_none(self):
     """if_ fn returns None, which becomes the new current value."""
-    result = Chain(5).if_(lambda v: True, lambda v: None).then(lambda v: v is None).run()
+    result = Chain(5).if_(lambda v: True, then=lambda v: None).then(lambda v: v is None).run()
     self.assertTrue(result)
 
   def test_if_else_with_ellipsis_args(self):
     """if_ fn called with ellipsis to suppress passing current value."""
-    result = Chain(5).if_(lambda v: True, lambda: 'no_arg', ...).run()
+    result = Chain(5).if_(lambda v: True, then=lambda: 'no_arg', args=(...,)).run()
     self.assertEqual(result, 'no_arg')
 
   def test_if_fn_with_extra_args(self):
     """if_ fn receives extra positional args."""
-    result = Chain(5).if_(lambda v: True, lambda a, b: a + b, 10, 20).run()
+    result = Chain(5).if_(lambda v: True, then=lambda a, b: a + b, args=(10, 20,)).run()
     self.assertEqual(result, 30)
 
   def test_if_pred_returns_awaitable_sync_context(self):
@@ -1179,7 +1179,7 @@ class TestIfEdgeCases(unittest.TestCase):
       return True
 
     # This should return a coroutine that needs to be awaited.
-    result = Chain(5).if_(pred, lambda v: v * 2).run()
+    result = Chain(5).if_(pred, then=lambda v: v * 2).run()
     # The chain should return a coroutine; verify by running it.
     self.assertTrue(asyncio.iscoroutine(result))
     actual = asyncio.run(result)
@@ -1192,7 +1192,7 @@ class TestIfWithGatherAndMap(unittest.TestCase):
   def test_if_then_map_then_gather(self):
     result = (
       Chain([1, 2, 3])
-      .if_(lambda v: True, lambda v: [x + 10 for x in v])
+      .if_(lambda v: True, then=lambda v: [x + 10 for x in v])
       .map(lambda x: x * 2)
       .gather(lambda v: sum(v), lambda v: len(v))
       .run()
@@ -1203,7 +1203,7 @@ class TestIfWithGatherAndMap(unittest.TestCase):
     result = (
       Chain(5)
       .gather(lambda x: x + 1, lambda x: x + 2)
-      .if_(lambda v: len(v) > 0, lambda v: v)
+      .if_(lambda v: len(v) > 0, then=lambda v: v)
       .map(lambda x: x * 10)
       .run()
     )
@@ -1214,7 +1214,7 @@ class TestIfWithGatherAndMap(unittest.TestCase):
       Chain([1, 2, 3, 4, 5])
       .map(lambda x: x * 2)
       .filter(lambda x: x > 4)
-      .if_(lambda v: len(v) > 0, lambda v: sum(v))
+      .if_(lambda v: len(v) > 0, then=lambda v: sum(v))
       .run()
     )
     self.assertEqual(result, 24)  # 6+8+10
@@ -1223,7 +1223,7 @@ class TestIfWithGatherAndMap(unittest.TestCase):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .if_(lambda v: True, lambda v: [x * 10 for x in v])
+      .if_(lambda v: True, then=lambda v: [x * 10 for x in v])
       .do(lambda v: tracker.extend(v))
       .map(lambda x: x + 1)
       .run()
@@ -1240,7 +1240,7 @@ class TestIfWithGatherAndMapAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain([1, 2, 3])
-      .if_(pred, lambda v: [x + 10 for x in v])
+      .if_(pred, then=lambda v: [x + 10 for x in v])
       .map(lambda x: x * 2)
       .gather(lambda v: sum(v), lambda v: len(v))
       .run()
@@ -1254,7 +1254,7 @@ class TestIfWithGatherAndMapAsync(IsolatedAsyncioTestCase):
     result = await (
       Chain([1, 2, 3, 4])
       .filter(pred)
-      .if_(lambda v: True, lambda v: v)
+      .if_(lambda v: True, then=lambda v: v)
       .gather(lambda v: sum(v), lambda v: max(v))
       .run()
     )
@@ -1273,8 +1273,8 @@ class TestIfWithWithAndExcept(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: ctx)
-      .if_(lambda v: True, bad_fn)
-      .except_(lambda exc: 'recovered')
+      .if_(lambda v: True, then=bad_fn)
+      .except_(lambda rv, exc: 'recovered')
       .run()
     )
     self.assertEqual(result, 'recovered')
@@ -1287,7 +1287,7 @@ class TestIfWithWithAndExcept(unittest.TestCase):
     result = (
       Chain(cm)
       .with_(lambda ctx: ctx.upper())
-      .if_(lambda v: True, lambda v: v + '!')
+      .if_(lambda v: True, then=lambda v: v + '!')
       .finally_(lambda root: tracker.append('done'))
       .run()
     )
@@ -1307,8 +1307,8 @@ class TestIfWithWithAndExceptAsync(IsolatedAsyncioTestCase):
     result = await (
       Chain(cm)
       .with_(lambda ctx: ctx)
-      .if_(lambda v: True, bad_fn)
-      .except_(lambda exc: 'recovered')
+      .if_(lambda v: True, then=bad_fn)
+      .except_(lambda rv, exc: 'recovered')
       .run()
     )
     self.assertEqual(result, 'recovered')
@@ -1391,13 +1391,13 @@ class TestIfWithFreezeAndForEach(unittest.TestCase):
 
   def test_frozen_if_used_in_map(self):
     """Frozen chain with if_ used as map fn."""
-    frozen = Chain().if_(lambda x: x > 2, lambda x: x * 10).else_(lambda x: x).freeze()
+    frozen = Chain().if_(lambda x: x > 2, then=lambda x: x * 10).else_(lambda x: x).freeze()
     result = Chain([1, 2, 3, 4]).map(frozen).run()
     self.assertEqual(result, [1, 2, 30, 40])
 
   def test_frozen_if_else_used_in_filter(self):
     """Frozen chain with if_/else_ used as filter predicate."""
-    frozen = Chain().if_(lambda x: x > 2, lambda x: True).else_(lambda x: False).freeze()
+    frozen = Chain().if_(lambda x: x > 2, then=lambda x: True).else_(lambda x: False).freeze()
     result = Chain([1, 2, 3, 4]).filter(frozen).run()
     self.assertEqual(result, [3, 4])
 
@@ -1408,7 +1408,7 @@ class TestIfWithFreezeAndForEachAsync(IsolatedAsyncioTestCase):
     async def pred(x):
       return x > 2
 
-    frozen = Chain().if_(pred, lambda x: x * 10).else_(lambda x: x).freeze()
+    frozen = Chain().if_(pred, then=lambda x: x * 10).else_(lambda x: x).freeze()
     result = await Chain([1, 2, 3, 4]).map(frozen).run()
     self.assertEqual(result, [1, 2, 30, 40])
 

@@ -213,7 +213,7 @@ class TestReturnBreakInteractionWithExcept(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: Chain.return_(42))
-      .except_(lambda exc: handler_called.append(exc))
+      .except_(lambda rv, exc: handler_called.append(exc))
       .run()
     )
     self.assertEqual(result, 42)
@@ -226,7 +226,7 @@ class TestReturnBreakInteractionWithExcept(unittest.TestCase):
     result = (
       Chain([1, 2, 3, 4, 5])
       .map(lambda x: Chain.break_() if x == 3 else x)
-      .except_(lambda exc: handler_called.append(exc))
+      .except_(lambda rv, exc: handler_called.append(exc))
       .run()
     )
     self.assertEqual(result, [1, 2])
@@ -237,7 +237,7 @@ class TestReturnBreakInteractionWithExcept(unittest.TestCase):
     result_chain = (
       Chain(5)
       .then(lambda x: 1 / 0)
-      .except_(lambda exc: Chain.return_(99))
+      .except_(lambda rv, exc: Chain.return_(99))
     )
     with self.assertRaises(QuentException) as ctx:
       result_chain.run()

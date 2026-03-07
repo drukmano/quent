@@ -93,6 +93,9 @@ def _modify_traceback(
     exc.__quent__ = True  # type: ignore[attr-defined]
     source_link = exc.__quent_source_link__  # type: ignore[attr-defined]
     del exc.__quent_source_link__  # type: ignore[attr-defined]
+    for attr in ('__quent_gather_index__', '__quent_gather_fn__'):
+      if hasattr(exc, attr):
+        delattr(exc, attr)
 
     try:
       ctx = _Ctx(
@@ -122,6 +125,8 @@ def _modify_traceback(
       except BaseException:
         new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]
         exc.__traceback__ = _clean_internal_frames(new_tb)
+      finally:
+        globals_.clear()  # Break reference cycle: exc -> __traceback__ -> frame -> globals_ -> exc
     except Exception:
       # Visualization failed — fall back to just cleaning frames.
       exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
@@ -367,7 +372,6 @@ def _format_link(link: Link, nest_lvl: int, ctx: _Ctx, method_name: str | None =
 
 # Override the default exception display to clean quent-internal frames.
 # Without this, uncaught exceptions would show quent's internal call stack.
-_original_excepthook: Any = sys.excepthook
 
 
 def _quent_excepthook(
@@ -380,7 +384,7 @@ def _quent_excepthook(
       exc_tb = exc_value.__traceback__
   except Exception:
     pass
-  _original_excepthook(exc_type, exc_value, exc_tb)
+  sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 
 # Also patch TracebackException (used by logging, traceback.format_exception, etc.)
@@ -406,27 +410,6 @@ def _patched_te_init(
   _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]
 
 
-_patching_enabled = False
-
-
-def disable_traceback_patching() -> None:
-  """Restore the original sys.excepthook and TracebackException.__init__."""
-  global _patching_enabled
-  if not _patching_enabled:
-    return
-  _patching_enabled = False
-  sys.excepthook = _original_excepthook
-  traceback.TracebackException.__init__ = _original_te_init  # type: ignore[method-assign]
-
-
-def enable_traceback_patching() -> None:
-  """Install quent's custom excepthook and TracebackException patch."""
-  global _patching_enabled
-  if _patching_enabled:
-    return
-  _patching_enabled = True
-  sys.excepthook = _quent_excepthook
-  traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]
-
-
-enable_traceback_patching()
+# Install hooks unconditionally at module level (always-on).
+sys.excepthook = _quent_excepthook
+traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]

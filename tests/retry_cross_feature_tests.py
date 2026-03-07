@@ -1,5 +1,5 @@
 """Exhaustive tests for retry's interaction with map, filter, gather,
-with_, iterate, freeze, decorator, nested chains, X expressions, and edge cases.
+with_, iterate, freeze, decorator, nested chains, and edge cases.
 """
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import asyncio
 import unittest
 from unittest import IsolatedAsyncioTestCase
 
-from quent import Chain, Null, QuentException, X
+from quent import Chain, Null, QuentException
 from helpers import AsyncRange, AsyncEmpty
 
 
@@ -810,7 +810,7 @@ class TestRetryNestedChains(unittest.TestCase):
     result = (
       Chain(5)
       .then(inner)
-      .except_(lambda exc: f'caught:{type(exc).__name__}')
+      .except_(lambda rv, exc: f'caught:{type(exc).__name__}')
       .run()
     )
     self.assertEqual(result, 'caught:ConnectionError')
@@ -967,87 +967,6 @@ class TestRetryNestedChainsAsync(IsolatedAsyncioTestCase):
     inner = Chain().then(inner_fn).retry(3, on=(ConnectionError,))
     result = await Chain(5).then(inner).then(outer_fn).retry(3, on=(ValueError,)).run()
     self.assertEqual(result, 110)
-
-
-# ---------------------------------------------------------------------------
-# Category 9: retry x X placeholder
-# ---------------------------------------------------------------------------
-
-class TestRetryXPlaceholder(unittest.TestCase):
-
-  def test_x_expression_with_retry(self):
-    """X expression + retry: verify X replay works correctly across retries."""
-    fn, attempts = _make_flaky(1, ValueError)
-    result = Chain(10).then(fn).then(X * 2).retry(3, on=(ValueError,)).run()
-    self.assertEqual(result, 20)
-
-  def test_x_attr_with_retry(self):
-    """X.attr + retry."""
-    attempts = []
-
-    def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x
-
-    result = Chain('hello').then(flaky).then(X.upper()).retry(3, on=(ValueError,)).run()
-    self.assertEqual(result, 'HELLO')
-
-  def test_x_item_with_retry(self):
-    """X[item] + retry."""
-    attempts = []
-
-    def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x
-
-    result = Chain([10, 20, 30]).then(flaky).then(X[1]).retry(3, on=(ValueError,)).run()
-    self.assertEqual(result, 20)
-
-  def test_x_operator_with_retry(self):
-    """X + operator + retry."""
-    attempts = []
-
-    def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x
-
-    result = Chain(10).then(flaky).then(X + 5).retry(3, on=(ValueError,)).run()
-    self.assertEqual(result, 15)
-
-  def test_x_chained_ops_with_retry(self):
-    """X with chained operations + retry."""
-    attempts = []
-
-    def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x
-
-    result = Chain('hello world').then(flaky).then(X.split()).retry(3, on=(ValueError,)).run()
-    self.assertEqual(result, ['hello', 'world'])
-
-
-class TestRetryXPlaceholderAsync(IsolatedAsyncioTestCase):
-
-  async def test_x_expression_async_retry(self):
-    """X expression + async retry."""
-    attempts = []
-
-    async def flaky(x):
-      attempts.append(x)
-      if len(attempts) < 2:
-        raise ValueError('retry')
-      return x
-
-    result = await Chain(10).then(flaky).then(X * 3).retry(3, on=(ValueError,)).run()
-    self.assertEqual(result, 30)
 
 
 # ---------------------------------------------------------------------------
@@ -1471,7 +1390,7 @@ class TestRetryConditional(unittest.TestCase):
 
     result = (
       Chain(10)
-      .if_(flaky_pred, lambda x: x * 2)
+      .if_(flaky_pred, then=lambda x: x * 2)
       .retry(3, on=(ValueError,))
       .run()
     )
@@ -1489,7 +1408,7 @@ class TestRetryConditional(unittest.TestCase):
 
     result = (
       Chain(10)
-      .if_(lambda x: True, flaky_body)
+      .if_(lambda x: True, then=flaky_body)
       .retry(3, on=(ValueError,))
       .run()
     )
@@ -1513,7 +1432,7 @@ class TestRetryExceptFinally(unittest.TestCase):
     result = (
       Chain(always_fail, ...)
       .retry(3, on=(ValueError,))
-      .except_(lambda exc: f'caught after {len(attempts)} attempts')
+      .except_(lambda rv, exc: f'caught after {len(attempts)} attempts')
       .run()
     )
     self.assertEqual(result, 'caught after 3 attempts')
@@ -1573,7 +1492,7 @@ class TestRetryExceptFinally(unittest.TestCase):
     result = (
       Chain(flaky, ...)
       .retry(5, on=(ValueError,))
-      .except_(lambda exc: except_calls.append(exc) or 'handled')
+      .except_(lambda rv, exc: except_calls.append(exc) or 'handled')
       .run()
     )
     self.assertEqual(result, 'ok')
@@ -1594,7 +1513,7 @@ class TestRetryExceptFinallyAsync(IsolatedAsyncioTestCase):
     result = await (
       Chain(always_fail, ...)
       .retry(3, on=(ValueError,))
-      .except_(lambda exc: f'caught after {len(attempts)}')
+      .except_(lambda rv, exc: f'caught after {len(attempts)}')
       .run()
     )
     self.assertEqual(result, 'caught after 3')

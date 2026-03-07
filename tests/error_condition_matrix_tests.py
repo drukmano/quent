@@ -86,7 +86,7 @@ def _make_raiser_no_arg(exc_type):
   return raiser
 
 
-def _catch_handler(exc):
+def _catch_handler(rv, exc):
   return f'caught:{type(exc).__name__}'
 
 
@@ -167,7 +167,7 @@ class TestExceptionTypeInThenMatrix(unittest.TestCase):
     for exc_type in _EXCEPTION_SUBTYPES:
       with self.subTest(exc_type=exc_type.__name__):
         received = []
-        def handler(exc):
+        def handler(rv, exc):
           received.append(exc)
           return 'ok'
         raiser = _make_raiser(exc_type)
@@ -329,7 +329,7 @@ class TestExceptionTypeInWithMatrix(unittest.TestCase):
     for exc_type in _EXCEPTION_SUBTYPES:
       with self.subTest(exc_type=exc_type.__name__):
         except_called = []
-        def handler(exc):
+        def handler(rv, exc):
           except_called.append(exc)
           return 'caught'
         raiser = _make_raiser(exc_type)
@@ -803,19 +803,19 @@ class TestExceptionHandlerReturnValues(unittest.TestCase):
   """Verify handler return value becomes chain result."""
 
   def test_handler_returns_none(self):
-    result = Chain(_make_raiser_no_arg(ValueError)).except_(lambda e: None).run()
+    result = Chain(_make_raiser_no_arg(ValueError)).except_(lambda rv, e: None).run()
     self.assertIsNone(result)
 
   def test_handler_returns_value(self):
-    result = Chain(_make_raiser_no_arg(ValueError)).except_(lambda e: 42).run()
+    result = Chain(_make_raiser_no_arg(ValueError)).except_(lambda rv, e: 42).run()
     self.assertEqual(result, 42)
 
   def test_handler_returns_list(self):
-    result = Chain(_make_raiser_no_arg(ValueError)).except_(lambda e: [1, 2]).run()
+    result = Chain(_make_raiser_no_arg(ValueError)).except_(lambda rv, e: [1, 2]).run()
     self.assertEqual(result, [1, 2])
 
   def test_handler_raises_new_exception(self):
-    def handler(exc):
+    def handler(rv, exc):
       raise RuntimeError('from handler') from exc
     with self.assertRaises(RuntimeError) as cm:
       Chain(_make_raiser_no_arg(ValueError)).except_(handler).run()

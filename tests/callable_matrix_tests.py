@@ -141,24 +141,24 @@ def _raise_value_error(x=None):
 class TestExceptCallableMatrix(unittest.TestCase):
 
   def test_except_sync_fn(self):
-    def handler(exc):
+    def handler(rv, exc):
       return f'caught:{type(exc).__name__}'
     result = Chain(_raise_value_error).except_(handler).run()
     self.assertEqual(result, 'caught:ValueError')
 
   def test_except_lambda(self):
-    result = Chain(_raise_value_error).except_(lambda exc: 'handled').run()
+    result = Chain(_raise_value_error).except_(lambda rv, exc: 'handled').run()
     self.assertEqual(result, 'handled')
 
   def test_except_callable_obj(self):
     class ExcHandler:
-      def __call__(self, exc):
+      def __call__(self, rv, exc):
         return f'obj:{type(exc).__name__}'
     result = Chain(_raise_value_error).except_(ExcHandler()).run()
     self.assertEqual(result, 'obj:ValueError')
 
   def test_except_partial(self):
-    def _handler(prefix, exc):
+    def _handler(prefix, rv, exc):
       return f'{prefix}:{type(exc).__name__}'
     handler = functools.partial(_handler, 'pfx')
     result = Chain(_raise_value_error).except_(handler).run()
@@ -176,14 +176,14 @@ async def _async_raise_value_error(x=None):
 class TestExceptCallableMatrixAsync(unittest.IsolatedAsyncioTestCase):
 
   async def test_except_async_fn(self):
-    async def handler(exc):
+    async def handler(rv, exc):
       return f'async_caught:{type(exc).__name__}'
     result = await Chain(_async_raise_value_error).except_(handler).run()
     self.assertEqual(result, 'async_caught:ValueError')
 
   async def test_except_async_callable_obj(self):
     class AsyncExcHandler:
-      async def __call__(self, exc):
+      async def __call__(self, rv, exc):
         return f'async_obj:{type(exc).__name__}'
     result = await Chain(_async_raise_value_error).except_(AsyncExcHandler()).run()
     self.assertEqual(result, 'async_obj:ValueError')

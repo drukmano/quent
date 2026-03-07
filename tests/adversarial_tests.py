@@ -466,22 +466,22 @@ class TestExceptWithBadTypes(unittest.TestCase):
     42 is not a type or BaseException subclass.
     """
     with self.assertRaises(TypeError):
-      Chain(lambda: 1 / 0).except_(lambda e: 'caught', exceptions=42)
+      Chain(lambda: 1 / 0).except_(lambda rv, e: 'caught', exceptions=42)
 
   def test_except_with_none_as_filter(self):
     """exceptions=None uses the default (Exception,)."""
-    result = Chain(lambda: 1 / 0).except_(lambda e: 'caught', exceptions=None).run()
+    result = Chain(lambda: 1 / 0).except_(lambda rv, e: 'caught', exceptions=None).run()
     self.assertEqual(result, 'caught')
 
   def test_except_with_empty_list_raises(self):
     """exceptions=[] raises QuentException (at least one type required)."""
     with self.assertRaises(QuentException):
-      Chain().except_(lambda e: e, exceptions=[])
+      Chain().except_(lambda rv, e: e, exceptions=[])
 
   def test_except_with_string_raises_type_error(self):
     """exceptions='ValueError' raises TypeError at registration time."""
     with self.assertRaises(TypeError):
-      Chain().except_(lambda e: e, exceptions='ValueError')
+      Chain().except_(lambda rv, e: e, exceptions='ValueError')
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +562,7 @@ class TestModificationAfterFreeze(unittest.TestCase):
     """Adding an except handler after freeze: the frozen chain sees it."""
     c = Chain(lambda: 1 / 0)
     frozen = c.freeze()
-    c.except_(lambda e: 'caught')
+    c.except_(lambda rv, e: 'caught')
     result = frozen.run()
     self.assertEqual(result, 'caught')
 

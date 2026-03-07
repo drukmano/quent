@@ -1078,13 +1078,13 @@ class TestChainLevelTransitions(IsolatedAsyncioTestCase):
       Chain(1)
       .then(async_fn)
       .then(lambda x: 1 / 0)
-      .except_(lambda exc: 'caught')
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
 
   async def test_except_handler_async_in_async(self):
-    async def async_handler(exc):
+    async def async_handler(rv, exc):
       return 'async_caught'
 
     result = await (

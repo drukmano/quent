@@ -278,9 +278,9 @@ class TestNestedExceptFinally(unittest.TestCase):
       .then(
         Chain()
         .then(lambda x: 1 / 0)
-        .except_(lambda exc: 'inner_caught')
+        .except_(lambda rv, exc: 'inner_caught')
       )
-      .except_(lambda exc: (outer_handler_called.append(True), 'outer_caught')[1])
+      .except_(lambda rv, exc: (outer_handler_called.append(True), 'outer_caught')[1])
       .run()
     )
     # Inner except_ catches the ZeroDivisionError and returns 'inner_caught'.
@@ -295,7 +295,7 @@ class TestNestedExceptFinally(unittest.TestCase):
       .then(
         Chain().then(lambda x: 1 / 0)
       )
-      .except_(lambda exc: f'outer_caught:{type(exc).__name__}')
+      .except_(lambda rv, exc: f'outer_caught:{type(exc).__name__}')
       .run()
     )
     self.assertEqual(result, 'outer_caught:ZeroDivisionError')
@@ -304,7 +304,7 @@ class TestNestedExceptFinally(unittest.TestCase):
     """The specific exception type from the inner chain reaches the outer handler."""
     received = []
 
-    def handler(exc):
+    def handler(rv, exc):
       received.append(exc)
       return 'handled'
 

@@ -531,7 +531,7 @@ class TestH6ModifyTracebackFailureSuppression(unittest.TestCase):
     """Except handler still runs even if traceback formatting fails."""
     handler_called = []
 
-    def handler(exc):
+    def handler(rv, exc):
       handler_called.append(str(exc))
       return 'handled'
 
@@ -575,7 +575,7 @@ class TestH6ModifyTracebackFailureSuppressionAsync(unittest.IsolatedAsyncioTestC
     """Async: Except handler still runs when traceback formatting fails."""
     handler_called = []
 
-    async def handler(exc):
+    async def handler(rv, exc):
       handler_called.append(str(exc))
       return 'handled'
 
@@ -966,7 +966,7 @@ class TestDisableEnableTracebackPatching(unittest.TestCase):
   def test_except_handler_with_patching_disabled(self):
     """Except handlers work with patching disabled."""
     disable_traceback_patching()
-    c = Chain(5).then(lambda x: 1 / 0).except_(lambda e: 'caught')
+    c = Chain(5).then(lambda x: 1 / 0).except_(lambda rv, e: 'caught')
     result = c.run()
     self.assertEqual(result, 'caught')
 
@@ -1121,7 +1121,7 @@ class TestCombinedScenarios(unittest.IsolatedAsyncioTestCase):
     c = (
       Chain(5)
       .then(lambda x: 1 / 0)
-      .except_(lambda e: handler_order.append('except') or 'handled')
+      .except_(lambda rv, e: handler_order.append('except') or 'handled')
       .finally_(lambda v: handler_order.append('finally'))
     )
     result = c.run()

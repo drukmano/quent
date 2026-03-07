@@ -81,57 +81,57 @@ class IfElseAsyncMatrixTests(unittest.IsolatedAsyncioTestCase):
   # --- fn: sync ---
 
   async def test_sync_pred_truthy__sync_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_true, fn_sync).run()
+    r = Chain(V).if_(pred_sync_true, then=fn_sync).run()
     self.assertEqual(r, 20)
 
   async def test_sync_pred_truthy__sync_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_true, fn_sync).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_true, then=fn_sync).else_(else_sync).run()
     self.assertEqual(r, 20)
 
   async def test_sync_pred_truthy__sync_fn__async_else(self):
-    r = Chain(V).if_(pred_sync_true, fn_sync).else_(else_async).run()
+    r = Chain(V).if_(pred_sync_true, then=fn_sync).else_(else_async).run()
     self.assertEqual(r, 20)
 
   # --- fn: async ---
 
   async def test_sync_pred_truthy__async_fn__no_else(self):
-    r = await Chain(V).if_(pred_sync_true, fn_async).run()
+    r = await Chain(V).if_(pred_sync_true, then=fn_async).run()
     self.assertEqual(r, 20)
 
   async def test_sync_pred_truthy__async_fn__sync_else(self):
-    r = await Chain(V).if_(pred_sync_true, fn_async).else_(else_sync).run()
+    r = await Chain(V).if_(pred_sync_true, then=fn_async).else_(else_sync).run()
     self.assertEqual(r, 20)
 
   async def test_sync_pred_truthy__async_fn__async_else(self):
-    r = await Chain(V).if_(pred_sync_true, fn_async).else_(else_async).run()
+    r = await Chain(V).if_(pred_sync_true, then=fn_async).else_(else_async).run()
     self.assertEqual(r, 20)
 
   # --- fn: plain value ---
 
   async def test_sync_pred_truthy__value_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_true, FN_VALUE).run()
+    r = Chain(V).if_(pred_sync_true, then=FN_VALUE).run()
     self.assertEqual(r, 42)
 
   async def test_sync_pred_truthy__value_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_true, FN_VALUE).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_true, then=FN_VALUE).else_(else_sync).run()
     self.assertEqual(r, 42)
 
   async def test_sync_pred_truthy__value_fn__async_else(self):
-    r = Chain(V).if_(pred_sync_true, FN_VALUE).else_(else_async).run()
+    r = Chain(V).if_(pred_sync_true, then=FN_VALUE).else_(else_async).run()
     self.assertEqual(r, 42)
 
   # --- fn: nested Chain ---
 
   async def test_sync_pred_truthy__chain_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_true, Chain().then(lambda v: v + 1)).run()
+    r = Chain(V).if_(pred_sync_true, then=Chain().then(lambda v: v + 1)).run()
     self.assertEqual(r, 11)
 
   async def test_sync_pred_truthy__chain_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_true, Chain().then(lambda v: v + 1)).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_true, then=Chain().then(lambda v: v + 1)).else_(else_sync).run()
     self.assertEqual(r, 11)
 
   async def test_sync_pred_truthy__chain_fn__async_else(self):
-    r = Chain(V).if_(pred_sync_true, Chain().then(lambda v: v + 1)).else_(else_async).run()
+    r = Chain(V).if_(pred_sync_true, then=Chain().then(lambda v: v + 1)).else_(else_async).run()
     self.assertEqual(r, 11)
 
   # =========================================================================
@@ -141,57 +141,57 @@ class IfElseAsyncMatrixTests(unittest.IsolatedAsyncioTestCase):
   # --- fn: sync ---
 
   async def test_sync_pred_falsy__sync_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_false, fn_sync).run()
+    r = Chain(V).if_(pred_sync_false, then=fn_sync).run()
     self.assertEqual(r, 10)
 
   async def test_sync_pred_falsy__sync_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_false, fn_sync).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_false, then=fn_sync).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_sync_pred_falsy__sync_fn__async_else(self):
-    r = await Chain(V).if_(pred_sync_false, fn_sync).else_(else_async).run()
+    r = await Chain(V).if_(pred_sync_false, then=fn_sync).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # --- fn: async ---
 
   async def test_sync_pred_falsy__async_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_false, fn_async).run()
+    r = Chain(V).if_(pred_sync_false, then=fn_async).run()
     self.assertEqual(r, 10)
 
   async def test_sync_pred_falsy__async_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_false, fn_async).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_false, then=fn_async).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_sync_pred_falsy__async_fn__async_else(self):
-    r = await Chain(V).if_(pred_sync_false, fn_async).else_(else_async).run()
+    r = await Chain(V).if_(pred_sync_false, then=fn_async).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # --- fn: plain value ---
 
   async def test_sync_pred_falsy__value_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_false, FN_VALUE).run()
+    r = Chain(V).if_(pred_sync_false, then=FN_VALUE).run()
     self.assertEqual(r, 10)
 
   async def test_sync_pred_falsy__value_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_false, FN_VALUE).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_false, then=FN_VALUE).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_sync_pred_falsy__value_fn__async_else(self):
-    r = await Chain(V).if_(pred_sync_false, FN_VALUE).else_(else_async).run()
+    r = await Chain(V).if_(pred_sync_false, then=FN_VALUE).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # --- fn: nested Chain ---
 
   async def test_sync_pred_falsy__chain_fn__no_else(self):
-    r = Chain(V).if_(pred_sync_false, Chain().then(lambda v: v + 1)).run()
+    r = Chain(V).if_(pred_sync_false, then=Chain().then(lambda v: v + 1)).run()
     self.assertEqual(r, 10)
 
   async def test_sync_pred_falsy__chain_fn__sync_else(self):
-    r = Chain(V).if_(pred_sync_false, Chain().then(lambda v: v + 1)).else_(else_sync).run()
+    r = Chain(V).if_(pred_sync_false, then=Chain().then(lambda v: v + 1)).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_sync_pred_falsy__chain_fn__async_else(self):
-    r = await Chain(V).if_(pred_sync_false, Chain().then(lambda v: v + 1)).else_(else_async).run()
+    r = await Chain(V).if_(pred_sync_false, then=Chain().then(lambda v: v + 1)).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # =========================================================================
@@ -201,57 +201,57 @@ class IfElseAsyncMatrixTests(unittest.IsolatedAsyncioTestCase):
   # --- fn: sync ---
 
   async def test_async_pred_truthy__sync_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_true, fn_sync).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_sync).run()
     self.assertEqual(r, 20)
 
   async def test_async_pred_truthy__sync_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_true, fn_sync).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_sync).else_(else_sync).run()
     self.assertEqual(r, 20)
 
   async def test_async_pred_truthy__sync_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_true, fn_sync).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_sync).else_(else_async).run()
     self.assertEqual(r, 20)
 
   # --- fn: async ---
 
   async def test_async_pred_truthy__async_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_true, fn_async).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_async).run()
     self.assertEqual(r, 20)
 
   async def test_async_pred_truthy__async_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_true, fn_async).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_async).else_(else_sync).run()
     self.assertEqual(r, 20)
 
   async def test_async_pred_truthy__async_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_true, fn_async).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_async).else_(else_async).run()
     self.assertEqual(r, 20)
 
   # --- fn: plain value ---
 
   async def test_async_pred_truthy__value_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_true, FN_VALUE).run()
+    r = await Chain(V).if_(pred_async_true, then=FN_VALUE).run()
     self.assertEqual(r, 42)
 
   async def test_async_pred_truthy__value_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_true, FN_VALUE).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_true, then=FN_VALUE).else_(else_sync).run()
     self.assertEqual(r, 42)
 
   async def test_async_pred_truthy__value_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_true, FN_VALUE).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_true, then=FN_VALUE).else_(else_async).run()
     self.assertEqual(r, 42)
 
   # --- fn: nested Chain ---
 
   async def test_async_pred_truthy__chain_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_true, Chain().then(lambda v: v + 1)).run()
+    r = await Chain(V).if_(pred_async_true, then=Chain().then(lambda v: v + 1)).run()
     self.assertEqual(r, 11)
 
   async def test_async_pred_truthy__chain_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_true, Chain().then(lambda v: v + 1)).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_true, then=Chain().then(lambda v: v + 1)).else_(else_sync).run()
     self.assertEqual(r, 11)
 
   async def test_async_pred_truthy__chain_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_true, Chain().then(lambda v: v + 1)).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_true, then=Chain().then(lambda v: v + 1)).else_(else_async).run()
     self.assertEqual(r, 11)
 
   # =========================================================================
@@ -261,57 +261,57 @@ class IfElseAsyncMatrixTests(unittest.IsolatedAsyncioTestCase):
   # --- fn: sync ---
 
   async def test_async_pred_falsy__sync_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_false, fn_sync).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_sync).run()
     self.assertEqual(r, 10)
 
   async def test_async_pred_falsy__sync_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_false, fn_sync).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_sync).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_async_pred_falsy__sync_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_false, fn_sync).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_sync).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # --- fn: async ---
 
   async def test_async_pred_falsy__async_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_false, fn_async).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_async).run()
     self.assertEqual(r, 10)
 
   async def test_async_pred_falsy__async_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_false, fn_async).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_async).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_async_pred_falsy__async_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_false, fn_async).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_async).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # --- fn: plain value ---
 
   async def test_async_pred_falsy__value_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_false, FN_VALUE).run()
+    r = await Chain(V).if_(pred_async_false, then=FN_VALUE).run()
     self.assertEqual(r, 10)
 
   async def test_async_pred_falsy__value_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_false, FN_VALUE).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_false, then=FN_VALUE).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_async_pred_falsy__value_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_false, FN_VALUE).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_false, then=FN_VALUE).else_(else_async).run()
     self.assertEqual(r, 110)
 
   # --- fn: nested Chain ---
 
   async def test_async_pred_falsy__chain_fn__no_else(self):
-    r = await Chain(V).if_(pred_async_false, Chain().then(lambda v: v + 1)).run()
+    r = await Chain(V).if_(pred_async_false, then=Chain().then(lambda v: v + 1)).run()
     self.assertEqual(r, 10)
 
   async def test_async_pred_falsy__chain_fn__sync_else(self):
-    r = await Chain(V).if_(pred_async_false, Chain().then(lambda v: v + 1)).else_(else_sync).run()
+    r = await Chain(V).if_(pred_async_false, then=Chain().then(lambda v: v + 1)).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   async def test_async_pred_falsy__chain_fn__async_else(self):
-    r = await Chain(V).if_(pred_async_false, Chain().then(lambda v: v + 1)).else_(else_async).run()
+    r = await Chain(V).if_(pred_async_false, then=Chain().then(lambda v: v + 1)).else_(else_async).run()
     self.assertEqual(r, 110)
 
 
@@ -324,7 +324,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       raise RuntimeError('predicate boom')
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(V).if_(bad_pred, fn_sync).run()
+      await Chain(V).if_(bad_pred, then=fn_sync).run()
     self.assertIn('predicate boom', str(ctx.exception))
 
   # 2. Async fn that raises (with truthy predicate)
@@ -333,7 +333,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       raise ValueError('fn boom')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(V).if_(pred_sync_true, bad_fn).run()
+      await Chain(V).if_(pred_sync_true, then=bad_fn).run()
     self.assertIn('fn boom', str(ctx.exception))
 
   # 3. Async else_fn that raises (with falsy predicate)
@@ -342,7 +342,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       raise TypeError('else boom')
 
     with self.assertRaises(TypeError) as ctx:
-      await Chain(V).if_(pred_sync_false, fn_sync).else_(bad_else).run()
+      await Chain(V).if_(pred_sync_false, then=fn_sync).else_(bad_else).run()
     self.assertIn('else boom', str(ctx.exception))
 
   # 4. if_ in chain where earlier step is async (chain already in async mode)
@@ -350,7 +350,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def async_add_one(v):
       return v + 1
 
-    r = await Chain(V).then(async_add_one).if_(pred_sync_true, fn_sync).run()
+    r = await Chain(V).then(async_add_one).if_(pred_sync_true, then=fn_sync).run()
     # After async step: 11, then if_(11 > 5 => True) -> 11 * 2 = 22
     self.assertEqual(r, 22)
 
@@ -359,7 +359,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def async_add_one(v):
       return v + 1
 
-    r = await Chain(V).if_(pred_sync_true, fn_sync).then(async_add_one).run()
+    r = await Chain(V).if_(pred_sync_true, then=fn_sync).then(async_add_one).run()
     # if_(10 > 5 => True) -> 20, then async step: 21
     self.assertEqual(r, 21)
 
@@ -370,10 +370,10 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .if_(pred_sync_true, fn_sync)       # 10 > 5 => True -> 20
-      .if_(pred_async_false, fn_async)     # 20 > 100 => False -> passthrough 20
+      .if_(pred_sync_true, then=fn_sync)       # 10 > 5 => True -> 20
+      .if_(pred_async_false, then=fn_async)     # 20 > 100 => False -> passthrough 20
       .else_(else_async)                   # falsy -> 20 + 100 = 120
-      .if_(pred_async_true, async_mul_3)   # 120 > 5 => True -> 360
+      .if_(pred_async_true, then=async_mul_3)   # 120 > 5 => True -> 360
       .run()
     )
     self.assertEqual(r, 360)
@@ -385,7 +385,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain([1, 2, 3, 4, 5])
-      .map(lambda item: Chain(item).if_(async_check, lambda v: v * 10).run())
+      .map(lambda item: Chain(item).if_(async_check, then=lambda v: v * 10).run())
       .run()
     )
     # item 1: 1 > 2 False => passthrough 1
@@ -401,7 +401,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       return v * 2
 
     frozen = Chain().then(async_double).freeze()
-    r = await Chain(V).if_(pred_sync_true, frozen).run()
+    r = await Chain(V).if_(pred_sync_true, then=frozen).run()
     self.assertEqual(r, 20)
 
   # 9. Chain with except_ handler + if_ that has async predicate raising
@@ -411,8 +411,8 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .if_(bad_pred, fn_sync)
-      .except_(lambda exc: 'caught')
+      .if_(bad_pred, then=fn_sync)
+      .except_(lambda rv, exc: 'caught')
       .run()
     )
     self.assertEqual(r, 'caught')
@@ -423,7 +423,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def pred_returns_list(v):
       return [0]  # truthy (non-empty list) despite containing 0
 
-    r = await Chain(V).if_(pred_returns_list, fn_sync).run()
+    r = await Chain(V).if_(pred_returns_list, then=fn_sync).run()
     self.assertEqual(r, 20)
 
   async def test_async_pred_returns_zero(self):
@@ -431,7 +431,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def pred_returns_zero(v):
       return 0
 
-    r = await Chain(V).if_(pred_returns_zero, fn_sync).run()
+    r = await Chain(V).if_(pred_returns_zero, then=fn_sync).run()
     self.assertEqual(r, 10)  # passthrough
 
   async def test_async_pred_returns_empty_string(self):
@@ -439,7 +439,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def pred_returns_empty(v):
       return ''
 
-    r = await Chain(V).if_(pred_returns_empty, fn_sync).else_(else_sync).run()
+    r = await Chain(V).if_(pred_returns_empty, then=fn_sync).else_(else_sync).run()
     self.assertEqual(r, 110)
 
   # 11. if_/else_ with Chain.return_() inside fn
@@ -447,14 +447,14 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     async def fn_with_return(v):
       Chain.return_(999)
 
-    r = await Chain(V).if_(pred_async_true, fn_with_return).then(lambda v: v + 1).run()
+    r = await Chain(V).if_(pred_async_true, then=fn_with_return).then(lambda v: v + 1).run()
     self.assertEqual(r, 999)
 
   async def test_return_inside_else_fn(self):
     async def else_with_return(v):
       Chain.return_(888)
 
-    r = await Chain(V).if_(pred_async_false, fn_sync).else_(else_with_return).then(lambda v: v + 1).run()
+    r = await Chain(V).if_(pred_async_false, then=fn_sync).else_(else_with_return).then(lambda v: v + 1).run()
     self.assertEqual(r, 888)
 
   # 12. if_/else_ with Chain.break_() inside fn (within map)
@@ -469,7 +469,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       return v * 10
 
     def make_inner(item):
-      c = Chain(item).if_(always_true, fn_with_break)
+      c = Chain(item).if_(always_true, then=fn_with_break)
       c.is_nested = True
       return c._run(Null, None, None)
 
@@ -494,7 +494,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       return v + 100
 
     def make_inner(item):
-      c = Chain(item).if_(always_false, fn_sync).else_(else_with_break)
+      c = Chain(item).if_(always_false, then=fn_sync).else_(else_with_break)
       c.is_nested = True
       return c._run(Null, None, None)
 
@@ -513,7 +513,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     """Async pred makes chain async; verify subsequent sync step works."""
     r = await (
       Chain(V)
-      .if_(pred_async_true, fn_sync)   # async pred -> True -> sync fn -> 20
+      .if_(pred_async_true, then=fn_sync)   # async pred -> True -> sync fn -> 20
       .then(lambda v: v + 5)           # sync step -> 25
       .run()
     )
@@ -523,7 +523,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     """Async pred + async else, then more steps."""
     r = await (
       Chain(V)
-      .if_(pred_async_false, fn_sync)  # async pred -> False
+      .if_(pred_async_false, then=fn_sync)  # async pred -> False
       .else_(else_async)               # async else -> 110
       .then(lambda v: v * 2)           # 220
       .run()
@@ -536,7 +536,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       return v * 3
 
     inner = Chain().then(async_triple).then(lambda v: v + 1)
-    r = await Chain(V).if_(pred_sync_true, inner).run()
+    r = await Chain(V).if_(pred_sync_true, then=inner).run()
     # 10 > 5 True -> inner chain: 10 * 3 = 30, then + 1 = 31
     self.assertEqual(r, 31)
 
@@ -546,7 +546,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
       return -v
 
     inner_else = Chain().then(async_negate)
-    r = await Chain(V).if_(pred_sync_false, fn_sync).else_(inner_else).run()
+    r = await Chain(V).if_(pred_sync_false, then=fn_sync).else_(inner_else).run()
     # 10 > 100 False -> else chain: -10
     self.assertEqual(r, -10)
 
@@ -560,7 +560,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .do(lambda v: Chain(v).if_(pred_async_true, async_side_effect).run())
+      .do(lambda v: Chain(v).if_(pred_async_true, then=async_side_effect).run())
       .run()
     )
     self.assertEqual(r, 10)
@@ -568,7 +568,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
   async def test_sync_pred_falsy_no_else_value_is_none_root(self):
     """When root value is Null and pred is falsy with no else, current_value passes through."""
-    r = await Chain().then(lambda: V).if_(pred_async_false, fn_sync).run()
+    r = await Chain().then(lambda: V).if_(pred_async_false, then=fn_sync).run()
     self.assertEqual(r, 10)
 
   async def test_multiple_sequential_if_all_async(self):
@@ -584,9 +584,9 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .if_(pred_async_true, add_1)   # 10 > 5 True -> 11
-      .if_(pred_async_true, mul_2)   # 11 > 5 True -> 22
-      .if_(pred_async_false, sub_5)  # 22 > 100 False -> passthrough 22
+      .if_(pred_async_true, then=add_1)   # 10 > 5 True -> 11
+      .if_(pred_async_true, then=mul_2)   # 11 > 5 True -> 22
+      .if_(pred_async_false, then=sub_5)  # 22 > 100 False -> passthrough 22
       .run()
     )
     self.assertEqual(r, 22)
@@ -598,8 +598,8 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .if_(pred_async_true, bad_fn)
-      .except_(lambda exc: f'handled: {exc}')
+      .if_(pred_async_true, then=bad_fn)
+      .except_(lambda rv, exc: f'handled: {exc}')
       .run()
     )
     self.assertEqual(r, 'handled: fn error')
@@ -611,9 +611,9 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .if_(pred_async_false, fn_sync)
+      .if_(pred_async_false, then=fn_sync)
       .else_(bad_else)
-      .except_(lambda exc: f'handled: {exc}')
+      .except_(lambda rv, exc: f'handled: {exc}')
       .run()
     )
     self.assertEqual(r, 'handled: else error')
@@ -624,7 +624,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain(V)
-      .if_(pred_async_true, fn_async)
+      .if_(pred_async_true, then=fn_async)
       .finally_(lambda v: tracker.append('done'))
       .run()
     )

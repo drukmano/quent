@@ -379,7 +379,7 @@ class TestFalsyThroughExcept(unittest.TestCase):
 
   def test_except_handler_returns_null_becomes_none(self):
     """Except handler returns Null — chain result becomes None."""
-    result = Chain(1).then(lambda x: 1 / 0).except_(lambda exc: Null).run()
+    result = Chain(1).then(lambda x: 1 / 0).except_(lambda rv, exc: Null).run()
     self.assertIsNone(result)
 
   def test_except_with_falsy_root(self):
@@ -389,7 +389,7 @@ class TestFalsyThroughExcept(unittest.TestCase):
         result = (
           Chain(val)
           .then(lambda x: (_ for _ in ()).throw(ValueError('test')))
-          .except_(lambda exc: 'caught')
+          .except_(lambda rv, exc: 'caught')
           .run()
         )
         self.assertEqual(result, 'caught')
@@ -723,7 +723,7 @@ class TestFalsyAsync(IsolatedAsyncioTestCase):
     """Async except handler returns falsy."""
     for name, val in FALSY_VALUES:
       with self.subTest(value=name):
-        async def handler(exc, v=val):
+        async def handler(rv, exc, v=val):
           return v
 
         result = await Chain(1).then(lambda x: 1 / 0).except_(handler).run()
@@ -836,12 +836,12 @@ class TestNullVsNoneDistinction(unittest.TestCase):
 
   def test_except_returns_null_becomes_none(self):
     """Except handler returns Null -> chain result is None."""
-    result = Chain(1).then(lambda x: 1 / 0).except_(lambda exc: Null).run()
+    result = Chain(1).then(lambda x: 1 / 0).except_(lambda rv, exc: Null).run()
     self.assertIsNone(result)
 
   def test_except_returns_none_is_none(self):
     """Except handler returns None -> chain result is None."""
-    result = Chain(1).then(lambda x: 1 / 0).except_(lambda exc: None).run()
+    result = Chain(1).then(lambda x: 1 / 0).except_(lambda rv, exc: None).run()
     self.assertIsNone(result)
 
   def test_run_with_null_is_no_value(self):
@@ -859,9 +859,9 @@ class TestNullVsNoneDistinction(unittest.TestCase):
   def test_null_vs_none_in_except(self):
     """Distinguish Null and None in except handler returns."""
     # Null -> None (Null-to-None mapping)
-    r1 = Chain(1).then(lambda x: 1 / 0).except_(lambda e: Null).run()
+    r1 = Chain(1).then(lambda x: 1 / 0).except_(lambda rv, e: Null).run()
     # None -> None (actual None)
-    r2 = Chain(1).then(lambda x: 1 / 0).except_(lambda e: None).run()
+    r2 = Chain(1).then(lambda x: 1 / 0).except_(lambda rv, e: None).run()
     # Both are None, but through different paths
     self.assertIsNone(r1)
     self.assertIsNone(r2)

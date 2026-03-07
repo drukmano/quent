@@ -528,7 +528,7 @@ class TestControlFlowWithExceptInteraction(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: Chain.return_(42))
-      .except_(lambda exc: handler_called.append(exc))
+      .except_(lambda rv, exc: handler_called.append(exc))
       .run()
     )
     self.assertEqual(result, 42)
@@ -539,7 +539,7 @@ class TestControlFlowWithExceptInteraction(unittest.TestCase):
     result = (
       Chain([1, 2, 3])
       .map(lambda x: Chain.break_() if x == 2 else x)
-      .except_(lambda exc: handler_called.append(exc))
+      .except_(lambda rv, exc: handler_called.append(exc))
       .run()
     )
     self.assertEqual(result, [1])
@@ -550,7 +550,7 @@ class TestControlFlowWithExceptInteraction(unittest.TestCase):
     result = (
       Chain(5)
       .then(lambda x: 1 / 0)
-      .except_(lambda exc: handler_called.append(type(exc).__name__) or 'handled')
+      .except_(lambda rv, exc: handler_called.append(type(exc).__name__) or 'handled')
       .run()
     )
     self.assertEqual(result, 'handled')
@@ -558,12 +558,12 @@ class TestControlFlowWithExceptInteraction(unittest.TestCase):
 
   def test_return_in_except_handler_raises_quent_exception(self):
     with self.assertRaises(QuentException) as ctx:
-      Chain(5).then(lambda x: 1 / 0).except_(lambda exc: Chain.return_(99)).run()
+      Chain(5).then(lambda x: 1 / 0).except_(lambda rv, exc: Chain.return_(99)).run()
     self.assertIn('control flow signals inside except handlers is not allowed', str(ctx.exception).lower())
 
   def test_break_in_except_handler_raises_quent_exception(self):
     with self.assertRaises(QuentException) as ctx:
-      Chain(5).then(lambda x: 1 / 0).except_(lambda exc: Chain.break_(99)).run()
+      Chain(5).then(lambda x: 1 / 0).except_(lambda rv, exc: Chain.break_(99)).run()
     self.assertIn('control flow signals inside except handlers is not allowed', str(ctx.exception).lower())
 
   def test_return_with_value_and_except(self):
@@ -801,7 +801,7 @@ class TestControlFlowAsync(IsolatedAsyncioTestCase):
         Chain(5)
         .then(async_step)
         .then(lambda x: 1 / 0)
-        .except_(lambda exc: Chain.return_(99))
+        .except_(lambda rv, exc: Chain.return_(99))
         .run()
       )
     self.assertIn('control flow signals inside except handlers is not allowed', str(ctx.exception).lower())
