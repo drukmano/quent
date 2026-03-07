@@ -257,27 +257,27 @@ class TestGatherEmptyAgain(unittest.TestCase):
     self.assertEqual(result, [])
 
 
-class TestGatherWithForeach(IsolatedAsyncioTestCase):
-  """Gather results used as input to foreach."""
+class TestGatherWithMap(IsolatedAsyncioTestCase):
+  """Gather results used as input to map."""
 
-  def test_gather_then_foreach(self):
-    """Gather produces a list, foreach iterates it."""
+  def test_gather_then_map(self):
+    """Gather produces a list, map iterates it."""
     result = (
       Chain(10)
       .gather(lambda x: x + 1, lambda x: x + 2, lambda x: x + 3)
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .run()
     )
     self.assertEqual(result, [22, 24, 26])
 
-  async def test_async_gather_then_foreach(self):
-    """Async gather -> foreach."""
+  async def test_async_gather_then_map(self):
+    """Async gather -> map."""
     async def add_one(x):
       return x + 1
     result = await (
       Chain(10)
       .gather(add_one, lambda x: x + 2)
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, [110, 120])

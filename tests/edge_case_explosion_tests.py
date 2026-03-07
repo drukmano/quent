@@ -70,16 +70,16 @@ class TestFalsyValueMatrix(unittest.TestCase):
   def test_chain_then_with_empty_bytes(self):
     self.assertEqual(Chain(b'').then(lambda v: v).run(), b'')
 
-  def test_foreach_on_empty_list(self):
-    result = Chain([]).foreach(lambda v: v).run()
+  def test_map_on_empty_list(self):
+    result = Chain([]).map(lambda v: v).run()
     self.assertEqual(result, [])
 
-  def test_foreach_on_empty_string(self):
-    result = Chain('').foreach(lambda v: v).run()
+  def test_map_on_empty_string(self):
+    result = Chain('').map(lambda v: v).run()
     self.assertEqual(result, [])
 
-  def test_foreach_on_empty_bytes(self):
-    result = Chain(b'').foreach(lambda v: v).run()
+  def test_map_on_empty_bytes(self):
+    result = Chain(b'').map(lambda v: v).run()
     self.assertEqual(result, [])
 
   def test_filter_on_empty_list(self):
@@ -200,9 +200,9 @@ class TestEllipsisConvention(unittest.TestCase):
     Chain(5).finally_(lambda: tracker.append('finally'), ...).run()
     self.assertEqual(tracker, ['finally'])
 
-  def test_ellipsis_with_foreach_in_chain(self):
-    # Use Ellipsis in chain step before foreach
-    result = Chain(lambda: [1, 2, 3], ...).foreach(lambda v: v * 2).run()
+  def test_ellipsis_with_map_in_chain(self):
+    # Use Ellipsis in chain step before map
+    result = Chain(lambda: [1, 2, 3], ...).map(lambda v: v * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_ellipsis_with_filter_in_chain(self):
@@ -397,8 +397,8 @@ class TestReturnValueTypePreservation(unittest.TestCase):
     self.assertEqual(result.x, 1)
     self.assertEqual(result.y, 2)
 
-  def test_foreach_returns_list(self):
-    result = Chain((1, 2, 3)).foreach(lambda v: v * 2).run()
+  def test_map_returns_list(self):
+    result = Chain((1, 2, 3)).map(lambda v: v * 2).run()
     self.assertIsInstance(result, list)
     self.assertEqual(result, [2, 4, 6])
 
@@ -488,11 +488,11 @@ class TestExceptionPropagation(unittest.TestCase):
     with self.assertRaises(RuntimeError):
       Chain(5).do(bad).run()
 
-  def test_exception_in_foreach(self):
+  def test_exception_in_map(self):
     def bad(v):
-      raise ValueError('foreach err')
+      raise ValueError('map err')
     with self.assertRaises(ValueError):
-      Chain([1, 2, 3]).foreach(bad).run()
+      Chain([1, 2, 3]).map(bad).run()
 
   def test_exception_in_filter(self):
     def bad(v):
@@ -627,11 +627,11 @@ class TestExceptionPropagationAsync(unittest.IsolatedAsyncioTestCase):
     with self.assertRaises(ValueError):
       await Chain(5).then(bad).run()
 
-  async def test_async_exception_in_foreach(self):
+  async def test_async_exception_in_map(self):
     async def bad(v):
-      raise ValueError('async foreach err')
+      raise ValueError('async map err')
     with self.assertRaises(ValueError):
-      await Chain([1, 2]).foreach(bad).run()
+      await Chain([1, 2]).map(bad).run()
 
   async def test_async_exception_in_filter(self):
     async def bad(v):
@@ -700,10 +700,10 @@ class TestNestedChainDepth(unittest.TestCase):
     Chain(5).finally_(inner).run()
     self.assertEqual(tracker, ['inner_finally'])
 
-  def test_nested_chain_in_foreach_via_freeze(self):
+  def test_nested_chain_in_map_via_freeze(self):
     inner = Chain().then(lambda v: v * 2)
     # FrozenChain is treated as a regular callable (not sub-chain)
-    result = Chain([1, 2, 3]).foreach(inner.freeze()).run()
+    result = Chain([1, 2, 3]).map(inner.freeze()).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_deep_nesting_5_levels(self):
@@ -811,8 +811,8 @@ class TestConcurrentFrozenChain(unittest.TestCase):
       expected = i * 10 if i > 5 else i * -1
       self.assertEqual(results[i], expected)
 
-  def test_frozen_with_foreach_concurrent(self):
-    fc = Chain().then(lambda v: list(range(v))).foreach(lambda x: x * 2).freeze()
+  def test_frozen_with_map_concurrent(self):
+    fc = Chain().then(lambda v: list(range(v))).map(lambda x: x * 2).freeze()
     results = {}
     errors = []
 
@@ -875,8 +875,8 @@ class TestConcurrentFrozenChain(unittest.TestCase):
 class TestLargeData(unittest.TestCase):
   """Stress tests with large collections and deep chains."""
 
-  def test_foreach_10000_elements(self):
-    result = Chain(list(range(10000))).foreach(lambda v: v + 1).run()
+  def test_map_10000_elements(self):
+    result = Chain(list(range(10000))).map(lambda v: v + 1).run()
     self.assertEqual(len(result), 10000)
     self.assertEqual(result[0], 1)
     self.assertEqual(result[-1], 10000)
@@ -916,7 +916,7 @@ class TestLargeData(unittest.TestCase):
     result = Chain(0).then(c).run()
     self.assertEqual(result, 1)
 
-  def test_foreach_with_large_break(self):
+  def test_map_with_large_break(self):
     count = [0]
 
     def fn(v):
@@ -925,7 +925,7 @@ class TestLargeData(unittest.TestCase):
         Chain.break_()
       return v
 
-    result = Chain(list(range(10000))).foreach(fn).run()
+    result = Chain(list(range(10000))).map(fn).run()
     # fn appends result for items 0..499 (count goes 1..500), breaks at count=501
     self.assertEqual(len(result), 500)
 
@@ -1011,18 +1011,18 @@ class TestSpecialCallableTypes(unittest.TestCase):
     result = Chain(5).then(MyClass.multiply).run()
     self.assertEqual(result, 10)
 
-  def test_generator_function_as_root_for_foreach(self):
+  def test_generator_function_as_root_for_map(self):
     def gen():
       yield 1
       yield 2
       yield 3
 
-    result = Chain(gen()).foreach(lambda v: v * 2).run()
+    result = Chain(gen()).map(lambda v: v * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
-  def test_functools_partial_in_foreach(self):
+  def test_functools_partial_in_map(self):
     add5 = functools.partial(lambda a, b: a + b, 5)
-    result = Chain([1, 2, 3]).foreach(add5).run()
+    result = Chain([1, 2, 3]).map(add5).run()
     self.assertEqual(result, [6, 7, 8])
 
   def test_callable_object_in_filter(self):
@@ -1044,12 +1044,12 @@ class TestSpecialCallableTypes(unittest.TestCase):
 
 class TestSpecialCallableAsync(unittest.IsolatedAsyncioTestCase):
 
-  async def test_async_generator_as_source_for_foreach(self):
+  async def test_async_generator_as_source_for_map(self):
     async def agen():
       for i in range(5):
         yield i
 
-    result = await Chain(agen()).foreach(lambda v: v * 2).run()
+    result = await Chain(agen()).map(lambda v: v * 2).run()
     self.assertEqual(result, [0, 2, 4, 6, 8])
 
   async def test_async_callable_object(self):
@@ -1202,12 +1202,12 @@ class TestChainMiscEdgeCases(unittest.TestCase):
     result = Chain(5).then(inner).run()
     self.assertEqual(result, 99)
 
-  def test_break_outside_foreach_raises(self):
+  def test_break_outside_map_raises(self):
     with self.assertRaises(QuentException):
       Chain(5).then(lambda v: Chain.break_()).run()
 
   def test_chain_with_generator_iterable(self):
-    result = Chain(range(5)).foreach(lambda v: v * 2).run()
+    result = Chain(range(5)).map(lambda v: v * 2).run()
     self.assertEqual(result, [0, 2, 4, 6, 8])
 
   def test_except_returns_none_via_null(self):
@@ -1366,32 +1366,32 @@ class TestIfElseEdgeCases(unittest.TestCase):
     self.assertEqual(result, 3)
 
 
-class TestForeachEdgeCases(unittest.TestCase):
-  """Edge cases for foreach."""
+class TestMapEdgeCases(unittest.TestCase):
+  """Edge cases for map."""
 
-  def test_foreach_do_preserves_elements(self):
+  def test_foreach_preserves_elements(self):
     tracker = []
-    result = Chain([1, 2, 3]).foreach_do(lambda v: tracker.append(v * 10)).run()
+    result = Chain([1, 2, 3]).foreach(lambda v: tracker.append(v * 10)).run()
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(tracker, [10, 20, 30])
 
-  def test_foreach_on_string(self):
-    result = Chain('abc').foreach(lambda c: c.upper()).run()
+  def test_map_on_string(self):
+    result = Chain('abc').map(lambda c: c.upper()).run()
     self.assertEqual(result, ['A', 'B', 'C'])
 
-  def test_foreach_on_tuple(self):
-    result = Chain((1, 2, 3)).foreach(lambda v: v * 2).run()
+  def test_map_on_tuple(self):
+    result = Chain((1, 2, 3)).map(lambda v: v * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
-  def test_foreach_on_set(self):
-    result = Chain({3, 1, 2}).foreach(lambda v: v * 2).run()
+  def test_map_on_set(self):
+    result = Chain({3, 1, 2}).map(lambda v: v * 2).run()
     self.assertEqual(sorted(result), [2, 4, 6])
 
-  def test_foreach_on_dict_iterates_keys(self):
-    result = Chain({'a': 1, 'b': 2}).foreach(lambda k: k.upper()).run()
+  def test_map_on_dict_iterates_keys(self):
+    result = Chain({'a': 1, 'b': 2}).map(lambda k: k.upper()).run()
     self.assertEqual(sorted(result), ['A', 'B'])
 
-  def test_foreach_break_returns_partial(self):
+  def test_map_break_returns_partial(self):
     count = [0]
 
     def fn(v):
@@ -1400,24 +1400,24 @@ class TestForeachEdgeCases(unittest.TestCase):
         Chain.break_()
       return v * 2
 
-    result = Chain([1, 2, 3, 4, 5]).foreach(fn).run()
+    result = Chain([1, 2, 3, 4, 5]).map(fn).run()
     self.assertEqual(result, [2, 4])
 
-  def test_foreach_break_with_value(self):
+  def test_map_break_with_value(self):
     def fn(v):
       if v == 3:
         Chain.break_([99])
       return v
 
-    result = Chain([1, 2, 3, 4]).foreach(fn).run()
+    result = Chain([1, 2, 3, 4]).map(fn).run()
     self.assertEqual(result, [99])
 
-  def test_foreach_single_element(self):
-    result = Chain([42]).foreach(lambda v: v * 2).run()
+  def test_map_single_element(self):
+    result = Chain([42]).map(lambda v: v * 2).run()
     self.assertEqual(result, [84])
 
-  def test_foreach_on_range(self):
-    result = Chain(range(5)).foreach(lambda v: v + 10).run()
+  def test_map_on_range(self):
+    result = Chain(range(5)).map(lambda v: v + 10).run()
     self.assertEqual(result, [10, 11, 12, 13, 14])
 
 

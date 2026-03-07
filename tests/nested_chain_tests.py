@@ -174,41 +174,41 @@ class TestNestedReturnPropagation(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Break propagation through nested chains (within foreach)
+# Break propagation through nested chains (within map)
 # ---------------------------------------------------------------------------
 
 class TestNestedBreakPropagation(unittest.TestCase):
 
   def test_break_in_nested_chain_as_then_step(self):
-    """_Break in a nested chain (used as a .then() step, not foreach fn)
+    """_Break in a nested chain (used as a .then() step, not map fn)
     propagates through is_nested re-raise to the outer chain's handler."""
     # When a Chain is passed to .then(), it's detected as nested.
     # _Break in the nested chain's _run re-raises because is_nested=True.
     # The outer chain's _run catches _Break but since the outer chain
-    # is also not in a foreach context, it raises QuentException.
+    # is also not in a map context, it raises QuentException.
     inner = Chain().then(lambda x: Chain.break_())
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(inner).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
-  def test_break_in_foreach_with_plain_fn(self):
-    """Verify foreach with a plain lambda handles break correctly (baseline)."""
+  def test_break_in_map_with_plain_fn(self):
+    """Verify map with a plain lambda handles break correctly (baseline)."""
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .run()
     )
     self.assertEqual(result, [1, 2])
 
-  def test_break_in_chain_used_as_foreach_fn_raises(self):
-    """A Chain passed to foreach() is called via run(), which traps _Break
+  def test_break_in_chain_used_as_map_fn_raises(self):
+    """A Chain passed to map() is called via run(), which traps _Break
     as a control flow signal escape -- raising QuentException."""
-    # foreach(fn) extracts fn from Link(fn).v and calls fn(item).
+    # map(fn) extracts fn from Link(fn).v and calls fn(item).
     # When fn is a Chain, fn(item) = Chain.run(item), and run() catches
     # _ControlFlowSignal with QuentException.
     inner = Chain().then(lambda x: Chain.break_() if x == 3 else x)
     with self.assertRaises(QuentException) as ctx:
-      Chain([1, 2, 3, 4, 5]).foreach(inner).run()
+      Chain([1, 2, 3, 4, 5]).map(inner).run()
     self.assertIn('control flow signal escaped', str(ctx.exception).lower())
 
 

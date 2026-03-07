@@ -2,10 +2,10 @@
 
 Tests every possible point where _run() detects an awaitable and delegates to
 _run_async(), plus the three-tier sync/async handoff patterns within operations
-(foreach, filter, with_, if_/else_, gather).
+(map, filter, with_, if_/else_, gather).
 
 Covers:
-  PART 1: Transition point per method (then, do, foreach, filter, gather, with_, if_)
+  PART 1: Transition point per method (then, do, map, filter, gather, with_, if_)
   PART 2: Multi-method async transition chains
   PART 3: Exception during async transition
   PART 4: Nested chain async transitions
@@ -258,14 +258,14 @@ class TestDoTransition(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# foreach transitions (6 tests)
+# map transitions (6 tests)
 # ---------------------------------------------------------------------------
 
-class TestForeachTransition(IsolatedAsyncioTestCase):
+class TestMapTransition(IsolatedAsyncioTestCase):
 
   async def test_sync_iterable_fn_returns_awaitable_on_first_item(self):
-    """foreach with sync iterable and fn that always returns awaitable."""
-    result = await Chain([1, 2, 3]).foreach(async_double).run()
+    """map with sync iterable and fn that always returns awaitable."""
+    result = await Chain([1, 2, 3]).map(async_double).run()
     self.assertEqual(result, [2, 4, 6])
 
   async def test_sync_iterable_fn_returns_awaitable_on_nth_item(self):
@@ -281,32 +281,32 @@ class TestForeachTransition(IsolatedAsyncioTestCase):
         return async_after_2(x)
       return x * 10
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mixed_fn).run()
+    result = await Chain([1, 2, 3, 4, 5]).map(mixed_fn).run()
     self.assertEqual(result, [10, 20, 30, 40, 50])
 
   async def test_async_iterable(self):
-    """foreach over an async iterable (__aiter__)."""
-    result = await Chain(AsyncRangeLocal(4)).foreach(sync_double).run()
+    """map over an async iterable (__aiter__)."""
+    result = await Chain(AsyncRangeLocal(4)).map(sync_double).run()
     self.assertEqual(result, [0, 2, 4, 6])
 
   async def test_sync_iterable_async_fn_continues_with_sync_steps(self):
-    """foreach async fn -> continues with sync steps after."""
-    result = await Chain([1, 2]).foreach(async_add1).then(len).run()
+    """map async fn -> continues with sync steps after."""
+    result = await Chain([1, 2]).map(async_add1).then(len).run()
     # [1,2] -> [2,3] -> len=2
     self.assertEqual(result, 2)
 
-  async def test_foreach_do_with_async_fn(self):
-    """foreach_do with async fn: original items preserved."""
+  async def test_foreach_with_async_fn(self):
+    """foreach with async fn: original items preserved."""
     tracker = []
     async def track(x):
       tracker.append(x * 10)
-    result = await Chain([1, 2, 3]).foreach_do(track).run()
+    result = await Chain([1, 2, 3]).foreach(track).run()
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(tracker, [10, 20, 30])
 
   async def test_async_iterable_with_async_fn(self):
     """Async iterable + async fn: full async path."""
-    result = await Chain(AsyncRangeLocal(3)).foreach(async_double).run()
+    result = await Chain(AsyncRangeLocal(3)).map(async_double).run()
     self.assertEqual(result, [0, 2, 4])
 
 
@@ -492,26 +492,26 @@ class TestIfTransition(IsolatedAsyncioTestCase):
 
 class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
 
-  async def test_then_sync_foreach_async_then_sync(self):
-    """then(sync) -> foreach(async fn) -> then(sync): transition mid-foreach."""
+  async def test_then_sync_map_async_then_sync(self):
+    """then(sync) -> map(async fn) -> then(sync): transition mid-map."""
     result = await (
       Chain([1, 2, 3])
       .then(sync_identity)
-      .foreach(async_double)
+      .map(async_double)
       .then(sum)
       .run()
     )
     # [1,2,3] -> [2,4,6] -> 12
     self.assertEqual(result, 12)
 
-  async def test_then_async_foreach_sync_filter_sync(self):
-    """then(async) -> foreach(sync) -> filter(sync): transition at first step."""
+  async def test_then_async_map_sync_filter_sync(self):
+    """then(async) -> map(sync) -> filter(sync): transition at first step."""
     async def make_list(x):
       return [1, 2, 3, 4, 5]
     result = await (
       Chain(None)
       .then(make_list)
-      .foreach(sync_double)
+      .map(sync_double)
       .then(lambda lst: [x for x in lst if x > 4])
       .run()
     )
@@ -529,16 +529,16 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     # [1,2,3,4] -> [2,4] -> if truthy -> [2,4] -> 2
     self.assertEqual(result, 2)
 
-  async def test_gather_mixed_foreach_sync_then_sync(self):
-    """gather(mixed) -> foreach(sync) -> then(sync)."""
+  async def test_gather_mixed_map_sync_then_sync(self):
+    """gather(mixed) -> map(sync) -> then(sync)."""
     result = await (
       Chain(5)
       .gather(sync_add1, async_double)
-      .foreach(sync_double)
+      .map(sync_double)
       .then(sum)
       .run()
     )
-    # gather: [6, 10] -> foreach double: [12, 20] -> sum: 32
+    # gather: [6, 10] -> map double: [12, 20] -> sum: 32
     self.assertEqual(result, 32)
 
   async def test_with_sync_cm_async_body_then_sync_filter_sync(self):
@@ -620,8 +620,8 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, 10)
 
-  async def test_then_sync_then_sync_then_async_foreach_sync_if_sync(self):
-    """then(sync) -> then(sync) -> then(async) -> foreach(sync) -> if_(sync)."""
+  async def test_then_sync_then_sync_then_async_map_sync_if_sync(self):
+    """then(sync) -> then(sync) -> then(async) -> map(sync) -> if_(sync)."""
     async def make_range(x):
       return list(range(x))
     result = await (
@@ -629,14 +629,14 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
       .then(sync_add1)   # 5
       .then(sync_identity)  # 5
       .then(make_range)  # [0,1,2,3,4]
-      .foreach(sync_double)  # [0,2,4,6,8]
+      .map(sync_double)  # [0,2,4,6,8]
       .if_(sync_truthy, sync_identity)
       .run()
     )
     self.assertEqual(result, [0, 2, 4, 6, 8])
 
-  async def test_do_async_then_foreach_async_filter_sync(self):
-    """do(async) -> then(sync) -> foreach(async) -> filter(sync)."""
+  async def test_do_async_then_map_async_filter_sync(self):
+    """do(async) -> then(sync) -> map(async) -> filter(sync)."""
     tracker = []
     async def track(x):
       tracker.append(x)
@@ -645,7 +645,7 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
       Chain([1, 2, 3, 4])
       .do(track)
       .then(sync_identity)
-      .foreach(async_double)
+      .map(async_double)
       .then(lambda lst: [x for x in lst if x > 4])
       .run()
     )
@@ -662,26 +662,26 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, [6, 10])
 
-  async def test_gather_then_foreach_then_filter(self):
-    """gather -> foreach -> filter: multi-op async pipeline."""
+  async def test_gather_then_map_then_filter(self):
+    """gather -> map -> filter: multi-op async pipeline."""
     result = await (
       Chain(3)
       .gather(sync_add1, async_double, sync_identity)
-      .foreach(sync_double)
+      .map(sync_double)
       .then(lambda lst: [x for x in lst if x > 7])
       .run()
     )
-    # gather: [4, 6, 3] -> foreach double: [8, 12, 6] -> filter >7: [8, 12]
+    # gather: [4, 6, 3] -> map double: [8, 12, 6] -> filter >7: [8, 12]
     self.assertEqual(result, [8, 12])
 
-  async def test_with_async_cm_then_if_then_foreach(self):
-    """with_(async cm) -> if_(sync) -> foreach(sync)."""
+  async def test_with_async_cm_then_if_then_map(self):
+    """with_(async cm) -> if_(sync) -> map(sync)."""
     cm = AsyncCMLocal([1, 2, 3])
     result = await (
       Chain(cm)
       .with_(sync_identity)
       .if_(sync_truthy, sync_identity)
-      .foreach(sync_double)
+      .map(sync_double)
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
@@ -699,11 +699,11 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, 22)
 
-  async def test_foreach_async_then_gather_sync(self):
-    """foreach(async) -> then -> gather(all sync)."""
+  async def test_map_async_then_gather_sync(self):
+    """map(async) -> then -> gather(all sync)."""
     result = await (
       Chain([1, 2, 3])
-      .foreach(async_double)
+      .map(async_double)
       .then(sum)
       .gather(sync_add1, sync_double)
       .run()
@@ -711,12 +711,12 @@ class TestMultiMethodTransitions(IsolatedAsyncioTestCase):
     # [1,2,3] -> [2,4,6] -> sum=12 -> [13, 24]
     self.assertEqual(result, [13, 24])
 
-  async def test_filter_async_then_foreach_sync_then_async(self):
-    """filter(async) -> foreach(sync) -> then(async)."""
+  async def test_filter_async_then_map_sync_then_async(self):
+    """filter(async) -> map(sync) -> then(async)."""
     result = await (
       Chain([1, 2, 3, 4, 5, 6])
       .filter(async_is_even)
-      .foreach(sync_double)
+      .map(sync_double)
       .then(async_identity)
       .run()
     )
@@ -836,8 +836,8 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, 600)
 
-  async def test_break_during_async_foreach(self):
-    """break_() during async foreach iteration."""
+  async def test_break_during_async_map(self):
+    """break_() during async map iteration."""
     counter = 0
     async def count_and_maybe_break(x):
       nonlocal counter
@@ -846,7 +846,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
         Chain.break_()
       return x * 10
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(count_and_maybe_break).run()
+    result = await Chain([1, 2, 3, 4, 5]).map(count_and_maybe_break).run()
     self.assertEqual(result, [10, 20])
     self.assertEqual(counter, 3)
 
@@ -866,16 +866,16 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
       await Chain(5).if_(sync_falsy, sync_double).else_(bad_else).run()
     self.assertIn('else error', str(ctx.exception))
 
-  async def test_exception_in_async_foreach_fn(self):
-    """Exception raised by async foreach fn."""
+  async def test_exception_in_async_map_fn(self):
+    """Exception raised by async map fn."""
     async def bad_fn(x):
       if x == 2:
-        raise RuntimeError('foreach error')
+        raise RuntimeError('map error')
       return x
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain([1, 2, 3]).foreach(bad_fn).run()
-    self.assertIn('foreach error', str(ctx.exception))
+      await Chain([1, 2, 3]).map(bad_fn).run()
+    self.assertIn('map error', str(ctx.exception))
 
   async def test_exception_in_async_filter_fn(self):
     """Exception raised by async filter fn."""
@@ -980,10 +980,10 @@ class TestNestedChainTransitions(IsolatedAsyncioTestCase):
     result = await Chain(5).if_(sync_truthy, inner).run()
     self.assertEqual(result, 10)
 
-  async def test_nested_chain_in_foreach_fn_with_async_step(self):
-    """Nested chain as foreach fn with async step."""
+  async def test_nested_chain_in_map_fn_with_async_step(self):
+    """Nested chain as map fn with async step."""
     inner = Chain().then(async_double)
-    result = await Chain([1, 2, 3]).foreach(inner).run()
+    result = await Chain([1, 2, 3]).map(inner).run()
     self.assertEqual(result, [2, 4, 6])
 
   async def test_deeply_nested_chains(self):
@@ -1179,14 +1179,14 @@ class TestEdgeCaseTransitions(IsolatedAsyncioTestCase):
     result = await Chain(5).if_(is_negative, sync_double).else_(async_add1).run()
     self.assertEqual(result, 6)
 
-  async def test_foreach_break_with_value(self):
-    """foreach with break_(value) during async iteration."""
+  async def test_map_break_with_value(self):
+    """map with break_(value) during async iteration."""
     async def fn(x):
       if x == 3:
         Chain.break_('early_exit')
       return x * 10
 
-    result = await Chain([1, 2, 3, 4]).foreach(fn).run()
+    result = await Chain([1, 2, 3, 4]).map(fn).run()
     self.assertEqual(result, 'early_exit')
 
   async def test_return_with_value_from_async_chain(self):
@@ -1200,9 +1200,9 @@ class TestEdgeCaseTransitions(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, 110)
 
-  async def test_foreach_empty_list_async_fn(self):
-    """foreach with empty list and async fn -> no transition, returns []."""
-    result = Chain([]).foreach(async_double).run()
+  async def test_map_empty_list_async_fn(self):
+    """map with empty list and async fn -> no transition, returns []."""
+    result = Chain([]).map(async_double).run()
     # empty list means no iteration, stays sync
     self.assertEqual(result, [])
 
@@ -1348,12 +1348,12 @@ class TestTransitionWithFreeze(IsolatedAsyncioTestCase):
     # 5 -> 6 -> 12 -> 13
     self.assertEqual(result, 13)
 
-  async def test_frozen_chain_with_foreach_async(self):
-    """Frozen chain containing async foreach."""
+  async def test_frozen_chain_with_map_async(self):
+    """Frozen chain containing async map."""
     frozen = (
       Chain()
       .then(lambda x: list(range(x)))
-      .foreach(async_double)
+      .map(async_double)
       .freeze()
     )
     result = await frozen(4)

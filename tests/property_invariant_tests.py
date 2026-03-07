@@ -90,17 +90,17 @@ class TestThenAlwaysReplaces(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestForeachDoPreservesItems
+# TestForeachPreservesItems
 # ---------------------------------------------------------------------------
 
-class TestForeachDoPreservesItems(unittest.TestCase):
-  """Invariant: foreach_do() ALWAYS returns original items, ignoring fn results."""
+class TestForeachPreservesItems(unittest.TestCase):
+  """Invariant: foreach() ALWAYS returns original items, ignoring fn results."""
 
-  def test_foreach_do_preserves_dense(self):
+  def test_foreach_preserves_dense(self):
     fn_returns = [None, 0, False, '', [], {}, 42, 'replaced', lambda: 99]
     for fn_ret in fn_returns:
       with self.subTest(fn_ret=fn_ret):
-        result = Chain([10, 20, 30]).foreach_do(lambda x, r=fn_ret: r).run()
+        result = Chain([10, 20, 30]).foreach(lambda x, r=fn_ret: r).run()
         self.assertEqual(result, [10, 20, 30])
 
 
@@ -237,17 +237,18 @@ class TestWithDoPreservesOuter(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestDoWithNonCallable(unittest.TestCase):
-  """do() with a non-callable: still preserves current_value."""
+  """do() with a non-callable: raises TypeError eagerly."""
 
-  def test_do_with_int(self):
-    """do(42): Link(42, ignore_result=True). 42 is not callable, returned as-is.
-    ignore_result=True so current_value is unchanged."""
-    result = Chain(5).do(42).run()
-    self.assertEqual(result, 5)
+  def test_do_rejects_int(self):
+    """do(42): raises TypeError because do() requires a callable."""
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do(42)
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got int')
 
-  def test_do_with_none(self):
-    result = Chain(5).do(None).run()
-    self.assertEqual(result, 5)
+  def test_do_rejects_none(self):
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do(None)
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got NoneType')
 
 
 class TestChainAllStepsReturnNone(unittest.TestCase):
@@ -437,12 +438,12 @@ class TestThenReplacesChainingSequence(unittest.TestCase):
     self.assertEqual(result, '5')
 
 
-class TestForeachDoSideEffectsExecuted(unittest.TestCase):
-  """foreach_do() executes side effects even though it preserves items."""
+class TestForeachSideEffectsExecuted(unittest.TestCase):
+  """foreach() executes side effects even though it preserves items."""
 
   def test_side_effects_run(self):
     tracker = []
-    result = Chain([10, 20, 30]).foreach_do(lambda x: tracker.append(x * 2)).run()
+    result = Chain([10, 20, 30]).foreach(lambda x: tracker.append(x * 2)).run()
     self.assertEqual(result, [10, 20, 30])
     self.assertEqual(tracker, [20, 40, 60])
 

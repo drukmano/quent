@@ -44,7 +44,7 @@ _EXCEPTION_SUBTYPES = [
   NestedCustomException,
 ]
 
-# Exception subtypes safe to use in iteration contexts (foreach/filter/iterate).
+# Exception subtypes safe to use in iteration contexts (map/filter/iterate).
 # StopIteration and StopAsyncIteration have special semantics:
 #  - StopIteration terminates the `while True: next(it)` loop in _make_foreach/_make_filter
 #  - StopAsyncIteration terminates `async for` loops
@@ -219,12 +219,12 @@ class TestExceptionTypeInDoMatrix(unittest.TestCase):
 
 
 # ===========================================================================
-# Class: TestExceptionTypeInForeachMatrix
+# Class: TestExceptionTypeInMapMatrix
 # ===========================================================================
-class TestExceptionTypeInForeachMatrix(unittest.TestCase):
-  """Cross-product in foreach() -- raise at different positions."""
+class TestExceptionTypeInMapMatrix(unittest.TestCase):
+  """Cross-product in map() -- raise at different positions."""
 
-  def test_foreach_exception_at_positions(self):
+  def test_map_exception_at_positions(self):
     # StopIteration terminates the internal while/next() loop in _make_foreach,
     # so it cannot be tested as a user-raised error here.
     for exc_type in _ITERATION_SAFE_SUBTYPES:
@@ -238,31 +238,31 @@ class TestExceptionTypeInForeachMatrix(unittest.TestCase):
             return fn
 
           fn = make_fn(exc_type, raise_at)
-          chain = Chain([0, 1, 2, 3]).foreach(fn).except_(_catch_handler)
+          chain = Chain([0, 1, 2, 3]).map(fn).except_(_catch_handler)
           result = chain.run()
           self.assertEqual(result, f'caught:{exc_type.__name__}')
 
-  def test_foreach_exception_propagates_without_except(self):
+  def test_map_exception_propagates_without_except(self):
     for exc_type in _ITERATION_SAFE_SUBTYPES:
       with self.subTest(exc_type=exc_type.__name__):
         raiser = _make_raiser(exc_type)
         with self.assertRaises(exc_type):
-          Chain([1, 2, 3]).foreach(raiser).run()
+          Chain([1, 2, 3]).map(raiser).run()
 
-  def test_foreach_base_exception_not_caught_by_default(self):
-    """KeyboardInterrupt in foreach is not caught by default except_."""
+  def test_map_base_exception_not_caught_by_default(self):
+    """KeyboardInterrupt in map is not caught by default except_."""
     def raiser(x):
       raise KeyboardInterrupt('kbd')
     with self.assertRaises(KeyboardInterrupt):
-      Chain([1, 2]).foreach(raiser).except_(_catch_handler).run()
+      Chain([1, 2]).map(raiser).except_(_catch_handler).run()
 
-  def test_foreach_base_exception_caught_by_base_except(self):
-    """KeyboardInterrupt in foreach IS caught by except_(BaseException)."""
+  def test_map_base_exception_caught_by_base_except(self):
+    """KeyboardInterrupt in map IS caught by except_(BaseException)."""
     def raiser(x):
       raise KeyboardInterrupt('kbd')
     result = (
       Chain([1, 2])
-      .foreach(raiser)
+      .map(raiser)
       .except_(_catch_handler, exceptions=BaseException)
       .run()
     )
@@ -708,21 +708,21 @@ class TestExceptionInAsyncMatrix(IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, 'caught:KeyboardInterrupt')
 
-  async def test_async_foreach_exception_types(self):
+  async def test_async_map_exception_types(self):
     # Use _ITERATION_SAFE_SUBTYPES: StopIteration terminates iteration;
     # also exclude StopAsyncIteration since it terminates async for loops.
     for exc_type in _ITERATION_SAFE_SUBTYPES:
       with self.subTest(exc_type=exc_type.__name__):
-        # The foreach fn is sync but raises; the async path is forced by
+        # The map fn is sync but raises; the async path is forced by
         # an async identity step that returns the list unchanged.
         async def async_list(x):
           return [1, 2, 3]
         def raiser(x, et=exc_type):
-          raise et(f'{et.__name__}_foreach')
+          raise et(f'{et.__name__}_map')
         result = await (
           Chain(0)
           .then(async_list)
-          .foreach(raiser)
+          .map(raiser)
           .except_(_catch_handler)
           .run()
         )

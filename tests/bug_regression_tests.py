@@ -239,7 +239,7 @@ class TestBug9Comment(unittest.TestCase):
 
 
 class TestBug12BreakMessage(unittest.TestCase):
-  def test_break_outside_foreach_message_sync(self):
+  def test_break_outside_map_message_sync(self):
     """Sync: _Break error message should be user-friendly."""
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(lambda x: Chain.break_()).run()
@@ -249,7 +249,7 @@ class TestBug12BreakMessage(unittest.TestCase):
 
 
 class TestBug12BreakMessageAsync(unittest.IsolatedAsyncioTestCase):
-  async def test_break_outside_foreach_message_async(self):
+  async def test_break_outside_map_message_async(self):
     """Async: _Break error message should be user-friendly."""
     with self.assertRaises(QuentException) as ctx:
       await Chain(5).then(async_identity).then(lambda x: Chain.break_()).run()

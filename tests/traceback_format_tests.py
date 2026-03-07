@@ -5,7 +5,7 @@ Verifies that:
 - The synthetic <quent> frame contains a readable chain visualization
 - The <---- arrow accurately marks the failing link
 - Nested chain indentation is correct
-- Operations (foreach, filter, gather, with_) display correctly
+- Operations (map, filter, gather, with_) display correctly
 - Chained exceptions (except_/finally_ handlers that raise) are cleaned
 - Runtime values appear in visualizations where supported
 
@@ -293,7 +293,7 @@ class TestFrameCleaning(unittest.TestCase):
     def fn(x):
       raise ValueError('ops test')
 
-    tb_str = _capture_tb(lambda: Chain([1]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([1]).map(fn).run())
     self.assertNotIn('_ops.py', tb_str)
 
   def test_clean_chained_cause(self):
@@ -441,30 +441,30 @@ class TestEndToEndBasic(unittest.TestCase):
 
 
 class TestEndToEndOperations(unittest.TestCase):
-  """End-to-end tests for chain operations (foreach, filter, gather, with_)."""
+  """End-to-end tests for chain operations (map, filter, gather, with_)."""
 
-  def test_foreach_shows_item_and_index(self):
-    """EXPECTED TO FAIL -- Gap #4: no index shown in foreach."""
+  def test_map_shows_item_and_index(self):
+    """EXPECTED TO FAIL -- Gap #4: no index shown in map."""
 
     def fn(x):
       if x == 20:
         raise ValueError(f'bad item {x}')
       return x
 
-    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).foreach(fn).run())
-    _assert_arrow_on(self, tb_str, 'foreach')
+    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).map(fn).run())
+    _assert_arrow_on(self, tb_str, 'map')
     # This assertion tests the GAP -- will fail until fixed:
     self.assertIn('index=1', tb_str)
 
-  def test_foreach_do_shows_item(self):
+  def test_foreach_shows_item(self):
     def fn(x):
       if x == 2:
         raise ValueError('bad')
       return x
 
-    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach_do(fn).run())
-    _assert_arrow_on(self, tb_str, 'foreach_do')
-    # foreach sets temp_args with the item value
+    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach(fn).run())
+    _assert_arrow_on(self, tb_str, 'foreach')
+    # map sets temp_args with the item value
     self.assertIn('2', tb_str)
 
   def test_filter_shows_item_and_index(self):
@@ -538,14 +538,14 @@ class TestEndToEndOperations(unittest.TestCase):
     _assert_arrow_on(self, tb_str, 'iterate')
     _assert_chain_contains(self, tb_str, '.iterate(fn, item=1, index=1) <----')
 
-  def test_foreach_temp_args_correct_item(self):
+  def test_map_temp_args_correct_item(self):
     def fn(x):
       if x == 0:
         return 1 / x  # ZeroDivisionError
       return x
 
-    tb_str = _capture_tb(lambda: Chain([10, 20, 0]).foreach(fn).run())
-    _assert_arrow_on(self, tb_str, 'foreach')
+    tb_str = _capture_tb(lambda: Chain([10, 20, 0]).map(fn).run())
+    _assert_arrow_on(self, tb_str, 'map')
     # temp_args should show the failing item (0)
     self.assertIn('0', tb_str)
 
@@ -553,14 +553,14 @@ class TestEndToEndOperations(unittest.TestCase):
     tb_str = _capture_tb(lambda: Chain(SyncCM()).with_do(raise_fn).run())
     _assert_chain_contains(self, tb_str, '.with_do(')
 
-  def test_foreach_do_shows_method_name(self):
+  def test_foreach_shows_method_name(self):
     def fn(x):
       if x == 2:
         raise ValueError('bad')
       return x
 
-    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach_do(fn).run())
-    _assert_chain_contains(self, tb_str, '.foreach_do(')
+    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach(fn).run())
+    _assert_chain_contains(self, tb_str, '.foreach(')
 
 
 # ---------------------------------------------------------------------------
@@ -582,14 +582,14 @@ class TestEndToEndAsync(unittest.IsolatedAsyncioTestCase):
     _assert_arrow_on(self, tb_str, 'async_raise_fn')
     _assert_no_internal_frames(self, tb_str)
 
-  async def test_async_foreach_fails(self):
+  async def test_async_map_fails(self):
     async def bad_fn(x):
       if x == 2:
-        raise ValueError('async foreach fail')
+        raise ValueError('async map fail')
       return x
 
-    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).foreach(bad_fn).run())
-    _assert_arrow_on(self, tb_str, 'foreach')
+    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).map(bad_fn).run())
+    _assert_arrow_on(self, tb_str, 'map')
     _assert_no_internal_frames(self, tb_str)
 
   async def test_async_with_fails(self):
@@ -750,14 +750,14 @@ class TestArrowPrecision(unittest.TestCase):
       if '<----' not in line and '.then(' in line:
         self.assertNotIn('<----', line)
 
-  def test_arrow_on_foreach_not_then(self):
+  def test_arrow_on_map_not_then(self):
     def fn(x):
       if x == 2:
         raise ValueError('fail')
       return x
 
-    tb_str = _capture_tb(lambda: Chain(1).then(lambda x: [1, 2, 3]).foreach(fn).run())
-    _assert_arrow_on(self, tb_str, 'foreach')
+    tb_str = _capture_tb(lambda: Chain(1).then(lambda x: [1, 2, 3]).map(fn).run())
+    _assert_arrow_on(self, tb_str, 'map')
 
   def test_chained_exc_both_have_arrows(self):
     def bad_handler(exc):
@@ -789,7 +789,7 @@ class TestFrameExclusion(unittest.TestCase):
     def fn(x):
       raise ValueError('ops test')
 
-    tb_str = _capture_tb(lambda: Chain([1]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([1]).map(fn).run())
     self.assertNotIn('_ops.py', tb_str)
 
   def test_no_traceback_py(self):
@@ -939,15 +939,15 @@ class TestRuntimeValueDisplay(unittest.TestCase):
     tb_str = _capture_tb(lambda: Chain(5).do(raise_fn).run())
     self.assertIn('current_value=5', tb_str)
 
-  def test_foreach_shows_index(self):
-    """Gap #4: foreach doesn't show index."""
+  def test_map_shows_index(self):
+    """Gap #4: map doesn't show index."""
 
     def fn(x):
       if x == 30:
         raise ValueError('fail')
       return x
 
-    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).map(fn).run())
     self.assertIn('index=2', tb_str)
 
   def test_filter_shows_index(self):
@@ -1152,42 +1152,42 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
     tb_str = _capture_tb(lambda: Chain(42).gather(bad).run())
     self.assertNotIn('current_value', tb_str)
 
-  # -- Gap 4: foreach/filter index --
+  # -- Gap 4: map/filter index --
 
-  def test_foreach_item_and_index(self):
-    """foreach shows item= and index= for the failing element."""
+  def test_map_item_and_index(self):
+    """map shows item= and index= for the failing element."""
     def fn(x):
       if x == 'c': raise ValueError('bad')
       return x
 
-    tb_str = _capture_tb(lambda: Chain(['a', 'b', 'c']).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain(['a', 'b', 'c']).map(fn).run())
     self.assertIn("item='c'", tb_str)
     self.assertIn('index=2', tb_str)
 
-  def test_foreach_index_zero(self):
+  def test_map_index_zero(self):
     """index=0 is correctly shown for first-element failures."""
     def fn(x): raise ValueError('first')
 
-    tb_str = _capture_tb(lambda: Chain([10]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([10]).map(fn).run())
     self.assertIn('item=10', tb_str)
     self.assertIn('index=0', tb_str)
 
-  def test_foreach_do_item_and_index(self):
-    """foreach_do also shows item and index."""
+  def test_foreach_item_and_index(self):
+    """foreach also shows item and index."""
     def fn(x):
       if x == 2: raise ValueError('bad')
 
-    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach_do(fn).run())
+    tb_str = _capture_tb(lambda: Chain([1, 2]).foreach(fn).run())
     self.assertIn('item=2', tb_str)
     self.assertIn('index=1', tb_str)
 
-  def test_foreach_large_index(self):
+  def test_map_large_index(self):
     """Index correct for large iterables."""
     def fn(x):
       if x == 99: raise ValueError('bad')
       return x
 
-    tb_str = _capture_tb(lambda: Chain(range(100)).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain(range(100)).map(fn).run())
     self.assertIn('index=99', tb_str)
 
   def test_filter_item_and_index(self):
@@ -1208,11 +1208,11 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
     self.assertIn('item=99', tb_str)
     self.assertIn('index=0', tb_str)
 
-  def test_foreach_no_current_value(self):
-    """foreach should NOT show current_value (it has item/index instead)."""
+  def test_map_no_current_value(self):
+    """map should NOT show current_value (it has item/index instead)."""
     def fn(x): raise ValueError('bad')
 
-    tb_str = _capture_tb(lambda: Chain([1]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([1]).map(fn).run())
     self.assertNotIn('current_value', tb_str)
 
   def test_filter_no_current_value(self):
@@ -1305,11 +1305,11 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
     _assert_no_internal_frames(self, tb_str)
     self.assertIn('current_value=1', tb_str)
 
-  def test_no_internal_frames_with_foreach_index(self):
-    """Internal frames are still stripped when foreach shows item/index."""
+  def test_no_internal_frames_with_map_index(self):
+    """Internal frames are still stripped when map shows item/index."""
     def fn(x): raise ValueError('bad')
 
-    tb_str = _capture_tb(lambda: Chain([1]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([1]).map(fn).run())
     _assert_no_internal_frames(self, tb_str)
     self.assertIn('index=0', tb_str)
 
@@ -1349,23 +1349,23 @@ class TestRuntimeValueComprehensive(unittest.TestCase):
     tb_str = _capture_tb(lambda: Chain([]).then(raise_fn).run())
     _assert_chain_contains(self, tb_str, '.then(raise_fn, current_value=[]) <----')
 
-  def test_foreach_item_none(self):
-    """foreach shows item=None correctly."""
+  def test_map_item_none(self):
+    """map shows item=None correctly."""
     def fn(x):
       if x is None: raise ValueError('none!')
 
-    tb_str = _capture_tb(lambda: Chain([None]).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain([None]).map(fn).run())
     self.assertIn('item=None', tb_str)
     self.assertIn('index=0', tb_str)
 
-  def test_foreach_item_is_dict(self):
-    """foreach shows dict items."""
+  def test_map_item_is_dict(self):
+    """map shows dict items."""
     def fn(x):
       if x.get('name') == 'bad': raise ValueError('bad record')
       return x
 
     records = [{'name': 'ok'}, {'name': 'bad'}]
-    tb_str = _capture_tb(lambda: Chain(records).foreach(fn).run())
+    tb_str = _capture_tb(lambda: Chain(records).map(fn).run())
     self.assertIn('index=1', tb_str)
 
   def test_gather_many_fns(self):
@@ -1409,13 +1409,13 @@ class TestRuntimeValueAsync(unittest.IsolatedAsyncioTestCase):
     tb_str = await _capture_tb_async(Chain(1).then(async_fn).then(async_raise_fn).run())
     self.assertIn('current_value=2', tb_str)
 
-  async def test_async_foreach_item_and_index(self):
-    """foreach shows item and index in async iteration."""
+  async def test_async_map_item_and_index(self):
+    """map shows item and index in async iteration."""
     async def bad_fn(x):
       if x == 3: raise ValueError('bad')
       return x
 
-    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).foreach(bad_fn).run())
+    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).map(bad_fn).run())
     self.assertIn('item=3', tb_str)
     self.assertIn('index=3', tb_str)
 
@@ -1439,12 +1439,12 @@ class TestRuntimeValueAsync(unittest.IsolatedAsyncioTestCase):
     tb_str = _capture_tb(lambda: Chain(1).finally_(bad_finally).run())
     self.assertIn('root_value=1', tb_str)
 
-  async def test_async_foreach_do_item_and_index(self):
-    """foreach_do shows item and index in async iteration."""
+  async def test_async_foreach_item_and_index(self):
+    """foreach shows item and index in async iteration."""
     async def bad_fn(x):
       if x == 2: raise ValueError('bad')
 
-    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).foreach_do(bad_fn).run())
+    tb_str = await _capture_tb_async(Chain(AsyncRange(5)).foreach(bad_fn).run())
     self.assertIn('item=2', tb_str)
     self.assertIn('index=2', tb_str)
 
@@ -1772,27 +1772,27 @@ class TestAsyncNestedTraceback(unittest.IsolatedAsyncioTestCase):
 class TestMixedOperationTraceback(unittest.TestCase):
   """Tests for mixed operation pipeline tracebacks."""
 
-  def test_then_foreach_filter_pipeline(self):
+  def test_then_map_filter_pipeline(self):
     def bad_pred(x):
       if x == 3:
         raise ValueError('filter fail')
       return x > 0
 
-    tb_str = _capture_tb(lambda: Chain([1, 2, 3]).foreach(lambda x: x).filter(bad_pred).run())
+    tb_str = _capture_tb(lambda: Chain([1, 2, 3]).map(lambda x: x).filter(bad_pred).run())
     self.assertIsNotNone(tb_str)
     _assert_arrow_on(self, tb_str, 'filter')
 
-  def test_then_with_foreach_pipeline(self):
+  def test_then_with_map_pipeline(self):
     def fn_raises_on_zero(x):
       if x == 0:
         raise ValueError('zero!')
       return x
 
     tb_str = _capture_tb(
-      lambda: Chain(SyncCM()).with_(lambda ctx: [1, 2, 0]).foreach(fn_raises_on_zero).run()
+      lambda: Chain(SyncCM()).with_(lambda ctx: [1, 2, 0]).map(fn_raises_on_zero).run()
     )
     self.assertIsNotNone(tb_str)
-    _assert_arrow_on(self, tb_str, 'foreach')
+    _assert_arrow_on(self, tb_str, 'map')
 
   def test_do_then_gather_pipeline(self):
     def ok(x):
@@ -1818,13 +1818,13 @@ class TestControlFlowTraceback(unittest.TestCase):
     result = Chain(1).then(lambda x: Chain.return_(x + 99)).run()
     self.assertEqual(result, 100)
 
-  def test_break_in_foreach_no_exception(self):
+  def test_break_in_map_no_exception(self):
     def fn(x):
       if x == 2:
         Chain.break_()
       return x * 10
 
-    result = Chain([0, 1, 2, 3]).foreach(fn).run()
+    result = Chain([0, 1, 2, 3]).map(fn).run()
     self.assertEqual(result, [0, 10])
 
   def test_except_non_matching_type(self):

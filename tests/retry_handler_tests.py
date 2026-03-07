@@ -663,7 +663,7 @@ class TestRetryReturnAsync(IsolatedAsyncioTestCase):
 class TestRetryBreak(unittest.TestCase):
   """_Break is a _ControlFlowSignal -> NEVER retried."""
 
-  def test_break_in_foreach_not_retried(self):
+  def test_break_in_map_not_retried(self):
     attempts = []
 
     def body(x):
@@ -674,20 +674,20 @@ class TestRetryBreak(unittest.TestCase):
 
     result = (
       Chain([1, 2, 3, 4])
-      .foreach(body)
+      .map(body)
       .retry(5, on=Exception)
       .run()
     )
     self.assertEqual(result, [10])
-    # break_ fires, foreach completes with partial results, no retry
+    # break_ fires, map completes with partial results, no retry
     self.assertEqual(attempts, [1, 2])
 
-  def test_break_exits_foreach_chain_continues_no_retry(self):
+  def test_break_exits_map_chain_continues_no_retry(self):
     attempts = []
 
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: (attempts.append(x), Chain.break_(99) if x == 3 else x)[1])
+      .map(lambda x: (attempts.append(x), Chain.break_(99) if x == 3 else x)[1])
       .then(lambda x: f'result={x}')
       .retry(3, on=Exception)
       .run()
@@ -695,18 +695,18 @@ class TestRetryBreak(unittest.TestCase):
     self.assertEqual(result, 'result=99')
     self.assertEqual(attempts, [1, 2, 3])
 
-  def test_break_outside_foreach_with_retry_raises_quent_exception(self):
-    """break_ outside foreach raises QuentException, which is NOT retried
+  def test_break_outside_map_with_retry_raises_quent_exception(self):
+    """break_ outside map raises QuentException, which is NOT retried
     because _ControlFlowSignal is caught before the retry except clause."""
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(lambda x: Chain.break_()).retry(5, on=Exception).run()
-    self.assertIn('break_() cannot be used outside of a foreach iteration', str(ctx.exception))
+    self.assertIn('break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
 
 class TestRetryBreakAsync(IsolatedAsyncioTestCase):
   """Async break_ + retry."""
 
-  async def test_async_break_in_foreach_not_retried(self):
+  async def test_async_break_in_map_not_retried(self):
     attempts = []
 
     async def body(x):
@@ -717,7 +717,7 @@ class TestRetryBreakAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(AsyncRange(5))
-      .foreach(body)
+      .map(body)
       .retry(5, on=Exception)
       .run()
     )
@@ -1379,13 +1379,13 @@ class TestRetrySingleExceptionType(unittest.TestCase):
 
 
 # ===========================================================================
-# Category 15: retry with foreach (exception in foreach body)
+# Category 15: retry with map (exception in map body)
 # ===========================================================================
 
-class TestRetryForeach(unittest.TestCase):
-  """Retry with foreach: exception in foreach body -> entire chain retried."""
+class TestRetryMap(unittest.TestCase):
+  """Retry with map: exception in map body -> entire chain retried."""
 
-  def test_foreach_body_raises_retried(self):
+  def test_map_body_raises_retried(self):
     attempts = []
 
     def body(x):
@@ -1401,19 +1401,19 @@ class TestRetryForeach(unittest.TestCase):
     # Attempt 4: body(1) ok -> body(2) ok -> success
     result = (
       Chain([1, 2])
-      .foreach(body)
+      .map(body)
       .retry(4, on=ValueError)
       .run()
     )
     self.assertEqual(result, [10, 20])
     self.assertEqual(len(attempts), 5)  # 3 failures + 2 successes
 
-  def test_foreach_with_except_after_retry_exhaustion(self):
+  def test_map_with_except_after_retry_exhaustion(self):
     fn = always_fail(ValueError)
     handler = Counter()
     result = (
       Chain([1, 2, 3])
-      .foreach(fn)
+      .map(fn)
       .retry(2, on=ValueError)
       .except_(handler)
       .run()
@@ -1518,11 +1518,11 @@ class TestRetryReturnWithHandlers(unittest.TestCase):
 class TestRetryBreakWithHandlers(unittest.TestCase):
   """break_ + retry + except_/finally_ interactions."""
 
-  def test_break_in_foreach_with_except_not_called(self):
+  def test_break_in_map_with_except_not_called(self):
     handler = Counter()
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(99) if x == 2 else x)
+      .map(lambda x: Chain.break_(99) if x == 2 else x)
       .retry(3, on=Exception)
       .except_(handler)
       .run()
@@ -1530,11 +1530,11 @@ class TestRetryBreakWithHandlers(unittest.TestCase):
     self.assertEqual(result, 99)
     self.assertEqual(handler.count, 0)
 
-  def test_break_in_foreach_with_finally_fires(self):
+  def test_break_in_map_with_finally_fires(self):
     finally_calls = []
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(99) if x == 2 else x)
+      .map(lambda x: Chain.break_(99) if x == 2 else x)
       .retry(3, on=Exception)
       .finally_(lambda rv: finally_calls.append(rv))
       .run()

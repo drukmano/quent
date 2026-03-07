@@ -31,12 +31,12 @@ from helpers import (
 class TestChainReprExhaustive(unittest.TestCase):
 
   def test_repr_every_operation(self):
-    """Chain with then, do, foreach, filter, gather, with_, with_do all show."""
+    """Chain with then, do, map, filter, gather, with_, with_do all show."""
     c = (
       Chain(1)
       .then(sync_fn)
       .do(print)
-      .foreach(sync_fn)
+      .map(sync_fn)
       .filter(sync_fn)
       .gather(sync_fn, str)
       .with_(sync_fn)
@@ -45,7 +45,7 @@ class TestChainReprExhaustive(unittest.TestCase):
     r = repr(c)
     self.assertIn('.then(...)', r)
     self.assertIn('.do(...)', r)
-    self.assertIn('.foreach(...)', r)
+    self.assertIn('.map(...)', r)
     self.assertIn('.filter(...)', r)
     self.assertIn('.gather(...)', r)
     self.assertIn('.with_(...)', r)

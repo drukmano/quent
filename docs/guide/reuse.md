@@ -127,7 +127,7 @@ clean = normalize({'Name': 'Alice ', 'Email': 'alice@example.com', 'Phone': None
 # {'name': 'Alice', 'email': 'alice@example.com'}
 
 # Apply to a collection
-Chain(get_records).foreach(normalize).then(save_batch).run()
+Chain(get_records).map(normalize).then(save_batch).run()
 ```
 
 ## Further Reading

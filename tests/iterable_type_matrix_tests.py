@@ -1,6 +1,6 @@
 """Full cross-product tests for iterable type handling across chain operations.
 
-Tests every iterable type (Axis H) against foreach, foreach_do, filter,
+Tests every iterable type (Axis H) against map, foreach, filter,
 iterate, iterate_do with sync and async fn types. Covers empty iterables,
 single-element iterables, raising iterables, and async iterables.
 """
@@ -113,16 +113,16 @@ def _make_single_iterables():
 
 
 # ---------------------------------------------------------------------------
-# Class 1: TestIterableTypeForeachMatrix
+# Class 1: TestIterableTypeMapMatrix
 # ---------------------------------------------------------------------------
 
-class TestIterableTypeForeachMatrix(unittest.TestCase):
-  """Full cross-product: iterable types x foreach/foreach_do x sync fn."""
+class TestIterableTypeMapMatrix(unittest.TestCase):
+  """Full cross-product: iterable types x map/foreach x sync fn."""
 
-  def test_foreach_sync_fn(self):
+  def test_map_sync_fn(self):
     for label, (iterable, expected) in _make_iterables().items():
       with self.subTest(iterable_type=label, fn='sync', is_do=False):
-        result = Chain(iterable).foreach(_double).run()
+        result = Chain(iterable).map(_double).run()
         if label in ('set_single', 'frozenset_single'):
           self.assertEqual(len(result), len(expected))
           for item in result:
@@ -138,11 +138,11 @@ class TestIterableTypeForeachMatrix(unittest.TestCase):
         else:
           self.assertEqual(result, [x * 2 for x in expected])
 
-  def test_foreach_do_sync_fn(self):
+  def test_foreach_sync_fn(self):
     for label, (iterable, expected) in _make_iterables().items():
       with self.subTest(iterable_type=label, fn='sync', is_do=True):
-        result = Chain(iterable).foreach_do(_double).run()
-        # foreach_do keeps original items
+        result = Chain(iterable).foreach(_double).run()
+        # foreach keeps original items
         if label in ('set_single', 'frozenset_single'):
           self.assertEqual(len(result), len(expected))
         elif label == 'dict_items':
@@ -150,7 +150,7 @@ class TestIterableTypeForeachMatrix(unittest.TestCase):
         else:
           self.assertEqual(result, expected)
 
-  def test_foreach_ordering_preserved(self):
+  def test_map_ordering_preserved(self):
     """Ordered iterables preserve element order."""
     for label in ('list', 'tuple', 'range', 'generator_iter', 'str', 'bytes'):
       iterables = _make_iterables()
@@ -158,14 +158,14 @@ class TestIterableTypeForeachMatrix(unittest.TestCase):
         continue
       iterable, expected = iterables[label]
       with self.subTest(iterable_type=label):
-        result = Chain(iterable).foreach(_identity).run()
+        result = Chain(iterable).map(_identity).run()
         self.assertEqual(result, expected)
 
-  def test_foreach_identity_fn(self):
-    """foreach with identity returns items unchanged."""
+  def test_map_identity_fn(self):
+    """map with identity returns items unchanged."""
     for label, (iterable, expected) in _make_iterables().items():
       with self.subTest(iterable_type=label):
-        result = Chain(iterable).foreach(_identity).run()
+        result = Chain(iterable).map(_identity).run()
         if label in ('set_single', 'frozenset_single'):
           self.assertEqual(set(result), set(expected))
         else:
@@ -327,37 +327,37 @@ class TestIterableTypeIterateMatrix(unittest.TestCase):
 
 class TestAsyncIterableMatrix(IsolatedAsyncioTestCase):
   """AsyncRange, AsyncEmpty, AsyncRangeRaises, AsyncInfiniteIterable
-  x foreach/foreach_do/filter/iterate/iterate_do
+  x map/foreach/filter/iterate/iterate_do
   x sync fn/async fn."""
 
-  # --- foreach ---
+  # --- map ---
+
+  async def test_async_range_map_sync(self):
+    result = await Chain(AsyncRange(5)).map(_double).run()
+    self.assertEqual(result, [0, 2, 4, 6, 8])
+
+  async def test_async_range_map_async(self):
+    result = await Chain(AsyncRange(5)).map(_async_double).run()
+    self.assertEqual(result, [0, 2, 4, 6, 8])
 
   async def test_async_range_foreach_sync(self):
     result = await Chain(AsyncRange(5)).foreach(_double).run()
-    self.assertEqual(result, [0, 2, 4, 6, 8])
+    self.assertEqual(result, [0, 1, 2, 3, 4])
 
   async def test_async_range_foreach_async(self):
     result = await Chain(AsyncRange(5)).foreach(_async_double).run()
-    self.assertEqual(result, [0, 2, 4, 6, 8])
-
-  async def test_async_range_foreach_do_sync(self):
-    result = await Chain(AsyncRange(5)).foreach_do(_double).run()
     self.assertEqual(result, [0, 1, 2, 3, 4])
 
-  async def test_async_range_foreach_do_async(self):
-    result = await Chain(AsyncRange(5)).foreach_do(_async_double).run()
-    self.assertEqual(result, [0, 1, 2, 3, 4])
+  async def test_async_empty_map_sync(self):
+    result = await Chain(AsyncEmpty()).map(_double).run()
+    self.assertEqual(result, [])
 
   async def test_async_empty_foreach_sync(self):
     result = await Chain(AsyncEmpty()).foreach(_double).run()
     self.assertEqual(result, [])
 
-  async def test_async_empty_foreach_do_sync(self):
-    result = await Chain(AsyncEmpty()).foreach_do(_double).run()
-    self.assertEqual(result, [])
-
-  async def test_async_empty_foreach_async(self):
-    result = await Chain(AsyncEmpty()).foreach(_async_double).run()
+  async def test_async_empty_map_async(self):
+    result = await Chain(AsyncEmpty()).map(_async_double).run()
     self.assertEqual(result, [])
 
   # --- filter ---
@@ -417,14 +417,14 @@ class TestAsyncIterableMatrix(IsolatedAsyncioTestCase):
 
   # --- AsyncRangeRaises ---
 
-  async def test_async_range_raises_foreach_sync(self):
+  async def test_async_range_raises_map_sync(self):
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(AsyncRangeRaises(5, 3)).foreach(_identity).run()
+      await Chain(AsyncRangeRaises(5, 3)).map(_identity).run()
     self.assertIn('iteration error', str(ctx.exception))
 
-  async def test_async_range_raises_foreach_async(self):
+  async def test_async_range_raises_map_async(self):
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(AsyncRangeRaises(5, 3)).foreach(_async_identity).run()
+      await Chain(AsyncRangeRaises(5, 3)).map(_async_identity).run()
     self.assertIn('iteration error', str(ctx.exception))
 
   async def test_async_range_raises_filter_sync(self):
@@ -445,7 +445,7 @@ class TestAsyncIterableMatrix(IsolatedAsyncioTestCase):
 
   # --- AsyncInfiniteIterable with break ---
 
-  async def test_async_infinite_foreach_break(self):
+  async def test_async_infinite_map_break(self):
     count = 0
     def fn(x):
       nonlocal count
@@ -453,26 +453,26 @@ class TestAsyncIterableMatrix(IsolatedAsyncioTestCase):
       if x >= 5:
         Chain.break_()
       return x
-    result = await Chain(AsyncInfiniteIterable()).foreach(fn).run()
+    result = await Chain(AsyncInfiniteIterable()).map(fn).run()
     self.assertEqual(result, [0, 1, 2, 3, 4])
 
-  async def test_async_infinite_foreach_do_break(self):
+  async def test_async_infinite_foreach_break(self):
     def fn(x):
       if x >= 3:
         Chain.break_()
       return x * 10
-    result = await Chain(AsyncInfiniteIterable()).foreach_do(fn).run()
+    result = await Chain(AsyncInfiniteIterable()).foreach(fn).run()
     self.assertEqual(result, [0, 1, 2])
 
-  # --- Async foreach/filter with sync iterables (should work via _aiter_wrap) ---
+  # --- Async map/filter with sync iterables (should work via _aiter_wrap) ---
 
-  async def test_sync_iterable_foreach_async_fn(self):
+  async def test_sync_iterable_map_async_fn(self):
     """Sync iterable + async fn triggers _to_async mid-iteration."""
-    result = await Chain([0, 1, 2, 3]).foreach(_async_double).run()
+    result = await Chain([0, 1, 2, 3]).map(_async_double).run()
     self.assertEqual(result, [0, 2, 4, 6])
 
-  async def test_sync_iterable_foreach_do_async_fn(self):
-    result = await Chain([0, 1, 2, 3]).foreach_do(_async_double).run()
+  async def test_sync_iterable_foreach_async_fn(self):
+    result = await Chain([0, 1, 2, 3]).foreach(_async_double).run()
     self.assertEqual(result, [0, 1, 2, 3])
 
   async def test_sync_iterable_filter_async_fn(self):
@@ -492,16 +492,16 @@ class TestAsyncIterableMatrix(IsolatedAsyncioTestCase):
 class TestEmptyIterableMatrix(IsolatedAsyncioTestCase):
   """Empty versions of each iterable type x all operations."""
 
+  def test_map_empty_sync(self):
+    for label, iterable in _make_empty_iterables().items():
+      with self.subTest(iterable_type=label, op='map'):
+        result = Chain(iterable).map(_identity).run()
+        self.assertEqual(result, [])
+
   def test_foreach_empty_sync(self):
     for label, iterable in _make_empty_iterables().items():
       with self.subTest(iterable_type=label, op='foreach'):
         result = Chain(iterable).foreach(_identity).run()
-        self.assertEqual(result, [])
-
-  def test_foreach_do_empty_sync(self):
-    for label, iterable in _make_empty_iterables().items():
-      with self.subTest(iterable_type=label, op='foreach_do'):
-        result = Chain(iterable).foreach_do(_identity).run()
         self.assertEqual(result, [])
 
   def test_filter_empty_sync(self):
@@ -522,12 +522,12 @@ class TestEmptyIterableMatrix(IsolatedAsyncioTestCase):
         result = list(Chain(iterable).iterate_do(_identity))
         self.assertEqual(result, [])
 
-  async def test_async_empty_foreach(self):
-    result = await Chain(AsyncEmpty()).foreach(_identity).run()
+  async def test_async_empty_map(self):
+    result = await Chain(AsyncEmpty()).map(_identity).run()
     self.assertEqual(result, [])
 
-  async def test_async_empty_foreach_do(self):
-    result = await Chain(AsyncEmpty()).foreach_do(_identity).run()
+  async def test_async_empty_foreach(self):
+    result = await Chain(AsyncEmpty()).foreach(_identity).run()
     self.assertEqual(result, [])
 
   async def test_async_empty_filter(self):
@@ -554,8 +554,8 @@ class TestEmptyIterableMatrix(IsolatedAsyncioTestCase):
     gen = iter([1, 2, 3])
     list(gen)  # consume
     for op_label, op in (
+      ('map', lambda it: Chain(it).map(_identity).run()),
       ('foreach', lambda it: Chain(it).foreach(_identity).run()),
-      ('foreach_do', lambda it: Chain(it).foreach_do(_identity).run()),
       ('filter', lambda it: Chain(it).filter(lambda x: True).run()),
       ('iterate', lambda it: list(Chain(it).iterate())),
     ):
@@ -572,16 +572,16 @@ class TestEmptyIterableMatrix(IsolatedAsyncioTestCase):
 class TestSingleElementMatrix(unittest.TestCase):
   """Single-element versions of each iterable type x all operations."""
 
+  def test_map_single(self):
+    for label, (iterable, item) in _make_single_iterables().items():
+      with self.subTest(iterable_type=label, op='map'):
+        result = Chain(iterable).map(_identity).run()
+        self.assertEqual(result, [item])
+
   def test_foreach_single(self):
     for label, (iterable, item) in _make_single_iterables().items():
       with self.subTest(iterable_type=label, op='foreach'):
-        result = Chain(iterable).foreach(_identity).run()
-        self.assertEqual(result, [item])
-
-  def test_foreach_do_single(self):
-    for label, (iterable, item) in _make_single_iterables().items():
-      with self.subTest(iterable_type=label, op='foreach_do'):
-        result = Chain(iterable).foreach_do(_double).run()
+        result = Chain(iterable).foreach(_double).run()
         self.assertEqual(result, [item])
 
   def test_filter_single_passes(self):
@@ -608,10 +608,10 @@ class TestSingleElementMatrix(unittest.TestCase):
         result = list(Chain(iterable).iterate_do(_double))
         self.assertEqual(result, [item])
 
-  def test_foreach_with_fn_single(self):
+  def test_map_with_fn_single(self):
     for label, (iterable, item) in _make_single_iterables().items():
-      with self.subTest(iterable_type=label, op='foreach_fn'):
-        result = Chain(iterable).foreach(_double).run()
+      with self.subTest(iterable_type=label, op='map_fn'):
+        result = Chain(iterable).map(_double).run()
         self.assertEqual(result, [item * 2])
 
   def test_iterate_with_fn_single(self):
@@ -628,24 +628,24 @@ class TestSingleElementMatrix(unittest.TestCase):
 class TestIterableWithExceptionMatrix(IsolatedAsyncioTestCase):
   """RaisingIterable(n, raise_at) with different raise_at positions x operations."""
 
-  def test_foreach_raising_at_start(self):
+  def test_map_raising_at_start(self):
     with self.assertRaises(RuntimeError) as ctx:
-      Chain(RaisingIterable(5, 0)).foreach(_identity).run()
+      Chain(RaisingIterable(5, 0)).map(_identity).run()
     self.assertIn('iteration error', str(ctx.exception))
 
-  def test_foreach_raising_at_middle(self):
+  def test_map_raising_at_middle(self):
     with self.assertRaises(RuntimeError):
-      Chain(RaisingIterable(5, 2)).foreach(_identity).run()
+      Chain(RaisingIterable(5, 2)).map(_identity).run()
 
-  def test_foreach_raising_at_end(self):
+  def test_map_raising_at_end(self):
     with self.assertRaises(RuntimeError):
-      Chain(RaisingIterable(5, 4)).foreach(_identity).run()
+      Chain(RaisingIterable(5, 4)).map(_identity).run()
 
-  def test_foreach_do_raising(self):
+  def test_foreach_raising(self):
     for raise_at in (0, 2, 4):
       with self.subTest(raise_at=raise_at):
         with self.assertRaises(RuntimeError):
-          Chain(RaisingIterable(5, raise_at)).foreach_do(_identity).run()
+          Chain(RaisingIterable(5, raise_at)).foreach(_identity).run()
 
   def test_filter_raising(self):
     for raise_at in (0, 2, 4):
@@ -674,11 +674,11 @@ class TestIterableWithExceptionMatrix(IsolatedAsyncioTestCase):
             collected.append(item)
         self.assertEqual(collected, list(range(raise_at)))
 
-  async def test_async_range_raises_foreach_at_positions(self):
+  async def test_async_range_raises_map_at_positions(self):
     for raise_at in (0, 2, 4):
       with self.subTest(raise_at=raise_at):
         with self.assertRaises(RuntimeError):
-          await Chain(AsyncRangeRaises(5, raise_at)).foreach(_identity).run()
+          await Chain(AsyncRangeRaises(5, raise_at)).map(_identity).run()
 
   async def test_async_range_raises_filter(self):
     for raise_at in (0, 2, 4):
@@ -696,7 +696,7 @@ class TestIterableWithExceptionMatrix(IsolatedAsyncioTestCase):
             collected.append(item)
         self.assertEqual(collected, list(range(raise_at)))
 
-  def test_fn_raises_in_foreach(self):
+  def test_fn_raises_in_map(self):
     """When the fn itself raises (not the iterable)."""
     def bad_fn(x):
       if x == 2:
@@ -704,7 +704,7 @@ class TestIterableWithExceptionMatrix(IsolatedAsyncioTestCase):
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      Chain([0, 1, 2, 3]).foreach(bad_fn).run()
+      Chain([0, 1, 2, 3]).map(bad_fn).run()
     self.assertIn('fn error', str(ctx.exception))
 
   def test_fn_raises_in_filter(self):
@@ -730,14 +730,14 @@ class TestIterableWithExceptionMatrix(IsolatedAsyncioTestCase):
         collected.append(item)
     self.assertEqual(collected, [0, 1])
 
-  async def test_async_fn_raises_in_foreach(self):
+  async def test_async_fn_raises_in_map(self):
     async def bad_fn(x):
       if x == 2:
         raise ValueError('async fn error')
       return x
 
     with self.assertRaises(ValueError):
-      await Chain(AsyncRange(5)).foreach(bad_fn).run()
+      await Chain(AsyncRange(5)).map(bad_fn).run()
 
   async def test_async_fn_raises_in_filter(self):
     async def bad_pred(x):
@@ -774,12 +774,12 @@ class TestConsumedGeneratorMatrix(unittest.TestCase):
     list(gen)  # consume it
     return gen
 
-  def test_consumed_generator_foreach(self):
-    result = Chain(self._make_consumed()).foreach(_identity).run()
+  def test_consumed_generator_map(self):
+    result = Chain(self._make_consumed()).map(_identity).run()
     self.assertEqual(result, [])
 
-  def test_consumed_generator_foreach_do(self):
-    result = Chain(self._make_consumed()).foreach_do(_identity).run()
+  def test_consumed_generator_foreach(self):
+    result = Chain(self._make_consumed()).foreach(_identity).run()
     self.assertEqual(result, [])
 
   def test_consumed_generator_filter(self):
@@ -802,16 +802,16 @@ class TestConsumedGeneratorMatrix(unittest.TestCase):
 class TestDictIterationMatrix(unittest.TestCase):
   """Special dict iteration patterns: keys, values, items."""
 
-  def test_foreach_dict_keys(self):
-    result = Chain({'a': 1, 'b': 2, 'c': 3}).foreach(str.upper).run()
+  def test_map_dict_keys(self):
+    result = Chain({'a': 1, 'b': 2, 'c': 3}).map(str.upper).run()
     self.assertEqual(sorted(result), ['A', 'B', 'C'])
 
-  def test_foreach_dict_values(self):
-    result = Chain({'a': 1, 'b': 2, 'c': 3}.values()).foreach(_double).run()
+  def test_map_dict_values(self):
+    result = Chain({'a': 1, 'b': 2, 'c': 3}.values()).map(_double).run()
     self.assertEqual(sorted(result), [2, 4, 6])
 
-  def test_foreach_dict_items(self):
-    result = Chain({'a': 1, 'b': 2}.items()).foreach(lambda kv: f'{kv[0]}={kv[1]}').run()
+  def test_map_dict_items(self):
+    result = Chain({'a': 1, 'b': 2}.items()).map(lambda kv: f'{kv[0]}={kv[1]}').run()
     self.assertEqual(sorted(result), ['a=1', 'b=2'])
 
   def test_filter_dict_keys(self):
@@ -846,8 +846,8 @@ class TestDictIterationMatrix(unittest.TestCase):
 class TestBytesAndStringMatrix(unittest.TestCase):
   """Specific tests for bytes and string iteration edge cases."""
 
-  def test_bytes_foreach(self):
-    result = Chain(b'\x01\x02\x03').foreach(lambda b: b + 10).run()
+  def test_bytes_map(self):
+    result = Chain(b'\x01\x02\x03').map(lambda b: b + 10).run()
     self.assertEqual(result, [11, 12, 13])
 
   def test_bytes_filter(self):
@@ -858,8 +858,8 @@ class TestBytesAndStringMatrix(unittest.TestCase):
     result = list(Chain(b'\x0a\x0b').iterate())
     self.assertEqual(result, [10, 11])
 
-  def test_string_foreach(self):
-    result = Chain('hello').foreach(str.upper).run()
+  def test_string_map(self):
+    result = Chain('hello').map(str.upper).run()
     self.assertEqual(result, ['H', 'E', 'L', 'L', 'O'])
 
   def test_string_filter(self):
@@ -870,20 +870,20 @@ class TestBytesAndStringMatrix(unittest.TestCase):
     result = list(Chain('xyz').iterate())
     self.assertEqual(result, ['x', 'y', 'z'])
 
-  def test_empty_bytes_foreach(self):
-    result = Chain(b'').foreach(_identity).run()
+  def test_empty_bytes_map(self):
+    result = Chain(b'').map(_identity).run()
     self.assertEqual(result, [])
 
-  def test_empty_string_foreach(self):
-    result = Chain('').foreach(_identity).run()
+  def test_empty_string_map(self):
+    result = Chain('').map(_identity).run()
     self.assertEqual(result, [])
 
-  def test_single_byte_foreach(self):
-    result = Chain(b'\xff').foreach(_identity).run()
+  def test_single_byte_map(self):
+    result = Chain(b'\xff').map(_identity).run()
     self.assertEqual(result, [255])
 
-  def test_single_char_foreach(self):
-    result = Chain('z').foreach(_identity).run()
+  def test_single_char_map(self):
+    result = Chain('z').map(_identity).run()
     self.assertEqual(result, ['z'])
 
 
@@ -894,12 +894,12 @@ class TestBytesAndStringMatrix(unittest.TestCase):
 class TestFrozensetAndSetMatrix(unittest.TestCase):
   """Tests for set/frozenset iteration (order-insensitive)."""
 
-  def test_set_foreach(self):
-    result = Chain({1, 2, 3}).foreach(_double).run()
+  def test_set_map(self):
+    result = Chain({1, 2, 3}).map(_double).run()
     self.assertEqual(sorted(result), [2, 4, 6])
 
-  def test_frozenset_foreach(self):
-    result = Chain(frozenset({1, 2, 3})).foreach(_double).run()
+  def test_frozenset_map(self):
+    result = Chain(frozenset({1, 2, 3})).map(_double).run()
     self.assertEqual(sorted(result), [2, 4, 6])
 
   def test_set_filter(self):
@@ -918,19 +918,19 @@ class TestFrozensetAndSetMatrix(unittest.TestCase):
     result = sorted(list(Chain(frozenset({3, 1, 2})).iterate()))
     self.assertEqual(result, [1, 2, 3])
 
-  def test_set_foreach_do(self):
-    result = Chain({10, 20, 30}).foreach_do(_double).run()
+  def test_set_foreach(self):
+    result = Chain({10, 20, 30}).foreach(_double).run()
     self.assertEqual(sorted(result), [10, 20, 30])
 
-  def test_frozenset_foreach_do(self):
-    result = Chain(frozenset({10, 20, 30})).foreach_do(_double).run()
+  def test_frozenset_foreach(self):
+    result = Chain(frozenset({10, 20, 30})).foreach(_double).run()
     self.assertEqual(sorted(result), [10, 20, 30])
 
-  def test_empty_set_foreach(self):
-    self.assertEqual(Chain(set()).foreach(_identity).run(), [])
+  def test_empty_set_map(self):
+    self.assertEqual(Chain(set()).map(_identity).run(), [])
 
-  def test_empty_frozenset_foreach(self):
-    self.assertEqual(Chain(frozenset()).foreach(_identity).run(), [])
+  def test_empty_frozenset_map(self):
+    self.assertEqual(Chain(frozenset()).map(_identity).run(), [])
 
 
 if __name__ == '__main__':

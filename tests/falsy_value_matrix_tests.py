@@ -156,26 +156,26 @@ class TestFalsyThroughDo(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestFalsyThroughForeach
+# TestFalsyThroughMap
 # ---------------------------------------------------------------------------
 
 
-class TestFalsyThroughForeach(unittest.TestCase):
-  """Falsy values inside iterables through .foreach()."""
+class TestFalsyThroughMap(unittest.TestCase):
+  """Falsy values inside iterables through .map()."""
 
-  def test_foreach_preserves_falsy_items(self):
-    """Chain([falsy, falsy]).foreach(lambda x: x).run() — both preserved."""
+  def test_map_preserves_falsy_items(self):
+    """Chain([falsy, falsy]).map(lambda x: x).run() — both preserved."""
     for name, val in FALSY_VALUES:
       with self.subTest(value=name):
-        result = Chain([val, val]).foreach(lambda x: x).run()
+        result = Chain([val, val]).map(lambda x: x).run()
         self.assertEqual(len(result), 2)
         for item in result:
           _assert_falsy_equal(self, item, val)
 
-  def test_foreach_mixed_falsy_iterable(self):
-    """All falsy values in one list — foreach identity preserves all."""
+  def test_map_mixed_falsy_iterable(self):
+    """All falsy values in one list — map identity preserves all."""
     items = [0, None, False, '', []]
-    result = Chain(items).foreach(lambda x: x).run()
+    result = Chain(items).map(lambda x: x).run()
     self.assertEqual(len(result), 5)
     self.assertIs(result[0], 0)
     self.assertIsNone(result[1])
@@ -183,29 +183,29 @@ class TestFalsyThroughForeach(unittest.TestCase):
     self.assertEqual(result[3], '')
     self.assertEqual(result[4], [])
 
-  def test_foreach_do_preserves_original_falsy_items(self):
-    """foreach_do discards fn result, keeps original falsy items."""
+  def test_foreach_preserves_original_falsy_items(self):
+    """foreach discards fn result, keeps original falsy items."""
     for name, val in FALSY_VALUES:
       with self.subTest(value=name):
-        result = Chain([val, val]).foreach_do(lambda x: 'ignored').run()
+        result = Chain([val, val]).foreach(lambda x: 'ignored').run()
         self.assertEqual(len(result), 2)
         for item in result:
           _assert_falsy_equal(self, item, val)
 
-  def test_foreach_returns_falsy_values(self):
-    """foreach fn returns falsy — result list contains falsy values."""
+  def test_map_returns_falsy_values(self):
+    """map fn returns falsy — result list contains falsy values."""
     for name, val in FALSY_VALUES:
       with self.subTest(value=name):
-        result = Chain([1, 2, 3]).foreach(lambda x, v=val: v).run()
+        result = Chain([1, 2, 3]).map(lambda x, v=val: v).run()
         self.assertEqual(len(result), 3)
         for item in result:
           _assert_falsy_equal(self, item, val)
 
-  def test_foreach_callback_receives_falsy_items(self):
-    """The foreach callback receives each falsy item."""
+  def test_map_callback_receives_falsy_items(self):
+    """The map callback receives each falsy item."""
     captured = []
     items = [0, None, False, '', b'', 0.0, 0j]
-    Chain(items).foreach(lambda x: captured.append(x) or x).run()
+    Chain(items).map(lambda x: captured.append(x) or x).run()
     self.assertEqual(len(captured), len(items))
     for i, item in enumerate(items):
       _assert_falsy_equal(self, captured[i], item)
@@ -691,13 +691,13 @@ class TestFalsyAsync(IsolatedAsyncioTestCase):
     result = await Chain(42).then(to_zero).then(to_false).then(to_none).then(to_empty).run()
     self.assertEqual(result, '')
 
-  async def test_async_foreach_with_falsy_items(self):
-    """Async foreach with falsy items in iterable."""
+  async def test_async_map_with_falsy_items(self):
+    """Async map with falsy items in iterable."""
     async def async_identity(x):
       return x
 
     items = [0, None, False, '', []]
-    result = await Chain(items).foreach(async_identity).run()
+    result = await Chain(items).map(async_identity).run()
     self.assertEqual(len(result), 5)
     self.assertIs(result[0], 0)
     self.assertIsNone(result[1])
@@ -903,24 +903,24 @@ class TestFalsyEdgeCases(unittest.TestCase):
     self.assertEqual(len(captured), 1)
     self.assertIsNone(captured[0])
 
-  def test_zero_through_gather_foreach_filter(self):
-    """0 survives gather, foreach, and filter in sequence."""
+  def test_zero_through_gather_map_filter(self):
+    """0 survives gather, map, and filter in sequence."""
     result = (
       Chain(0)
       .then(lambda x: [x, x, x])
       .filter(lambda x: True)
-      .foreach(lambda x: x)
+      .map(lambda x: x)
       .run()
     )
     self.assertEqual(result, [0, 0, 0])
 
-  def test_none_through_gather_foreach_filter(self):
-    """None survives gather, foreach, and filter in sequence."""
+  def test_none_through_gather_map_filter(self):
+    """None survives gather, map, and filter in sequence."""
     result = (
       Chain(None)
       .then(lambda x: [x, x])
       .filter(lambda x: True)
-      .foreach(lambda x: x)
+      .map(lambda x: x)
       .run()
     )
     self.assertEqual(result, [None, None])

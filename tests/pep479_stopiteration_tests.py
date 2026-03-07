@@ -1,7 +1,7 @@
 """Tests for StopIteration semantics across chain operations.
 
 Covers PEP 479 compliance in generator-based iterate, StopIteration behavior
-in foreach's while/next loop, StopIteration in filter predicates, and
+in map's while/next loop, StopIteration in filter predicates, and
 StopAsyncIteration behavior in async paths.
 """
 from __future__ import annotations
@@ -14,10 +14,10 @@ from helpers import AsyncRange
 
 
 # ---------------------------------------------------------------------------
-# StopIteration in foreach (while True / next() loop)
+# StopIteration in map (while True / next() loop)
 # ---------------------------------------------------------------------------
 
-class TestStopIterationInForeach(unittest.TestCase):
+class TestStopIterationInMap(unittest.TestCase):
 
   def test_stop_iteration_in_fn_ends_early(self):
     """StopIteration raised by fn is caught by the `except StopIteration`
@@ -29,7 +29,7 @@ class TestStopIterationInForeach(unittest.TestCase):
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3, 4]).foreach(fn).run()
+    result = Chain([1, 2, 3, 4]).map(fn).run()
     self.assertEqual(result, [10, 20])
 
   def test_stop_iteration_on_first_item(self):
@@ -37,7 +37,7 @@ class TestStopIterationInForeach(unittest.TestCase):
     def fn(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [])
 
   def test_stop_iteration_on_last_item(self):
@@ -47,7 +47,7 @@ class TestStopIterationInForeach(unittest.TestCase):
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [10, 20])
 
   def test_stop_iteration_with_message(self):
@@ -58,7 +58,7 @@ class TestStopIterationInForeach(unittest.TestCase):
         raise StopIteration('should be ignored')
       return x * 10
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [10])
 
 
@@ -189,32 +189,32 @@ class TestStopAsyncIteration(IsolatedAsyncioTestCase):
 # Beyond-spec: additional StopIteration edge cases
 # ---------------------------------------------------------------------------
 
-class TestStopIterationInForeachDo(unittest.TestCase):
+class TestStopIterationInForeach(unittest.TestCase):
 
-  def test_stop_iteration_in_foreach_do_ends_early(self):
-    """StopIteration in foreach_do fn ends iteration early,
+  def test_stop_iteration_in_foreach_ends_early(self):
+    """StopIteration in foreach fn ends iteration early,
     returning only items processed before the raise."""
     def fn(x):
       if x == 2:
         raise StopIteration
-      return x * 10  # discarded by foreach_do
+      return x * 10  # discarded by foreach
 
-    result = Chain([1, 2, 3]).foreach_do(fn).run()
+    result = Chain([1, 2, 3]).foreach(fn).run()
     self.assertEqual(result, [1])
 
-  def test_stop_iteration_in_foreach_do_first_item(self):
-    """StopIteration on first item in foreach_do -> []."""
+  def test_stop_iteration_in_foreach_first_item(self):
+    """StopIteration on first item in foreach -> []."""
     def fn(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).foreach_do(fn).run()
+    result = Chain([1, 2, 3]).foreach(fn).run()
     self.assertEqual(result, [])
 
 
-class TestStopIterationAsyncForeach(IsolatedAsyncioTestCase):
+class TestStopIterationAsyncMap(IsolatedAsyncioTestCase):
 
-  async def test_stop_iteration_in_async_foreach_fn(self):
-    """In async foreach (_full_async), StopIteration from fn
+  async def test_stop_iteration_in_async_map_fn(self):
+    """In async map (_full_async), StopIteration from fn
     is NOT caught by except StopIteration (there's no while/next
     in the async path). It propagates as-is or becomes RuntimeError."""
     def fn(x):
@@ -225,7 +225,7 @@ class TestStopIterationAsyncForeach(IsolatedAsyncioTestCase):
     # The async path uses `async for`, so StopIteration from fn
     # is not specially caught -- it propagates
     with self.assertRaises((StopIteration, RuntimeError)):
-      await Chain(AsyncRange(3)).foreach(fn).run()
+      await Chain(AsyncRange(3)).map(fn).run()
 
 
 class TestStopIterationFilterAsync(IsolatedAsyncioTestCase):
@@ -245,7 +245,7 @@ class TestStopIterationFromExhaustedInternalIterator(unittest.TestCase):
 
   def test_custom_iterator_exhaustion(self):
     """A custom iterator that raises StopIteration naturally
-    terminates foreach normally."""
+    terminates map normally."""
 
     class CountToTwo:
       def __init__(self):
@@ -261,7 +261,7 @@ class TestStopIterationFromExhaustedInternalIterator(unittest.TestCase):
         self.i += 1
         return val
 
-    result = Chain(CountToTwo()).foreach(lambda x: x * 10).run()
+    result = Chain(CountToTwo()).map(lambda x: x * 10).run()
     self.assertEqual(result, [0, 10])
 
 
@@ -276,7 +276,7 @@ class TestStopIterationFromNestedNext(unittest.TestCase):
       next(exhausted)  # raises StopIteration
       return x
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [])
 
   def test_fn_calls_next_midway(self):
@@ -286,7 +286,7 @@ class TestStopIterationFromNestedNext(unittest.TestCase):
     def fn(x):
       return next(inner_iter)
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     # fn(1)=100, fn(2)=200, fn(3) raises StopIteration -> caught
     self.assertEqual(result, [100, 200])
 
@@ -295,7 +295,7 @@ class TestStopIterationDoesNotAffectBreak(unittest.TestCase):
 
   def test_break_still_works_with_stop_iteration_awareness(self):
     """_Break is handled before StopIteration -- no interference."""
-    result = Chain([1, 2, 3, 4]).foreach(
+    result = Chain([1, 2, 3, 4]).map(
       lambda x: Chain.break_() if x == 3 else x
     ).run()
     self.assertEqual(result, [1, 2])
@@ -323,7 +323,7 @@ class TestStopIterationMultipleOccurrences(unittest.TestCase):
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3, 4, 5]).foreach(fn).run()
+    result = Chain([1, 2, 3, 4, 5]).map(fn).run()
     self.assertEqual(result, [10])
     self.assertEqual(call_count, 2)  # fn called for 1 and 2 only
 

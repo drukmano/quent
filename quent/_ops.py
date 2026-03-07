@@ -354,7 +354,7 @@ def _make_foreach(link: Link, ignore_result: bool) -> Callable[[Any], Any]:
 
   # Attach metadata as function attributes — a Python hack that lets the traceback
   # formatter identify the operation type without needing a class wrapper.
-  _foreach_op._quent_op = 'foreach'  # type: ignore[attr-defined]
+  _foreach_op._quent_op = 'map'  # type: ignore[attr-defined]
   _foreach_op._ignore_result = ignore_result  # type: ignore[attr-defined]
   return _foreach_op
 
@@ -447,17 +447,20 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
     results = []
     has_coro = False
     try:
-      for fn in fns:
+      for idx, fn in enumerate(fns):  # noqa: B007
         result = fn(current_value)
         results.append(result)
         if isawaitable(result):
           has_coro = True
-    except BaseException:
+    except BaseException as exc:
       # If a fn raises during setup, close any already-created coroutines to avoid
       # "coroutine was never awaited" RuntimeWarning.
       for r in results:
         if isawaitable(r) and hasattr(r, 'close'):
           r.close()
+      if not hasattr(exc, '__quent_gather_index__'):
+        exc.__quent_gather_index__ = idx  # type: ignore[attr-defined]
+        exc.__quent_gather_fn__ = fn  # type: ignore[attr-defined]
       raise
     if has_coro:
       return _to_async(results)

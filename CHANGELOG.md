@@ -41,7 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `ContextVar` token context manager (Python 3.14) replaces manual token management in `_async_with_context`
 - Removed defensive `try/except (ValueError, RuntimeError)` around context reset in `run()`
 - `sys.exception()` replaces `sys.exc_info()` for modern exception access
-- Bare `except:` replaced with `except BaseException:` in `foreach`
+- Bare `except:` replaced with `except BaseException:` in `map`
 - `try/except AttributeError` replaced with `hasattr()` in `with_`
 - Deprecated `asyncio.iscoroutine()` replaced with `inspect.iscoroutine()` in tests
 - Type stubs modernized: `Optional[X]` → `X | None`, `Link` alias renamed to `ChainLink`
@@ -148,7 +148,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [1.8.2] - 2023-11-18
 
 ### Fixed
-- `foreach` bug fix
+- `map` bug fix
 - Bug fix
 
 ### Changed
@@ -217,7 +217,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `.except_do()` method
 
 ### Changed
-- Changed the behavior of `.foreach_do()`
+- Changed the behavior of `.foreach()`
 - Use positional-arg syntax for public methods
 - Improved `.with_()`
 - Renamed `ignore` to `do`
@@ -249,7 +249,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Schedule coroutines to run as tasks
 
 ### Fixed
-- Fixed a bug with `.foreach_do()`
+- Fixed a bug with `.foreach()`
 
 ## [1.0.8] - 2023-09-27
 
@@ -265,7 +265,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [1.0.6] - 2023-09-27
 
 ### Changed
-- Refactored `.foreach()` to be much faster
+- Refactored `.map()` to be much faster
 
 ### Fixed
 - Bug and test fixes
@@ -274,7 +274,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - `.root_ignore()` method
-- `async for` support for `foreach`
+- `async for` support for `map`
 
 ### Changed
 - Major internal changes
@@ -296,7 +296,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [1.0.3] - 2023-09-26
 
 ### Added
-- `Chain.foreach()` method
+- `Chain.map()` method
 
 ## [1.0.2] - 2023-09-24
 

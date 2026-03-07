@@ -1,4 +1,4 @@
-"""Tests for Chain.foreach() and Chain.foreach_do(): synchronous iteration,
+"""Tests for Chain.map() and Chain.foreach(): synchronous iteration,
 async iteration, break semantics, exception propagation, and edge cases.
 """
 from __future__ import annotations
@@ -11,105 +11,105 @@ from helpers import sync_fn, async_fn, AsyncRange, AsyncEmpty
 
 
 # ---------------------------------------------------------------------------
-# Synchronous foreach (maps fn over iterable, collects fn results)
+# Synchronous map (maps fn over iterable, collects fn results)
 # ---------------------------------------------------------------------------
 
-class TestForeachSync(unittest.TestCase):
+class TestMapSync(unittest.TestCase):
 
   def test_maps_list(self):
-    result = Chain([1, 2, 3]).foreach(lambda x: x * 2).run()
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_maps_tuple(self):
-    result = Chain((1, 2, 3)).foreach(lambda x: x * 2).run()
+    result = Chain((1, 2, 3)).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_maps_generator(self):
-    result = Chain(iter([1, 2, 3])).foreach(lambda x: x * 2).run()
+    result = Chain(iter([1, 2, 3])).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_maps_range(self):
-    result = Chain(range(5)).foreach(lambda x: x * 2).run()
+    result = Chain(range(5)).map(lambda x: x * 2).run()
     self.assertEqual(result, [0, 2, 4, 6, 8])
 
   def test_maps_set(self):
-    result = Chain({1}).foreach(lambda x: x * 2).run()
+    result = Chain({1}).map(lambda x: x * 2).run()
     self.assertEqual(result, [2])
 
   def test_empty_iterable_returns_empty(self):
-    result = Chain([]).foreach(lambda x: x * 2).run()
+    result = Chain([]).map(lambda x: x * 2).run()
     self.assertEqual(result, [])
 
   def test_single_element(self):
-    result = Chain([42]).foreach(lambda x: x + 1).run()
+    result = Chain([42]).map(lambda x: x + 1).run()
     self.assertEqual(result, [43])
 
   def test_preserves_order(self):
-    result = Chain([3, 1, 2]).foreach(lambda x: x).run()
+    result = Chain([3, 1, 2]).map(lambda x: x).run()
     self.assertEqual(result, [3, 1, 2])
 
   def test_fn_receives_each_element(self):
     tracker = []
-    Chain([1, 2, 3]).foreach(lambda x: tracker.append(x) or x).run()
+    Chain([1, 2, 3]).map(lambda x: tracker.append(x) or x).run()
     self.assertEqual(tracker, [1, 2, 3])
 
 
 # ---------------------------------------------------------------------------
-# Synchronous foreach_do (calls fn as side-effect, collects original items)
+# Synchronous foreach (calls fn as side-effect, collects original items)
 # ---------------------------------------------------------------------------
 
-class TestForeachDoSync(unittest.TestCase):
+class TestForeachSync(unittest.TestCase):
 
   def test_keeps_original_elements(self):
-    result = Chain([1, 2, 3]).foreach_do(lambda x: x * 100).run()
+    result = Chain([1, 2, 3]).foreach(lambda x: x * 100).run()
     self.assertEqual(result, [1, 2, 3])
 
   def test_fn_called_as_side_effect(self):
     tracker = []
-    Chain([1, 2, 3]).foreach_do(lambda x: tracker.append(x)).run()
+    Chain([1, 2, 3]).foreach(lambda x: tracker.append(x)).run()
     self.assertEqual(tracker, [1, 2, 3])
 
   def test_empty_iterable(self):
-    result = Chain([]).foreach_do(lambda x: x).run()
+    result = Chain([]).foreach(lambda x: x).run()
     self.assertEqual(result, [])
 
 
 # ---------------------------------------------------------------------------
-# Async foreach / foreach_do
+# Async map / foreach
 # ---------------------------------------------------------------------------
 
-class TestForeachAsync(IsolatedAsyncioTestCase):
+class TestMapAsync(IsolatedAsyncioTestCase):
 
   async def test_async_iterable(self):
-    result = await Chain(AsyncRange(3)).foreach(lambda x: x * 2).run()
+    result = await Chain(AsyncRange(3)).map(lambda x: x * 2).run()
     self.assertEqual(result, [0, 2, 4])
 
   async def test_sync_fn_async_iterable(self):
-    result = await Chain(AsyncRange(3)).foreach(sync_fn).run()
+    result = await Chain(AsyncRange(3)).map(sync_fn).run()
     self.assertEqual(result, [1, 2, 3])
 
   async def test_async_fn_sync_iterable(self):
-    result = await Chain([1, 2, 3]).foreach(async_fn).run()
+    result = await Chain([1, 2, 3]).map(async_fn).run()
     self.assertEqual(result, [2, 3, 4])
 
   async def test_async_fn_async_iterable(self):
-    result = await Chain(AsyncRange(3)).foreach(async_fn).run()
+    result = await Chain(AsyncRange(3)).map(async_fn).run()
     self.assertEqual(result, [1, 2, 3])
 
-  async def test_foreach_do_async_iterable(self):
-    result = await Chain(AsyncRange(3)).foreach_do(lambda x: x * 100).run()
+  async def test_foreach_async_iterable(self):
+    result = await Chain(AsyncRange(3)).foreach(lambda x: x * 100).run()
     self.assertEqual(result, [0, 1, 2])
 
-  async def test_foreach_do_async_fn(self):
-    result = await Chain([1, 2, 3]).foreach_do(async_fn).run()
+  async def test_foreach_async_fn(self):
+    result = await Chain([1, 2, 3]).foreach(async_fn).run()
     self.assertEqual(result, [1, 2, 3])
 
   async def test_async_empty_iterable(self):
-    result = await Chain(AsyncEmpty()).foreach(lambda x: x).run()
+    result = await Chain(AsyncEmpty()).map(lambda x: x).run()
     self.assertEqual(result, [])
 
-  async def test_foreach_do_async_fn_async_iterable(self):
-    result = await Chain(AsyncRange(3)).foreach_do(async_fn).run()
+  async def test_foreach_async_fn_async_iterable(self):
+    result = await Chain(AsyncRange(3)).foreach(async_fn).run()
     self.assertEqual(result, [0, 1, 2])
 
 
@@ -117,39 +117,39 @@ class TestForeachAsync(IsolatedAsyncioTestCase):
 # Break semantics (sync)
 # ---------------------------------------------------------------------------
 
-class TestForeachBreak(unittest.TestCase):
+class TestMapBreak(unittest.TestCase):
 
   def test_break_stops_iteration(self):
-    result = Chain([1, 2, 3, 4, 5]).foreach(
+    result = Chain([1, 2, 3, 4, 5]).map(
       lambda x: Chain.break_() if x == 3 else x
     ).run()
     self.assertEqual(result, [1, 2])
 
   def test_break_returns_partial_results(self):
-    result = Chain([10, 20, 30, 40]).foreach(
+    result = Chain([10, 20, 30, 40]).map(
       lambda x: Chain.break_() if x == 30 else x * 2
     ).run()
     self.assertEqual(result, [20, 40])
 
   def test_break_with_value(self):
-    result = Chain([1, 2, 3]).foreach(
+    result = Chain([1, 2, 3]).map(
       lambda x: Chain.break_(99) if x == 2 else x
     ).run()
     self.assertEqual(result, 99)
 
   def test_break_on_first_element(self):
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_()).run()
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_()).run()
     self.assertEqual(result, [])
 
   def test_break_on_last_element(self):
-    result = Chain([1, 2, 3]).foreach(
+    result = Chain([1, 2, 3]).map(
       lambda x: Chain.break_() if x == 3 else x
     ).run()
     self.assertEqual(result, [1, 2])
 
   def test_break_do_returns_original_items(self):
     tracker = []
-    result = Chain([1, 2, 3, 4]).foreach_do(
+    result = Chain([1, 2, 3, 4]).foreach(
       lambda x: Chain.break_() if x == 3 else tracker.append(x)
     ).run()
     self.assertEqual(result, [1, 2])
@@ -160,16 +160,16 @@ class TestForeachBreak(unittest.TestCase):
 # Break semantics (async)
 # ---------------------------------------------------------------------------
 
-class TestForeachBreakAsync(IsolatedAsyncioTestCase):
+class TestMapBreakAsync(IsolatedAsyncioTestCase):
 
-  async def test_break_in_async_foreach(self):
-    result = await Chain(AsyncRange(5)).foreach(
+  async def test_break_in_async_map(self):
+    result = await Chain(AsyncRange(5)).map(
       lambda x: Chain.break_() if x == 2 else x
     ).run()
     self.assertEqual(result, [0, 1])
 
   async def test_break_with_value_async(self):
-    result = await Chain(AsyncRange(5)).foreach(
+    result = await Chain(AsyncRange(5)).map(
       lambda x: Chain.break_(42) if x == 3 else x
     ).run()
     self.assertEqual(result, 42)
@@ -180,14 +180,14 @@ class TestForeachBreakAsync(IsolatedAsyncioTestCase):
         Chain.break_()
       return x * 10
 
-    result = await Chain([1, 2, 3]).foreach(breaker).run()
+    result = await Chain([1, 2, 3]).map(breaker).run()
     self.assertEqual(result, [10])
 
   async def test_break_with_async_value_awaited(self):
     async def make_val():
       return 'async_break_val'
 
-    result = await Chain(AsyncRange(5)).foreach(
+    result = await Chain(AsyncRange(5)).map(
       lambda x: Chain.break_(make_val) if x == 1 else x
     ).run()
     self.assertEqual(result, 'async_break_val')
@@ -197,18 +197,18 @@ class TestForeachBreakAsync(IsolatedAsyncioTestCase):
 # Exception propagation
 # ---------------------------------------------------------------------------
 
-class TestForeachExceptions(unittest.TestCase):
+class TestMapExceptions(unittest.TestCase):
 
   def test_exception_in_fn_propagates(self):
     with self.assertRaises(ZeroDivisionError):
-      Chain([1, 2, 3]).foreach(lambda x: 1 / 0).run()
+      Chain([1, 2, 3]).map(lambda x: 1 / 0).run()
 
   def test_exception_sets_link_temp_args(self):
     # __quent_link_temp_args__ is an internal attribute set during iteration
     # and cleaned up by _modify_traceback after processing. After the chain
     # raises, only __quent__ (the traceback-processed marker) should remain.
     try:
-      Chain([10, 20, 30]).foreach(lambda x: 1 / 0).run()
+      Chain([10, 20, 30]).map(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       self.assertTrue(getattr(exc, '__quent__', False))
       self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
@@ -222,7 +222,7 @@ class TestForeachExceptions(unittest.TestCase):
       return x
 
     with self.assertRaises(RuntimeError) as cm:
-      Chain([1, 2, 3]).foreach(boom_on_two).run()
+      Chain([1, 2, 3]).map(boom_on_two).run()
     self.assertEqual(str(cm.exception), 'boom')
 
   def test_exception_temp_args_reflect_failing_element(self):
@@ -234,7 +234,7 @@ class TestForeachExceptions(unittest.TestCase):
       return x
 
     try:
-      Chain([1, 2, 3]).foreach(boom_on_three).run()
+      Chain([1, 2, 3]).map(boom_on_three).run()
     except ValueError as exc:
       self.assertTrue(getattr(exc, '__quent__', False))
       self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
@@ -242,14 +242,14 @@ class TestForeachExceptions(unittest.TestCase):
       self.fail('ValueError was not raised')
 
 
-class TestForeachExceptionsAsync(IsolatedAsyncioTestCase):
+class TestMapExceptionsAsync(IsolatedAsyncioTestCase):
 
   async def test_exception_in_async_fn_propagates(self):
     async def boom(x):
       raise RuntimeError('async boom')
 
     with self.assertRaises(RuntimeError):
-      await Chain([1, 2]).foreach(boom).run()
+      await Chain([1, 2]).map(boom).run()
 
   async def test_exception_in_async_iterable_fn_sets_temp_args(self):
     # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
@@ -258,7 +258,7 @@ class TestForeachExceptionsAsync(IsolatedAsyncioTestCase):
       raise ValueError('bad')
 
     try:
-      await Chain(AsyncRange(3)).foreach(boom).run()
+      await Chain(AsyncRange(3)).map(boom).run()
     except ValueError as exc:
       self.assertTrue(getattr(exc, '__quent__', False))
       self.assertFalse(hasattr(exc, '__quent_link_temp_args__'))
@@ -270,45 +270,45 @@ class TestForeachExceptionsAsync(IsolatedAsyncioTestCase):
 # Edge cases
 # ---------------------------------------------------------------------------
 
-class TestForeachEdgeCases(unittest.TestCase):
+class TestMapEdgeCases(unittest.TestCase):
 
-  def test_foreach_on_int_raises(self):
+  def test_map_on_int_raises(self):
     with self.assertRaises(TypeError):
-      Chain(42).foreach(lambda x: x).run()
+      Chain(42).map(lambda x: x).run()
 
-  def test_foreach_on_none_raises(self):
+  def test_map_on_none_raises(self):
     with self.assertRaises(TypeError):
-      Chain(None).foreach(lambda x: x).run()
+      Chain(None).map(lambda x: x).run()
 
   def test_consumed_generator_yields_nothing(self):
     gen = iter([1, 2, 3])
     list(gen)  # exhaust it
-    result = Chain(gen).foreach(lambda x: x).run()
+    result = Chain(gen).map(lambda x: x).run()
     self.assertEqual(result, [])
 
-  def test_foreach_on_string_iterates_chars(self):
-    result = Chain('abc').foreach(lambda x: x.upper()).run()
+  def test_map_on_string_iterates_chars(self):
+    result = Chain('abc').map(lambda x: x.upper()).run()
     self.assertEqual(result, ['A', 'B', 'C'])
 
-  def test_foreach_on_dict_iterates_keys(self):
-    result = Chain({'a': 1, 'b': 2}).foreach(lambda x: x).run()
+  def test_map_on_dict_iterates_keys(self):
+    result = Chain({'a': 1, 'b': 2}).map(lambda x: x).run()
     self.assertIn('a', result)
     self.assertIn('b', result)
     self.assertEqual(len(result), 2)
 
-  def test_foreach_result_used_in_chain(self):
+  def test_map_result_used_in_chain(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .then(lambda lst: sum(lst))
       .run()
     )
     self.assertEqual(result, 12)
 
-  def test_foreach_do_result_used_in_chain(self):
+  def test_foreach_result_used_in_chain(self):
     result = (
       Chain([1, 2, 3])
-      .foreach_do(lambda x: x * 100)
+      .foreach(lambda x: x * 100)
       .then(lambda lst: sum(lst))
       .run()
     )

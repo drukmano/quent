@@ -221,10 +221,10 @@ The trace shows:
 
 ```python
 # Iterate over items and process each one; results collected into a list
-Chain(get_items).foreach(process_item).then(summarize).run()
+Chain(get_items).map(process_item).then(summarize).run()
 
 # Iterate as a side effect (result discarded, original items collected)
-Chain(get_items).foreach_do(log_item).then(continue_processing).run()
+Chain(get_items).foreach(log_item).then(continue_processing).run()
 
 # Filter an iterable, keeping elements where fn returns truthy
 Chain(get_items).filter(is_valid).then(process).run()
@@ -253,8 +253,8 @@ for item in Chain(get_items).iterate_do(log_item):
 # Return early from a chain
 Chain(get_data).then(lambda v: Chain.return_(v) if v else None).then(transform).run()
 
-# Break out of a foreach loop
-Chain(get_items).foreach(lambda item: Chain.break_() if item is None else process(item)).run()
+# Break out of a map loop
+Chain(get_items).map(lambda item: Chain.break_() if item is None else process(item)).run()
 ```
 
 ### Context Managers
@@ -390,8 +390,8 @@ Quent is pure Python with minimal overhead over direct function calls:
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `.foreach()` | `.foreach(fn, /) -> Chain` | Apply `fn` to each item; results collected into list |
-| `.foreach_do()` | `.foreach_do(fn, /) -> Chain` | Apply `fn` to each item as side effect; original items collected |
+| `.map()` | `.map(fn, /) -> Chain` | Apply `fn` to each item; results collected into list |
+| `.foreach()` | `.foreach(fn, /) -> Chain` | Apply `fn` to each item as side effect; original items collected |
 | `.filter()` | `.filter(fn, /) -> Chain` | Filter iterable; keep elements where `fn` returns truthy |
 | `.gather()` | `.gather(*fns) -> Chain` | Run multiple functions concurrently on current value |
 | `.iterate()` | `.iterate(fn=None) -> _Generator` | Sync/async iterator over chain output |
@@ -423,7 +423,7 @@ Quent is pure Python with minimal overhead over direct function calls:
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `Chain.return_()` | `Chain.return_(v=Null, /, *args, **kwargs) -> NoReturn` | Exit chain early with a value |
-| `Chain.break_()` | `Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn` | Break out of `foreach` or `filter` loop |
+| `Chain.break_()` | `Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn` | Break out of `map` or `filter` loop |
 
 ## Requirements
 

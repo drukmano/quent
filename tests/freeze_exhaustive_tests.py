@@ -74,9 +74,9 @@ class TestFreezeWithAllOperations(unittest.TestCase):
       self.assertEqual(result, 20)
       self.assertEqual(tracker, [10])
 
-  def test_frozen_with_foreach(self):
-    frozen = Chain([1, 2, 3]).foreach(lambda x: x * 2).freeze()
-    with self.subTest(msg='foreach'):
+  def test_frozen_with_map(self):
+    frozen = Chain([1, 2, 3]).map(lambda x: x * 2).freeze()
+    with self.subTest(msg='map'):
       self.assertEqual(frozen.run(), [2, 4, 6])
 
   def test_frozen_with_filter(self):
@@ -111,8 +111,8 @@ class TestFreezeWithAllOperations(unittest.TestCase):
   def test_frozen_with_iterate(self):
     # iterate() returns a _Generator, not a frozen chain. But we can test
     # a chain that produces an iterable which is then processed.
-    frozen = Chain([1, 2, 3]).foreach(lambda x: x + 10).freeze()
-    with self.subTest(msg='iterate-like via foreach'):
+    frozen = Chain([1, 2, 3]).map(lambda x: x + 10).freeze()
+    with self.subTest(msg='iterate-like via map'):
       self.assertEqual(frozen.run(), [11, 12, 13])
 
   def test_frozen_with_nested_chain(self):

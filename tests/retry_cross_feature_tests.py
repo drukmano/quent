@@ -1,4 +1,4 @@
-"""Exhaustive tests for retry's interaction with foreach, filter, gather,
+"""Exhaustive tests for retry's interaction with map, filter, gather,
 with_, iterate, freeze, decorator, nested chains, X expressions, and edge cases.
 """
 from __future__ import annotations
@@ -72,13 +72,13 @@ def _make_async_flaky_no_arg(fail_count, exc_type=ValueError, exc_msg='flaky'):
 
 
 # ---------------------------------------------------------------------------
-# Category 1: retry x foreach()
+# Category 1: retry x map()
 # ---------------------------------------------------------------------------
 
-class TestRetryForeach(unittest.TestCase):
+class TestRetryMap(unittest.TestCase):
 
-  def test_foreach_raises_then_succeeds_on_retry(self):
-    """foreach callback raises on some attempts, succeeds after retry."""
+  def test_map_raises_then_succeeds_on_retry(self):
+    """map callback raises on some attempts, succeeds after retry."""
     attempts = []
 
     def flaky_map(x):
@@ -87,12 +87,12 @@ class TestRetryForeach(unittest.TestCase):
         raise ValueError('retry')
       return x * 2
 
-    result = Chain([1, 2, 3]).foreach(flaky_map).retry(5, on=(ValueError,)).run()
+    result = Chain([1, 2, 3]).map(flaky_map).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [2, 4, 6])
     # First two attempts fail on item 1, third attempt succeeds for all items.
     self.assertEqual(attempts, [1, 1, 1, 2, 3])
 
-  def test_foreach_iterable_is_reiterated_on_retry(self):
+  def test_map_iterable_is_reiterated_on_retry(self):
     """Verify the iterable is re-iterated from scratch on each retry attempt."""
     iteration_starts = []
 
@@ -109,12 +109,12 @@ class TestRetryForeach(unittest.TestCase):
         raise ValueError('retry')
       return x
 
-    result = Chain(TrackingIterable()).foreach(flaky_map).retry(5, on=(ValueError,)).run()
+    result = Chain(TrackingIterable()).map(flaky_map).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [10, 20, 30])
     # The iterable was iterated 3 times (2 failures + 1 success).
     self.assertEqual(len(iteration_starts), 3)
 
-  def test_foreach_break_is_not_retried(self):
+  def test_map_break_is_not_retried(self):
     """break_() is a _ControlFlowSignal and must NOT be retried."""
     attempts = []
 
@@ -124,13 +124,13 @@ class TestRetryForeach(unittest.TestCase):
         Chain.break_()
       return x * 10
 
-    result = Chain([1, 2, 3]).foreach(fn_with_break).retry(5, on=(Exception,)).run()
+    result = Chain([1, 2, 3]).map(fn_with_break).retry(5, on=(Exception,)).run()
     self.assertEqual(result, [10])
     # break_ triggers on first encounter; no retry.
     self.assertEqual(attempts, [1, 2])
 
-  def test_foreach_do_side_effects_happen_each_attempt(self):
-    """foreach_do with retry: side effects happen on every attempt."""
+  def test_foreach_side_effects_happen_each_attempt(self):
+    """foreach with retry: side effects happen on every attempt."""
     side_effects = []
 
     def flaky_side_effect(x):
@@ -138,13 +138,13 @@ class TestRetryForeach(unittest.TestCase):
       if len(side_effects) < 4:
         raise ValueError('retry')
 
-    result = Chain([1, 2, 3]).foreach_do(flaky_side_effect).retry(5, on=(ValueError,)).run()
+    result = Chain([1, 2, 3]).foreach(flaky_side_effect).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [1, 2, 3])
     # Side effects from failed attempts plus the successful one.
     self.assertEqual(side_effects, [1, 1, 1, 1, 2, 3])
 
-  def test_foreach_raises_on_specific_item_full_reexecute(self):
-    """foreach raises on a specific item -- full chain re-executes from scratch."""
+  def test_map_raises_on_specific_item_full_reexecute(self):
+    """map raises on a specific item -- full chain re-executes from scratch."""
     attempts = []
 
     def fail_on_second(x):
@@ -153,16 +153,16 @@ class TestRetryForeach(unittest.TestCase):
         raise ValueError('item 2 fails')
       return x * 10
 
-    result = Chain([1, 2, 3]).foreach(fail_on_second).retry(5, on=(ValueError,)).run()
+    result = Chain([1, 2, 3]).map(fail_on_second).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [10, 20, 30])
     # Attempt 1: 1 ok (len=1), 2 fails (len=2, <4). Attempt 2: 1 ok (len=3), 2 ok (len=4, not <4), 3 ok.
     self.assertEqual(attempts, [1, 2, 1, 2, 3])
 
 
-class TestRetryForeachAsync(IsolatedAsyncioTestCase):
+class TestRetryMapAsync(IsolatedAsyncioTestCase):
 
-  async def test_foreach_async_callback_retry(self):
-    """foreach with async callback + retry."""
+  async def test_map_async_callback_retry(self):
+    """map with async callback + retry."""
     attempts = []
 
     async def async_flaky_map(x):
@@ -171,12 +171,12 @@ class TestRetryForeachAsync(IsolatedAsyncioTestCase):
         raise ValueError('retry')
       return x * 2
 
-    result = await Chain([1, 2, 3]).foreach(async_flaky_map).retry(5, on=(ValueError,)).run()
+    result = await Chain([1, 2, 3]).map(async_flaky_map).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [2, 4, 6])
     self.assertEqual(attempts, [1, 1, 1, 2, 3])
 
-  async def test_foreach_async_iterable_retry(self):
-    """foreach with async iterable + retry."""
+  async def test_map_async_iterable_retry(self):
+    """map with async iterable + retry."""
     attempts = []
 
     def flaky_map(x):
@@ -185,11 +185,11 @@ class TestRetryForeachAsync(IsolatedAsyncioTestCase):
         raise ValueError('retry')
       return x * 3
 
-    result = await Chain(AsyncRange(3)).foreach(flaky_map).retry(5, on=(ValueError,)).run()
+    result = await Chain(AsyncRange(3)).map(flaky_map).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [0, 3, 6])
 
-  async def test_foreach_do_async_retry(self):
-    """foreach_do with async callback + retry."""
+  async def test_foreach_async_retry(self):
+    """foreach with async callback + retry."""
     side_effects = []
 
     async def async_side(x):
@@ -197,12 +197,12 @@ class TestRetryForeachAsync(IsolatedAsyncioTestCase):
       if len(side_effects) < 2:
         raise ValueError('retry')
 
-    result = await Chain([10, 20]).foreach_do(async_side).retry(5, on=(ValueError,)).run()
+    result = await Chain([10, 20]).foreach(async_side).retry(5, on=(ValueError,)).run()
     self.assertEqual(result, [10, 20])
     # Attempt 1: item 10 fails. Attempt 2: item 10 ok, item 20 ok.
     self.assertEqual(side_effects, [10, 10, 20])
 
-  async def test_foreach_break_not_retried_async(self):
+  async def test_map_break_not_retried_async(self):
     """break_() is not retried even in async path."""
     attempts = []
 
@@ -212,7 +212,7 @@ class TestRetryForeachAsync(IsolatedAsyncioTestCase):
         Chain.break_()
       return x * 10
 
-    result = await Chain(AsyncRange(5)).foreach(fn_with_break).retry(5, on=(Exception,)).run()
+    result = await Chain(AsyncRange(5)).map(fn_with_break).retry(5, on=(Exception,)).run()
     self.assertEqual(result, [0])
     self.assertEqual(attempts, [0, 1])
 
@@ -1177,7 +1177,7 @@ class TestRetryEdgeCases(unittest.TestCase):
     self.assertEqual(len(attempts), 2)
 
   def test_combined_link_types_with_retry(self):
-    """Chain with foreach + then + do combined, plus retry."""
+    """Chain with map + then + do combined, plus retry."""
     attempts = []
 
     def flaky_step(x):
@@ -1190,7 +1190,7 @@ class TestRetryEdgeCases(unittest.TestCase):
 
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .then(lambda lst: sum(lst))
       .then(flaky_step)
       .do(lambda x: side_effects.append(x))
@@ -1198,7 +1198,7 @@ class TestRetryEdgeCases(unittest.TestCase):
       .retry(3, on=(ValueError,))
       .run()
     )
-    # [1,2,3] -> foreach *2 -> [2,4,6] -> sum -> 12 -> flaky(12) -> 12 -> +100 -> 112
+    # [1,2,3] -> map *2 -> [2,4,6] -> sum -> 12 -> flaky(12) -> 12 -> +100 -> 112
     self.assertEqual(result, 112)
     # Side effects only happen on successful pass.
     self.assertEqual(side_effects, [12])
@@ -1796,8 +1796,8 @@ class TestRetryCombinedOps(unittest.TestCase):
       return x * 2
 
     frozen = Chain().then(flaky_double).retry(3, on=(ValueError,)).freeze()
-    # Use frozen chain as a step applied to each element via foreach
-    result = Chain([1, 2, 3]).foreach(frozen).run()
+    # Use frozen chain as a step applied to each element via map
+    result = Chain([1, 2, 3]).map(frozen).run()
     # Each element: 1*2=2, 2*2=4, 3*2=6 (each required 1 retry)
     self.assertEqual(result, [2, 4, 6])
     # 3 elements * 2 calls each (1 fail + 1 success) = 6
@@ -1867,8 +1867,8 @@ class TestRetryCombinedOpsAsync(IsolatedAsyncioTestCase):
     for att in attempts:
       self.assertEqual(att, {'timeout': 7, 'retries': 4})
 
-  async def test_frozen_chain_with_retry_inside_foreach_async(self):
-    """Async: Frozen chain with retry used inside foreach."""
+  async def test_frozen_chain_with_retry_inside_map_async(self):
+    """Async: Frozen chain with retry used inside map."""
     call_count = [0]
 
     async def flaky_double(x):
@@ -1878,7 +1878,7 @@ class TestRetryCombinedOpsAsync(IsolatedAsyncioTestCase):
       return x * 2
 
     frozen = Chain().then(flaky_double).retry(3, on=(ValueError,)).freeze()
-    result = await Chain([1, 2, 3]).foreach(frozen).run()
+    result = await Chain([1, 2, 3]).map(frozen).run()
     self.assertEqual(result, [2, 4, 6])
     self.assertEqual(call_count[0], 6)
 

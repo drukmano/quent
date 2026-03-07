@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import functools
 import sys
+import threading
 from collections.abc import Coroutine
 from typing import Any
 
@@ -14,6 +15,12 @@ class _Null:
   """Sentinel for 'no value provided'. Distinct from None, which is a valid chain value."""
 
   __slots__ = ()
+  _instance: _Null | None = None
+
+  def __new__(cls) -> _Null:
+    if cls._instance is None:
+      cls._instance = object.__new__(cls)
+    return cls._instance
 
   def __repr__(self) -> str:
     return '<Null>'
@@ -41,7 +48,7 @@ class _ControlFlowSignal(Exception):
   """Base for control-flow exceptions used internally by Chain.
 
   Chain.return_() raises _Return to exit a chain early with a value.
-  Chain.break_() raises _Break to exit a foreach loop.
+  Chain.break_() raises _Break to exit a map/foreach loop.
   Both carry an optional value (with args/kwargs) that is lazily evaluated
   when the exception is caught.
   """
@@ -64,7 +71,7 @@ class _Return(_ControlFlowSignal):
 
 
 class _Break(_ControlFlowSignal):
-  """Signal break from a foreach/filter iteration with an optional value."""
+  """Signal break from a map/foreach/filter iteration with an optional value."""
 
   __slots__ = ()
 
@@ -124,6 +131,7 @@ else:
 # Strong reference set prevents the event loop from dropping fire-and-forget tasks.
 # See: https://stackoverflow.com/a/75941086
 _task_registry: set[asyncio.Task[Any]] = set()
+_task_registry_lock = threading.Lock()
 
 
 def _ensure_future(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
@@ -133,10 +141,17 @@ def _ensure_future(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
   except RuntimeError:
     coro.close()
     raise
-  _task_registry.add(task)
+  with _task_registry_lock:
+    _task_registry.add(task)
   # Auto-removes from registry on completion to avoid unbounded growth.
-  task.add_done_callback(_task_registry.discard)
+  task.add_done_callback(_task_registry_discard)
   return task
+
+
+def _task_registry_discard(task: asyncio.Task[Any]) -> None:
+  """Thread-safe removal of a completed task from the registry."""
+  with _task_registry_lock:
+    _task_registry.discard(task)
 
 
 class Link:

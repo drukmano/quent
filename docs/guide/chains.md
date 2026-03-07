@@ -76,10 +76,10 @@ result = chain(initial_data)
 from quent import Chain
 
 # Iterate over items and process each one; result is passed forward
-Chain(get_items).foreach(process_item).then(summarize).run()
+Chain(get_items).map(process_item).then(summarize).run()
 
 # Iterate as a side effect (result discarded)
-Chain(get_items).foreach_do(log_item).then(continue_processing).run()
+Chain(get_items).foreach(log_item).then(continue_processing).run()
 
 # Produce an iterator from chain results
 for item in Chain(get_items).iterate(transform):
@@ -100,8 +100,8 @@ from quent import Chain
 # Return early from a chain
 Chain(get_data).then(lambda v: Chain.return_(v) if v else None).then(transform).run()
 
-# Break out of a foreach loop
-Chain(get_items).foreach(lambda item: Chain.break_() if item is None else process(item)).run()
+# Break out of a map loop
+Chain(get_items).map(lambda item: Chain.break_() if item is None else process(item)).run()
 ```
 
 ### Context Managers

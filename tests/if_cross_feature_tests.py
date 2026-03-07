@@ -1,6 +1,6 @@
 """Tests for if_()/else_() interacting with every other chain method,
 in both sync and async modes. Covers the full cross-feature matrix:
-foreach, filter, with_, gather, iterate, except_/finally_, decorator,
+map, filter, with_, gather, iterate, except_/finally_, decorator,
 freeze, do, return_/break_, multiple if_ chaining, and nested chains.
 """
 from __future__ import annotations
@@ -22,94 +22,94 @@ from helpers import (
 
 
 # ---------------------------------------------------------------------------
-# 1. if_ x foreach (sync + async)
+# 1. if_ x map (sync + async)
 # ---------------------------------------------------------------------------
 
-class TestIfForeach(unittest.TestCase):
+class TestIfMap(unittest.TestCase):
 
-  def test_if_after_foreach_truthy(self):
-    """if_ receives the foreach result (a list) and applies fn when truthy."""
-    result = Chain([1, 2, 3]).foreach(lambda x: x * 2).if_(lambda v: len(v) > 0, lambda v: sum(v)).run()
+  def test_if_after_map_truthy(self):
+    """if_ receives the map result (a list) and applies fn when truthy."""
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).if_(lambda v: len(v) > 0, lambda v: sum(v)).run()
     self.assertEqual(result, 12)  # sum([2, 4, 6])
 
-  def test_if_after_foreach_falsy(self):
-    """if_ predicate falsy: foreach result passes through unchanged."""
-    result = Chain([1, 2, 3]).foreach(lambda x: x * 2).if_(lambda v: len(v) > 100, lambda v: 'nope').run()
+  def test_if_after_map_falsy(self):
+    """if_ predicate falsy: map result passes through unchanged."""
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).if_(lambda v: len(v) > 100, lambda v: 'nope').run()
     self.assertEqual(result, [2, 4, 6])
 
-  def test_if_before_foreach_truthy(self):
-    """if_ transforms the value before foreach consumes it."""
-    result = Chain([1, 2, 3]).if_(lambda v: True, lambda v: [x + 10 for x in v]).foreach(lambda x: x * 2).run()
+  def test_if_before_map_truthy(self):
+    """if_ transforms the value before map consumes it."""
+    result = Chain([1, 2, 3]).if_(lambda v: True, lambda v: [x + 10 for x in v]).map(lambda x: x * 2).run()
     self.assertEqual(result, [22, 24, 26])
 
-  def test_if_before_foreach_falsy_passthrough(self):
-    """if_ falsy: original value passes through to foreach."""
-    result = Chain([1, 2, 3]).if_(lambda v: False, lambda v: [99]).foreach(lambda x: x * 2).run()
+  def test_if_before_map_falsy_passthrough(self):
+    """if_ falsy: original value passes through to map."""
+    result = Chain([1, 2, 3]).if_(lambda v: False, lambda v: [99]).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
-  def test_if_inside_foreach_fn_nested_chain(self):
-    """if_ nested inside the foreach callback via a sub-chain."""
+  def test_if_inside_map_fn_nested_chain(self):
+    """if_ nested inside the map callback via a sub-chain."""
     inner = Chain().if_(lambda x: x > 1, lambda x: x * 100)
-    result = Chain([1, 2, 3]).foreach(inner).run()
+    result = Chain([1, 2, 3]).map(inner).run()
     self.assertEqual(result, [1, 200, 300])
 
-  def test_if_else_inside_foreach_fn_nested_chain(self):
-    """if_/else_ nested inside foreach callback."""
+  def test_if_else_inside_map_fn_nested_chain(self):
+    """if_/else_ nested inside map callback."""
     inner = Chain().if_(lambda x: x % 2 == 0, lambda x: 'even').else_(lambda x: 'odd')
-    result = Chain([1, 2, 3, 4]).foreach(inner).run()
+    result = Chain([1, 2, 3, 4]).map(inner).run()
     self.assertEqual(result, ['odd', 'even', 'odd', 'even'])
 
-  def test_foreach_do_with_if(self):
-    """foreach_do preserves original items; if_ applied after."""
+  def test_foreach_with_if(self):
+    """foreach preserves original items; if_ applied after."""
     result = (
       Chain([1, 2, 3])
-      .foreach_do(lambda x: x * 100)  # side effect, original items preserved
+      .foreach(lambda x: x * 100)  # side effect, original items preserved
       .if_(lambda v: len(v) == 3, lambda v: v + [4])
       .run()
     )
     self.assertEqual(result, [1, 2, 3, 4])
 
-  def test_if_with_foreach_do(self):
-    """if_ before foreach_do: transforms value then foreach_do keeps originals."""
+  def test_if_with_foreach(self):
+    """if_ before foreach: transforms value then foreach keeps originals."""
     result = (
       Chain([10, 20, 30])
       .if_(lambda v: True, lambda v: [x - 5 for x in v])
-      .foreach_do(lambda x: None)
+      .foreach(lambda x: None)
       .run()
     )
     self.assertEqual(result, [5, 15, 25])
 
 
-class TestIfForeachAsync(IsolatedAsyncioTestCase):
+class TestIfMapAsync(IsolatedAsyncioTestCase):
 
-  async def test_if_after_foreach_async_pred(self):
-    """Async predicate in if_ after sync foreach."""
+  async def test_if_after_map_async_pred(self):
+    """Async predicate in if_ after sync map."""
     async def pred(v):
       return len(v) > 0
 
-    result = await Chain([1, 2]).foreach(lambda x: x + 1).if_(pred, lambda v: sum(v)).run()
+    result = await Chain([1, 2]).map(lambda x: x + 1).if_(pred, lambda v: sum(v)).run()
     self.assertEqual(result, 5)  # sum([2, 3])
 
-  async def test_if_after_foreach_async_fn(self):
-    """Async fn in if_ after sync foreach."""
+  async def test_if_after_map_async_fn(self):
+    """Async fn in if_ after sync map."""
     async def transform(v):
       return sorted(v, reverse=True)
 
-    result = await Chain([3, 1, 2]).foreach(lambda x: x * 2).if_(lambda v: True, transform).run()
+    result = await Chain([3, 1, 2]).map(lambda x: x * 2).if_(lambda v: True, transform).run()
     self.assertEqual(result, [6, 4, 2])
 
-  async def test_async_foreach_then_if(self):
-    """Async iterable foreach followed by sync if_."""
-    result = await Chain(AsyncRange(4)).foreach(lambda x: x * 10).if_(lambda v: True, lambda v: sum(v)).run()
+  async def test_async_map_then_if(self):
+    """Async iterable map followed by sync if_."""
+    result = await Chain(AsyncRange(4)).map(lambda x: x * 10).if_(lambda v: True, lambda v: sum(v)).run()
     self.assertEqual(result, 60)  # 0+10+20+30
 
-  async def test_if_inside_foreach_async_nested(self):
-    """Async if_ pred inside foreach via nested chain."""
+  async def test_if_inside_map_async_nested(self):
+    """Async if_ pred inside map via nested chain."""
     async def pred(x):
       return x > 1
 
     inner = Chain().if_(pred, lambda x: x * 100)
-    result = await Chain([1, 2, 3]).foreach(inner).run()
+    result = await Chain([1, 2, 3]).map(inner).run()
     self.assertEqual(result, [1, 200, 300])
 
 
@@ -867,20 +867,20 @@ class TestIfReturnBreak(unittest.TestCase):
     self.assertEqual(result, 99)
     self.assertEqual(tracker, [])
 
-  def test_break_inside_if_fn_within_foreach(self):
-    """break_ called conditionally inside foreach lambda."""
+  def test_break_inside_if_fn_within_map(self):
+    """break_ called conditionally inside map lambda."""
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .run()
     )
     self.assertEqual(result, [1, 2])
 
-  def test_break_inside_else_fn_within_foreach(self):
-    """break_ from else-like branch inside foreach lambda."""
+  def test_break_inside_else_fn_within_map(self):
+    """break_ from else-like branch inside map lambda."""
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: x * 10 if x != 3 else Chain.break_())
+      .map(lambda x: x * 10 if x != 3 else Chain.break_())
       .run()
     )
     self.assertEqual(result, [10, 20])
@@ -920,11 +920,11 @@ class TestIfReturnBreakAsync(IsolatedAsyncioTestCase):
     self.assertEqual(result, 42)
     self.assertEqual(tracker, [])
 
-  async def test_async_break_inside_if_in_foreach(self):
-    """break_ from if_-like condition in async foreach."""
+  async def test_async_break_inside_if_in_map(self):
+    """break_ from if_-like condition in async map."""
     result = await (
       Chain(AsyncRange(6))
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .run()
     )
     self.assertEqual(result, [0, 1, 2])
@@ -1055,8 +1055,8 @@ class TestIfNestedChains(unittest.TestCase):
     result = Chain(15).if_(lambda v: False, inner).run()
     self.assertEqual(result, 15)  # if_ falsy, passthrough
 
-  def test_if_fn_is_chain_with_foreach(self):
-    inner = Chain().then(lambda v: [v, v * 2, v * 3]).foreach(lambda x: x + 1)
+  def test_if_fn_is_chain_with_map(self):
+    inner = Chain().then(lambda v: [v, v * 2, v * 3]).map(lambda x: x + 1)
     result = Chain(5).if_(lambda v: True, inner).run()
     self.assertEqual(result, [6, 11, 16])
 
@@ -1108,11 +1108,11 @@ class TestIfNestedChainsAsync(IsolatedAsyncioTestCase):
     result = await Chain(5).if_(lambda v: False, lambda v: v).else_(inner).run()
     self.assertEqual(result, 500)
 
-  async def test_async_nested_chain_with_foreach(self):
+  async def test_async_nested_chain_with_map(self):
     async def double(x):
       return x * 2
 
-    inner = Chain().then(lambda v: [v, v + 1, v + 2]).foreach(double)
+    inner = Chain().then(lambda v: [v, v + 1, v + 2]).map(double)
     result = await Chain(10).if_(lambda v: True, inner).run()
     self.assertEqual(result, [20, 22, 24])
 
@@ -1186,62 +1186,62 @@ class TestIfEdgeCases(unittest.TestCase):
     self.assertEqual(actual, 10)
 
 
-class TestIfWithGatherAndForeach(unittest.TestCase):
+class TestIfWithGatherAndMap(unittest.TestCase):
   """Cross combinations of if_ with multiple operations."""
 
-  def test_if_then_foreach_then_gather(self):
+  def test_if_then_map_then_gather(self):
     result = (
       Chain([1, 2, 3])
       .if_(lambda v: True, lambda v: [x + 10 for x in v])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .gather(lambda v: sum(v), lambda v: len(v))
       .run()
     )
     self.assertEqual(result, [72, 3])  # sum([22,24,26])=72, len=3
 
-  def test_gather_then_if_then_foreach(self):
+  def test_gather_then_if_then_map(self):
     result = (
       Chain(5)
       .gather(lambda x: x + 1, lambda x: x + 2)
       .if_(lambda v: len(v) > 0, lambda v: v)
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, [60, 70])
 
-  def test_foreach_then_filter_then_if(self):
+  def test_map_then_filter_then_if(self):
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 4)
       .if_(lambda v: len(v) > 0, lambda v: sum(v))
       .run()
     )
     self.assertEqual(result, 24)  # 6+8+10
 
-  def test_if_with_do_and_foreach(self):
+  def test_if_with_do_and_map(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
       .if_(lambda v: True, lambda v: [x * 10 for x in v])
       .do(lambda v: tracker.extend(v))
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [11, 21, 31])
     self.assertEqual(tracker, [10, 20, 30])
 
 
-class TestIfWithGatherAndForeachAsync(IsolatedAsyncioTestCase):
+class TestIfWithGatherAndMapAsync(IsolatedAsyncioTestCase):
 
-  async def test_async_if_foreach_gather(self):
+  async def test_async_if_map_gather(self):
     async def pred(v):
       return True
 
     result = await (
       Chain([1, 2, 3])
       .if_(pred, lambda v: [x + 10 for x in v])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .gather(lambda v: sum(v), lambda v: len(v))
       .run()
     )
@@ -1352,35 +1352,35 @@ class TestIfIterateWithBreakAsync(IsolatedAsyncioTestCase):
     self.assertEqual(result, [0, 1, 2])
 
 
-class TestIfForeachWithBreakAndReturn(unittest.TestCase):
+class TestIfMapWithBreakAndReturn(unittest.TestCase):
 
   def test_break_with_value_from_if(self):
-    """break_ with a value from inside if_-like condition in foreach."""
+    """break_ with a value from inside if_-like condition in map."""
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_('stopped') if x == 3 else x)
+      .map(lambda x: Chain.break_('stopped') if x == 3 else x)
       .run()
     )
     self.assertEqual(result, 'stopped')
 
-  def test_return_from_if_inside_foreach_exits_outer(self):
-    """return_ from if_-like condition inside foreach exits the outer chain."""
+  def test_return_from_if_inside_map_exits_outer(self):
+    """return_ from if_-like condition inside map exits the outer chain."""
     result = (
       Chain([1, 2, 3, 4])
-      .foreach(lambda x: Chain.return_('found') if x == 3 else x)
+      .map(lambda x: Chain.return_('found') if x == 3 else x)
       .then(lambda v: 'should_not_reach')
       .run()
     )
     self.assertEqual(result, 'found')
 
 
-class TestIfForeachWithBreakAndReturnAsync(IsolatedAsyncioTestCase):
+class TestIfMapWithBreakAndReturnAsync(IsolatedAsyncioTestCase):
 
-  async def test_async_return_from_if_inside_foreach(self):
-    """return_ from if_-like condition in async foreach."""
+  async def test_async_return_from_if_inside_map(self):
+    """return_ from if_-like condition in async map."""
     result = await (
       Chain(AsyncRange(5))
-      .foreach(lambda x: Chain.return_('found') if x == 3 else x)
+      .map(lambda x: Chain.return_('found') if x == 3 else x)
       .then(lambda v: 'should_not_reach')
       .run()
     )
@@ -1389,10 +1389,10 @@ class TestIfForeachWithBreakAndReturnAsync(IsolatedAsyncioTestCase):
 
 class TestIfWithFreezeAndForEach(unittest.TestCase):
 
-  def test_frozen_if_used_in_foreach(self):
-    """Frozen chain with if_ used as foreach fn."""
+  def test_frozen_if_used_in_map(self):
+    """Frozen chain with if_ used as map fn."""
     frozen = Chain().if_(lambda x: x > 2, lambda x: x * 10).else_(lambda x: x).freeze()
-    result = Chain([1, 2, 3, 4]).foreach(frozen).run()
+    result = Chain([1, 2, 3, 4]).map(frozen).run()
     self.assertEqual(result, [1, 2, 30, 40])
 
   def test_frozen_if_else_used_in_filter(self):
@@ -1404,12 +1404,12 @@ class TestIfWithFreezeAndForEach(unittest.TestCase):
 
 class TestIfWithFreezeAndForEachAsync(IsolatedAsyncioTestCase):
 
-  async def test_async_frozen_if_in_foreach(self):
+  async def test_async_frozen_if_in_map(self):
     async def pred(x):
       return x > 2
 
     frozen = Chain().if_(pred, lambda x: x * 10).else_(lambda x: x).freeze()
-    result = await Chain([1, 2, 3, 4]).foreach(frozen).run()
+    result = await Chain([1, 2, 3, 4]).map(frozen).run()
     self.assertEqual(result, [1, 2, 30, 40])
 
 

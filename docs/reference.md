@@ -72,18 +72,18 @@ Alias for `.run()`.
 
 ### Iteration
 
-#### .foreach()
+#### .map()
 
 ```python
-.foreach(fn, /) -> Chain
+.map(fn, /) -> Chain
 ```
 
 Apply `fn` to each item in the current value (which must be iterable). The results of calling `fn` on each element are collected and passed forward.
 
-#### .foreach_do()
+#### .foreach()
 
 ```python
-.foreach_do(fn, /) -> Chain
+.foreach(fn, /) -> Chain
 ```
 
 Apply `fn` to each item as a side effect. The original items (not `fn`'s return values) are collected and passed forward.
@@ -223,7 +223,7 @@ Exit the chain early, returning `v` as the result. If `v` is callable, it is cal
 Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn
 ```
 
-Break out of a `.foreach()` loop. If `v` is provided, it becomes the loop's result.
+Break out of a `.map()` loop. If `v` is provided, it becomes the loop's result.
 
 ### Special Methods
 

@@ -228,7 +228,7 @@ I built a pure Python chain library that handles sync and async transparently --
 - **Fluent chaining API**: `Chain(fetch).then(validate).then(save).run()`
 - **Enhanced stack traces**: When an error occurs, Quent annotates the exception with a visualization of the entire chain state and marks the exact operation that failed.
 - **Error handling**: `.except_()` and `.finally_()` compose error handling directly into the pipeline.
-- **Iteration and filtering**: `.foreach()`, `.filter()`, `.gather()` for processing collections within chains.
+- **Iteration and filtering**: `.map()`, `.filter()`, `.gather()` for processing collections within chains.
 - **Context managers**: `.with_()` executes operations inside a context manager as part of the chain.
 - **Reusable chains**: `.freeze()` for immutable callable snapshots, `.decorator()` for wrapping functions.
 - **Pure Python, zero dependencies**: Just Quent and the standard library. Minimal overhead.
@@ -1136,7 +1136,7 @@ The chain reads top to bottom, each step clearly named. The error handling is pa
 
 Once you are comfortable with the basics, Quent offers more tools for building pipelines:
 
-- **`.foreach()` / `.foreach_do()`**: Iterate over items and apply a function to each one
+- **`.map()` / `.foreach()`**: Iterate over items and apply a function to each one
 - **`.filter()`**: Filter items in a collection within the chain
 - **`.gather()`**: Run multiple operations concurrently
 - **`.with_()` / `.with_do()`**: Execute operations inside a context manager

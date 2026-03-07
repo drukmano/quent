@@ -86,7 +86,7 @@ Injects chain visualizations into exception tracebacks by replacing the `co_name
 
 ### Control Flow
 
-`_Return` and `_Break` are internal exception subclasses used for non-local control flow (`.return_()` exits the chain early, `.break_()` exits foreach/while loops). They propagate through nested chains.
+`_Return` and `_Break` are internal exception subclasses used for non-local control flow (`.return_()` exits the chain early, `.break_()` exits map/while loops). They propagate through nested chains.
 
 ### Key Design Decisions
 

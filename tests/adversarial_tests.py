@@ -174,11 +174,11 @@ class TestCoroutineObjectDirectly(IsolatedAsyncioTestCase):
 
 class TestConsumedIterables(unittest.TestCase):
 
-  def test_foreach_on_consumed_generator(self):
-    """A fully consumed generator yields nothing; foreach returns []."""
+  def test_map_on_consumed_generator(self):
+    """A fully consumed generator yields nothing; map returns []."""
     gen = iter([1, 2, 3])
     list(gen)  # exhaust
-    result = Chain(gen).foreach(lambda x: x).run()
+    result = Chain(gen).map(lambda x: x).run()
     self.assertEqual(result, [])
 
   def test_filter_on_consumed_generator(self):
@@ -193,7 +193,7 @@ class TestConsumedIterables(unittest.TestCase):
     gen = iter([1, 2, 3, 4, 5])
     next(gen)  # consume 1
     next(gen)  # consume 2
-    result = Chain(gen).foreach(lambda x: x * 10).run()
+    result = Chain(gen).map(lambda x: x * 10).run()
     self.assertEqual(result, [30, 40, 50])
 
 
@@ -203,9 +203,9 @@ class TestConsumedIterables(unittest.TestCase):
 
 class TestTypeErrors(unittest.TestCase):
 
-  def test_foreach_on_int(self):
+  def test_map_on_int(self):
     with self.assertRaises(TypeError):
-      Chain(42).foreach(lambda x: x).run()
+      Chain(42).map(lambda x: x).run()
 
   def test_filter_on_int(self):
     with self.assertRaises(TypeError):
@@ -218,9 +218,9 @@ class TestTypeErrors(unittest.TestCase):
     with self.assertRaises(AttributeError):
       Chain(42).with_(lambda x: x).run()
 
-  def test_foreach_on_none(self):
+  def test_map_on_none(self):
     with self.assertRaises(TypeError):
-      Chain(None).foreach(lambda x: x).run()
+      Chain(None).map(lambda x: x).run()
 
   def test_filter_on_none(self):
     with self.assertRaises(TypeError):
@@ -228,12 +228,12 @@ class TestTypeErrors(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# StopIteration raised inside foreach fn
+# StopIteration raised inside map fn
 # ---------------------------------------------------------------------------
 
 class TestExplicitStopIteration(unittest.TestCase):
 
-  def test_stop_iteration_in_foreach_fn(self):
+  def test_stop_iteration_in_map_fn(self):
     """When fn raises StopIteration, it is caught by the `except StopIteration`
     clause in the while/next loop of _foreach_op, ending iteration early.
     Only items processed *before* the raise are included.
@@ -246,7 +246,7 @@ class TestExplicitStopIteration(unittest.TestCase):
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [10])
 
   def test_stop_iteration_on_first_item(self):
@@ -254,7 +254,7 @@ class TestExplicitStopIteration(unittest.TestCase):
     def fn(x):
       raise StopIteration
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [])
 
   def test_stop_iteration_on_last_item(self):
@@ -264,7 +264,7 @@ class TestExplicitStopIteration(unittest.TestCase):
         raise StopIteration
       return x * 10
 
-    result = Chain([1, 2, 3]).foreach(fn).run()
+    result = Chain([1, 2, 3]).map(fn).run()
     self.assertEqual(result, [10, 20])
 
 
@@ -491,17 +491,15 @@ class TestExceptWithBadTypes(unittest.TestCase):
 class TestPassingUncallableToMethodsRequiringCallable(unittest.TestCase):
 
   def test_do_with_non_callable(self):
-    """do(42): Link(42, ignore_result=True). _evaluate_value: 42 is not callable,
-    no args -> returns 42. ignore_result=True -> current_value not updated.
-    Chain returns the original root value (5).
-    """
-    result = Chain(5).do(42).run()
-    self.assertEqual(result, 5)
+    """do(42): raises TypeError eagerly because do() requires a callable."""
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do(42)
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got int')
 
-  def test_foreach_with_non_callable(self):
-    """foreach(42): fn=42. fn(item) -> 42(1) -> TypeError."""
+  def test_map_with_non_callable(self):
+    """map(42): fn=42. fn(item) -> 42(1) -> TypeError."""
     with self.assertRaises(TypeError):
-      Chain([1, 2, 3]).foreach(42).run()
+      Chain([1, 2, 3]).map(42).run()
 
   def test_filter_with_non_callable(self):
     """filter(42): fn=42. fn(item) -> 42(1) -> TypeError."""
@@ -618,9 +616,9 @@ class TestMiscAdversarial(unittest.TestCase):
     result = Chain(lambda: 1 / 0).except_(lambda: 'caught', ...).run()
     self.assertEqual(result, 'caught')
 
-  def test_foreach_preserves_none_results(self):
-    """foreach fn returning None: None is a valid list element."""
-    result = Chain([1, 2, 3]).foreach(lambda x: None).run()
+  def test_map_preserves_none_results(self):
+    """map fn returning None: None is a valid list element."""
+    result = Chain([1, 2, 3]).map(lambda x: None).run()
     self.assertEqual(result, [None, None, None])
 
   def test_filter_all_falsy_returns_empty(self):

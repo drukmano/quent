@@ -378,14 +378,14 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     )
     self.assertEqual(r, 360)
 
-  # 7. if_ with async predicate inside foreach
-  async def test_if_async_pred_inside_foreach(self):
+  # 7. if_ with async predicate inside map
+  async def test_if_async_pred_inside_map(self):
     async def async_check(v):
       return v > 2
 
     r = await (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda item: Chain(item).if_(async_check, lambda v: v * 10).run())
+      .map(lambda item: Chain(item).if_(async_check, lambda v: v * 10).run())
       .run()
     )
     # item 1: 1 > 2 False => passthrough 1
@@ -457,9 +457,9 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     r = await Chain(V).if_(pred_async_false, fn_sync).else_(else_with_return).then(lambda v: v + 1).run()
     self.assertEqual(r, 888)
 
-  # 12. if_/else_ with Chain.break_() inside fn (within foreach)
-  async def test_break_inside_if_fn_in_foreach(self):
-    """break_() in the if_ fn propagates to the outer foreach via nested chain."""
+  # 12. if_/else_ with Chain.break_() inside fn (within map)
+  async def test_break_inside_if_fn_in_map(self):
+    """break_() in the if_ fn propagates to the outer map via nested chain."""
     async def always_true(v):
       return True
 
@@ -475,7 +475,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain([1, 2, 3, 4, 5])
-      .foreach(make_inner)
+      .map(make_inner)
       .run()
     )
     # item 1: True -> 10
@@ -483,8 +483,8 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
     # item 3: True -> break_() => stops iteration
     self.assertEqual(r, [10, 20])
 
-  async def test_break_inside_else_fn_in_foreach(self):
-    """break_() in the else_ fn propagates to the outer foreach via nested chain."""
+  async def test_break_inside_else_fn_in_map(self):
+    """break_() in the else_ fn propagates to the outer map via nested chain."""
     async def always_false(v):
       return False
 
@@ -500,7 +500,7 @@ class IfElseAsyncEdgeCaseTests(unittest.IsolatedAsyncioTestCase):
 
     r = await (
       Chain([1, 2, 3])
-      .foreach(make_inner)
+      .map(make_inner)
       .run()
     )
     # item 1: False -> else -> 101

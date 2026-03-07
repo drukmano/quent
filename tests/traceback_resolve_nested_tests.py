@@ -327,17 +327,17 @@ class TestGetLinkNameAllOps(unittest.TestCase):
     link = Link(sync_fn, ignore_result=True)
     self.assertEqual(_get_link_name(link), 'do')
 
-  def test_foreach_link(self):
+  def test_map_link(self):
     inner = Link(sync_fn)
     wrapper = _make_foreach(inner, ignore_result=False)
     link = Link(wrapper, original_value=inner)
-    self.assertEqual(_get_link_name(link), 'foreach')
+    self.assertEqual(_get_link_name(link), 'map')
 
-  def test_foreach_do_link(self):
+  def test_foreach_link(self):
     inner = Link(sync_fn)
     wrapper = _make_foreach(inner, ignore_result=True)
     link = Link(wrapper, original_value=inner)
-    self.assertEqual(_get_link_name(link), 'foreach_do')
+    self.assertEqual(_get_link_name(link), 'foreach')
 
   def test_filter_link(self):
     inner = Link(sync_fn)

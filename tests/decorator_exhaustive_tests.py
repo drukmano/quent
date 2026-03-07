@@ -118,8 +118,8 @@ class TestDecoratorWithAllOperations(unittest.TestCase):
     self.assertEqual(result, 10)
     self.assertEqual(tracker, [5])  # do runs side-effect but does not alter chain value
 
-  def test_decorator_with_foreach(self):
-    @Chain().foreach(lambda x: x * 2).decorator()
+  def test_decorator_with_map(self):
+    @Chain().map(lambda x: x * 2).decorator()
     def fn():
       return [1, 2, 3]
 
@@ -306,8 +306,8 @@ class TestDecoratorWithIterate(unittest.TestCase):
 
   def test_decorator_with_iterate_in_chain(self):
     # Chain with a then step that uses a sub-chain iterate is unusual,
-    # but we can test that foreach works inside a decorator.
-    @Chain().foreach(lambda x: x ** 2).decorator()
+    # but we can test that map works inside a decorator.
+    @Chain().map(lambda x: x ** 2).decorator()
     def fn():
       return [1, 2, 3, 4]
 

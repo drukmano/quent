@@ -45,12 +45,12 @@ class TestDoubleRegistration(unittest.TestCase):
 class TestInvalidTypes(unittest.TestCase):
   """Passing invalid types to iteration/CM operations."""
 
-  def test_foreach_on_non_iterable(self):
+  def test_map_on_non_iterable(self):
     non_iterables = [42, 3.14, True, None, object()]
     for val in non_iterables:
       with self.subTest(val=val):
         with self.assertRaises(TypeError):
-          Chain(val).foreach(lambda x: x).run()
+          Chain(val).map(lambda x: x).run()
 
   def test_filter_on_non_iterable(self):
     non_iterables = [42, 3.14, True, None, object()]
@@ -136,10 +136,10 @@ class TestControlFlowInHandlers(unittest.TestCase):
       c.run()
     self.assertIn('finally', str(ctx.exception).lower())
 
-  def test_break_outside_foreach(self):
+  def test_break_outside_map(self):
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(lambda x: Chain.break_()).run()
-    self.assertIn('foreach', str(ctx.exception).lower())
+    self.assertIn('map', str(ctx.exception).lower())
 
   def test_break_in_then(self):
     with self.assertRaises(QuentException) as ctx:
@@ -159,7 +159,7 @@ class TestControlFlowInHandlers(unittest.TestCase):
 
   def test_break_in_with_body(self):
     """break_() inside with_ body: _ControlFlowSignal propagates through with_,
-    then to _run where _Break raises QuentException (not in foreach context)."""
+    then to _run where _Break raises QuentException (not in map context)."""
     with self.assertRaises(QuentException):
       Chain(SyncCM()).with_(lambda ctx: Chain.break_()).run()
 
@@ -238,29 +238,33 @@ class TestBreakOutsideChainContext(unittest.TestCase):
 
 
 class TestPassingNonCallableToDo(unittest.TestCase):
-  """Passing non-callable to do(): it is evaluated as a value but result is ignored."""
+  """Passing non-callable to do(): raises TypeError eagerly."""
 
-  def test_do_with_int_preserves_current(self):
-    result = Chain(5).do(42).run()
-    self.assertEqual(result, 5)
+  def test_do_rejects_int(self):
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do(42)
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got int')
 
-  def test_do_with_string_preserves_current(self):
-    result = Chain(5).do('hello').run()
-    self.assertEqual(result, 5)
+  def test_do_rejects_string(self):
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do('hello')
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got str')
 
-  def test_do_with_list_preserves_current(self):
-    result = Chain(5).do([1, 2, 3]).run()
-    self.assertEqual(result, 5)
+  def test_do_rejects_list(self):
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do([1, 2, 3])
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got list')
 
-  def test_do_with_none_preserves_current(self):
-    result = Chain(5).do(None).run()
-    self.assertEqual(result, 5)
+  def test_do_rejects_none(self):
+    with self.assertRaises(TypeError) as cm:
+      Chain(5).do(None)
+    self.assertEqual(str(cm.exception), 'do() requires a callable, got NoneType')
 
 
-class TestForeachMutatingList(unittest.TestCase):
-  """foreach where fn modifies the list being iterated."""
+class TestMapMutatingList(unittest.TestCase):
+  """map where fn modifies the list being iterated."""
 
-  def test_foreach_append_during_iteration(self):
+  def test_map_append_during_iteration(self):
     """Modifying the list during iteration: behavior depends on iterator.
     For list iterators in Python, appending during iteration is well-defined
     but may cause infinite loops. We test with a bounded mutation."""
@@ -273,7 +277,7 @@ class TestForeachMutatingList(unittest.TestCase):
         data.append(x + 10)
       return x
 
-    result = Chain(data).foreach(fn).run()
+    result = Chain(data).map(fn).run()
     # The original list was mutated, and the iterator picked up the new items
     self.assertTrue(len(result) >= 3)
 
@@ -525,21 +529,21 @@ class TestWithOnNonCMDetailed(unittest.TestCase):
       Chain('hello').with_(lambda ctx: ctx).run()
 
 
-class TestForeachOnNonIterableDetailed(unittest.TestCase):
-  """foreach on various non-iterable types."""
+class TestMapOnNonIterableDetailed(unittest.TestCase):
+  """map on various non-iterable types."""
 
-  def test_foreach_on_object(self):
+  def test_map_on_object(self):
     with self.assertRaises(TypeError):
-      Chain(object()).foreach(lambda x: x).run()
+      Chain(object()).map(lambda x: x).run()
 
-  def test_foreach_on_float(self):
+  def test_map_on_float(self):
     with self.assertRaises(TypeError):
-      Chain(3.14).foreach(lambda x: x).run()
+      Chain(3.14).map(lambda x: x).run()
 
-  def test_foreach_on_bool(self):
+  def test_map_on_bool(self):
     """bool is not iterable."""
     with self.assertRaises(TypeError):
-      Chain(True).foreach(lambda x: x).run()
+      Chain(True).map(lambda x: x).run()
 
 
 class TestIterateOnNonIterable(unittest.TestCase):

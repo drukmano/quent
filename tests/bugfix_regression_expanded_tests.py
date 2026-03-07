@@ -145,9 +145,9 @@ class TestH1AwaitExitSuppressExpanded(unittest.IsolatedAsyncioTestCase):
       await c.run()
     self.assertIs(ctx.exception.__cause__, body_exc)
 
-  async def test_with_inside_foreach_body_raises_async_exit_raises(self):
-    """with_ inside foreach: CM body raises, async exit raises."""
-    exit_exc = RuntimeError('exit in foreach')
+  async def test_with_inside_map_body_raises_async_exit_raises(self):
+    """with_ inside map: CM body raises, async exit raises."""
+    exit_exc = RuntimeError('exit in map')
 
     class CM:
       def __enter__(self):
@@ -159,11 +159,11 @@ class TestH1AwaitExitSuppressExpanded(unittest.IsolatedAsyncioTestCase):
           return _exit()
         return False
 
-    def foreach_fn(item):
+    def map_fn(item):
       c = Chain(CM()).with_(lambda ctx: (_ for _ in ()).throw(ValueError('inner')))
       return c.run()
 
-    c = Chain([1]).foreach(foreach_fn)
+    c = Chain([1]).map(map_fn)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIs(ctx.exception, exit_exc)
@@ -580,14 +580,14 @@ class TestH4CleanChainedExceptionsExpanded(unittest.TestCase):
                            f'Quent internal frame not cleaned: {filename}')
         tb = tb.tb_next
 
-  def test_exception_from_foreach_chain_cleaned(self):
-    """Exception from foreach -- chain cleaned properly."""
+  def test_exception_from_map_chain_cleaned(self):
+    """Exception from map -- chain cleaned properly."""
     def failing_fn(x):
       if x == 2:
-        raise ValueError('foreach fail')
+        raise ValueError('map fail')
       return x
 
-    c = Chain([1, 2, 3]).foreach(failing_fn)
+    c = Chain([1, 2, 3]).map(failing_fn)
     try:
       c.run()
     except ValueError as exc:
@@ -669,12 +669,12 @@ class TestH5DepthGuardExpanded(unittest.TestCase):
     result = _stringify_chain(current, nest_lvl=0, ctx=ctx, max_depth=50)
     self.assertIn('truncated at depth', result)
 
-  def test_nested_chain_with_foreach_deep(self):
-    """Nested chain with foreach at deep levels."""
+  def test_nested_chain_with_map_deep(self):
+    """Nested chain with map at deep levels."""
     bottom = Chain(lambda: [1])
     current = bottom
     for _ in range(55):
-      current = Chain(current).foreach(lambda x: x)
+      current = Chain(current).map(lambda x: x)
     ctx = _Ctx(source_link=None, link_temp_args=None)
     result = _stringify_chain(current, nest_lvl=0, ctx=ctx, max_depth=50)
     self.assertIsInstance(result, str)
@@ -706,20 +706,20 @@ class TestH6FailureSuppressionExpanded(unittest.TestCase):
     self.assertEqual(result, 'caught')
     self.assertEqual(handler_called, ['ZeroDivisionError'])
 
-  def test_foreach_raises_except_catches(self):
-    """foreach() raises -- except_ catches despite traceback formatting."""
+  def test_map_raises_except_catches(self):
+    """map() raises -- except_ catches despite traceback formatting."""
     handler_called = []
 
     def failing(x):
       if x == 2:
-        raise ValueError('foreach err')
+        raise ValueError('map err')
       return x
 
-    c = Chain([1, 2, 3]).foreach(failing).except_(lambda e: handler_called.append(str(e)) or 'caught')
+    c = Chain([1, 2, 3]).map(failing).except_(lambda e: handler_called.append(str(e)) or 'caught')
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       result = c.run()
     self.assertEqual(result, 'caught')
-    self.assertEqual(handler_called, ['foreach err'])
+    self.assertEqual(handler_called, ['map err'])
 
   def test_filter_raises_except_catches(self):
     """filter() raises -- except_ catches."""
@@ -1323,18 +1323,18 @@ class TestCrossFeatureInteractions(unittest.IsolatedAsyncioTestCase):
     result = c.run()
     self.assertEqual(result, 'caught')
 
-  async def test_foreach_with_traceback_modify_failure(self):
-    """foreach raises with traceback modify failure -- original error propagates."""
+  async def test_map_with_traceback_modify_failure(self):
+    """map raises with traceback modify failure -- original error propagates."""
     def fn(x):
       if x == 2:
-        raise ValueError('foreach fail')
+        raise ValueError('map fail')
       return x
 
-    c = Chain([1, 2, 3]).foreach(fn)
+    c = Chain([1, 2, 3]).map(fn)
     with patch('quent._chain._modify_traceback', side_effect=RuntimeError('tb fail')):
       with self.assertRaises(ValueError) as ctx:
         c.run()
-      self.assertEqual(str(ctx.exception), 'foreach fail')
+      self.assertEqual(str(ctx.exception), 'map fail')
 
   async def test_iterate_async_for_with_except_handler(self):
     """iterate(async_fn) via async for with error -- chain handles error in fn."""
@@ -1579,12 +1579,12 @@ class TestAdditionalAsyncEdgeCases(unittest.IsolatedAsyncioTestCase):
     result = await c.run()
     self.assertEqual(result, [11, 12, 13])
 
-  async def test_foreach_async_fn(self):
-    """foreach with async fn works correctly."""
+  async def test_map_async_fn(self):
+    """map with async fn works correctly."""
     async def async_fn(x):
       return x * 10
 
-    c = Chain([1, 2, 3]).foreach(async_fn)
+    c = Chain([1, 2, 3]).map(async_fn)
     result = await c.run()
     self.assertEqual(result, [10, 20, 30])
 

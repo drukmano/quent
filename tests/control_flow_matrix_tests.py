@@ -2,7 +2,7 @@
 
 Tests the complete matrix of:
   - Control flow signals: return_(value), return_(), break_(value), break_()
-  - Operations: then, do, foreach, foreach_do, filter, with_, with_do, gather, iterate, nested chain
+  - Operations: then, do, map, foreach, filter, with_, with_do, gather, iterate, nested chain
   - Handler contexts: none, except_ only, finally_ only, both
   - Nesting levels: 1, 2, 3
 """
@@ -40,7 +40,7 @@ def _make_return_fn(has_value):
 
 
 def _make_break_fn(has_value, at_index=1):
-  """Return a callable for foreach that breaks at the given index."""
+  """Return a callable for map that breaks at the given index."""
   if has_value:
     return lambda x: Chain.break_(42) if x == at_index else x
   return lambda x: Chain.break_() if x == at_index else x
@@ -64,10 +64,10 @@ class TestReturnInEveryOperation(unittest.TestCase):
       c = Chain(10).then(return_fn)
     elif operation == 'do':
       c = Chain(10).do(return_fn)
+    elif operation == 'map':
+      c = Chain([1, 2, 3]).map(lambda x: Chain.return_(42) if has_value and x == 2 else (Chain.return_() if not has_value and x == 2 else x))
     elif operation == 'foreach':
       c = Chain([1, 2, 3]).foreach(lambda x: Chain.return_(42) if has_value and x == 2 else (Chain.return_() if not has_value and x == 2 else x))
-    elif operation == 'foreach_do':
-      c = Chain([1, 2, 3]).foreach_do(lambda x: Chain.return_(42) if has_value and x == 2 else (Chain.return_() if not has_value and x == 2 else x))
     elif operation == 'filter':
       c = Chain([1, 2, 3]).filter(lambda x: Chain.return_(42) if has_value and x == 2 else (Chain.return_() if not has_value and x == 2 else True))
     elif operation == 'with_':
@@ -95,7 +95,7 @@ class TestReturnInEveryOperation(unittest.TestCase):
     return c, tracker, except_tracker, finally_tracker
 
   def test_return_matrix(self):
-    operations = ['then', 'do', 'foreach', 'foreach_do', 'filter', 'with_', 'with_do', 'gather', 'nested']
+    operations = ['then', 'do', 'map', 'foreach', 'filter', 'with_', 'with_do', 'gather', 'nested']
     for operation in operations:
       for has_value in [True, False]:
         for has_except in [True, False]:
@@ -209,11 +209,11 @@ class TestReturnWithValueVariants(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestBreakInForeach
+# TestBreakInMap
 # ---------------------------------------------------------------------------
 
-class TestBreakInForeach(unittest.TestCase):
-  """Break in every position of foreach with and without value, with/without handlers."""
+class TestBreakInMap(unittest.TestCase):
+  """Break in every position of map with and without value, with/without handlers."""
 
   def test_break_position_matrix(self):
     for iterable_size in [1, 3, 5, 10]:
@@ -242,7 +242,7 @@ class TestBreakInForeach(unittest.TestCase):
                 else:
                   fn = lambda x, bp=break_pos: Chain.break_() if x == bp else x * 2
 
-                c = Chain(items).foreach(fn)
+                c = Chain(items).map(fn)
                 if has_except:
                   c = c.except_(except_tracker)
                 if has_finally:
@@ -277,20 +277,20 @@ class TestBreakInForeach(unittest.TestCase):
       with self.subTest(break_value=label):
         result = (
           Chain([1, 2, 3])
-          .foreach(lambda x, bv=break_val: Chain.break_(bv) if x == 2 else x)
+          .map(lambda x, bv=break_val: Chain.break_(bv) if x == 2 else x)
           .run()
         )
         self.assertEqual(result, expected)
 
 
 # ---------------------------------------------------------------------------
-# TestBreakInForeachDo
+# TestBreakInForeach
 # ---------------------------------------------------------------------------
 
-class TestBreakInForeachDo(unittest.TestCase):
-  """Break in foreach_do -- break behavior preserving original items."""
+class TestBreakInForeach(unittest.TestCase):
+  """Break in foreach -- break behavior preserving original items."""
 
-  def test_foreach_do_break_matrix(self):
+  def test_foreach_break_matrix(self):
     for iterable_size in [1, 3, 5]:
       items = list(range(iterable_size))
       positions = sorted(set(p for p in [0, 1, iterable_size // 2, iterable_size - 1] if p < iterable_size))
@@ -312,7 +312,7 @@ class TestBreakInForeachDo(unittest.TestCase):
                 else:
                   fn = lambda x, bp=break_pos, se=side_effects: (se.append(x), Chain.break_())[-1] if x == bp else se.append(x) or x
 
-                c = Chain(items).foreach_do(fn)
+                c = Chain(items).foreach(fn)
                 if has_except:
                   c = c.except_(except_tracker)
                 if has_finally:
@@ -323,7 +323,7 @@ class TestBreakInForeachDo(unittest.TestCase):
                 if has_value:
                   self.assertEqual(result, 42)
                 else:
-                  # foreach_do preserves original items
+                  # foreach preserves original items
                   expected = items[:break_pos]
                   self.assertEqual(result, expected)
 
@@ -334,10 +334,10 @@ class TestBreakInForeachDo(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestBreakOutsideForeach
+# TestBreakOutsideMap
 # ---------------------------------------------------------------------------
 
-class TestBreakOutsideForeach(unittest.TestCase):
+class TestBreakOutsideMap(unittest.TestCase):
   """Break in invalid contexts must raise QuentException."""
 
   def test_break_in_then(self):
@@ -475,22 +475,22 @@ class TestReturnThroughNesting(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestBreakThroughNesting(unittest.TestCase):
-  """Break propagation in nested foreach contexts."""
+  """Break propagation in nested map contexts."""
 
-  def test_break_in_inner_foreach_isolated(self):
-    """Break in nested chain's foreach does not affect outer chain."""
-    inner = Chain().foreach(lambda x: Chain.break_() if x == 2 else x)
+  def test_break_in_inner_map_isolated(self):
+    """Break in nested chain's map does not affect outer chain."""
+    inner = Chain().map(lambda x: Chain.break_() if x == 2 else x)
     result = (
       Chain([1, 2, 3, 4])
       .then(inner)
       .then(lambda x: x + [99])
       .run()
     )
-    # Inner foreach breaks at x==2, returns [1], then outer appends 99
+    # Inner map breaks at x==2, returns [1], then outer appends 99
     self.assertEqual(result, [1, 99])
 
-  def test_nested_foreach_break_inner_only(self):
-    """Nested foreach -- break in inner doesn't affect outer."""
+  def test_nested_map_break_inner_only(self):
+    """Nested map -- break in inner doesn't affect outer."""
     def inner_fn(items):
       # Break after processing 2 items
       count = [0]
@@ -499,19 +499,19 @@ class TestBreakThroughNesting(unittest.TestCase):
         if count[0] > 2:
           Chain.break_()
         return x * 10
-      return Chain(items).foreach(fn).run()
+      return Chain(items).map(fn).run()
 
     result = (
       Chain([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
-      .foreach(inner_fn)
+      .map(inner_fn)
       .run()
     )
-    # Each inner foreach processes 2 items then breaks
+    # Each inner map processes 2 items then breaks
     self.assertEqual(result, [[10, 20], [50, 60], [90, 100]])
 
-  def test_break_with_value_in_nested_foreach(self):
-    """Break with value in inner foreach."""
-    inner = Chain().foreach(lambda x: Chain.break_(42) if x == 2 else x)
+  def test_break_with_value_in_nested_map(self):
+    """Break with value in inner map."""
+    inner = Chain().map(lambda x: Chain.break_(42) if x == 2 else x)
     result = Chain([1, 2, 3]).then(inner).run()
     self.assertEqual(result, 42)
 
@@ -534,11 +534,11 @@ class TestControlFlowWithExceptInteraction(unittest.TestCase):
     self.assertEqual(result, 42)
     self.assertEqual(handler_called, [])
 
-  def test_break_in_foreach_does_not_trigger_except(self):
+  def test_break_in_foreaches_not_trigger_except(self):
     handler_called = []
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_() if x == 2 else x)
+      .map(lambda x: Chain.break_() if x == 2 else x)
       .except_(lambda exc: handler_called.append(exc))
       .run()
     )
@@ -598,11 +598,11 @@ class TestControlFlowWithFinallyInteraction(unittest.TestCase):
     self.assertEqual(result, 42)
     self.assertEqual(len(finally_tracker.calls), 1)
 
-  def test_break_in_foreach_triggers_finally(self):
+  def test_break_in_map_triggers_finally(self):
     finally_tracker = make_tracker()
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_() if x == 2 else x)
+      .map(lambda x: Chain.break_() if x == 2 else x)
       .finally_(finally_tracker)
       .run()
     )
@@ -639,7 +639,7 @@ class TestControlFlowWithFinallyInteraction(unittest.TestCase):
     items = [1, 2, 3]
     result = (
       Chain(items)
-      .foreach(lambda x: Chain.break_() if x == 2 else x)
+      .map(lambda x: Chain.break_() if x == 2 else x)
       .finally_(lambda root: received_values.append(root))
       .run()
     )
@@ -662,12 +662,12 @@ class TestControlFlowWithFinallyInteraction(unittest.TestCase):
     self.assertEqual(len(finally_tracker.calls), 1)
 
   def test_both_except_and_finally_with_break(self):
-    """break_ in foreach -> except_ NOT called, finally_ called."""
+    """break_ in map -> except_ NOT called, finally_ called."""
     except_tracker = make_tracker()
     finally_tracker = make_tracker()
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_() if x == 2 else x)
+      .map(lambda x: Chain.break_() if x == 2 else x)
       .except_(except_tracker)
       .finally_(finally_tracker)
       .run()
@@ -708,18 +708,18 @@ class TestControlFlowAsync(IsolatedAsyncioTestCase):
     )
     self.assertIsNone(result)
 
-  async def test_break_in_async_foreach(self):
+  async def test_break_in_async_map(self):
     result = await (
       Chain(AsyncRange(6))
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .run()
     )
     self.assertEqual(result, [0, 1, 2])
 
-  async def test_break_with_value_in_async_foreach(self):
+  async def test_break_with_value_in_async_map(self):
     result = await (
       Chain(AsyncRange(6))
-      .foreach(lambda x: Chain.break_(42) if x == 3 else x)
+      .map(lambda x: Chain.break_(42) if x == 3 else x)
       .run()
     )
     self.assertEqual(result, 42)
@@ -766,18 +766,18 @@ class TestControlFlowAsync(IsolatedAsyncioTestCase):
     self.assertEqual(result, 42)
     self.assertEqual(len(finally_values), 1)
 
-  async def test_break_in_async_foreach_with_except_not_triggered(self):
+  async def test_break_in_async_map_with_except_not_triggered(self):
     except_tracker = make_async_tracker()
     result = await (
       Chain(AsyncRange(6))
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .except_(except_tracker)
       .run()
     )
     self.assertEqual(result, [0, 1, 2])
     self.assertEqual(except_tracker.calls, [])
 
-  async def test_break_in_async_foreach_with_finally_triggered(self):
+  async def test_break_in_async_map_with_finally_triggered(self):
     finally_values = []
 
     async def async_finally(root):
@@ -785,7 +785,7 @@ class TestControlFlowAsync(IsolatedAsyncioTestCase):
 
     result = await (
       Chain(AsyncRange(6))
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .finally_(async_finally)
       .run()
     )
@@ -832,7 +832,7 @@ class TestControlFlowAsync(IsolatedAsyncioTestCase):
       )
     self.assertIn('control flow signals inside finally handlers is not allowed', str(ctx.exception).lower())
 
-  async def test_break_outside_foreach_async_raises(self):
+  async def test_break_outside_map_async_raises(self):
     async def async_step(x):
       return x + 1
 
@@ -865,12 +865,12 @@ class TestControlFlowAsync(IsolatedAsyncioTestCase):
     self.assertEqual(except_tracker.calls, [])
     self.assertEqual(len(finally_tracker.calls), 1)
 
-  async def test_async_foreach_do_break(self):
-    """Break in foreach_do with async iterable."""
+  async def test_async_foreach_break(self):
+    """Break in foreach with async iterable."""
     side_effects = []
     result = await (
       Chain(AsyncRange(6))
-      .foreach_do(lambda x: (side_effects.append(x), Chain.break_())[-1] if x == 3 else side_effects.append(x))
+      .foreach(lambda x: (side_effects.append(x), Chain.break_())[-1] if x == 3 else side_effects.append(x))
       .run()
     )
     self.assertEqual(result, [0, 1, 2])
@@ -915,7 +915,7 @@ class TestControlFlowWithWith(unittest.TestCase):
   def test_break_inside_with_body_cm_exit_clean(self):
     """break_ inside with_ body -> CM.__exit__ called with (None,None,None)."""
     cm = TrackingCM()
-    # break_ inside with_ but not in foreach -> QuentException
+    # break_ inside with_ but not in map -> QuentException
     with self.assertRaises(QuentException):
       Chain(cm).with_(lambda ctx: Chain.break_()).run()
     self.assertTrue(cm.entered)
@@ -1014,20 +1014,20 @@ class TestControlFlowWithWithAsync(IsolatedAsyncioTestCase):
 class TestReturnFromEveryOperationDetailed(unittest.TestCase):
   """Focused tests for return_ in each operation type individually."""
 
+  def test_return_from_map_fn(self):
+    """return_ in map fn exits the entire chain."""
+    result = (
+      Chain([1, 2, 3])
+      .map(lambda x: Chain.return_(99) if x == 2 else x)
+      .run()
+    )
+    self.assertEqual(result, 99)
+
   def test_return_from_foreach_fn(self):
     """return_ in foreach fn exits the entire chain."""
     result = (
       Chain([1, 2, 3])
       .foreach(lambda x: Chain.return_(99) if x == 2 else x)
-      .run()
-    )
-    self.assertEqual(result, 99)
-
-  def test_return_from_foreach_do_fn(self):
-    """return_ in foreach_do fn exits the entire chain."""
-    result = (
-      Chain([1, 2, 3])
-      .foreach_do(lambda x: Chain.return_(99) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 99)
@@ -1079,16 +1079,16 @@ class TestReturnFromEveryOperationDetailed(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestBreakValueVariantsInForeach
+# TestBreakValueVariantsInMap
 # ---------------------------------------------------------------------------
 
-class TestBreakValueVariantsInForeach(unittest.TestCase):
-  """Break with callable, None, False, 0, etc., in foreach."""
+class TestBreakValueVariantsInMap(unittest.TestCase):
+  """Break with callable, None, False, 0, etc., in map."""
 
   def test_break_callable_resolved(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(lambda: 'resolved') if x == 2 else x)
+      .map(lambda x: Chain.break_(lambda: 'resolved') if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 'resolved')
@@ -1096,7 +1096,7 @@ class TestBreakValueVariantsInForeach(unittest.TestCase):
   def test_break_callable_with_ellipsis(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(lambda: 'ell', ...) if x == 2 else x)
+      .map(lambda x: Chain.break_(lambda: 'ell', ...) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 'ell')
@@ -1104,7 +1104,7 @@ class TestBreakValueVariantsInForeach(unittest.TestCase):
   def test_break_callable_with_args(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(lambda a, b: a + b, 10, 20) if x == 2 else x)
+      .map(lambda x: Chain.break_(lambda a, b: a + b, 10, 20) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 30)
@@ -1112,7 +1112,7 @@ class TestBreakValueVariantsInForeach(unittest.TestCase):
   def test_break_none_value(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(None) if x == 2 else x)
+      .map(lambda x: Chain.break_(None) if x == 2 else x)
       .run()
     )
     self.assertIsNone(result)
@@ -1120,7 +1120,7 @@ class TestBreakValueVariantsInForeach(unittest.TestCase):
   def test_break_false_value(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(False) if x == 2 else x)
+      .map(lambda x: Chain.break_(False) if x == 2 else x)
       .run()
     )
     self.assertIs(result, False)
@@ -1128,10 +1128,42 @@ class TestBreakValueVariantsInForeach(unittest.TestCase):
   def test_break_zero_value(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(0) if x == 2 else x)
+      .map(lambda x: Chain.break_(0) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 0)
+
+
+# ---------------------------------------------------------------------------
+# TestMapBreakAtEveryPosition
+# ---------------------------------------------------------------------------
+
+class TestMapBreakAtEveryPosition(unittest.TestCase):
+  """Break at index 0, 1, mid, last for map."""
+
+  def test_break_at_index_0(self):
+    result = Chain([10, 20, 30]).map(lambda x: Chain.break_() if x == 10 else x).run()
+    self.assertEqual(result, [])
+
+  def test_break_at_index_1(self):
+    result = Chain([10, 20, 30]).map(lambda x: Chain.break_() if x == 20 else x * 2).run()
+    self.assertEqual(result, [20])
+
+  def test_break_at_mid(self):
+    result = Chain([1, 2, 3, 4, 5]).map(lambda x: Chain.break_() if x == 3 else x * 10).run()
+    self.assertEqual(result, [10, 20])
+
+  def test_break_at_last(self):
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_() if x == 3 else x * 10).run()
+    self.assertEqual(result, [10, 20])
+
+  def test_break_with_value_at_index_0(self):
+    result = Chain([10, 20, 30]).map(lambda x: Chain.break_(42) if x == 10 else x).run()
+    self.assertEqual(result, 42)
+
+  def test_break_with_value_at_last(self):
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_(42) if x == 3 else x * 10).run()
+    self.assertEqual(result, 42)
 
 
 # ---------------------------------------------------------------------------
@@ -1139,60 +1171,28 @@ class TestBreakValueVariantsInForeach(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestForeachBreakAtEveryPosition(unittest.TestCase):
-  """Break at index 0, 1, mid, last for foreach."""
+  """Break at various positions for foreach."""
 
-  def test_break_at_index_0(self):
-    result = Chain([10, 20, 30]).foreach(lambda x: Chain.break_() if x == 10 else x).run()
+  def test_foreach_break_at_index_0(self):
+    side = []
+    result = Chain([10, 20, 30]).foreach(lambda x: (side.append(x), Chain.break_())[-1] if x == 10 else side.append(x)).run()
     self.assertEqual(result, [])
 
-  def test_break_at_index_1(self):
-    result = Chain([10, 20, 30]).foreach(lambda x: Chain.break_() if x == 20 else x * 2).run()
-    self.assertEqual(result, [20])
-
-  def test_break_at_mid(self):
-    result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_() if x == 3 else x * 10).run()
-    self.assertEqual(result, [10, 20])
-
-  def test_break_at_last(self):
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_() if x == 3 else x * 10).run()
-    self.assertEqual(result, [10, 20])
-
-  def test_break_with_value_at_index_0(self):
-    result = Chain([10, 20, 30]).foreach(lambda x: Chain.break_(42) if x == 10 else x).run()
-    self.assertEqual(result, 42)
-
-  def test_break_with_value_at_last(self):
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_(42) if x == 3 else x * 10).run()
-    self.assertEqual(result, 42)
-
-
-# ---------------------------------------------------------------------------
-# TestForeachDoBreakAtEveryPosition
-# ---------------------------------------------------------------------------
-
-class TestForeachDoBreakAtEveryPosition(unittest.TestCase):
-  """Break at various positions for foreach_do."""
-
-  def test_foreach_do_break_at_index_0(self):
+  def test_foreach_break_at_index_1(self):
     side = []
-    result = Chain([10, 20, 30]).foreach_do(lambda x: (side.append(x), Chain.break_())[-1] if x == 10 else side.append(x)).run()
-    self.assertEqual(result, [])
-
-  def test_foreach_do_break_at_index_1(self):
-    side = []
-    result = Chain([10, 20, 30]).foreach_do(lambda x: (side.append(x), Chain.break_())[-1] if x == 20 else side.append(x)).run()
-    # foreach_do accumulates original items; break at index 1 means only index 0 accumulated
+    result = Chain([10, 20, 30]).foreach(lambda x: (side.append(x), Chain.break_())[-1] if x == 20 else side.append(x)).run()
+    # foreach accumulates original items; break at index 1 means only index 0 accumulated
     self.assertEqual(result, [10])
 
-  def test_foreach_do_break_with_value(self):
+  def test_foreach_break_with_value(self):
     side = []
-    result = Chain([1, 2, 3]).foreach_do(lambda x: (side.append(x), Chain.break_(42))[-1] if x == 2 else side.append(x)).run()
+    result = Chain([1, 2, 3]).foreach(lambda x: (side.append(x), Chain.break_(42))[-1] if x == 2 else side.append(x)).run()
     self.assertEqual(result, 42)
 
-  def test_foreach_do_no_break(self):
+  def test_foreach_no_break(self):
     side = []
-    result = Chain([1, 2, 3]).foreach_do(lambda x: side.append(x)).run()
-    # foreach_do accumulates original items
+    result = Chain([1, 2, 3]).foreach(lambda x: side.append(x)).run()
+    # foreach accumulates original items
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(side, [1, 2, 3])
 
@@ -1245,10 +1245,10 @@ class TestReturnFinallyReceivesRootValue(unittest.TestCase):
     Chain(5).then(lambda x: x + 10).then(lambda x: Chain.return_(42)).finally_(lambda root: received.append(root)).run()
     self.assertEqual(received, [5])
 
-  def test_break_in_foreach_finally_gets_root(self):
+  def test_break_in_map_finally_gets_root(self):
     received = []
     items = [1, 2, 3]
-    Chain(items).foreach(lambda x: Chain.break_() if x == 2 else x).finally_(lambda root: received.append(root)).run()
+    Chain(items).map(lambda x: Chain.break_() if x == 2 else x).finally_(lambda root: received.append(root)).run()
     self.assertEqual(received, [items])
 
   def test_normal_flow_finally_gets_root(self):
@@ -1289,21 +1289,21 @@ class TestReturnInNestedWithExceptFinally(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestBreakInForeachWithHandlers
+# TestBreakInMapWithHandlers
 # ---------------------------------------------------------------------------
 
-class TestBreakInForeachWithHandlers(unittest.TestCase):
-  """Break in foreach with various handler configurations."""
+class TestBreakInMapWithHandlers(unittest.TestCase):
+  """Break in map with various handler configurations."""
 
   def test_break_no_value_with_except_only(self):
     except_tracker = make_tracker()
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_() if x == 2 else x).except_(except_tracker).run()
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_() if x == 2 else x).except_(except_tracker).run()
     self.assertEqual(result, [1])
     self.assertEqual(except_tracker.calls, [])
 
   def test_break_no_value_with_finally_only(self):
     finally_tracker = make_tracker()
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_() if x == 2 else x).finally_(finally_tracker).run()
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_() if x == 2 else x).finally_(finally_tracker).run()
     self.assertEqual(result, [1])
     self.assertEqual(len(finally_tracker.calls), 1)
 
@@ -1312,7 +1312,7 @@ class TestBreakInForeachWithHandlers(unittest.TestCase):
     finally_tracker = make_tracker()
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_() if x == 2 else x)
+      .map(lambda x: Chain.break_() if x == 2 else x)
       .except_(except_tracker)
       .finally_(finally_tracker)
       .run()
@@ -1323,13 +1323,13 @@ class TestBreakInForeachWithHandlers(unittest.TestCase):
 
   def test_break_with_value_with_except_only(self):
     except_tracker = make_tracker()
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_(42) if x == 2 else x).except_(except_tracker).run()
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_(42) if x == 2 else x).except_(except_tracker).run()
     self.assertEqual(result, 42)
     self.assertEqual(except_tracker.calls, [])
 
   def test_break_with_value_with_finally_only(self):
     finally_tracker = make_tracker()
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_(42) if x == 2 else x).finally_(finally_tracker).run()
+    result = Chain([1, 2, 3]).map(lambda x: Chain.break_(42) if x == 2 else x).finally_(finally_tracker).run()
     self.assertEqual(result, 42)
     self.assertEqual(len(finally_tracker.calls), 1)
 
@@ -1338,7 +1338,7 @@ class TestBreakInForeachWithHandlers(unittest.TestCase):
     finally_tracker = make_tracker()
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(42) if x == 2 else x)
+      .map(lambda x: Chain.break_(42) if x == 2 else x)
       .except_(except_tracker)
       .finally_(finally_tracker)
       .run()
@@ -1461,7 +1461,7 @@ class TestControlFlowEdgeCases(unittest.TestCase):
 
   def test_break_with_empty_iterable(self):
     """Break fn never called on empty iterable."""
-    result = Chain([]).foreach(lambda x: Chain.break_()).run()
+    result = Chain([]).map(lambda x: Chain.break_()).run()
     self.assertEqual(result, [])
 
   def test_return_from_root_link(self):
@@ -1484,11 +1484,11 @@ class TestControlFlowEdgeCases(unittest.TestCase):
 
   def test_break_with_single_element_iterable(self):
     """Break with single-element iterable at first element."""
-    result = Chain([1]).foreach(lambda x: Chain.break_() if x == 1 else x).run()
+    result = Chain([1]).map(lambda x: Chain.break_() if x == 1 else x).run()
     self.assertEqual(result, [])
 
   def test_break_with_value_single_element(self):
-    result = Chain([1]).foreach(lambda x: Chain.break_(42) if x == 1 else x).run()
+    result = Chain([1]).map(lambda x: Chain.break_(42) if x == 1 else x).run()
     self.assertEqual(result, 42)
 
   def test_return_preserves_type(self):
@@ -1501,26 +1501,26 @@ class TestControlFlowEdgeCases(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestAsyncBreakInForeachPositions
+# TestAsyncBreakInMapPositions
 # ---------------------------------------------------------------------------
 
-class TestAsyncBreakInForeachPositions(IsolatedAsyncioTestCase):
-  """Async foreach break at various positions."""
+class TestAsyncBreakInMapPositions(IsolatedAsyncioTestCase):
+  """Async map break at various positions."""
 
   async def test_async_break_at_0(self):
-    result = await Chain(AsyncRange(5)).foreach(lambda x: Chain.break_() if x == 0 else x).run()
+    result = await Chain(AsyncRange(5)).map(lambda x: Chain.break_() if x == 0 else x).run()
     self.assertEqual(result, [])
 
   async def test_async_break_at_mid(self):
-    result = await Chain(AsyncRange(10)).foreach(lambda x: Chain.break_() if x == 5 else x * 2).run()
+    result = await Chain(AsyncRange(10)).map(lambda x: Chain.break_() if x == 5 else x * 2).run()
     self.assertEqual(result, [0, 2, 4, 6, 8])
 
   async def test_async_break_at_last(self):
-    result = await Chain(AsyncRange(3)).foreach(lambda x: Chain.break_() if x == 2 else x * 10).run()
+    result = await Chain(AsyncRange(3)).map(lambda x: Chain.break_() if x == 2 else x * 10).run()
     self.assertEqual(result, [0, 10])
 
   async def test_async_break_with_value_at_0(self):
-    result = await Chain(AsyncRange(5)).foreach(lambda x: Chain.break_(42) if x == 0 else x).run()
+    result = await Chain(AsyncRange(5)).map(lambda x: Chain.break_(42) if x == 0 else x).run()
     self.assertEqual(result, 42)
 
 
@@ -1570,23 +1570,23 @@ class TestReturnInFilterPredicate(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestForeachBreakFromNestedChain
+# TestMapBreakFromNestedChain
 # ---------------------------------------------------------------------------
 
-class TestForeachBreakFromNestedChain(unittest.TestCase):
-  """Using a nested chain inside foreach that calls break_."""
+class TestMapBreakFromNestedChain(unittest.TestCase):
+  """Using a nested chain inside map that calls break_."""
 
-  def test_nested_chain_break_in_foreach(self):
-    """A plain function (not chain) in foreach can break."""
+  def test_nested_chain_break_in_map(self):
+    """A plain function (not chain) in map can break."""
     result = (
       Chain([1, 2, 3, 4])
-      .foreach(lambda x: Chain.break_(42) if x == 3 else x)
+      .map(lambda x: Chain.break_(42) if x == 3 else x)
       .run()
     )
     self.assertEqual(result, 42)
 
-  def test_foreach_with_nested_foreach_break(self):
-    """Nested foreach with break in inner, outer continues."""
+  def test_map_with_nested_map_break(self):
+    """Nested map with break in inner, outer continues."""
     def process_inner(items):
       # Break after processing 2 items
       count = [0]
@@ -1595,14 +1595,14 @@ class TestForeachBreakFromNestedChain(unittest.TestCase):
         if count[0] > 2:
           Chain.break_()
         return x * 10
-      return Chain(items).foreach(fn).run()
+      return Chain(items).map(fn).run()
 
     result = (
       Chain([[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]])
-      .foreach(process_inner)
+      .map(process_inner)
       .run()
     )
-    # Each inner foreach processes 2 items then breaks
+    # Each inner map processes 2 items then breaks
     self.assertEqual(result, [[10, 20], [50, 60], [90, 100]])
 
 

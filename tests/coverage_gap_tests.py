@@ -241,7 +241,7 @@ class TestWithFullAsyncPaths(IsolatedAsyncioTestCase):
 # (lines 200-204)
 # ---------------------------------------------------------------------------
 
-class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
+class TestMapToAsyncPaths(IsolatedAsyncioTestCase):
   """Test _to_async paths inside _make_foreach: _Return propagation,
   BaseException with temp args, and _Break with async value.
   """
@@ -258,7 +258,7 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
         Chain.return_('early')
       return x
 
-    result = await Chain([1, 2, 3]).foreach(fn_with_return).run()
+    result = await Chain([1, 2, 3]).map(fn_with_return).run()
     self.assertEqual(result, 'early')
 
   async def test_to_async_exception_with_temp_args(self):
@@ -275,7 +275,7 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
       return x
 
     try:
-      await Chain([10, 20, 30]).foreach(fn_raises_later).run()
+      await Chain([10, 20, 30]).map(fn_raises_later).run()
       self.fail('Should have raised')
     except RuntimeError as exc:
       self.assertTrue(getattr(exc, '__quent__', False))
@@ -295,7 +295,7 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
         Chain.break_(make_val)
       return x
 
-    result = await Chain([1, 2, 3]).foreach(fn_breaks).run()
+    result = await Chain([1, 2, 3]).map(fn_breaks).run()
     self.assertEqual(result, 'break_val')
 
 
@@ -304,7 +304,7 @@ class TestForeachToAsyncPaths(IsolatedAsyncioTestCase):
 # (lines 224-228)
 # ---------------------------------------------------------------------------
 
-class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
+class TestMapFullAsyncPaths(IsolatedAsyncioTestCase):
   """Test _full_async paths inside _make_foreach: async iterable with
   _Return, BaseException temp args, and _Break with async value.
   """
@@ -319,7 +319,7 @@ class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
         Chain.return_('early')
       return x
 
-    result = await Chain(AsyncRange(5)).foreach(fn_returns).run()
+    result = await Chain(AsyncRange(5)).map(fn_returns).run()
     self.assertEqual(result, 'early')
 
   async def test_full_async_exception_with_temp_args(self):
@@ -331,7 +331,7 @@ class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
       return x
 
     try:
-      await Chain(AsyncRange(3)).foreach(fn_raises).run()
+      await Chain(AsyncRange(3)).map(fn_raises).run()
       self.fail('Should have raised')
     except RuntimeError as exc:
       self.assertTrue(getattr(exc, '__quent__', False))
@@ -346,7 +346,7 @@ class TestForeachFullAsyncPaths(IsolatedAsyncioTestCase):
         Chain.break_(make_val)
       return x
 
-    result = await Chain(AsyncRange(5)).foreach(fn_breaks).run()
+    result = await Chain(AsyncRange(5)).map(fn_breaks).run()
     self.assertEqual(result, 'async_val')
 
 

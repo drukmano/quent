@@ -1,5 +1,5 @@
 """Tests for interactions between Chain operations: verifying that pairs and
-sequences of operations compose correctly (then/do, except/finally, foreach
+sequences of operations compose correctly (then/do, except/finally, map
 with except, filter with except, gather with except, with_ with except,
 nested chains, decorators, freeze, long mixed chains, return_ in various
 contexts, and async mixed interactions).
@@ -90,28 +90,28 @@ class TestExceptFinallyInteraction(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# foreach with except
+# map with except
 # ---------------------------------------------------------------------------
 
-class TestForeachWithExcept(unittest.TestCase):
+class TestMapWithExcept(unittest.TestCase):
 
-  def test_exception_in_foreach_fn_caught_by_except(self):
+  def test_exception_in_map_fn_caught_by_except(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: 1 / 0)
+      .map(lambda x: 1 / 0)
       .except_(lambda e: 'caught')
       .run()
     )
     self.assertEqual(result, 'caught')
 
-  def test_break_in_foreach_not_caught_by_except(self):
+  def test_break_in_map_not_caught_by_except(self):
     # _Break is a _ControlFlowSignal, caught by _make_foreach before it
     # reaches the chain's except handler. Chain.break_() with no value
     # returns the accumulated list so far (fallback).
     except_called = []
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_() if x == 2 else x)
+      .map(lambda x: Chain.break_() if x == 2 else x)
       .except_(lambda e: except_called.append('called') or 'caught')
       .run()
     )
@@ -226,8 +226,8 @@ class TestNestedWithExceptFinally(unittest.TestCase):
 
 class TestDecoratorWithAllOps(unittest.TestCase):
 
-  def test_decorator_with_foreach(self):
-    @Chain().then(lambda x: [x, x + 1]).foreach(lambda i: i * 2).decorator()
+  def test_decorator_with_map(self):
+    @Chain().then(lambda x: [x, x + 1]).map(lambda i: i * 2).decorator()
     def fn(n):
       return n
     result = fn(5)
@@ -284,11 +284,11 @@ class TestFreezeWithAllOps(unittest.TestCase):
     self.assertEqual(result, 10)
     self.assertEqual(tracker, [5])
 
-  def test_frozen_with_foreach(self):
+  def test_frozen_with_map(self):
     frozen = (
       Chain()
       .then(lambda x: list(range(x)))
-      .foreach(lambda i: i * 3)
+      .map(lambda i: i * 3)
       .freeze()
     )
     result = frozen.run(4)
@@ -329,11 +329,11 @@ class TestLongChainWithMixedOps(unittest.TestCase):
     self.assertEqual(result, 15)
     self.assertEqual(tracker, [2, 6, 10, 20, 15])
 
-  def test_foreach_then_filter(self):
-    # foreach maps [1,2,3,4] -> [2,4,6,8], filter keeps > 4.
+  def test_map_then_filter(self):
+    # map maps [1,2,3,4] -> [2,4,6,8], filter keeps > 4.
     result = (
       Chain([1, 2, 3, 4])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 4)
       .run()
     )
@@ -350,12 +350,12 @@ class TestReturnInVariousContexts(unittest.TestCase):
     result = Chain(SyncCM()).with_(lambda ctx: Chain.return_(42)).run()
     self.assertEqual(result, 42)
 
-  def test_return_in_foreach_fn(self):
-    # _Return propagates out of foreach's _ControlFlowSignal handler (re-raised)
+  def test_return_in_map_fn(self):
+    # _Return propagates out of map's _ControlFlowSignal handler (re-raised)
     # and is caught by the chain's _Return handler.
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.return_(99) if x == 2 else x)
+      .map(lambda x: Chain.return_(99) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 99)
@@ -373,11 +373,11 @@ class TestReturnInVariousContexts(unittest.TestCase):
 
 class TestAsyncMixedInteractions(IsolatedAsyncioTestCase):
 
-  async def test_sync_then_async_foreach(self):
+  async def test_sync_then_async_map(self):
     result = await (
       Chain(5)
       .then(lambda x: list(range(x)))
-      .foreach(async_fn)
+      .map(async_fn)
       .run()
     )
     # range(5) -> [0,1,2,3,4], async_fn adds 1 -> [1,2,3,4,5]

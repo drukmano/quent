@@ -276,25 +276,25 @@ def section_finally_handler():
 
 
 # ===========================================================================
-# SECTION 6 – foreach / foreach_do
+# SECTION 6 – map / foreach
 # ===========================================================================
 
-def section_foreach():
-  _header('SECTION 6 — foreach / foreach_do')
+def section_map():
+  _header('SECTION 6 — map / foreach')
 
   run_case(
-    'CASE 17: foreach callback always raises — Chain([1,2,3]).foreach(lambda x: 1/0)',
+    'CASE 17: map callback always raises — Chain([1,2,3]).map(lambda x: 1/0)',
+    lambda: Chain([1, 2, 3]).map(lambda x: 1 / 0).run(),
+  )
+
+  run_case(
+    'CASE 18: map fails on specific item — Chain([1,2,0]).map(lambda x: 10//x)',
+    lambda: Chain([1, 2, 0]).map(lambda x: 10 // x).run(),
+  )
+
+  run_case(
+    'CASE 19: foreach callback raises',
     lambda: Chain([1, 2, 3]).foreach(lambda x: 1 / 0).run(),
-  )
-
-  run_case(
-    'CASE 18: foreach fails on specific item — Chain([1,2,0]).foreach(lambda x: 10//x)',
-    lambda: Chain([1, 2, 0]).foreach(lambda x: 10 // x).run(),
-  )
-
-  run_case(
-    'CASE 19: foreach_do callback raises',
-    lambda: Chain([1, 2, 3]).foreach_do(lambda x: 1 / 0).run(),
   )
 
 
@@ -528,7 +528,7 @@ def section_control_flow():
   print()
 
   run_case(
-    'CASE 38: Chain.break_() outside foreach — raises QuentException',
+    'CASE 38: Chain.break_() outside map — raises QuentException',
     lambda: Chain(1).then(lambda x: Chain.break_()).run(),
   )
 
@@ -929,29 +929,29 @@ def section_edge_cases():
 def section_mixed_ops():
   _header('SECTION 23 — Mixed operations chain')
 
-  # CASE 63: Complex chain mixing then/do/foreach/filter/with_ — error deep
+  # CASE 63: Complex chain mixing then/do/map/filter/with_ — error deep
   def _fail_in_filter(x):
     raise RuntimeError(f'filter predicate failed on {x!r}')
 
   run_case(
-    'CASE 63: then -> do -> foreach -> filter pipeline, error in filter predicate (deep)',
+    'CASE 63: then -> do -> map -> filter pipeline, error in filter predicate (deep)',
     lambda: (
       Chain([1, 2, 3])
       .then(lambda x: [v * 10 for v in x])
       .do(lambda x: None)
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .filter(_fail_in_filter)
       .run()
     ),
   )
 
-  # CASE 64: Chain with then -> foreach -> filter, error in filter
+  # CASE 64: Chain with then -> map -> filter, error in filter
   run_case(
-    'CASE 64: then -> foreach -> filter pipeline, error in filter predicate',
+    'CASE 64: then -> map -> filter pipeline, error in filter predicate',
     lambda: (
       Chain([1, 2, 0])
       .then(lambda x: x)
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: 10 / x)
       .run()
     ),
@@ -1227,7 +1227,7 @@ def main():
   section_nested_chains()
   section_except_handler()
   section_finally_handler()
-  section_foreach()
+  section_map()
   section_filter()
   section_with()
   section_gather()

@@ -170,8 +170,8 @@ def _get_link_name(link: Link) -> str:
   op = getattr(v, '_quent_op', None)
   if op == 'with':
     return 'with_do' if v._ignore_result else 'with_'
-  if op == 'foreach':
-    return 'foreach_do' if v._ignore_result else 'foreach'
+  if op == 'map':
+    return 'foreach' if v._ignore_result else 'map'
   if op == 'filter':
     return 'filter'
   if op == 'gather':
@@ -188,7 +188,9 @@ def _get_obj_name(obj: Any) -> str:
   if getattr(obj, '_is_chain', False):
     return type(obj).__name__
   try:
-    name = getattr(obj, '__name__', None) or getattr(obj, '__qualname__', None)
+    name = getattr(obj, '__name__', None)
+    if name is None:
+      name = getattr(obj, '__qualname__', None)
     if name is not None:
       return str(name)
   except Exception:

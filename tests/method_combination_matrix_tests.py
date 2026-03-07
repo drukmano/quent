@@ -39,16 +39,16 @@ class TestThenPairs(unittest.TestCase):
     self.assertEqual(result, 6)
     self.assertEqual(tracker, [6])
 
-  def test_then_foreach(self):
-    result = Chain(10).then(lambda x: [x, x + 1, x + 2]).foreach(lambda x: x * 2).run()
+  def test_then_map(self):
+    result = Chain(10).then(lambda x: [x, x + 1, x + 2]).map(lambda x: x * 2).run()
     self.assertEqual(result, [20, 22, 24])
 
-  def test_then_foreach_do(self):
+  def test_then_foreach(self):
     tracker = []
     result = (
       Chain(10)
       .then(lambda x: [x, x + 1])
-      .foreach_do(lambda x: tracker.append(x * 10))
+      .foreach(lambda x: tracker.append(x * 10))
       .run()
     )
     self.assertEqual(result, [10, 11])
@@ -163,12 +163,12 @@ class TestDoPairs(unittest.TestCase):
     self.assertEqual(result, 5)
     self.assertEqual(tracker, ['first', 'second'])
 
-  def test_do_foreach(self):
+  def test_do_map(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
       .do(lambda x: tracker.append(len(x)))
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
@@ -229,78 +229,78 @@ class TestDoPairs(unittest.TestCase):
     self.assertIn('final:5', tracker)
 
 
-# ---- foreach -> every method ----
+# ---- map -> every method ----
 
-class TestForeachPairs(unittest.TestCase):
+class TestMapPairs(unittest.TestCase):
 
-  def test_foreach_then(self):
-    result = Chain([1, 2, 3]).foreach(lambda x: x * 2).then(lambda x: sum(x)).run()
+  def test_map_then(self):
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).then(lambda x: sum(x)).run()
     self.assertEqual(result, 12)
 
-  def test_foreach_do(self):
+  def test_foreach(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .do(lambda x: tracker.append(len(x)))
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
     self.assertEqual(tracker, [3])
 
-  def test_foreach_filter(self):
+  def test_map_filter(self):
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .run()
     )
     self.assertEqual(result, [6, 8, 10])
 
-  def test_foreach_foreach(self):
+  def test_map_map(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x * 2)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [3, 5, 7])
 
-  def test_foreach_gather(self):
+  def test_map_gather(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .gather(lambda x: sum(x), lambda x: len(x))
       .run()
     )
     self.assertEqual(result, [12, 3])
 
-  def test_foreach_if_true(self):
+  def test_map_if_true(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .if_(lambda x: len(x) > 2, lambda x: x[:2])
       .run()
     )
     self.assertEqual(result, [2, 4])
 
-  def test_foreach_if_false(self):
+  def test_map_if_false(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .if_(lambda x: len(x) > 100, lambda x: [])
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
 
-  def test_foreach_except(self):
+  def test_map_except(self):
     def raiser(x):
       if x > 2:
         raise ValueError('too big')
       return x
     result = (
       Chain([1, 2, 3])
-      .foreach(raiser)
+      .map(raiser)
       .except_(lambda exc: 'caught')
       .run()
     )
@@ -326,11 +326,11 @@ class TestFilterPairs(unittest.TestCase):
     self.assertEqual(result, [4, 5])
     self.assertEqual(tracker, [[4, 5]])
 
-  def test_filter_foreach(self):
+  def test_filter_map(self):
     result = (
       Chain([1, 2, 3, 4, 5])
       .filter(lambda x: x > 2)
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, [30, 40, 50])
@@ -402,11 +402,11 @@ class TestGatherPairs(unittest.TestCase):
     self.assertEqual(result, [6, 7])
     self.assertEqual(tracker, [[6, 7]])
 
-  def test_gather_foreach(self):
+  def test_gather_map(self):
     result = (
       Chain(10)
       .gather(lambda x: x + 1, lambda x: x + 2)
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .run()
     )
     self.assertEqual(result, [22, 24])
@@ -462,10 +462,10 @@ class TestWithPairs(unittest.TestCase):
     self.assertEqual(result, 'tracked_ctx_body')
     self.assertEqual(tracker, ['tracked_ctx_body'])
 
-  def test_with_foreach(self):
+  def test_with_map(self):
     cm = TrackingCM()
     cm.enter_result = [1, 2, 3]
-    result = Chain(cm).with_(lambda ctx: ctx).foreach(lambda x: x * 2).run()
+    result = Chain(cm).with_(lambda ctx: ctx).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_with_filter(self):
@@ -553,11 +553,11 @@ class TestIfPairs(unittest.TestCase):
     self.assertEqual(result, 10)
     self.assertEqual(tracker, [10])
 
-  def test_if_foreach(self):
+  def test_if_map(self):
     result = (
       Chain([1, 2, 3])
       .if_(lambda x: len(x) > 0, lambda x: [i * 2 for i in x])
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [3, 5, 7])
@@ -627,44 +627,44 @@ class TestIfPairs(unittest.TestCase):
 
 class TestTripleCombinations(unittest.TestCase):
 
-  def test_then_foreach_filter(self):
+  def test_then_map_filter(self):
     result = (
       Chain(0)
       .then(lambda x: [1, 2, 3, 4, 5])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .run()
     )
     self.assertEqual(result, [6, 8, 10])
 
-  def test_filter_foreach_then(self):
+  def test_filter_map_then(self):
     result = (
       Chain([1, 2, 3, 4, 5])
       .filter(lambda x: x > 2)
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .then(lambda x: sum(x))
       .run()
     )
     self.assertEqual(result, 120)
 
-  def test_then_if_foreach(self):
+  def test_then_if_map(self):
     result = (
       Chain([1, 2, 3])
       .then(lambda x: x)
       .if_(lambda x: len(x) > 0, lambda x: [i * 2 for i in x])
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [3, 5, 7])
 
-  def test_with_then_foreach(self):
+  def test_with_then_map(self):
     cm = TrackingCM()
     cm.enter_result = [10, 20, 30]
     result = (
       Chain(cm)
       .with_(lambda ctx: ctx)
       .then(lambda x: x)
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [11, 21, 31])
@@ -679,10 +679,10 @@ class TestTripleCombinations(unittest.TestCase):
     )
     self.assertEqual(result, 26)
 
-  def test_foreach_filter_if(self):
+  def test_map_filter_if(self):
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .if_(lambda x: len(x) > 0, lambda x: x[0])
       .run()
@@ -714,10 +714,10 @@ class TestTripleCombinations(unittest.TestCase):
     )
     self.assertEqual(result, 'caught')
 
-  def test_foreach_if_else_then(self):
+  def test_map_if_else_then(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .if_(lambda x: len(x) > 10, lambda x: [])
       .else_(lambda x: x)
       .then(lambda x: sum(x))
@@ -736,31 +736,31 @@ class TestTripleCombinations(unittest.TestCase):
     )
     self.assertEqual(result, 'long')
 
-  def test_then_gather_foreach(self):
+  def test_then_gather_map(self):
     result = (
       Chain(5)
       .then(lambda x: x + 1)
       .gather(lambda x: x, lambda x: x * 2)
-      .foreach(lambda x: x + 10)
+      .map(lambda x: x + 10)
       .run()
     )
     self.assertEqual(result, [16, 22])
 
-  def test_filter_if_foreach(self):
+  def test_filter_if_map(self):
     result = (
       Chain([1, 2, 3, 4, 5])
       .filter(lambda x: x > 2)
       .if_(lambda x: len(x) > 0, lambda x: x)
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, [30, 40, 50])
 
-  def test_then_foreach_gather(self):
+  def test_then_map_gather(self):
     result = (
       Chain(0)
       .then(lambda x: [1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .gather(lambda x: sum(x), lambda x: max(x))
       .run()
     )
@@ -797,14 +797,14 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
     result = await Chain(1).then(async_fn).then(async_fn).run()
     self.assertEqual(result, 3)
 
-  async def test_sync_foreach_async_fn(self):
+  async def test_sync_map_async_fn(self):
     async def async_double(x):
       return x * 2
-    result = await Chain([1, 2, 3]).foreach(async_double).run()
+    result = await Chain([1, 2, 3]).map(async_double).run()
     self.assertEqual(result, [2, 4, 6])
 
-  async def test_async_foreach_sync_fn(self):
-    result = await Chain(AsyncRange(4)).foreach(lambda x: x * 2).run()
+  async def test_async_map_sync_fn(self):
+    result = await Chain(AsyncRange(4)).map(lambda x: x * 2).run()
     self.assertEqual(result, [0, 2, 4, 6])
 
   async def test_sync_filter_async_pred(self):
@@ -894,22 +894,22 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
     self.assertEqual(result, 13)
     self.assertEqual(tracker, [13])
 
-  async def test_foreach_async_then_sync_then(self):
+  async def test_map_async_then_sync_then(self):
     async def async_double(x):
       return x * 2
     result = (
       await Chain([1, 2, 3])
-      .foreach(async_double)
+      .map(async_double)
       .then(lambda x: sum(x))
       .run()
     )
     self.assertEqual(result, 12)
 
-  async def test_async_then_foreach_filter(self):
+  async def test_async_then_map_filter(self):
     result = (
       await Chain([1, 2, 3, 4, 5])
       .then(async_identity)
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .run()
     )
@@ -965,12 +965,12 @@ class TestAsyncCrossingSyncToAsync(IsolatedAsyncioTestCase):
 
 class TestExceptWithEveryMethod(unittest.TestCase):
 
-  def test_foreach_raises_except_catches(self):
+  def test_map_raises_except_catches(self):
     def raiser(x):
       if x > 2:
         raise ValueError('too big')
       return x
-    result = Chain([1, 2, 3]).foreach(raiser).except_(lambda exc: 'caught').run()
+    result = Chain([1, 2, 3]).map(raiser).except_(lambda exc: 'caught').run()
     self.assertEqual(result, 'caught')
 
   def test_filter_raises_except_catches(self):
@@ -1049,11 +1049,11 @@ class TestExceptWithEveryMethod(unittest.TestCase):
 
 class TestFinallyWithEveryMethod(unittest.TestCase):
 
-  def test_foreach_with_finally(self):
+  def test_map_with_finally(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
     )
@@ -1142,7 +1142,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
     self.assertEqual(result, 'caught')
     self.assertEqual(tracker, ['cleanup'])
 
-  def test_foreach_except_finally(self):
+  def test_map_except_finally(self):
     tracker = []
     def raiser(x):
       if x > 2:
@@ -1150,7 +1150,7 @@ class TestExceptFinallyCombo(unittest.TestCase):
       return x
     result = (
       Chain([1, 2, 3])
-      .foreach(raiser)
+      .map(raiser)
       .except_(lambda exc: 'caught')
       .finally_(lambda root: tracker.append('cleanup'))
       .run()
@@ -1217,14 +1217,14 @@ class TestExceptFinallyCombo(unittest.TestCase):
 
 class TestAsyncExceptFinally(IsolatedAsyncioTestCase):
 
-  async def test_async_foreach_raises_except_catches(self):
+  async def test_async_map_raises_except_catches(self):
     async def async_raiser(x):
       if x > 2:
         raise ValueError('async too big')
       return x
     result = (
       await Chain([1, 2, 3])
-      .foreach(async_raiser)
+      .map(async_raiser)
       .except_(lambda exc: 'caught')
       .run()
     )
@@ -1287,8 +1287,8 @@ class TestFreezePairs(unittest.TestCase):
     self.assertEqual(result, 5)
     self.assertEqual(tracker, [5])
 
-  def test_freeze_foreach(self):
-    frozen = Chain().then(lambda x: x).foreach(lambda x: x * 2).freeze()
+  def test_freeze_map(self):
+    frozen = Chain().then(lambda x: x).map(lambda x: x * 2).freeze()
     self.assertEqual(frozen([1, 2, 3]), [2, 4, 6])
 
   def test_freeze_filter(self):
@@ -1355,11 +1355,11 @@ class TestFreezePairs(unittest.TestCase):
     self.assertEqual(result, 6)
     self.assertEqual(tracker, [5])
 
-  def test_freeze_foreach_filter_combo(self):
+  def test_freeze_map_filter_combo(self):
     frozen = (
       Chain()
       .then(lambda x: x)
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .freeze()
     )
@@ -1373,10 +1373,10 @@ class TestFreezeAsync(IsolatedAsyncioTestCase):
     result = await frozen(5)
     self.assertEqual(result, 6)
 
-  async def test_freeze_async_foreach(self):
+  async def test_freeze_async_map(self):
     async def async_double(x):
       return x * 2
-    frozen = Chain().then(lambda x: x).foreach(async_double).freeze()
+    frozen = Chain().then(lambda x: x).map(async_double).freeze()
     result = await frozen([1, 2, 3])
     self.assertEqual(result, [2, 4, 6])
 
@@ -1393,8 +1393,8 @@ class TestDecoratorPairs(unittest.TestCase):
       return x * 2
     self.assertEqual(my_fn(5), 11)
 
-  def test_decorator_foreach(self):
-    @Chain().then(lambda x: x).foreach(lambda x: x * 2).decorator()
+  def test_decorator_map(self):
+    @Chain().then(lambda x: x).map(lambda x: x * 2).decorator()
     def my_fn():
       return [1, 2, 3]
     self.assertEqual(my_fn(), [2, 4, 6])
@@ -1466,9 +1466,9 @@ class TestIteratePairs(unittest.TestCase):
     result = list(Chain([1, 2, 3]).then(lambda x: x).iterate(lambda x: x * 2))
     self.assertEqual(result, [2, 4, 6])
 
-  def test_iterate_after_foreach(self):
-    """foreach returns a list, iterate yields elements of that list."""
-    result = list(Chain([1, 2, 3]).foreach(lambda x: x * 2).iterate())
+  def test_iterate_after_map(self):
+    """map returns a list, iterate yields elements of that list."""
+    result = list(Chain([1, 2, 3]).map(lambda x: x * 2).iterate())
     self.assertEqual(result, [2, 4, 6])
 
   def test_iterate_after_filter(self):
@@ -1511,11 +1511,11 @@ class TestIterateAsync(IsolatedAsyncioTestCase):
       result.append(item)
     self.assertEqual(result, [2, 4, 6])
 
-  async def test_async_iterate_after_foreach(self):
+  async def test_async_iterate_after_map(self):
     async def async_double(x):
       return x * 2
     result = []
-    async for item in Chain([1, 2]).foreach(async_double).iterate():
+    async for item in Chain([1, 2]).map(async_double).iterate():
       result.append(item)
     self.assertEqual(result, [2, 4])
 
@@ -1532,12 +1532,12 @@ class TestIterateAsync(IsolatedAsyncioTestCase):
 
 class TestReturnBreakCombinations(unittest.TestCase):
 
-  def test_return_in_then_skips_foreach(self):
+  def test_return_in_then_skips_map(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
       .then(lambda x: Chain.return_(99))
-      .foreach(lambda x: tracker.append(x) or x)
+      .map(lambda x: tracker.append(x) or x)
       .run()
     )
     self.assertEqual(result, 99)
@@ -1554,20 +1554,20 @@ class TestReturnBreakCombinations(unittest.TestCase):
     self.assertEqual(result, 42)
     self.assertEqual(tracker, [])
 
-  def test_break_in_foreach_exits_loop(self):
+  def test_break_in_map_exits_loop(self):
     def break_at_3(x):
       if x >= 3:
         Chain.break_()
       return x * 10
-    result = Chain([1, 2, 3, 4, 5]).foreach(break_at_3).run()
+    result = Chain([1, 2, 3, 4, 5]).map(break_at_3).run()
     self.assertEqual(result, [10, 20])
 
-  def test_break_with_value_in_foreach(self):
+  def test_break_with_value_in_map(self):
     def break_with_val(x):
       if x >= 3:
         Chain.break_([99])
       return x
-    result = Chain([1, 2, 3, 4]).foreach(break_with_val).run()
+    result = Chain([1, 2, 3, 4]).map(break_with_val).run()
     self.assertEqual(result, [99])
 
   def test_return_in_if_body(self):
@@ -1595,7 +1595,7 @@ class TestWithDoCombinations(unittest.TestCase):
     self.assertIs(result, 'after_with_do')
     self.assertEqual(tracker, ['tracked_ctx'])
 
-  def test_with_do_foreach(self):
+  def test_with_do_map(self):
     cm = TrackingCM()
     cm.enter_result = [1, 2, 3]
     tracker = []
@@ -1603,42 +1603,42 @@ class TestWithDoCombinations(unittest.TestCase):
     result = (
       Chain([10, 20, 30])
       .do(lambda x: None)
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [11, 21, 31])
 
 
-class TestForeachDoCombinations(unittest.TestCase):
+class TestForeachCombinations(unittest.TestCase):
 
-  def test_foreach_do_then(self):
+  def test_foreach_then(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach_do(lambda x: tracker.append(x * 10))
+      .foreach(lambda x: tracker.append(x * 10))
       .then(lambda x: sum(x))
       .run()
     )
     self.assertEqual(result, 6)
     self.assertEqual(tracker, [10, 20, 30])
 
-  def test_foreach_do_filter(self):
+  def test_foreach_filter(self):
     tracker = []
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach_do(lambda x: tracker.append(x))
+      .foreach(lambda x: tracker.append(x))
       .filter(lambda x: x > 3)
       .run()
     )
     self.assertEqual(result, [4, 5])
     self.assertEqual(tracker, [1, 2, 3, 4, 5])
 
-  def test_foreach_do_foreach(self):
+  def test_foreach_map(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach_do(lambda x: tracker.append(x * 10))
-      .foreach(lambda x: x * 2)
+      .foreach(lambda x: tracker.append(x * 10))
+      .map(lambda x: x * 2)
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
@@ -1670,12 +1670,12 @@ class TestGatherAdvancedCombinations(unittest.TestCase):
 
 class TestIfElseCombinations(unittest.TestCase):
 
-  def test_if_else_foreach(self):
+  def test_if_else_map(self):
     result = (
       Chain([1, 2, 3])
       .if_(lambda x: len(x) > 10, lambda x: [])
       .else_(lambda x: x)
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .run()
     )
     self.assertEqual(result, [2, 4, 6])
@@ -1726,13 +1726,13 @@ class TestIfElseCombinations(unittest.TestCase):
 class TestComplexPipelines(unittest.TestCase):
 
   def test_four_method_pipeline(self):
-    """then -> do -> foreach -> filter"""
+    """then -> do -> map -> filter"""
     tracker = []
     result = (
       Chain(0)
       .then(lambda x: [1, 2, 3, 4, 5])
       .do(lambda x: tracker.append(len(x)))
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .run()
     )
@@ -1740,11 +1740,11 @@ class TestComplexPipelines(unittest.TestCase):
     self.assertEqual(tracker, [5])
 
   def test_five_method_pipeline(self):
-    """then -> foreach -> filter -> then -> if"""
+    """then -> map -> filter -> then -> if"""
     result = (
       Chain(0)
       .then(lambda x: [1, 2, 3, 4, 5])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 5)
       .then(lambda x: sum(x))
       .if_(lambda x: x > 20, lambda x: 'big')
@@ -1765,11 +1765,11 @@ class TestComplexPipelines(unittest.TestCase):
     )
     self.assertEqual(result, 42)
 
-  def test_gather_into_foreach_into_filter(self):
+  def test_gather_into_map_into_filter(self):
     result = (
       Chain(5)
       .gather(lambda x: x, lambda x: x * 2, lambda x: x * 3)
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .filter(lambda x: x > 7)
       .run()
     )
@@ -1800,54 +1800,54 @@ class TestComplexAsyncPipelines(IsolatedAsyncioTestCase):
     result = (
       await Chain(0)
       .then(lambda x: [1, 2, 3, 4, 5])
-      .foreach(async_double)
+      .map(async_double)
       .filter(lambda x: x > 5)
       .then(lambda x: sum(x))
       .run()
     )
     self.assertEqual(result, 24)
 
-  async def test_async_gather_then_foreach(self):
+  async def test_async_gather_then_map(self):
     async def async_add(x):
       return x + 10
     result = (
       await Chain(5)
       .gather(async_add, lambda x: x * 2)
-      .foreach(lambda x: x + 1)
+      .map(lambda x: x + 1)
       .run()
     )
     self.assertEqual(result, [16, 11])
 
-  async def test_async_if_else_then_foreach(self):
+  async def test_async_if_else_then_map(self):
     async def async_pred(x):
       return len(x) > 3
     result = (
       await Chain([1, 2, 3, 4, 5])
       .if_(async_pred, lambda x: x)
       .else_(lambda x: [])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .run()
     )
     # Predicate receives a list of length 5, so if-branch runs
     self.assertEqual(result, [2, 4, 6, 8, 10])
 
-  async def test_async_with_then_foreach(self):
+  async def test_async_with_then_map(self):
     cm = AsyncCM()
     result = (
       await Chain(cm)
       .with_(lambda ctx: [1, 2, 3])
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .run()
     )
     self.assertEqual(result, [10, 20, 30])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
-  async def test_async_filter_foreach_gather(self):
+  async def test_async_filter_map_gather(self):
     result = (
       await Chain(AsyncRange(6))
       .filter(lambda x: x > 2)
-      .foreach(lambda x: x * 10)
+      .map(lambda x: x * 10)
       .gather(lambda x: sum(x), lambda x: len(x))
       .run()
     )
@@ -1861,7 +1861,7 @@ class TestComplexAsyncPipelines(IsolatedAsyncioTestCase):
       .then(async_fn)
       .do(lambda x: tracker.append(x))
       .then(lambda x: [x, x + 1, x + 2])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 7)
       .then(lambda x: sum(x))
       .run()
@@ -1900,8 +1900,8 @@ class TestEdgeCasePairs(unittest.TestCase):
     self.assertIsNone(result)
     self.assertEqual(tracker, [None])
 
-  def test_foreach_empty_then(self):
-    result = Chain([]).foreach(lambda x: x).then(lambda x: len(x)).run()
+  def test_map_empty_then(self):
+    result = Chain([]).map(lambda x: x).then(lambda x: len(x)).run()
     self.assertEqual(result, 0)
 
   def test_filter_empty_then(self):
@@ -1949,10 +1949,10 @@ class TestEdgeCasePairs(unittest.TestCase):
     )
     self.assertEqual(result, 84)
 
-  def test_foreach_then_filter(self):
+  def test_map_then_filter(self):
     result = (
       Chain([1, 2, 3, 4])
-      .foreach(lambda x: x ** 2)
+      .map(lambda x: x ** 2)
       .then(lambda x: x)
       .filter(lambda x: x > 5)
       .run()
@@ -1967,8 +1967,8 @@ class TestCallSyntaxCombinations(unittest.TestCase):
     c = Chain().then(lambda x: x + 1)
     self.assertEqual(c(5), 6)
 
-  def test_call_foreach(self):
-    c = Chain().then(lambda x: x).foreach(lambda x: x * 2)
+  def test_call_map(self):
+    c = Chain().then(lambda x: x).map(lambda x: x * 2)
     self.assertEqual(c([1, 2, 3]), [2, 4, 6])
 
   def test_call_filter(self):

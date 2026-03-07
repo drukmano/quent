@@ -52,7 +52,7 @@ quent/
   __init__.py              # Public API exports (Chain, Null, QuentException)
   _chain.py                # Chain and _FrozenChain classes (execution engine)
   _core.py                 # Link node, evaluation dispatch, control flow signals
-  _ops.py                  # foreach, filter, gather, with_ operation factories
+  _ops.py                  # map, filter, gather, with_ operation factories
   _traceback.py            # Traceback rewriting and chain visualization
 scripts/
   compile.sh               # Byte-compile (syntax check)
@@ -177,7 +177,7 @@ Control flow within chains uses exception-based signals (defined in `_core.py`):
 | Type | Purpose |
 |------|---------|
 | `_Return` | Raised by `Chain.return_()` to exit the entire chain with a value |
-| `_Break` | Raised by `Chain.break_()` to exit a `foreach` loop |
+| `_Break` | Raised by `Chain.break_()` to exit a `map` loop |
 
 Both carry a `value` field that defaults to `Null` to mean "no explicit value." These signals propagate through nested chains.
 

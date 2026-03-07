@@ -90,10 +90,21 @@ class TestNullSingleton(unittest.TestCase):
   def test_isinstance_check(self):
     self.assertIsInstance(Null, _Null)
 
-  def test_cannot_instantiate_second(self):
+  def test_singleton_enforced(self):
     n2 = _Null()
-    self.assertIsNot(n2, Null)
+    self.assertIs(n2, Null)
     self.assertIsInstance(n2, _Null)
+
+  def test_singleton_across_multiple_calls(self):
+    instances = [_Null() for _ in range(5)]
+    for inst in instances:
+      self.assertIs(inst, Null)
+
+  def test_singleton_class_variable_set(self):
+    self.assertIs(_Null._instance, Null)
+
+  def test_singleton_new_returns_same_id(self):
+    self.assertEqual(id(_Null()), id(Null))
 
   def test_null_is_not_ellipsis(self):
     self.assertIsNot(Null, ...)

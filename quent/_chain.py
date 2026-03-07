@@ -218,7 +218,7 @@ class Chain:
     except _Break:
       if self.is_nested:
         raise
-      raise QuentException('Chain.break_() cannot be used outside of a foreach iteration.') from None
+      raise QuentException('Chain.break_() cannot be used outside of a map/foreach iteration.') from None
 
     except BaseException as exc:
       _active_exc = exc
@@ -360,7 +360,7 @@ class Chain:
     except _Break:
       if self.is_nested:
         raise
-      raise QuentException('Chain.break_() cannot be used outside of a foreach iteration.') from None
+      raise QuentException('Chain.break_() cannot be used outside of a map/foreach iteration.') from None
 
     except BaseException as exc:
       _active_exc = exc
@@ -441,8 +441,10 @@ class Chain:
     """Append a step. The result replaces the current chain value."""
     return self._then(Link(v, args, kwargs))
 
-  def do(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
+  def do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Chain:
     """Append a side-effect step. The result is discarded."""
+    if not callable(fn):
+      raise TypeError(f'do() requires a callable, got {type(fn).__name__}')
     return self._then(Link(fn, args, kwargs, ignore_result=True))
 
   def except_(
@@ -540,26 +542,35 @@ class Chain:
     link = Link(fn) if fn is not None else None
     return _Generator(self._run, fn, ignore_result=True, chain=self, link=link)
 
-  def foreach(self, fn: Callable[[Any], Any], /) -> Chain:
-    """Apply fn to each element of the current iterable value."""
+  def map(self, fn: Callable[[Any], Any], /) -> Chain:
+    """Apply fn to each element and collect results."""
+    if not callable(fn):
+      raise TypeError(f'map() requires a callable, got {type(fn).__name__}')
     # original_value must be the inner Link (not fn directly) so that:
     # 1) the traceback formatter can drill through via isinstance(original_value, Link)
     # 2) _set_link_temp_args keys by id(inner), which the formatter matches after drill-through
     inner = Link(fn)
     return self._then(Link(_make_foreach(inner, False), original_value=inner))
 
-  def foreach_do(self, fn: Callable[[Any], Any], /) -> Chain:
+  def foreach(self, fn: Callable[[Any], Any], /) -> Chain:
     """Apply fn to each element as a side-effect, keeping original elements."""
+    if not callable(fn):
+      raise TypeError(f'foreach() requires a callable, got {type(fn).__name__}')
     inner = Link(fn)
     return self._then(Link(_make_foreach(inner, True), original_value=inner))
 
   def filter(self, fn: Callable[[Any], Any], /) -> Chain:
     """Filter the current iterable, keeping elements where fn returns truthy."""
+    if not callable(fn):
+      raise TypeError(f'filter() requires a callable, got {type(fn).__name__}')
     inner = Link(fn)
     return self._then(Link(_make_filter(inner), original_value=inner))
 
   def gather(self, *fns: Callable[[Any], Any]) -> Chain:
     """Run multiple functions concurrently on the current value."""
+    for fn in fns:
+      if not callable(fn):
+        raise TypeError(f'gather() requires all arguments to be callable, got {type(fn).__name__}')
     return self._then(Link(_make_gather(fns)))
 
   def with_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:

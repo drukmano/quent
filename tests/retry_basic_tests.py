@@ -697,7 +697,7 @@ class TestRetryControlFlowSignalNeverRetried(unittest.TestCase):
     self.assertEqual(result, 42)
     self.assertEqual(len(counter), 1)
 
-  def test_break_in_foreach_not_retried(self):
+  def test_break_in_map_not_retried(self):
     counter = []
 
     def fn(x):
@@ -706,9 +706,9 @@ class TestRetryControlFlowSignalNeverRetried(unittest.TestCase):
         Chain.break_()
       return x
 
-    result = Chain([1, 2, 3, 4]).foreach(fn).retry(max_attempts=5).run()
+    result = Chain([1, 2, 3, 4]).map(fn).retry(max_attempts=5).run()
     self.assertEqual(result, [1])
-    # foreach was called for items 1 and 2, break at 2
+    # map was called for items 1 and 2, break at 2
     self.assertEqual(counter, [1, 2])
 
   def test_return_not_retried_even_with_broad_on(self):

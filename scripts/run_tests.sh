@@ -4,10 +4,10 @@ set -e
 # Optimal order: cheapest/fastest checks first, fail fast before expensive operations.
 
 echo "==> Formatting (ruff format)"
-ruff format quent/
+ruff format --check quent/
 
 echo "==> Lint fix (ruff check)"
-ruff check --fix quent/
+ruff check quent/
 
 echo "==> Type check (mypy)"
 mypy quent/

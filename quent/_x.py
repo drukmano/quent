@@ -5,7 +5,7 @@ Usage:
 
     Chain([1, 2, 3, 4])
       .filter(X % 2 == 0)    # instead of lambda x: x % 2 == 0
-      .foreach(X * 10)        # instead of lambda x: x * 10
+      .map(X * 10)        # instead of lambda x: x * 10
 
     Chain('hello')
       .then(X.upper())        # instead of lambda x: x.upper()

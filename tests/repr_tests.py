@@ -60,19 +60,19 @@ class TestGetLinkName(unittest.TestCase):
     link = Link(sync_fn, ignore_result=True)
     self.assertEqual(_get_link_name(link), 'do')
 
-  def test_foreach_link(self):
+  def test_map_link(self):
     from quent._ops import _make_foreach
     inner = Link(sync_fn)
     wrapper = _make_foreach(inner, ignore_result=False)
     link = Link(wrapper, original_value=inner)
-    self.assertEqual(_get_link_name(link), 'foreach')
+    self.assertEqual(_get_link_name(link), 'map')
 
-  def test_foreach_do_link(self):
+  def test_foreach_link(self):
     from quent._ops import _make_foreach
     inner = Link(sync_fn)
     wrapper = _make_foreach(inner, ignore_result=True)
     link = Link(wrapper, original_value=inner)
-    self.assertEqual(_get_link_name(link), 'foreach_do')
+    self.assertEqual(_get_link_name(link), 'foreach')
 
   def test_filter_link(self):
     from quent._ops import _make_filter
@@ -129,9 +129,9 @@ class TestChainRepr(unittest.TestCase):
     r = repr(Chain(1).do(print))
     self.assertIn('.do(...)', r)
 
-  def test_with_foreach(self):
-    r = repr(Chain([1, 2]).foreach(sync_fn))
-    self.assertIn('.foreach(...)', r)
+  def test_with_map(self):
+    r = repr(Chain([1, 2]).map(sync_fn))
+    self.assertIn('.map(...)', r)
 
   def test_with_filter(self):
     r = repr(Chain([1, 2]).filter(sync_fn))

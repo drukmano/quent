@@ -451,9 +451,9 @@ class TestIfElseErrors(unittest.TestCase):
       Chain(10).do(lambda v: v).else_(lambda v: v)
     self.assertIn('else_() can only be used immediately after if_()', str(ctx.exception))
 
-  def test_else_after_foreach_raises(self):
+  def test_else_after_map_raises(self):
     with self.assertRaises(QuentException) as ctx:
-      Chain([1, 2]).foreach(lambda v: v).else_(lambda v: v)
+      Chain([1, 2]).map(lambda v: v).else_(lambda v: v)
     self.assertIn('else_() can only be used immediately after if_()', str(ctx.exception))
 
   def test_predicate_raises_propagates(self):

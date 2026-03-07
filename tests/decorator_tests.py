@@ -95,7 +95,7 @@ class TestDecoratorControlFlow(unittest.TestCase):
     # _run does not catch it (e.g., a nested chain scenario that leaks),
     # the decorator's wrapper catches _ControlFlowSignal and raises
     # QuentException. We can trigger this by using _run's _Break path:
-    # _Break outside a foreach raises QuentException (via _run),
+    # _Break outside a map raises QuentException (via _run),
     # but let's verify the decorator wrapper's own catch too.
     #
     # Actually, the decorator's try/except _ControlFlowSignal wraps

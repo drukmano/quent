@@ -374,7 +374,7 @@ class TestRunAsyncValuePropagation(unittest.IsolatedAsyncioTestCase):
     """_Break in a nested async chain (is_nested=True) re-raises (line 268-269)."""
     result = await (
       Chain(AsyncRange(10))
-      .foreach(lambda x: Chain.break_(99) if x == 3 else x)
+      .map(lambda x: Chain.break_(99) if x == 3 else x)
       .run()
     )
     self.assertEqual(result, 99)
@@ -383,7 +383,7 @@ class TestRunAsyncValuePropagation(unittest.IsolatedAsyncioTestCase):
     """_Break in non-nested async chain → QuentException (line 270)."""
     with self.assertRaises(QuentException) as ctx:
       await Chain(5).then(_async_add_one).then(lambda x: Chain.break_()).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
   async def test_async_return_with_awaitable_value(self):
     """_Return value is awaitable — gets awaited (line 263-264)."""

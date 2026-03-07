@@ -42,12 +42,12 @@ async def _capture_tb_async(coro):
 
 class TestTempArgsLifecycle(unittest.TestCase):
 
-  def test_temp_args_set_on_foreach_exception(self):
-    """Foreach sets item/index; verify via traceback string."""
+  def test_temp_args_set_on_map_exception(self):
+    """Map sets item/index; verify via traceback string."""
     def _boom(x):
-      raise ValueError('foreach error')
+      raise ValueError('map error')
 
-    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).foreach(_boom).run())
+    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).map(_boom).run())
     self.assertIsNotNone(tb_str)
     self.assertIn('item=10', tb_str)
     self.assertIn('index=0', tb_str)
@@ -169,8 +169,8 @@ class TestTempArgsLifecycle(unittest.TestCase):
     _set_link_temp_args(exc, link, big=large_list)
     self.assertIs(exc.__quent_link_temp_args__[id(link)]['big'], large_list)
 
-  def test_temp_args_foreach_at_second_item(self):
-    """Foreach exception at index 1 records correct item/index in traceback."""
+  def test_temp_args_map_at_second_item(self):
+    """Map exception at index 1 records correct item/index in traceback."""
     call_count = 0
 
     def _boom_at_1(x):
@@ -180,7 +180,7 @@ class TestTempArgsLifecycle(unittest.TestCase):
       call_count += 1
       return x
 
-    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).foreach(_boom_at_1).run())
+    tb_str = _capture_tb(lambda: Chain([10, 20, 30]).map(_boom_at_1).run())
     self.assertIsNotNone(tb_str)
     self.assertIn('item=20', tb_str)
     self.assertIn('index=1', tb_str)
@@ -257,12 +257,12 @@ class TestTempArgsAsync(IsolatedAsyncioTestCase):
     self.assertIsNotNone(tb_str)
     self.assertIn('current_value=42', tb_str)
 
-  async def test_async_temp_args_foreach(self):
-    """Async foreach sets item/index; verify via traceback string."""
+  async def test_async_temp_args_map(self):
+    """Async map sets item/index; verify via traceback string."""
     async def _boom(x):
-      raise ValueError('async foreach error')
+      raise ValueError('async map error')
 
-    tb_str = await _capture_tb_async(Chain([10, 20]).foreach(_boom).run())
+    tb_str = await _capture_tb_async(Chain([10, 20]).map(_boom).run())
     self.assertIsNotNone(tb_str)
     self.assertIn('item=10', tb_str)
     self.assertIn('index=0', tb_str)

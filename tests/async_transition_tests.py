@@ -1,6 +1,6 @@
 """Exhaustive 3-tier sync/async transition matrix tests for all operations.
 
-Each operation (foreach, filter, with_) has three execution paths:
+Each operation (map, filter, with_) has three execution paths:
 
   SYNC tier:      sync iterable/CM + sync fn -> pure sync _op function
   TO_ASYNC tier:  sync iterable/CM + fn returns awaitable -> _to_async handoff
@@ -65,70 +65,70 @@ async def async_raise_runtime(x=None):
 
 
 # ===========================================================================
-# FOREACH — SYNC TIER
+# MAP — SYNC TIER
 # ===========================================================================
 
-class TestForeachSyncTier(unittest.TestCase):
+class TestMapSyncTier(unittest.TestCase):
 
   def test_happy_path(self):
-    result = Chain([1, 2, 3]).foreach(lambda x: x * 2).run()
+    result = Chain([1, 2, 3]).map(lambda x: x * 2).run()
     self.assertEqual(result, [2, 4, 6])
 
   def test_exception_in_fn(self):
     with self.assertRaises(RuntimeError) as cm:
-      Chain([1, 2, 3]).foreach(lambda x: (_ for _ in ()).throw(RuntimeError('fn error'))).run()
+      Chain([1, 2, 3]).map(lambda x: (_ for _ in ()).throw(RuntimeError('fn error'))).run()
     # Use a simpler approach:
     def boom(x):
       raise RuntimeError('fn error')
     with self.assertRaises(RuntimeError) as cm:
-      Chain([1, 2, 3]).foreach(boom).run()
+      Chain([1, 2, 3]).map(boom).run()
     self.assertEqual(str(cm.exception), 'fn error')
 
   def test_exception_in_iteration(self):
     with self.assertRaises(RuntimeError) as cm:
-      Chain(RaisingIterable(5, 2)).foreach(lambda x: x).run()
+      Chain(RaisingIterable(5, 2)).map(lambda x: x).run()
     self.assertEqual(str(cm.exception), 'iteration error')
 
   def test_break(self):
-    result = Chain([1, 2, 3, 4, 5]).foreach(
+    result = Chain([1, 2, 3, 4, 5]).map(
       lambda x: Chain.break_() if x == 3 else x
     ).run()
     self.assertEqual(result, [1, 2])
 
   def test_return(self):
-    result = Chain([1, 2, 3]).foreach(
+    result = Chain([1, 2, 3]).map(
       lambda x: Chain.return_('early') if x == 2 else x
     ).run()
     self.assertEqual(result, 'early')
 
   def test_break_with_value(self):
-    result = Chain([1, 2, 3]).foreach(
+    result = Chain([1, 2, 3]).map(
       lambda x: Chain.break_(99) if x == 2 else x
     ).run()
     self.assertEqual(result, 99)
 
   def test_break_with_sync_value(self):
-    result = Chain([1, 2, 3]).foreach(
+    result = Chain([1, 2, 3]).map(
       lambda x: Chain.break_(lambda: 99) if x == 2 else x
     ).run()
     self.assertEqual(result, 99)
 
   def test_exception_in_break_value(self):
     with self.assertRaises(ValueError) as cm:
-      Chain([1, 2, 3]).foreach(
+      Chain([1, 2, 3]).map(
         lambda x: Chain.break_(raise_fn) if x == 2 else x
       ).run()
     self.assertEqual(str(cm.exception), 'test error')
 
 
 # ===========================================================================
-# FOREACH — TO_ASYNC TIER
+# MAP — TO_ASYNC TIER
 # ===========================================================================
 
-class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
+class TestMapToAsyncTier(IsolatedAsyncioTestCase):
 
   async def test_happy_path(self):
-    result = await Chain([1, 2, 3]).foreach(async_fn).run()
+    result = await Chain([1, 2, 3]).map(async_fn).run()
     self.assertEqual(result, [2, 3, 4])
 
   async def test_exception_in_fn(self):
@@ -142,14 +142,14 @@ class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
       return x
 
     with self.assertRaises(RuntimeError) as cm:
-      await Chain([1, 2, 3]).foreach(boom_on_second).run()
+      await Chain([1, 2, 3]).map(boom_on_second).run()
     self.assertEqual(str(cm.exception), 'async fn error')
 
   async def test_exception_in_iteration(self):
     # RaisingIterable raises at index 2. async_fn returns awaitable on
     # first call, triggering _to_async. Then next() raises inside _to_async.
     with self.assertRaises(RuntimeError) as cm:
-      await Chain(RaisingIterable(5, 2)).foreach(async_fn).run()
+      await Chain(RaisingIterable(5, 2)).map(async_fn).run()
     self.assertEqual(str(cm.exception), 'iteration error')
 
   async def test_break(self):
@@ -158,7 +158,7 @@ class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
         Chain.break_()
       return x * 10
 
-    result = await Chain([1, 2, 3]).foreach(break_on_second).run()
+    result = await Chain([1, 2, 3]).map(break_on_second).run()
     self.assertEqual(result, [10])
 
   async def test_return(self):
@@ -167,7 +167,7 @@ class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
         Chain.return_('early_async')
       return x
 
-    result = await Chain([1, 2, 3]).foreach(return_on_second).run()
+    result = await Chain([1, 2, 3]).map(return_on_second).run()
     self.assertEqual(result, 'early_async')
 
   async def test_break_with_value(self):
@@ -176,13 +176,13 @@ class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
         Chain.break_(42)
       return x
 
-    result = await Chain([1, 2, 3]).foreach(break_with_val).run()
+    result = await Chain([1, 2, 3]).map(break_with_val).run()
     self.assertEqual(result, 42)
 
   async def test_break_with_async_value(self):
     # Break value is a callable that returns a coroutine. In _to_async,
     # _handle_break_exc calls it, then the result is awaited.
-    result = await Chain(AsyncRange(5)).foreach(
+    result = await Chain(AsyncRange(5)).map(
       lambda x: Chain.break_(async_make_val) if x == 1 else x
     ).run()
     self.assertEqual(result, 'async_val')
@@ -194,7 +194,198 @@ class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
       return x
 
     with self.assertRaises(ValueError) as cm:
-      await Chain([1, 2, 3]).foreach(break_with_raise).run()
+      await Chain([1, 2, 3]).map(break_with_raise).run()
+    self.assertEqual(str(cm.exception), 'test error')
+
+
+# ===========================================================================
+# MAP — FULL_ASYNC TIER
+# ===========================================================================
+
+class TestMapFullAsyncTier(IsolatedAsyncioTestCase):
+
+  async def test_happy_path(self):
+    result = await Chain(AsyncRange(3)).map(sync_fn).run()
+    self.assertEqual(result, [1, 2, 3])
+
+  async def test_exception_in_fn(self):
+    def boom(x):
+      if x == 1:
+        raise RuntimeError('fn error in full async')
+      return x
+
+    with self.assertRaises(RuntimeError) as cm:
+      await Chain(AsyncRange(5)).map(boom).run()
+    self.assertEqual(str(cm.exception), 'fn error in full async')
+
+  async def test_exception_in_iteration(self):
+    with self.assertRaises(RuntimeError) as cm:
+      await Chain(AsyncRangeRaises(5, 2)).map(lambda x: x).run()
+    self.assertEqual(str(cm.exception), 'iteration error')
+
+  async def test_break(self):
+    result = await Chain(AsyncRange(5)).map(
+      lambda x: Chain.break_() if x == 2 else x
+    ).run()
+    self.assertEqual(result, [0, 1])
+
+  async def test_return(self):
+    result = await Chain(AsyncRange(5)).map(
+      lambda x: Chain.return_('from_async') if x == 1 else x
+    ).run()
+    self.assertEqual(result, 'from_async')
+
+  async def test_break_with_value(self):
+    result = await Chain(AsyncRange(5)).map(
+      lambda x: Chain.break_(77) if x == 2 else x
+    ).run()
+    self.assertEqual(result, 77)
+
+  async def test_break_with_async_value(self):
+    result = await Chain(AsyncRange(5)).map(
+      lambda x: Chain.break_(async_make_val) if x == 1 else x
+    ).run()
+    self.assertEqual(result, 'async_val')
+
+  async def test_exception_in_break_value(self):
+    with self.assertRaises(ValueError) as cm:
+      await Chain(AsyncRange(5)).map(
+        lambda x: Chain.break_(raise_fn) if x == 2 else x
+      ).run()
+    self.assertEqual(str(cm.exception), 'test error')
+
+
+# ===========================================================================
+# FOREACH — SYNC TIER
+# ===========================================================================
+
+class TestForeachSyncTier(unittest.TestCase):
+
+  def test_happy_path(self):
+    result = Chain([1, 2, 3]).foreach(lambda x: x * 100).run()
+    self.assertEqual(result, [1, 2, 3])
+
+  def test_fn_called_as_side_effect(self):
+    tracker = []
+    Chain([1, 2, 3]).foreach(lambda x: tracker.append(x)).run()
+    self.assertEqual(tracker, [1, 2, 3])
+
+  def test_exception_in_fn(self):
+    def boom(x):
+      raise RuntimeError('do fn error')
+    with self.assertRaises(RuntimeError) as cm:
+      Chain([1, 2, 3]).foreach(boom).run()
+    self.assertEqual(str(cm.exception), 'do fn error')
+
+  def test_exception_in_iteration(self):
+    with self.assertRaises(RuntimeError) as cm:
+      Chain(RaisingIterable(5, 2)).foreach(lambda x: x).run()
+    self.assertEqual(str(cm.exception), 'iteration error')
+
+  def test_break(self):
+    result = Chain([1, 2, 3, 4]).foreach(
+      lambda x: Chain.break_() if x == 3 else None
+    ).run()
+    self.assertEqual(result, [1, 2])
+
+  def test_return(self):
+    result = Chain([1, 2, 3]).foreach(
+      lambda x: Chain.return_('early') if x == 2 else None
+    ).run()
+    self.assertEqual(result, 'early')
+
+  def test_break_with_value(self):
+    result = Chain([1, 2, 3]).foreach(
+      lambda x: Chain.break_(99) if x == 2 else None
+    ).run()
+    self.assertEqual(result, 99)
+
+  def test_break_with_sync_value(self):
+    result = Chain([1, 2, 3]).foreach(
+      lambda x: Chain.break_(lambda: 99) if x == 2 else None
+    ).run()
+    self.assertEqual(result, 99)
+
+  def test_exception_in_break_value(self):
+    with self.assertRaises(ValueError) as cm:
+      Chain([1, 2, 3]).foreach(
+        lambda x: Chain.break_(raise_fn) if x == 2 else None
+      ).run()
+    self.assertEqual(str(cm.exception), 'test error')
+
+
+# ===========================================================================
+# FOREACH — TO_ASYNC TIER
+# ===========================================================================
+
+class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
+
+  async def test_happy_path(self):
+    result = await Chain([1, 2, 3]).foreach(async_fn).run()
+    self.assertEqual(result, [1, 2, 3])
+
+  async def test_fn_called_as_side_effect(self):
+    tracker = []
+
+    async def track(x):
+      tracker.append(x)
+      return 'discarded'
+
+    await Chain([1, 2, 3]).foreach(track).run()
+    self.assertEqual(tracker, [1, 2, 3])
+
+  async def test_exception_in_fn(self):
+    async def boom(x):
+      raise RuntimeError('async do fn error')
+
+    with self.assertRaises(RuntimeError) as cm:
+      await Chain([1, 2, 3]).foreach(boom).run()
+    self.assertEqual(str(cm.exception), 'async do fn error')
+
+  async def test_exception_in_iteration(self):
+    with self.assertRaises(RuntimeError) as cm:
+      await Chain(RaisingIterable(5, 2)).foreach(async_fn).run()
+    self.assertEqual(str(cm.exception), 'iteration error')
+
+  async def test_break(self):
+    async def break_on_third(x):
+      if x == 3:
+        Chain.break_()
+
+    result = await Chain([1, 2, 3, 4]).foreach(break_on_third).run()
+    self.assertEqual(result, [1, 2])
+
+  async def test_return(self):
+    async def return_on_second(x):
+      if x == 2:
+        Chain.return_('early_async_do')
+
+    result = await Chain([1, 2, 3]).foreach(return_on_second).run()
+    self.assertEqual(result, 'early_async_do')
+
+  async def test_break_with_value(self):
+    async def break_with_val(x):
+      if x == 2:
+        Chain.break_(42)
+
+    result = await Chain([1, 2, 3]).foreach(break_with_val).run()
+    self.assertEqual(result, 42)
+
+  async def test_break_with_async_value(self):
+    async def break_async_val(x):
+      if x == 2:
+        Chain.break_(async_make_val)
+
+    result = await Chain([1, 2, 3]).foreach(break_async_val).run()
+    self.assertEqual(result, 'async_val')
+
+  async def test_exception_in_break_value(self):
+    async def break_raise(x):
+      if x == 2:
+        Chain.break_(raise_fn)
+
+    with self.assertRaises(ValueError) as cm:
+      await Chain([1, 2, 3]).foreach(break_raise).run()
     self.assertEqual(str(cm.exception), 'test error')
 
 
@@ -205,203 +396,12 @@ class TestForeachToAsyncTier(IsolatedAsyncioTestCase):
 class TestForeachFullAsyncTier(IsolatedAsyncioTestCase):
 
   async def test_happy_path(self):
-    result = await Chain(AsyncRange(3)).foreach(sync_fn).run()
-    self.assertEqual(result, [1, 2, 3])
-
-  async def test_exception_in_fn(self):
-    def boom(x):
-      if x == 1:
-        raise RuntimeError('fn error in full async')
-      return x
-
-    with self.assertRaises(RuntimeError) as cm:
-      await Chain(AsyncRange(5)).foreach(boom).run()
-    self.assertEqual(str(cm.exception), 'fn error in full async')
-
-  async def test_exception_in_iteration(self):
-    with self.assertRaises(RuntimeError) as cm:
-      await Chain(AsyncRangeRaises(5, 2)).foreach(lambda x: x).run()
-    self.assertEqual(str(cm.exception), 'iteration error')
-
-  async def test_break(self):
-    result = await Chain(AsyncRange(5)).foreach(
-      lambda x: Chain.break_() if x == 2 else x
-    ).run()
-    self.assertEqual(result, [0, 1])
-
-  async def test_return(self):
-    result = await Chain(AsyncRange(5)).foreach(
-      lambda x: Chain.return_('from_async') if x == 1 else x
-    ).run()
-    self.assertEqual(result, 'from_async')
-
-  async def test_break_with_value(self):
-    result = await Chain(AsyncRange(5)).foreach(
-      lambda x: Chain.break_(77) if x == 2 else x
-    ).run()
-    self.assertEqual(result, 77)
-
-  async def test_break_with_async_value(self):
-    result = await Chain(AsyncRange(5)).foreach(
-      lambda x: Chain.break_(async_make_val) if x == 1 else x
-    ).run()
-    self.assertEqual(result, 'async_val')
-
-  async def test_exception_in_break_value(self):
-    with self.assertRaises(ValueError) as cm:
-      await Chain(AsyncRange(5)).foreach(
-        lambda x: Chain.break_(raise_fn) if x == 2 else x
-      ).run()
-    self.assertEqual(str(cm.exception), 'test error')
-
-
-# ===========================================================================
-# FOREACH_DO — SYNC TIER
-# ===========================================================================
-
-class TestForeachDoSyncTier(unittest.TestCase):
-
-  def test_happy_path(self):
-    result = Chain([1, 2, 3]).foreach_do(lambda x: x * 100).run()
-    self.assertEqual(result, [1, 2, 3])
-
-  def test_fn_called_as_side_effect(self):
-    tracker = []
-    Chain([1, 2, 3]).foreach_do(lambda x: tracker.append(x)).run()
-    self.assertEqual(tracker, [1, 2, 3])
-
-  def test_exception_in_fn(self):
-    def boom(x):
-      raise RuntimeError('do fn error')
-    with self.assertRaises(RuntimeError) as cm:
-      Chain([1, 2, 3]).foreach_do(boom).run()
-    self.assertEqual(str(cm.exception), 'do fn error')
-
-  def test_exception_in_iteration(self):
-    with self.assertRaises(RuntimeError) as cm:
-      Chain(RaisingIterable(5, 2)).foreach_do(lambda x: x).run()
-    self.assertEqual(str(cm.exception), 'iteration error')
-
-  def test_break(self):
-    result = Chain([1, 2, 3, 4]).foreach_do(
-      lambda x: Chain.break_() if x == 3 else None
-    ).run()
-    self.assertEqual(result, [1, 2])
-
-  def test_return(self):
-    result = Chain([1, 2, 3]).foreach_do(
-      lambda x: Chain.return_('early') if x == 2 else None
-    ).run()
-    self.assertEqual(result, 'early')
-
-  def test_break_with_value(self):
-    result = Chain([1, 2, 3]).foreach_do(
-      lambda x: Chain.break_(99) if x == 2 else None
-    ).run()
-    self.assertEqual(result, 99)
-
-  def test_break_with_sync_value(self):
-    result = Chain([1, 2, 3]).foreach_do(
-      lambda x: Chain.break_(lambda: 99) if x == 2 else None
-    ).run()
-    self.assertEqual(result, 99)
-
-  def test_exception_in_break_value(self):
-    with self.assertRaises(ValueError) as cm:
-      Chain([1, 2, 3]).foreach_do(
-        lambda x: Chain.break_(raise_fn) if x == 2 else None
-      ).run()
-    self.assertEqual(str(cm.exception), 'test error')
-
-
-# ===========================================================================
-# FOREACH_DO — TO_ASYNC TIER
-# ===========================================================================
-
-class TestForeachDoToAsyncTier(IsolatedAsyncioTestCase):
-
-  async def test_happy_path(self):
-    result = await Chain([1, 2, 3]).foreach_do(async_fn).run()
-    self.assertEqual(result, [1, 2, 3])
-
-  async def test_fn_called_as_side_effect(self):
-    tracker = []
-
-    async def track(x):
-      tracker.append(x)
-      return 'discarded'
-
-    await Chain([1, 2, 3]).foreach_do(track).run()
-    self.assertEqual(tracker, [1, 2, 3])
-
-  async def test_exception_in_fn(self):
-    async def boom(x):
-      raise RuntimeError('async do fn error')
-
-    with self.assertRaises(RuntimeError) as cm:
-      await Chain([1, 2, 3]).foreach_do(boom).run()
-    self.assertEqual(str(cm.exception), 'async do fn error')
-
-  async def test_exception_in_iteration(self):
-    with self.assertRaises(RuntimeError) as cm:
-      await Chain(RaisingIterable(5, 2)).foreach_do(async_fn).run()
-    self.assertEqual(str(cm.exception), 'iteration error')
-
-  async def test_break(self):
-    async def break_on_third(x):
-      if x == 3:
-        Chain.break_()
-
-    result = await Chain([1, 2, 3, 4]).foreach_do(break_on_third).run()
-    self.assertEqual(result, [1, 2])
-
-  async def test_return(self):
-    async def return_on_second(x):
-      if x == 2:
-        Chain.return_('early_async_do')
-
-    result = await Chain([1, 2, 3]).foreach_do(return_on_second).run()
-    self.assertEqual(result, 'early_async_do')
-
-  async def test_break_with_value(self):
-    async def break_with_val(x):
-      if x == 2:
-        Chain.break_(42)
-
-    result = await Chain([1, 2, 3]).foreach_do(break_with_val).run()
-    self.assertEqual(result, 42)
-
-  async def test_break_with_async_value(self):
-    async def break_async_val(x):
-      if x == 2:
-        Chain.break_(async_make_val)
-
-    result = await Chain([1, 2, 3]).foreach_do(break_async_val).run()
-    self.assertEqual(result, 'async_val')
-
-  async def test_exception_in_break_value(self):
-    async def break_raise(x):
-      if x == 2:
-        Chain.break_(raise_fn)
-
-    with self.assertRaises(ValueError) as cm:
-      await Chain([1, 2, 3]).foreach_do(break_raise).run()
-    self.assertEqual(str(cm.exception), 'test error')
-
-
-# ===========================================================================
-# FOREACH_DO — FULL_ASYNC TIER
-# ===========================================================================
-
-class TestForeachDoFullAsyncTier(IsolatedAsyncioTestCase):
-
-  async def test_happy_path(self):
-    result = await Chain(AsyncRange(3)).foreach_do(lambda x: x * 100).run()
+    result = await Chain(AsyncRange(3)).foreach(lambda x: x * 100).run()
     self.assertEqual(result, [0, 1, 2])
 
   async def test_fn_called_as_side_effect(self):
     tracker = []
-    await Chain(AsyncRange(3)).foreach_do(lambda x: tracker.append(x)).run()
+    await Chain(AsyncRange(3)).foreach(lambda x: tracker.append(x)).run()
     self.assertEqual(tracker, [0, 1, 2])
 
   async def test_exception_in_fn(self):
@@ -410,41 +410,41 @@ class TestForeachDoFullAsyncTier(IsolatedAsyncioTestCase):
         raise RuntimeError('full async do fn error')
 
     with self.assertRaises(RuntimeError) as cm:
-      await Chain(AsyncRange(5)).foreach_do(boom).run()
+      await Chain(AsyncRange(5)).foreach(boom).run()
     self.assertEqual(str(cm.exception), 'full async do fn error')
 
   async def test_exception_in_iteration(self):
     with self.assertRaises(RuntimeError) as cm:
-      await Chain(AsyncRangeRaises(5, 2)).foreach_do(lambda x: x).run()
+      await Chain(AsyncRangeRaises(5, 2)).foreach(lambda x: x).run()
     self.assertEqual(str(cm.exception), 'iteration error')
 
   async def test_break(self):
-    result = await Chain(AsyncRange(5)).foreach_do(
+    result = await Chain(AsyncRange(5)).foreach(
       lambda x: Chain.break_() if x == 2 else None
     ).run()
     self.assertEqual(result, [0, 1])
 
   async def test_return(self):
-    result = await Chain(AsyncRange(5)).foreach_do(
+    result = await Chain(AsyncRange(5)).foreach(
       lambda x: Chain.return_('from_async_do') if x == 1 else None
     ).run()
     self.assertEqual(result, 'from_async_do')
 
   async def test_break_with_value(self):
-    result = await Chain(AsyncRange(5)).foreach_do(
+    result = await Chain(AsyncRange(5)).foreach(
       lambda x: Chain.break_(77) if x == 2 else None
     ).run()
     self.assertEqual(result, 77)
 
   async def test_break_with_async_value(self):
-    result = await Chain(AsyncRange(5)).foreach_do(
+    result = await Chain(AsyncRange(5)).foreach(
       lambda x: Chain.break_(async_make_val) if x == 1 else None
     ).run()
     self.assertEqual(result, 'async_val')
 
   async def test_exception_in_break_value(self):
     with self.assertRaises(ValueError) as cm:
-      await Chain(AsyncRange(5)).foreach_do(
+      await Chain(AsyncRange(5)).foreach(
         lambda x: Chain.break_(raise_fn) if x == 2 else None
       ).run()
     self.assertEqual(str(cm.exception), 'test error')
@@ -479,12 +479,12 @@ class TestFilterSyncTier(unittest.TestCase):
     self.assertEqual(result, 'early')
 
   def test_control_flow_propagation(self):
-    # break outside foreach context -> QuentException
+    # break outside map context -> QuentException
     with self.assertRaises(QuentException) as cm:
       Chain([1, 2, 3]).filter(
         lambda x: Chain.break_() if x == 2 else True
       ).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(cm.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(cm.exception))
 
 
 # ===========================================================================
@@ -533,7 +533,7 @@ class TestFilterToAsyncTier(IsolatedAsyncioTestCase):
 
     with self.assertRaises(QuentException) as cm:
       await Chain([1, 2, 3]).filter(break_on_two).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(cm.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(cm.exception))
 
 
 # ===========================================================================
@@ -570,7 +570,7 @@ class TestFilterFullAsyncTier(IsolatedAsyncioTestCase):
       await Chain(AsyncRange(5)).filter(
         lambda x: Chain.break_() if x == 2 else True
       ).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(cm.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(cm.exception))
 
 
 # ===========================================================================
@@ -1157,45 +1157,45 @@ class TestChainLevelTransitions(IsolatedAsyncioTestCase):
 class TestMixedOperationTransitions(IsolatedAsyncioTestCase):
   """Tests combining multiple operations and their tier interactions."""
 
-  async def test_foreach_then_filter(self):
+  async def test_map_then_filter(self):
     result = await (
       Chain([1, 2, 3, 4])
-      .foreach(async_fn)
+      .map(async_fn)
       .then(lambda lst: Chain(lst).filter(lambda x: x > 3).run())
       .run()
     )
     # [1,2,3,4] -> async_fn each -> [2,3,4,5] -> filter >3 -> [4,5]
     self.assertEqual(result, [4, 5])
 
-  async def test_with_then_foreach(self):
+  async def test_with_then_map(self):
     result = await (
       Chain(AsyncCM())
       .with_(lambda ctx: [1, 2, 3])
-      .then(lambda lst: Chain(lst).foreach(async_fn).run())
+      .then(lambda lst: Chain(lst).map(async_fn).run())
       .run()
     )
-    # AsyncCM -> ctx_value -> body returns [1,2,3] -> foreach async_fn -> [2,3,4]
+    # AsyncCM -> ctx_value -> body returns [1,2,3] -> map async_fn -> [2,3,4]
     # The inner chain result needs awaiting.
     self.assertEqual(result, [2, 3, 4])
 
-  async def test_sync_foreach_mid_async_chain(self):
+  async def test_sync_map_mid_async_chain(self):
     result = await (
       Chain(async_fn, 0)
       .then(lambda x: [x, x + 1, x + 2])
-      .foreach(lambda i: i * 10)
+      .map(lambda i: i * 10)
       .run()
     )
-    # async_fn(0)=1 -> [1,2,3] -> foreach *10 -> [10,20,30]
+    # async_fn(0)=1 -> [1,2,3] -> map *10 -> [10,20,30]
     self.assertEqual(result, [10, 20, 30])
 
-  async def test_async_foreach_mid_async_chain(self):
+  async def test_async_map_mid_async_chain(self):
     result = await (
       Chain(async_fn, 0)
       .then(lambda x: [x, x + 1, x + 2])
-      .foreach(async_double)
+      .map(async_double)
       .run()
     )
-    # async_fn(0)=1 -> [1,2,3] -> foreach async_double -> [2,4,6]
+    # async_fn(0)=1 -> [1,2,3] -> map async_double -> [2,4,6]
     self.assertEqual(result, [2, 4, 6])
 
   async def test_filter_with_async_predicate_in_chain(self):
@@ -1224,15 +1224,15 @@ class TestMixedOperationTransitions(IsolatedAsyncioTestCase):
     # async_fn(5)=6 -> gather([6*2, async_fn(6), 6+100]) -> [12, 7, 106]
     self.assertEqual(result, [12, 7, 106])
 
-  async def test_foreach_do_preserves_originals_in_async_chain(self):
+  async def test_foreach_preserves_originals_in_async_chain(self):
     tracker = []
     result = await (
       Chain(async_fn, 0)
       .then(lambda x: [x, x + 1, x + 2])
-      .foreach_do(lambda i: tracker.append(i * 10))
+      .foreach(lambda i: tracker.append(i * 10))
       .run()
     )
-    # async_fn(0)=1 -> [1,2,3] -> foreach_do -> originals [1,2,3]
+    # async_fn(0)=1 -> [1,2,3] -> foreach -> originals [1,2,3]
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(tracker, [10, 20, 30])
 
@@ -1252,6 +1252,16 @@ class TestMixedOperationTransitions(IsolatedAsyncioTestCase):
 class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
   """Edge cases at tier boundaries."""
 
+  async def test_map_empty_async_iterable(self):
+    class AsyncEmpty:
+      def __aiter__(self):
+        return self
+      async def __anext__(self):
+        raise StopAsyncIteration
+
+    result = await Chain(AsyncEmpty()).map(lambda x: x).run()
+    self.assertEqual(result, [])
+
   async def test_foreach_empty_async_iterable(self):
     class AsyncEmpty:
       def __aiter__(self):
@@ -1260,16 +1270,6 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
         raise StopAsyncIteration
 
     result = await Chain(AsyncEmpty()).foreach(lambda x: x).run()
-    self.assertEqual(result, [])
-
-  async def test_foreach_do_empty_async_iterable(self):
-    class AsyncEmpty:
-      def __aiter__(self):
-        return self
-      async def __anext__(self):
-        raise StopAsyncIteration
-
-    result = await Chain(AsyncEmpty()).foreach_do(lambda x: x).run()
     self.assertEqual(result, [])
 
   async def test_filter_empty_async_iterable(self):
@@ -1282,8 +1282,8 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     result = await Chain(AsyncEmpty()).filter(lambda x: True).run()
     self.assertEqual(result, [])
 
-  async def test_foreach_single_item_async(self):
-    result = await Chain(AsyncRange(1)).foreach(async_fn).run()
+  async def test_map_single_item_async(self):
+    result = await Chain(AsyncRange(1)).map(async_fn).run()
     self.assertEqual(result, [1])
 
   async def test_filter_none_pass_async(self):
@@ -1300,7 +1300,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
     result = await Chain(AsyncRange(3)).filter(always_true).run()
     self.assertEqual(result, [0, 1, 2])
 
-  async def test_to_async_foreach_mixed_sync_async_fn(self):
+  async def test_to_async_map_mixed_sync_async_fn(self):
     # fn that returns sync on first call, async on second.
     # This exercises the _to_async path where some results are sync.
     call_count = 0
@@ -1312,7 +1312,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
         return async_double(x)
       return x * 2
 
-    result = await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
+    result = await Chain([1, 2, 3, 4]).map(mixed_fn).run()
     # call 1: sync 1*2=2, call 2: async 2*2=4, call 3: sync 3*2=6, call 4: async 4*2=8
     # But _to_async only gets triggered if the FIRST call is async, or after
     # at least one call is sync and then one is async. Actually, the sync _foreach_op
@@ -1351,7 +1351,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
       return x
 
     try:
-      await Chain([10, 20, 30]).foreach(boom_on_third).run()
+      await Chain([10, 20, 30]).map(boom_on_third).run()
     except ValueError as exc:
       # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
       self.assertTrue(getattr(exc, '__quent__', False))
@@ -1366,7 +1366,7 @@ class TestTransitionEdgeCases(IsolatedAsyncioTestCase):
       return x
 
     try:
-      await Chain(AsyncRange(5)).foreach(boom_on_second).run()
+      await Chain(AsyncRange(5)).map(boom_on_second).run()
     except ValueError as exc:
       # __quent_link_temp_args__ is consumed and deleted by _modify_traceback.
       self.assertTrue(getattr(exc, '__quent__', False))
@@ -1426,8 +1426,8 @@ class TestFrozenChainTransitions(IsolatedAsyncioTestCase):
     result = chain.run(5)
     self.assertEqual(result, 10)
 
-  async def test_frozen_foreach_async(self):
-    chain = Chain().foreach(async_fn).freeze()
+  async def test_frozen_map_async(self):
+    chain = Chain().map(async_fn).freeze()
     result = await chain.run([1, 2, 3])
     self.assertEqual(result, [2, 3, 4])
 

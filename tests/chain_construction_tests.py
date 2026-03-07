@@ -106,9 +106,9 @@ class TestChainFluency(unittest.TestCase):
     result = c.finally_(_noop)
     self.assertIs(result, c)
 
-  def test_foreach_returns_self(self):
+  def test_map_returns_self(self):
     c = Chain()
-    result = c.foreach(_noop)
+    result = c.map(_noop)
     self.assertIs(result, c)
 
   def test_filter_returns_self(self):

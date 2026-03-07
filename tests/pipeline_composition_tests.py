@@ -77,9 +77,9 @@ class TestTwoOperationPipelines(unittest.TestCase):
       self.assertEqual(result, 10)
       self.assertEqual(tracker, [10])
 
-  def test_then_foreach(self):
-    with self.subTest(op1='then', op2='foreach'):
-      result = Chain(4).then(_to_list).foreach(_double).run()
+  def test_then_map(self):
+    with self.subTest(op1='then', op2='map'):
+      result = Chain(4).then(_to_list).map(_double).run()
       self.assertEqual(result, [0, 2, 4, 6])
 
   def test_then_filter(self):
@@ -117,13 +117,13 @@ class TestTwoOperationPipelines(unittest.TestCase):
       self.assertEqual(tracker1, [5])
       self.assertEqual(tracker2, [5])
 
-  def test_do_foreach(self):
-    with self.subTest(op1='do', op2='foreach'):
+  def test_do_map(self):
+    with self.subTest(op1='do', op2='map'):
       tracker = []
       result = (
         Chain([1, 2, 3])
         .do(lambda x: tracker.append(len(x)))
-        .foreach(_double)
+        .map(_double)
         .run()
       )
       self.assertEqual(result, [2, 4, 6])
@@ -165,38 +165,38 @@ class TestTwoOperationPipelines(unittest.TestCase):
       self.assertEqual(result, 'CTX_VALUE')
       self.assertEqual(tracker, ['pre'])
 
-  def test_foreach_then(self):
-    with self.subTest(op1='foreach', op2='then'):
-      result = Chain([1, 2, 3]).foreach(_double).then(_sum_list).run()
+  def test_map_then(self):
+    with self.subTest(op1='map', op2='then'):
+      result = Chain([1, 2, 3]).map(_double).then(_sum_list).run()
       self.assertEqual(result, 12)
 
-  def test_foreach_filter(self):
-    with self.subTest(op1='foreach', op2='filter'):
-      result = Chain([1, 2, 3, 4]).foreach(_double).filter(lambda x: x > 4).run()
+  def test_map_filter(self):
+    with self.subTest(op1='map', op2='filter'):
+      result = Chain([1, 2, 3, 4]).map(_double).filter(lambda x: x > 4).run()
       self.assertEqual(result, [6, 8])
 
-  def test_foreach_foreach(self):
-    with self.subTest(op1='foreach', op2='foreach (nested)'):
-      # First foreach maps [1,2] -> [[0],[0,1]]; second foreach flattens-ish
-      result = Chain([2, 3]).foreach(_to_list).foreach(_sum_list).run()
+  def test_map_map(self):
+    with self.subTest(op1='map', op2='map (nested)'):
+      # First map maps [1,2] -> [[0],[0,1]]; second map flattens-ish
+      result = Chain([2, 3]).map(_to_list).map(_sum_list).run()
       self.assertEqual(result, [1, 3])
 
-  def test_foreach_gather(self):
-    with self.subTest(op1='foreach', op2='gather'):
+  def test_map_gather(self):
+    with self.subTest(op1='map', op2='gather'):
       result = (
         Chain([1, 2, 3])
-        .foreach(_double)
+        .map(_double)
         .gather(_sum_list, lambda x: len(x))
         .run()
       )
       self.assertEqual(result, [12, 3])
 
-  def test_foreach_do(self):
-    with self.subTest(op1='foreach', op2='do'):
+  def test_foreach(self):
+    with self.subTest(op1='map', op2='do'):
       tracker = []
       result = (
         Chain([1, 2, 3])
-        .foreach(_double)
+        .map(_double)
         .do(lambda x: tracker.append(x))
         .run()
       )
@@ -208,9 +208,9 @@ class TestTwoOperationPipelines(unittest.TestCase):
       result = Chain([1, 2, 3, 4]).filter(_is_even).then(_sum_list).run()
       self.assertEqual(result, 6)
 
-  def test_filter_foreach(self):
-    with self.subTest(op1='filter', op2='foreach'):
-      result = Chain([1, 2, 3, 4]).filter(_is_even).foreach(_double).run()
+  def test_filter_map(self):
+    with self.subTest(op1='filter', op2='map'):
+      result = Chain([1, 2, 3, 4]).filter(_is_even).map(_double).run()
       self.assertEqual(result, [4, 8])
 
   def test_filter_gather(self):
@@ -250,12 +250,12 @@ class TestTwoOperationPipelines(unittest.TestCase):
       result = Chain(SyncCM()).with_(lambda ctx: ctx).then(lambda x: x.upper()).run()
       self.assertEqual(result, 'CTX_VALUE')
 
-  def test_with_foreach(self):
-    with self.subTest(op1='with_', op2='foreach'):
+  def test_with_map(self):
+    with self.subTest(op1='with_', op2='map'):
       result = (
         Chain(SyncCM())
         .with_(lambda ctx: [1, 2, 3])
-        .foreach(_double)
+        .map(_double)
         .run()
       )
       self.assertEqual(result, [2, 4, 6])
@@ -297,9 +297,9 @@ class TestTwoOperationPipelines(unittest.TestCase):
       result = Chain(5).gather(_add1, _double).then(_sum_list).run()
       self.assertEqual(result, 16)
 
-  def test_gather_foreach(self):
-    with self.subTest(op1='gather', op2='foreach'):
-      result = Chain(5).gather(_add1, _double).foreach(_double).run()
+  def test_gather_map(self):
+    with self.subTest(op1='gather', op2='map'):
+      result = Chain(5).gather(_add1, _double).map(_double).run()
       self.assertEqual(result, [12, 20])
 
   def test_gather_filter(self):
@@ -336,35 +336,35 @@ class TestTwoOperationPipelines(unittest.TestCase):
 class TestThreeOperationPipelines(unittest.TestCase):
   """Common 3-operation patterns."""
 
-  def test_then_foreach_then(self):
-    with self.subTest(pipeline='then->foreach->then'):
+  def test_then_map_then(self):
+    with self.subTest(pipeline='then->map->then'):
       result = (
         Chain(4)
         .then(_to_list)
-        .foreach(_double)
+        .map(_double)
         .then(_sum_list)
         .run()
       )
       # range(4) -> [0,1,2,3], doubled -> [0,2,4,6], sum -> 12
       self.assertEqual(result, 12)
 
-  def test_then_filter_foreach(self):
-    with self.subTest(pipeline='then->filter->foreach'):
+  def test_then_filter_map(self):
+    with self.subTest(pipeline='then->filter->map'):
       result = (
         Chain(6)
         .then(_to_list)
         .filter(_is_even)
-        .foreach(_double)
+        .map(_double)
         .run()
       )
       # range(6) -> [0..5], filter even -> [0,2,4], double -> [0,4,8]
       self.assertEqual(result, [0, 4, 8])
 
-  def test_foreach_filter_then(self):
-    with self.subTest(pipeline='foreach->filter->then'):
+  def test_map_filter_then(self):
+    with self.subTest(pipeline='map->filter->then'):
       result = (
         Chain([1, 2, 3, 4, 5])
-        .foreach(_double)
+        .map(_double)
         .filter(lambda x: x > 4)
         .then(_sum_list)
         .run()
@@ -395,49 +395,49 @@ class TestThreeOperationPipelines(unittest.TestCase):
       # 5 -> 10, gather [11, 20], sum -> 31
       self.assertEqual(result, 31)
 
-  def test_then_then_foreach(self):
-    with self.subTest(pipeline='then->then->foreach'):
+  def test_then_then_map(self):
+    with self.subTest(pipeline='then->then->map'):
       result = (
         Chain(3)
         .then(_add1)
         .then(_to_list)
-        .foreach(_double)
+        .map(_double)
         .run()
       )
       # 3 -> 4, range(4) -> [0,1,2,3], double -> [0,2,4,6]
       self.assertEqual(result, [0, 2, 4, 6])
 
-  def test_filter_foreach_then(self):
-    with self.subTest(pipeline='filter->foreach->then'):
+  def test_filter_map_then(self):
+    with self.subTest(pipeline='filter->map->then'):
       result = (
         Chain([1, 2, 3, 4, 5, 6])
         .filter(lambda x: x > 3)
-        .foreach(_double)
+        .map(_double)
         .then(_sum_list)
         .run()
       )
       # filter >3 -> [4,5,6], double -> [8,10,12], sum -> 30
       self.assertEqual(result, 30)
 
-  def test_do_then_foreach(self):
-    with self.subTest(pipeline='do->then->foreach'):
+  def test_do_then_map(self):
+    with self.subTest(pipeline='do->then->map'):
       tracker = []
       result = (
         Chain(3)
         .do(lambda x: tracker.append(x))
         .then(_to_list)
-        .foreach(_double)
+        .map(_double)
         .run()
       )
       self.assertEqual(result, [0, 2, 4])
       self.assertEqual(tracker, [3])
 
-  def test_foreach_do_then(self):
-    with self.subTest(pipeline='foreach->do->then'):
+  def test_foreach_then(self):
+    with self.subTest(pipeline='map->do->then'):
       tracker = []
       result = (
         Chain([1, 2, 3])
-        .foreach(_double)
+        .map(_double)
         .do(lambda x: tracker.append(list(x)))
         .then(_sum_list)
         .run()
@@ -469,12 +469,12 @@ class TestThreeOperationPipelines(unittest.TestCase):
       )
       self.assertEqual(result, 'CTX_VALUE')
 
-  def test_with_foreach_then(self):
-    with self.subTest(pipeline='with_->foreach->then'):
+  def test_with_map_then(self):
+    with self.subTest(pipeline='with_->map->then'):
       result = (
         Chain(SyncCM())
         .with_(lambda ctx: [1, 2, 3])
-        .foreach(_double)
+        .map(_double)
         .then(_sum_list)
         .run()
       )
@@ -522,12 +522,12 @@ class TestPipelineWithExcept(unittest.TestCase):
       )
       self.assertEqual(result, 'caught')
 
-  def test_error_in_foreach_within_pipeline(self):
-    with self.subTest(error_at='foreach'):
+  def test_error_in_map_within_pipeline(self):
+    with self.subTest(error_at='map'):
       result = (
         Chain(5)
         .then(_to_list)
-        .foreach(lambda x: 1 / 0)
+        .map(lambda x: 1 / 0)
         .then(_sum_list)
         .except_(lambda e: 'caught')
         .run()
@@ -693,7 +693,7 @@ class TestPipelineWithFinally(unittest.TestCase):
     result = (
       Chain(3)
       .then(_to_list)
-      .foreach(_double)
+      .map(_double)
       .then(_sum_list)
       .finally_(lambda rv: tracker.append(rv))
       .run()
@@ -736,11 +736,11 @@ class TestPipelineValueFlow(unittest.TestCase):
     # do receives 10 (result of x*2)
     self.assertEqual(tracker, [10])
 
-  def test_foreach_filter_pipeline(self):
-    """Chain([1,2,3]).foreach(x*2).filter(x>2) -> [4,6]."""
+  def test_map_filter_pipeline(self):
+    """Chain([1,2,3]).map(x*2).filter(x>2) -> [4,6]."""
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: x * 2)
+      .map(lambda x: x * 2)
       .filter(lambda x: x > 2)
       .run()
     )
@@ -772,7 +772,7 @@ class TestPipelineValueFlow(unittest.TestCase):
       .then(lambda x: x + 4)               # 10
       .do(lambda x: tracker.append(('c', x)))
       .then(lambda x: [x, x + 1, x + 2])  # [10, 11, 12]
-      .foreach(lambda x: x * 2)            # [20, 22, 24]
+      .map(lambda x: x * 2)            # [20, 22, 24]
       .filter(lambda x: x > 21)            # [22, 24]
       .then(lambda x: sum(x))              # 46
       .run()
@@ -786,7 +786,7 @@ class TestPipelineValueFlow(unittest.TestCase):
     self.assertTrue(result)
 
   def test_empty_list_propagation(self):
-    result = Chain([]).foreach(_double).run()
+    result = Chain([]).map(_double).run()
     self.assertEqual(result, [])
 
   def test_empty_filter_result(self):
@@ -876,8 +876,8 @@ class TestPipelineWithFrozenChains(unittest.TestCase):
     self.assertEqual(result, 10)
     self.assertEqual(tracker, [5])
 
-  def test_frozen_with_foreach(self):
-    frozen = Chain().then(_to_list).foreach(_double).freeze()
+  def test_frozen_with_map(self):
+    frozen = Chain().then(_to_list).map(_double).freeze()
     result = Chain(4).then(frozen).run()
     self.assertEqual(result, [0, 2, 4, 6])
 
@@ -924,11 +924,11 @@ class TestPipelineAsync(IsolatedAsyncioTestCase):
     # 5 -> 10 -> 11 -> 22
     self.assertEqual(result, 22)
 
-  async def test_async_foreach_in_pipeline(self):
+  async def test_async_map_in_pipeline(self):
     result = await (
       Chain(4)
       .then(_to_list)
-      .foreach(_async_double)
+      .map(_async_double)
       .then(_sum_list)
       .run()
     )
@@ -1091,22 +1091,22 @@ class TestPipelineWithControlFlow(unittest.TestCase):
     self.assertNotIn('step2', tracker)
     self.assertIn(('finally', 5), tracker)
 
-  def test_return_in_foreach_exits_chain(self):
+  def test_return_in_map_exits_chain(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.return_(99) if x == 2 else x)
-      .then(lambda x: tracker.append('after_foreach'))
+      .map(lambda x: Chain.return_(99) if x == 2 else x)
+      .then(lambda x: tracker.append('after_map'))
       .run()
     )
     self.assertEqual(result, 99)
     self.assertEqual(tracker, [])
 
-  def test_break_in_foreach_continues_chain(self):
-    """break_ exits the foreach but the chain continues."""
+  def test_break_in_map_continues_chain(self):
+    """break_ exits the map but the chain continues."""
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_() if x == 3 else x * 10)
+      .map(lambda x: Chain.break_() if x == 3 else x * 10)
       .then(_sum_list)
       .run()
     )
@@ -1146,7 +1146,7 @@ class TestPipelineWithControlFlow(unittest.TestCase):
       .then(lambda x: Chain.return_(x + 1))
       .do(lambda x: tracker.append('do'))
       .then(lambda x: tracker.append('then'))
-      .foreach(lambda x: tracker.append('foreach'))
+      .map(lambda x: tracker.append('map'))
       .run()
     )
     self.assertEqual(result, 11)
@@ -1183,10 +1183,10 @@ class TestPipelineWithControlFlowAsync(IsolatedAsyncioTestCase):
     self.assertEqual(result, 42)
     self.assertIn(('finally', 5), tracker)
 
-  async def test_break_in_async_foreach(self):
+  async def test_break_in_async_map(self):
     result = await (
       Chain([1, 2, 3, 4])
-      .foreach(lambda x: Chain.break_() if x == 3 else _async_double(x))
+      .map(lambda x: Chain.break_() if x == 3 else _async_double(x))
       .run()
     )
     # Items 1, 2 processed with async_double -> awaitables
@@ -1205,7 +1205,7 @@ class TestPipelineDoSemantics(unittest.TestCase):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach(_double)
+      .map(_double)
       .do(lambda x: tracker.append(list(x)))
       .filter(lambda x: x > 2)
       .run()
@@ -1259,27 +1259,27 @@ class TestPipelineWithDo(unittest.TestCase):
 
 
 # ===========================================================================
-# Class: TestPipelineForeachDo
+# Class: TestPipelineForeach
 # ===========================================================================
-class TestPipelineForeachDo(unittest.TestCase):
-  """Tests for foreach_do() in pipelines."""
+class TestPipelineForeach(unittest.TestCase):
+  """Tests for foreach() in pipelines."""
 
-  def test_foreach_do_preserves_original_items(self):
+  def test_foreach_preserves_original_items(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach_do(lambda x: tracker.append(x * 10))
+      .foreach(lambda x: tracker.append(x * 10))
       .run()
     )
-    # foreach_do keeps original items, not fn results
+    # foreach keeps original items, not fn results
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(tracker, [10, 20, 30])
 
-  def test_foreach_do_then_pipeline(self):
+  def test_foreach_then_pipeline(self):
     tracker = []
     result = (
       Chain([1, 2, 3])
-      .foreach_do(lambda x: tracker.append(x))
+      .foreach(lambda x: tracker.append(x))
       .then(_sum_list)
       .run()
     )

@@ -263,28 +263,28 @@ class ModerateTests(unittest.IsolatedAsyncioTestCase):
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
-  def test_nested_foreach_break_isolation(self):
-    """M4: break_() in inner foreach should NOT escape to outer foreach.
-    Outer foreach processes all 3 items.
+  def test_nested_map_break_isolation(self):
+    """M4: break_() in inner map should NOT escape to outer map.
+    Outer map processes all 3 items.
     """
     def outer_fn(item):
-      # Inner foreach iterates ['a', 'b', 'c'], breaks after 'a'
-      inner_result = Chain(['a', 'b', 'c']).foreach(
+      # Inner map iterates ['a', 'b', 'c'], breaks after 'a'
+      inner_result = Chain(['a', 'b', 'c']).map(
         lambda x: Chain.break_() if x == 'b' else x
       ).run()
       return (item, inner_result)
 
-    result = Chain([1, 2, 3]).foreach(outer_fn).run()
+    result = Chain([1, 2, 3]).map(outer_fn).run()
     self.assertEqual(len(result), 3)
-    # Each inner foreach should have only processed 'a' before breaking
+    # Each inner map should have only processed 'a' before breaking
     for item, inner in result:
       self.assertEqual(inner, ['a'])
 
-  async def test_to_async_on_last_item_foreach(self):
-    """M5: foreach with async fn over single-element iterable.
+  async def test_to_async_on_last_item_map(self):
+    """M5: map with async fn over single-element iterable.
     The _to_async path is entered on the first (and last) item.
     """
-    result = await Chain([42]).foreach(async_fn).run()
+    result = await Chain([42]).map(async_fn).run()
     # async_fn(42) = 43
     self.assertEqual(result, [43])
 
@@ -298,8 +298,8 @@ class ModerateTests(unittest.IsolatedAsyncioTestCase):
     result = await Chain([1, 2, 3]).filter(is_even).run()
     self.assertEqual(result, [2])
 
-  async def test_mixed_sync_async_alternating_foreach(self):
-    """M7: foreach over items where fn returns awaitable for even items
+  async def test_mixed_sync_async_alternating_map(self):
+    """M7: map over items where fn returns awaitable for even items
     and plain value for odd items. Once _to_async is entered, subsequent
     sync items should still work.
     """
@@ -311,7 +311,7 @@ class ModerateTests(unittest.IsolatedAsyncioTestCase):
         return async_double(x)
       return x * 2
 
-    result = await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
+    result = await Chain([1, 2, 3, 4]).map(mixed_fn).run()
     self.assertEqual(result, [2, 4, 6, 8])
 
   def test_sync_iterate_with_async_fn_raises_typeerror(self):
@@ -469,10 +469,10 @@ class ModerateTests(unittest.IsolatedAsyncioTestCase):
 class LowTests(unittest.IsolatedAsyncioTestCase):
 
   def test_break_with_null_returns_accumulated(self):
-    """L1: break_(Null) in foreach returns the accumulated list so far.
+    """L1: break_(Null) in map returns the accumulated list so far.
     When break value is Null, _handle_break_exc returns the fallback (lst).
     """
-    result = Chain([1, 2, 3, 4]).foreach(
+    result = Chain([1, 2, 3, 4]).map(
       lambda x: Chain.break_(Null) if x == 3 else x
     ).run()
     # break_(Null) -> exc.value is Null -> _handle_break_exc returns

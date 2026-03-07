@@ -10,6 +10,9 @@ if [ ! -d "dist" ]; then
   exit 1
 fi
 
+echo "==> Checking distribution"
+python3 -m twine check dist/*
+
 echo "==> Uploading to PyPI"
 python3 -m twine upload dist/*
 

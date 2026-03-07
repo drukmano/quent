@@ -200,8 +200,8 @@ class TestFilterFullAsyncTier(IsolatedAsyncioTestCase):
 
 class TestFilterAdditional(IsolatedAsyncioTestCase):
 
-  async def test_filter_on_foreach_result(self):
-    result = Chain([1, 2, 3, 4, 5]).foreach(
+  async def test_filter_on_map_result(self):
+    result = Chain([1, 2, 3, 4, 5]).map(
       lambda x: x * 2
     ).filter(
       lambda x: x > 4
@@ -309,10 +309,10 @@ class TestFilterAdditional(IsolatedAsyncioTestCase):
     result = Chain([1, 2, 2, 3, 3, 3]).filter(lambda x: x > 1).run()
     self.assertEqual(result, [2, 2, 3, 3, 3])
 
-  async def test_filter_after_async_foreach(self):
+  async def test_filter_after_async_map(self):
     async def double(x):
       return x * 2
-    result = await Chain(AsyncRange(5)).foreach(double).filter(lambda x: x > 4).run()
+    result = await Chain(AsyncRange(5)).map(double).filter(lambda x: x > 4).run()
     self.assertEqual(result, [6, 8])
 
   def test_filter_exception_mid_iteration(self):

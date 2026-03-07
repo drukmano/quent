@@ -455,12 +455,12 @@ class TestXChainIntegrationSync(unittest.TestCase):
     result = Chain([1, 2, 3, 4, 5]).filter(X > 3).run()
     self.assertEqual(result, [4, 5])
 
-  def test_foreach_multiply(self):
-    result = Chain([1, 2, 3]).foreach(X * 10).run()
+  def test_map_multiply(self):
+    result = Chain([1, 2, 3]).map(X * 10).run()
     self.assertEqual(result, [10, 20, 30])
 
-  def test_foreach_add(self):
-    result = Chain([10, 20, 30]).foreach(X + 5).run()
+  def test_map_add(self):
+    result = Chain([10, 20, 30]).map(X + 5).run()
     self.assertEqual(result, [15, 25, 35])
 
   def test_then_upper(self):
@@ -491,16 +491,16 @@ class TestXChainIntegrationSync(unittest.TestCase):
     result = Chain(2).if_(X > 3, X * 2).run()
     self.assertEqual(result, 2)
 
-  def test_filter_then_foreach(self):
-    result = Chain([1, 2, 3, 4]).filter(X > 2).foreach(X * 10).run()
+  def test_filter_then_map(self):
+    result = Chain([1, 2, 3, 4]).filter(X > 2).map(X * 10).run()
     self.assertEqual(result, [30, 40])
 
-  def test_foreach_neg(self):
-    result = Chain([1, -2, 3]).foreach(-X).run()
+  def test_map_neg(self):
+    result = Chain([1, -2, 3]).map(-X).run()
     self.assertEqual(result, [-1, 2, -3])
 
-  def test_foreach_abs(self):
-    result = Chain([-5, 3, -1]).foreach(abs(X)).run()
+  def test_map_abs(self):
+    result = Chain([-5, 3, -1]).map(abs(X)).run()
     self.assertEqual(result, [5, 3, 1])
 
   def test_then_arithmetic(self):
@@ -515,8 +515,8 @@ class TestXChainIntegrationAsync(unittest.IsolatedAsyncioTestCase):
     result = await Chain(AsyncRange(6)).filter(X % 2 == 0).run()
     self.assertEqual(result, [0, 2, 4])
 
-  async def test_async_foreach_with_x(self):
-    result = await Chain(AsyncRange(4)).foreach(X * 10).run()
+  async def test_async_map_with_x(self):
+    result = await Chain(AsyncRange(4)).map(X * 10).run()
     self.assertEqual(result, [0, 10, 20, 30])
 
 
@@ -975,8 +975,8 @@ class TestXChainAdvanced(unittest.TestCase):
     result = Chain(['a', 'bb', 'ccc', 'dd']).filter(X > 'b').run()
     self.assertEqual(result, ['bb', 'ccc', 'dd'])
 
-  def test_foreach_string_upper(self):
-    result = Chain(['hello', 'world']).foreach(X.upper()).run()
+  def test_map_string_upper(self):
+    result = Chain(['hello', 'world']).map(X.upper()).run()
     self.assertEqual(result, ['HELLO', 'WORLD'])
 
   def test_then_slice(self):
@@ -995,21 +995,21 @@ class TestXChainAdvanced(unittest.TestCase):
     result = Chain(11).if_(X % 2 == 0, X // 2).run()
     self.assertEqual(result, 11)
 
-  def test_foreach_with_complex_expr(self):
-    result = Chain([1, 2, 3]).foreach(X * 2 + 1).run()
+  def test_map_with_complex_expr(self):
+    result = Chain([1, 2, 3]).map(X * 2 + 1).run()
     self.assertEqual(result, [3, 5, 7])
 
   def test_filter_with_bitwise(self):
     result = Chain([1, 2, 3, 4, 5, 6]).filter(X & 1 == 1).run()
     self.assertEqual(result, [1, 3, 5])
 
-  def test_foreach_item_access(self):
-    result = Chain([(1, 'a'), (2, 'b'), (3, 'c')]).foreach(X[0]).run()
+  def test_map_item_access(self):
+    result = Chain([(1, 'a'), (2, 'b'), (3, 'c')]).map(X[0]).run()
     self.assertEqual(result, [1, 2, 3])
 
-  def test_foreach_dict_key_access(self):
+  def test_map_dict_key_access(self):
     data = [{'v': 10}, {'v': 20}, {'v': 30}]
-    result = Chain(data).foreach(X['v']).run()
+    result = Chain(data).map(X['v']).run()
     self.assertEqual(result, [10, 20, 30])
 
   def test_chain_then_x_attr_passthrough(self):

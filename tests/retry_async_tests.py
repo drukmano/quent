@@ -761,8 +761,8 @@ class TestAsyncRetryAwaitablePatterns(IsolatedAsyncioTestCase):
     result = await Chain(5).then(inner).retry(3, on=ValueError).run()
     self.assertEqual(result, 'inner_ok')
 
-  async def test_chain_with_async_foreach_and_retry(self):
-    """foreach with async fn that fails on first chain attempt, succeeds on second."""
+  async def test_chain_with_async_map_and_retry(self):
+    """map with async fn that fails on first chain attempt, succeeds on second."""
     attempt_count = 0
 
     async def transform(x):
@@ -770,10 +770,10 @@ class TestAsyncRetryAwaitablePatterns(IsolatedAsyncioTestCase):
       attempt_count += 1
       # Fail on the very first item of the first attempt
       if attempt_count == 1:
-        raise ValueError('foreach fail')
+        raise ValueError('map fail')
       return x * 2
 
-    result = await Chain([1, 2, 3]).foreach(transform).retry(3, on=ValueError).run()
+    result = await Chain([1, 2, 3]).map(transform).retry(3, on=ValueError).run()
     self.assertEqual(result, [2, 4, 6])
     # attempt 1: item 1 -> fail (attempt_count=1)
     # attempt 2: items 1,2,3 all succeed (attempt_count=2,3,4)

@@ -1,5 +1,5 @@
 """Tests for Chain.return_() and Chain.break_() control flow signals:
-early return, foreach break, nesting propagation, async variants,
+early return, map break, nesting propagation, async variants,
 and error cases.
 """
 from __future__ import annotations
@@ -104,10 +104,10 @@ class TestReturnAsync(unittest.IsolatedAsyncioTestCase):
 
 class TestBreakSignal(unittest.TestCase):
 
-  def test_break_in_foreach_stops_iteration(self):
+  def test_break_in_map_stops_iteration(self):
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .run()
     )
     self.assertEqual(result, [1, 2])
@@ -115,7 +115,7 @@ class TestBreakSignal(unittest.TestCase):
   def test_break_no_value_returns_partial_results(self):
     result = (
       Chain([10, 20, 30, 40])
-      .foreach(lambda x: Chain.break_() if x == 30 else x * 2)
+      .map(lambda x: Chain.break_() if x == 30 else x * 2)
       .run()
     )
     # break with no value returns the list accumulated so far
@@ -124,7 +124,7 @@ class TestBreakSignal(unittest.TestCase):
   def test_break_with_value_returns_value(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(99) if x == 2 else x)
+      .map(lambda x: Chain.break_(99) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 99)
@@ -132,38 +132,38 @@ class TestBreakSignal(unittest.TestCase):
   def test_break_with_callable_value(self):
     result = (
       Chain([1, 2, 3])
-      .foreach(lambda x: Chain.break_(lambda: 'done') if x == 2 else x)
+      .map(lambda x: Chain.break_(lambda: 'done') if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 'done')
 
-  def test_break_outside_foreach_raises_quent_exception(self):
+  def test_break_outside_map_raises_quent_exception(self):
     with self.assertRaises(QuentException) as ctx:
       Chain(5).then(lambda x: Chain.break_()).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
   def test_break_in_filter_stops(self):
     # filter catches _ControlFlowSignal and re-raises it, so _Break propagates
-    # to the chain's _run handler where it raises QuentException (not in foreach context)
+    # to the chain's _run handler where it raises QuentException (not in map context)
     with self.assertRaises(QuentException) as ctx:
       Chain([1, 2, 3]).filter(lambda x: Chain.break_() if x == 2 else True).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
 
 class TestBreakAsync(unittest.IsolatedAsyncioTestCase):
 
-  async def test_break_in_async_foreach(self):
+  async def test_break_in_async_map(self):
     result = await (
       Chain(AsyncRange(6))
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .run()
     )
     self.assertEqual(result, [0, 1, 2])
 
-  async def test_break_outside_foreach_async_raises(self):
+  async def test_break_outside_map_async_raises(self):
     with self.assertRaises(QuentException) as ctx:
       await Chain(5).then(async_fn).then(lambda x: Chain.break_()).run()
-    self.assertIn('Chain.break_() cannot be used outside of a foreach iteration', str(ctx.exception))
+    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
   async def test_break_with_async_value(self):
     async def make_break_val():
@@ -171,7 +171,7 @@ class TestBreakAsync(unittest.IsolatedAsyncioTestCase):
 
     result = await (
       Chain(AsyncRange(5))
-      .foreach(lambda x: Chain.break_(make_break_val) if x == 2 else x)
+      .map(lambda x: Chain.break_(make_break_val) if x == 2 else x)
       .run()
     )
     self.assertEqual(result, 'async_break_val')
@@ -220,12 +220,12 @@ class TestReturnBreakInteractionWithExcept(unittest.TestCase):
     self.assertEqual(handler_called, [])
 
   def test_break_not_caught_by_except_handler(self):
-    # In foreach context, _Break is caught inside _make_foreach before
+    # In map context, _Break is caught inside _make_foreach before
     # the chain-level except handler ever sees it.
     handler_called = []
     result = (
       Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_() if x == 3 else x)
+      .map(lambda x: Chain.break_() if x == 3 else x)
       .except_(lambda exc: handler_called.append(exc))
       .run()
     )
