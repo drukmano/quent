@@ -449,7 +449,7 @@ class Chain:
 
   def except_(
     self,
-    fn: Any,
+    v: Any,
     /,
     *args: Any,
     exceptions: type[BaseException] | Iterable[type[BaseException]] | None = None,
@@ -472,14 +472,14 @@ class Chain:
           raise TypeError(f'except_() expects exception types (subclasses of BaseException), got {exc_type!r}')
     else:
       self.on_except_exceptions = (Exception,)
-    self.on_except_link = Link(fn, args, kwargs)
+    self.on_except_link = Link(v, args, kwargs)
     return self
 
-  def finally_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
+  def finally_(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
     """Register a cleanup handler. Receives the root value."""
     if self.on_finally_link is not None:
       raise QuentException("You can only register one 'finally' callback.")
-    self.on_finally_link = Link(fn, args, kwargs)
+    self.on_finally_link = Link(v, args, kwargs)
     return self
 
   def retry(
@@ -573,36 +573,36 @@ class Chain:
         raise TypeError(f'gather() requires all arguments to be callable, got {type(fn).__name__}')
     return self._then(Link(_make_gather(fns)))
 
-  def with_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
-    """Enter current value as context manager, run fn with the context."""
-    inner = Link(fn, args, kwargs)
+  def with_(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
+    """Enter current value as context manager, run v with the context."""
+    inner = Link(v, args, kwargs)
     return self._then(Link(_make_with(inner, False), ignore_result=False, original_value=inner))
 
-  def with_do(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
-    """Enter current value as context manager, run fn as side-effect."""
-    inner = Link(fn, args, kwargs)
+  def with_do(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
+    """Enter current value as context manager, run v as side-effect."""
+    inner = Link(v, args, kwargs)
     return self._then(Link(_make_with(inner, True), ignore_result=True, original_value=inner))
 
-  def if_(self, predicate: Callable[..., Any], fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
-    """Conditionally apply fn if predicate(current_value) is truthy.
+  def if_(self, predicate: Callable[..., Any], v: Any, /, *args: Any, **kwargs: Any) -> Chain:
+    """Conditionally apply v if predicate(current_value) is truthy.
 
-    If predicate returns truthy, fn is evaluated and its result replaces
+    If predicate returns truthy, v is evaluated and its result replaces
     the current value. If falsy, the current value passes through unchanged.
-    Both predicate and fn can be sync or async.
+    Both predicate and v can be sync or async.
     """
-    fn_link = Link(fn, args, kwargs)
+    fn_link = Link(v, args, kwargs)
     return self._then(Link(_make_if(Link(predicate), fn_link), original_value=fn_link))
 
-  def else_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain:
+  def else_(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain:
     """Register an else branch for the preceding if_() step.
 
     Must be called immediately after if_(). If the preceding if_'s
-    predicate was falsy, fn is evaluated instead.
+    predicate was falsy, v is evaluated instead.
     """
     last = self.current_link if self.current_link is not None else self.first_link
     if last is None or getattr(last.v, '_quent_op', None) != 'if':
       raise QuentException('else_() can only be used immediately after if_()')
-    last.v._else_link = Link(fn, args, kwargs)
+    last.v._else_link = Link(v, args, kwargs)
     return self
 
   def freeze(self) -> _FrozenChain:

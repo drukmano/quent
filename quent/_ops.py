@@ -471,14 +471,14 @@ def _make_gather(fns: tuple[Callable[[Any], Any], ...]) -> Callable[[Any], Any]:
   return _gather_op
 
 
-def _make_if(predicate_link: Link, fn_link: Link) -> Callable[[Any], Any]:
+def _make_if(predicate_link: Link, v_link: Link) -> Callable[[Any], Any]:
   """Create a conditional branching operation for use in a chain."""
   predicate: Callable[..., Any] = predicate_link.v
 
   async def _to_async_pred(pred_result: Any, current_value: Any) -> Any:
     pred_result = await pred_result
     if pred_result:
-      result = _evaluate_value(fn_link, current_value)
+      result = _evaluate_value(v_link, current_value)
       if isawaitable(result):
         return await result
       return result
@@ -494,7 +494,7 @@ def _make_if(predicate_link: Link, fn_link: Link) -> Callable[[Any], Any]:
     if isawaitable(pred_result):
       return _to_async_pred(pred_result, current_value)
     if pred_result:
-      return _evaluate_value(fn_link, current_value)
+      return _evaluate_value(v_link, current_value)
     elif _if_op._else_link is not None:  # type: ignore[attr-defined]
       return _evaluate_value(_if_op._else_link, current_value)  # type: ignore[attr-defined]
     return current_value
