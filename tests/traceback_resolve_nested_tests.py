@@ -11,7 +11,6 @@ import functools
 import unittest
 
 from quent import Chain
-from quent._chain import _FrozenChain
 from quent._core import Link, Null
 from quent._ops import _make_foreach, _make_filter, _make_gather, _make_with
 from quent._traceback import (

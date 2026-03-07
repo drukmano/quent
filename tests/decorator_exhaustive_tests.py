@@ -6,7 +6,6 @@ from __future__ import annotations
 import unittest
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from helpers import (
   async_fn,
   async_identity,
@@ -278,19 +277,7 @@ class TestDecoratorChaining(unittest.TestCase):
     self.assertEqual(fn(5), 110)
 
 
-class TestDecoratorWithFrozenChain(unittest.TestCase):
-
-  def test_decorator_then_freeze(self):
-    # Chain.freeze() returns a _FrozenChain which is not the same as Chain.
-    # But decorator() returns a callable, not a chain, so freeze is not relevant.
-    # Instead, test: decorator of a chain that includes a frozen chain as a step.
-    frozen_step = Chain().then(lambda x: x * 3).freeze()
-
-    @Chain().then(frozen_step).decorator()
-    def fn(n):
-      return n
-
-    self.assertEqual(fn(4), 12)  # frozen_step(4) -> 4*3=12
+class TestDecoratorCalledManyTimes(unittest.TestCase):
 
   def test_decorator_called_many_times(self):
     # Stress: same decorator, many calls, each independent.

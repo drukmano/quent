@@ -374,7 +374,7 @@ class TestFalsyThroughExcept(unittest.TestCase):
     """Except handler returns each falsy value — chain result is that value."""
     for name, val in FALSY_VALUES:
       with self.subTest(value=name):
-        result = Chain(1).then(lambda x: 1 / 0).except_(lambda exc, v=val: v).run()
+        result = Chain(1).then(lambda x: 1 / 0).except_(lambda rv, exc, v=val: v).run()
         _assert_falsy_equal(self, result, val)
 
   def test_except_handler_returns_null_becomes_none(self):

@@ -4,8 +4,7 @@ Covers cross-feature interactions that basic regression tests miss:
 H1 (_await_exit_suppress), H2 (_sync_generator), H3 (_get_true_source_link),
 H4 (_clean_chained_exceptions), H5 (_stringify_chain depth guard),
 H6 (_modify_traceback failure suppression), M1 (_make_gather cleanup),
-M4 (realpath), M5 (_get_obj_name newlines), M6 (error guards on hooks),
-disable/enable_traceback_patching.
+M4 (realpath), M5 (_get_obj_name newlines), M6 (error guards on hooks).
 """
 from __future__ import annotations
 
@@ -21,7 +20,7 @@ from inspect import isawaitable
 from typing import Any
 from unittest.mock import patch
 
-from quent import Chain, Null, disable_traceback_patching, enable_traceback_patching
+from quent import Chain, Null
 from quent._chain import _except_handler_body, _finally_handler_body, _FrozenChain
 from quent._core import Link, _Break, _ControlFlowSignal, _Return
 from quent._ops import _make_gather, _make_with, _sync_generator
@@ -32,8 +31,6 @@ from quent._traceback import (
   _get_obj_name,
   _get_true_source_link,
   _modify_traceback,
-  _original_excepthook,
-  _original_te_init,
   _patched_te_init,
   _quent_excepthook,
   _quent_file,
@@ -1083,7 +1080,7 @@ class TestM6ErrorGuardsExpanded(unittest.TestCase):
     def mock_hook(exc_type, exc_value, exc_tb):
       hook_called.append(True)
 
-    with patch('quent._traceback._original_excepthook', mock_hook):
+    with patch('sys.__excepthook__', mock_hook):
       _quent_excepthook(ValueError, exc, None)
     self.assertEqual(hook_called, [True])
 
@@ -1112,7 +1109,7 @@ class TestM6ErrorGuardsExpanded(unittest.TestCase):
     def mock_hook(exc_type, exc_value, exc_tb):
       hook_called.append(True)
 
-    with patch('quent._traceback._original_excepthook', mock_hook):
+    with patch('sys.__excepthook__', mock_hook):
       _quent_excepthook(ValueError, normal_exc, None)
     self.assertEqual(hook_called, [True])
 
@@ -1159,119 +1156,6 @@ class TestM6ErrorGuardsExpanded(unittest.TestCase):
       lines = list(te.format())
       text = ''.join(lines)
       self.assertIn('ValueError', text)
-
-
-# ---------------------------------------------------------------------------
-# disable/enable_traceback_patching -- expanded (8 tests)
-# ---------------------------------------------------------------------------
-
-class TestPatchingExpanded(unittest.TestCase):
-  """Expanded patching enable/disable tests."""
-
-  def setUp(self):
-    enable_traceback_patching()
-
-  def tearDown(self):
-    enable_traceback_patching()
-
-  def test_disable_shows_quent_frames(self):
-    """Disable -- raise exception -- traceback shows quent internal frames."""
-    disable_traceback_patching()
-
-    def raise_in_chain(x):
-      raise ValueError('frame test')
-
-    c = Chain(5).then(raise_in_chain)
-    try:
-      c.run()
-    except ValueError as exc:
-      # With patching disabled, TracebackException won't clean frames
-      te = traceback.TracebackException(type(exc), exc, exc.__traceback__)
-      text = ''.join(te.format())
-      self.assertIn('ValueError', text)
-
-  def test_enable_hides_quent_frames(self):
-    """Enable -- raise exception -- traceback hides quent internal frames."""
-    enable_traceback_patching()
-
-    def raise_in_chain(x):
-      raise ValueError('hide test')
-
-    c = Chain(5).then(raise_in_chain)
-    try:
-      c.run()
-    except ValueError as exc:
-      te = traceback.TracebackException(type(exc), exc, exc.__traceback__)
-      text = ''.join(te.format())
-      self.assertIn('ValueError', text)
-      # Internal quent frames should not appear
-      for line in text.splitlines():
-        if 'File' in line and _quent_file in line:
-          self.fail(f'Quent internal frame leaked with patching enabled: {line}')
-
-  def test_disable_format_exception_shows_frames(self):
-    """Disable -- format_exception -- shows internal frames."""
-    disable_traceback_patching()
-
-    def raise_in_chain(x):
-      raise ValueError('format test')
-
-    c = Chain(5).then(raise_in_chain)
-    try:
-      c.run()
-    except ValueError as exc:
-      lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
-      text = ''.join(lines)
-      self.assertIn('ValueError', text)
-
-  def test_enable_format_exception_hides_frames(self):
-    """Enable -- format_exception -- hides internal frames."""
-    enable_traceback_patching()
-
-    def raise_in_chain(x):
-      raise ValueError('format test')
-
-    c = Chain(5).then(raise_in_chain)
-    try:
-      c.run()
-    except ValueError as exc:
-      lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
-      text = ''.join(lines)
-      self.assertIn('ValueError', text)
-      for line in text.splitlines():
-        if 'File' in line and _quent_file in line:
-          self.fail(f'Quent internal frame leaked: {line}')
-
-  def test_rapid_toggle_100_no_leak(self):
-    """Disable + enable in tight loop (100 times) -- no resource leak."""
-    for _ in range(100):
-      disable_traceback_patching()
-      enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
-
-  def test_patching_state_after_import(self):
-    """Patching state after import: enabled by default."""
-    import quent._traceback as tb
-    # quent enables patching at import time
-    self.assertTrue(tb._patching_enabled)
-
-  def test_patching_state_after_disable_reenable(self):
-    """Patching state after disable + re-enable."""
-    import quent._traceback as tb
-    disable_traceback_patching()
-    self.assertFalse(tb._patching_enabled)
-    enable_traceback_patching()
-    self.assertTrue(tb._patching_enabled)
-    self.assertIs(sys.excepthook, _quent_excepthook)
-
-  def test_multiple_enable_idempotent(self):
-    """Multiple enable calls -- idempotent."""
-    enable_traceback_patching()
-    enable_traceback_patching()
-    enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
 
 
 # ---------------------------------------------------------------------------

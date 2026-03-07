@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from helpers import (
   SyncCM,
   SyncCMEnterReturnsNone,
@@ -202,11 +201,6 @@ class TestChainBoolAlwaysTrue(unittest.TestCase):
         else:
           self.assertTrue(bool(Chain(subject)))
 
-  def test_frozen_chain_bool_always_true(self):
-    subjects = [Chain(), Chain(0), Chain(False), Chain(None)]
-    for c in subjects:
-      with self.subTest(chain=c):
-        self.assertTrue(bool(c.freeze()))
 
 
 # ---------------------------------------------------------------------------
@@ -306,30 +300,6 @@ class TestChainReuse(unittest.TestCase):
         result = c.run(i)
         self.assertEqual(result, i * 2)
 
-  def test_frozen_reuse_100_times(self):
-    frozen = Chain().then(lambda x: x + 1).freeze()
-    for i in range(100):
-      with self.subTest(i=i):
-        result = frozen.run(i)
-        self.assertEqual(result, i + 1)
-
-
-class TestFrozenChainFromEmptyChain(unittest.TestCase):
-  """Frozen chain from an empty chain."""
-
-  def test_frozen_empty_returns_none(self):
-    frozen = Chain().freeze()
-    result = frozen.run()
-    self.assertIsNone(result)
-
-  def test_frozen_empty_with_run_value(self):
-    frozen = Chain().freeze()
-    result = frozen.run(42)
-    self.assertEqual(result, 42)
-
-  def test_frozen_empty_bool_true(self):
-    frozen = Chain().freeze()
-    self.assertTrue(bool(frozen))
 
 
 class TestDeeplyNestedChains(unittest.TestCase):

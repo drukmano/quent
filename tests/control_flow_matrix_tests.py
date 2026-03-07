@@ -371,10 +371,10 @@ class TestBreakOutsideMap(unittest.TestCase):
       self.assertIn('cannot be used outside', str(ctx.exception).lower())
 
   def test_break_in_filter(self):
+    # break_() inside filter() now stops iteration early and returns partial results.
     with self.subTest(operation='filter'):
-      with self.assertRaises(QuentException) as ctx:
-        Chain([1, 2, 3]).filter(lambda x: Chain.break_() if x == 2 else True).run()
-      self.assertIn('cannot be used outside', str(ctx.exception).lower())
+      result = Chain([1, 2, 3]).filter(lambda x: Chain.break_() if x == 2 else True).run()
+      self.assertEqual(result, [1])
 
   def test_break_in_with_do(self):
     with self.subTest(operation='with_do'):

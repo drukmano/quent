@@ -1,6 +1,6 @@
 """Tests for __quent_source_link__ first-write-wins stamping behavior.
 
-Covers sync and async paths, nested chains, frozen chains, except_ handler
+Covers sync and async paths, nested chains, except_ handler
 interaction, multi-level nesting, and stamp persistence.
 """
 from __future__ import annotations
@@ -8,7 +8,6 @@ from __future__ import annotations
 import unittest
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from quent._core import Link
 from helpers import async_fn, async_identity, make_tracker
 
@@ -151,26 +150,6 @@ class TestSourceLinkStampSync(unittest.TestCase):
     except Exception:
       self.fail('Should not propagate — outer except_ catches it')
 
-  def test_frozen_chain_stamp(self):
-    """Frozen chain stamps __quent_source_link__ like unfrozen."""
-    frozen = Chain(5).then(_raise_value_error).freeze()
-    try:
-      frozen.run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      self.assertTrue(getattr(exc, '__quent__', False))
-
-  def test_frozen_chain_nested_stamp(self):
-    """Frozen chain used as a step in outer chain: stamp from inner chain."""
-    frozen = Chain().then(_raise_value_error).freeze()
-    # Frozen chain is treated as a regular callable, not a nested chain.
-    # It will raise during __call__, and the outer chain catches it.
-    try:
-      Chain(5).then(frozen).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      self.assertTrue(getattr(exc, '__quent__', False))
-
   def test_no_stamp_on_success(self):
     """No stamp attribute on successful chain execution."""
     result = Chain(5).then(lambda x: x + 1).run()
@@ -306,24 +285,6 @@ class TestSourceLinkStampAsync(unittest.IsolatedAsyncioTestCase):
       # __quent__ is NOT set on the new exception in the async path.
       self.assertFalse(getattr(exc, '__quent__', False))
       self.assertIsInstance(exc.__cause__, ValueError)
-
-  async def test_async_frozen_chain_stamp(self):
-    """Frozen chain in async path stamps correctly."""
-    frozen = Chain(5).then(_async_raise_value_error).freeze()
-    try:
-      await frozen.run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      self.assertTrue(getattr(exc, '__quent__', False))
-
-  async def test_async_frozen_nested_stamp(self):
-    """Frozen chain as step in async outer chain."""
-    frozen = Chain().then(_async_raise_value_error).freeze()
-    try:
-      await Chain(5).then(frozen).run()
-      self.fail('Expected ValueError')
-    except ValueError as exc:
-      self.assertTrue(getattr(exc, '__quent__', False))
 
   async def test_async_stamp_with_finally(self):
     """finally_ handler runs; stamp is present on the exception."""

@@ -1246,7 +1246,7 @@ class TestRetryExceptFinallyInteractionAsync(unittest.IsolatedAsyncioTestCase):
     fn = make_async_always_fail()
     except_calls = []
 
-    def handler(exc):
+    def handler(rv, exc):
       except_calls.append(str(exc))
       return 'handled'
 
@@ -1259,7 +1259,7 @@ class TestRetryExceptFinallyInteractionAsync(unittest.IsolatedAsyncioTestCase):
     fn = make_async_fail_then_succeed(1)
     except_calls = []
 
-    def handler(exc):
+    def handler(rv, exc):
       except_calls.append(1)
       return 'handled'
 

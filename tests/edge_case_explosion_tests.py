@@ -686,13 +686,16 @@ class TestNestedChainDepth(unittest.TestCase):
     self.assertEqual(result, 5)
 
   def test_nested_chain_with_except(self):
-    inner = Chain().then(lambda exc: f'caught: {exc}')
+    # With the new except convention, nested chains receive rv (root_value),
+    # not the exception. root_value is Null here (root callable raises before
+    # returning), so rv = None.
+    inner = Chain().then(lambda rv: f'caught: {rv}')
     result = (
       Chain(lambda: (_ for _ in ()).throw(ValueError('boom')))
       .except_(inner)
       .run()
     )
-    self.assertEqual(result, 'caught: boom')
+    self.assertEqual(result, 'caught: None')
 
   def test_nested_chain_with_finally(self):
     tracker = []

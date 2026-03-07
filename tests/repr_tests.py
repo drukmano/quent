@@ -1,5 +1,5 @@
 """Tests for __repr__ methods across the quent library:
-Chain, _FrozenChain, _Generator, and Null.
+Chain, _Generator, and Null.
 """
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import functools
 import unittest
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from quent._ops import _Generator
 from quent._traceback import _get_link_name, _get_obj_name
 from quent._core import Link
@@ -177,31 +176,6 @@ class TestChainRepr(unittest.TestCase):
   def test_chain_starts_with_chain_paren(self):
     r = repr(Chain(42).then(sync_fn))
     self.assertTrue(r.startswith('Chain('))
-
-
-# ---------------------------------------------------------------------------
-# _FrozenChain.__repr__
-# ---------------------------------------------------------------------------
-
-class TestFrozenChainRepr(unittest.TestCase):
-
-  def test_frozen_repr_wraps_chain(self):
-    frozen = Chain(42).freeze()
-    r = repr(frozen)
-    self.assertTrue(r.startswith('Frozen('))
-    self.assertIn('Chain(', r)
-    self.assertTrue(r.endswith(')'))
-
-  def test_frozen_contains_inner_chain_repr(self):
-    chain = Chain(42).then(sync_fn)
-    frozen = chain.freeze()
-    r = repr(frozen)
-    inner_repr = repr(chain)
-    self.assertEqual(r, f'Frozen({inner_repr})')
-
-  def test_frozen_empty_chain(self):
-    r = repr(Chain().freeze())
-    self.assertEqual(r, 'Frozen(Chain())')
 
 
 # ---------------------------------------------------------------------------

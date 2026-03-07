@@ -479,12 +479,11 @@ class TestFilterSyncTier(unittest.TestCase):
     self.assertEqual(result, 'early')
 
   def test_control_flow_propagation(self):
-    # break outside map context -> QuentException
-    with self.assertRaises(QuentException) as cm:
-      Chain([1, 2, 3]).filter(
-        lambda x: Chain.break_() if x == 2 else True
-      ).run()
-    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(cm.exception))
+    # break_() inside filter() stops iteration early and returns partial results.
+    result = Chain([1, 2, 3]).filter(
+      lambda x: Chain.break_() if x == 2 else True
+    ).run()
+    self.assertEqual(result, [1])
 
 
 # ===========================================================================
@@ -526,14 +525,14 @@ class TestFilterToAsyncTier(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'early_async')
 
   async def test_control_flow_propagation(self):
+    # break_() inside filter() stops iteration early and returns partial results.
     async def break_on_two(x):
       if x == 2:
         Chain.break_()
       return True
 
-    with self.assertRaises(QuentException) as cm:
-      await Chain([1, 2, 3]).filter(break_on_two).run()
-    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(cm.exception))
+    result = await Chain([1, 2, 3]).filter(break_on_two).run()
+    self.assertEqual(result, [1])
 
 
 # ===========================================================================
@@ -566,11 +565,11 @@ class TestFilterFullAsyncTier(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'from_full_async')
 
   async def test_control_flow_propagation(self):
-    with self.assertRaises(QuentException) as cm:
-      await Chain(AsyncRange(5)).filter(
-        lambda x: Chain.break_() if x == 2 else True
-      ).run()
-    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(cm.exception))
+    # break_() inside filter() stops iteration early and returns partial results.
+    result = await Chain(AsyncRange(5)).filter(
+      lambda x: Chain.break_() if x == 2 else True
+    ).run()
+    self.assertEqual(result, [0, 1])
 
 
 # ===========================================================================

@@ -34,7 +34,7 @@ class CriticalTests(unittest.IsolatedAsyncioTestCase):
     def body(x=None):
       raise ValueError('body error')
 
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('except error') from exc
 
     def finally_handler(rv=None):
@@ -77,7 +77,7 @@ class CriticalTests(unittest.IsolatedAsyncioTestCase):
     async def body(x=None):
       raise ValueError('body error')
 
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('except error') from exc
 
     async def finally_handler(rv=None):
@@ -144,7 +144,7 @@ class CriticalTests(unittest.IsolatedAsyncioTestCase):
     def body(x=None):
       raise ValueError('original')
 
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('handler error')
 
     c = Chain(body).except_(except_handler)
@@ -416,7 +416,7 @@ class ModerateTests(unittest.IsolatedAsyncioTestCase):
     def step1(x=None):
       raise ValueError('step1 error')
 
-    def except_handler(exc):
+    def except_handler(rv, exc):
       raise TypeError('handler error') from exc
 
     with self.assertRaises(TypeError) as cm:

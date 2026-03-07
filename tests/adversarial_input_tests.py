@@ -5,7 +5,6 @@ import asyncio
 import unittest
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from quent._core import Link, _evaluate_value, _Return, _Break
 
 
@@ -162,37 +161,6 @@ class AdversarialInputTests(unittest.TestCase):
     result = Chain(False).run()
     self.assertIs(result, False)
 
-  def test_frozen_chain_not_treated_as_subchain(self):
-    """FrozenChain lacks _is_chain, so it's treated as a regular callable."""
-    inner = Chain(10).then(lambda x: x * 2).freeze()
-    # Verify FrozenChain does NOT have _is_chain
-    self.assertFalse(getattr(inner, '_is_chain', False))
-    # When passed to then(), it should be called as a regular callable.
-    outer = Chain(5).then(inner)
-    result = outer.run()
-    # inner is called with current_value=5: inner(5) -> Chain(10).then(*2) ignores 5,
-    # because inner.run(5) passes 5 as root, but the chain has root_link=10.
-    # Actually: inner.run(5) -> 5 passed as v to _run, which creates a temp Link(5)
-    # with next_link = first_link (lambda x: x*2). So: 5 -> 5*2 = 10
-    self.assertEqual(result, 10)
-
-  def test_frozen_chain_return_does_not_propagate(self):
-    """_Return inside a frozen sub-chain should NOT propagate to outer chain."""
-    inner = Chain().then(lambda x: Chain.return_(x * 10)).freeze()
-    # The frozen chain catches _Return internally via run() -> _run() -> except _Return
-    outer = Chain(5).then(inner).then(lambda x: x + 1)
-    result = outer.run()
-    # inner(5) returns 50 (early return within inner), then outer continues: 50 + 1 = 51
-    self.assertEqual(result, 51)
-
-  def test_frozen_chain_break_does_not_propagate(self):
-    """_Break inside a frozen sub-chain should raise QuentException, not propagate."""
-    inner = Chain().then(lambda x: Chain.break_()).freeze()
-    outer = Chain(5).then(inner).then(lambda x: x + 1)
-    with self.assertRaises(QuentException) as ctx:
-      outer.run()
-    self.assertIn('map/foreach iteration', str(ctx.exception))
-
   def test_reentrant_context_manager(self):
     """Context manager whose __enter__ creates and runs a chain."""
     cm = ReentrantCM()
@@ -258,20 +226,6 @@ class AdversarialAsyncTests(unittest.IsolatedAsyncioTestCase):
     # nesting levels to the innermost chain: temp Link(0) -> lambda x: x + 1
     # -> 1. Each outer layer just passes through, so the result is 1.
     self.assertEqual(result, 1)
-
-  async def test_frozen_chain_return_does_not_propagate_async(self):
-    """_Return inside a frozen sub-chain should not propagate (async path)."""
-    async def async_return(x):
-      Chain.return_(x * 10)
-    inner = Chain().then(async_return).freeze()
-    outer = Chain(5).then(inner).then(lambda x: x + 1)
-    # inner contains an async callable, so the frozen chain's run() returns
-    # a coroutine (via _run -> _run_async). The outer chain detects the
-    # awaitable and switches to its own _run_async. Must await the result.
-    result = await outer.run()
-    # async_return raises _Return(50), caught inside inner's _run_async.
-    # inner returns 50, outer continues: 50 + 1 = 51
-    self.assertEqual(result, 51)
 
 
 if __name__ == '__main__':

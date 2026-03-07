@@ -13,7 +13,6 @@ import types
 import unittest
 
 from quent import Chain
-from quent._chain import _FrozenChain
 from quent._core import Link, Null
 from quent._traceback import (
   _clean_chained_exceptions,

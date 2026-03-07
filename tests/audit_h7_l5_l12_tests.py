@@ -15,7 +15,7 @@ from quent import Chain
 from quent._core import (
   _ensure_future,
   _task_registry,
-  _task_registry_discard,
+  _task_done_callback,
   _task_registry_lock,
 )
 from quent._traceback import _get_obj_name
@@ -32,9 +32,9 @@ class TestTaskRegistryLock(unittest.TestCase):
     """_task_registry_lock is a threading.Lock instance."""
     self.assertIsInstance(_task_registry_lock, type(threading.Lock()))
 
-  def test_task_registry_discard_function_exists(self):
-    """_task_registry_discard is a callable."""
-    self.assertTrue(callable(_task_registry_discard))
+  def test_task_done_callback_function_exists(self):
+    """_task_done_callback is a callable."""
+    self.assertTrue(callable(_task_done_callback))
 
 
 class TestEnsureFuture(IsolatedAsyncioTestCase):
@@ -82,20 +82,20 @@ class TestEnsureFuture(IsolatedAsyncioTestCase):
       coro.send(None)
 
 
-class TestTaskRegistryDiscard(unittest.TestCase):
+class TestTaskDoneCallback(unittest.TestCase):
 
-  def test_task_registry_discard_removes_task(self):
-    """_task_registry_discard removes a mock task from the registry."""
+  def test_task_done_callback_removes_task(self):
+    """_task_done_callback removes a mock task from the registry."""
     sentinel = object()
     _task_registry.add(sentinel)  # type: ignore[arg-type]
     self.assertIn(sentinel, _task_registry)
-    _task_registry_discard(sentinel)  # type: ignore[arg-type]
+    _task_done_callback(sentinel)  # type: ignore[arg-type]
     self.assertNotIn(sentinel, _task_registry)
 
-  def test_task_registry_discard_absent_is_noop(self):
+  def test_task_done_callback_absent_is_noop(self):
     """Discarding a task not in the registry does not raise."""
     sentinel = object()
-    _task_registry_discard(sentinel)  # type: ignore[arg-type]
+    _task_done_callback(sentinel)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ import weakref
 from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain
-from quent._chain import _FrozenChain
 from quent._core import Link, Null, _Null, _ensure_future, _task_registry, _set_link_temp_args
 
 
@@ -95,12 +94,6 @@ class TestChainReferenceSemantics(unittest.TestCase):
     self.assertIsNone(chain.root_link)
     self.assertIsNone(chain.current_link)
 
-  def test_frozen_wraps_same_object(self):
-    """_FrozenChain._chain is the same Chain object."""
-    chain = Chain(lambda: 1)
-    frozen = chain.freeze()
-    self.assertIs(frozen._chain, chain)
-
   def test_link_holds_strong_reference(self):
     """Link.v is the same object as the input."""
     fn = lambda x: x
@@ -145,12 +138,6 @@ class TestChainReferenceSemantics(unittest.TestCase):
     with self.assertRaises(AttributeError):
       Null.nonexistent_attr = 'fail'
 
-  def test_frozen_chain_slots(self):
-    """_FrozenChain uses __slots__, so arbitrary attribute assignment raises."""
-    frozen = Chain().freeze()
-    with self.assertRaises(AttributeError):
-      frozen.nonexistent_attr = 'fail'
-
   def test_chain_no_dict(self):
     """Chain.__dict__ is not accessible (uses __slots__)."""
     chain = Chain()
@@ -175,12 +162,6 @@ class TestWeakrefBehavior(unittest.TestCase):
     chain = Chain()
     with self.assertRaises(TypeError):
       weakref.ref(chain)
-
-  def test_cannot_weakref_frozen_chain(self):
-    """_FrozenChain uses __slots__ without __weakref__, so weakref should fail."""
-    frozen = Chain().freeze()
-    with self.assertRaises(TypeError):
-      weakref.ref(frozen)
 
   def test_cannot_weakref_link(self):
     """Link uses __slots__ without __weakref__, so weakref should fail."""
@@ -248,15 +229,6 @@ class TestMemoryPressure(unittest.TestCase):
     del chains
     gc.collect()
     # No assertion on gc counts -- just verify no crash.
-
-  def test_1000_frozen_chains(self):
-    """Create 1000 frozen chains, run them, drop references."""
-    frozens = [Chain(lambda i=i: i).then(lambda x: x + 1).freeze() for i in range(1000)]
-    for i, f in enumerate(frozens):
-      result = f.run()
-      self.assertEqual(result, i + 1)
-    del frozens
-    gc.collect()
 
   def test_deep_chain_nesting(self):
     """Deeply nested chains (100 levels) do not leak."""

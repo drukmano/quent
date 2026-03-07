@@ -143,11 +143,10 @@ class TestBreakSignal(unittest.TestCase):
     self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
 
   def test_break_in_filter_stops(self):
-    # filter catches _ControlFlowSignal and re-raises it, so _Break propagates
-    # to the chain's _run handler where it raises QuentException (not in map context)
-    with self.assertRaises(QuentException) as ctx:
-      Chain([1, 2, 3]).filter(lambda x: Chain.break_() if x == 2 else True).run()
-    self.assertIn('Chain.break_() cannot be used outside of a map/foreach iteration', str(ctx.exception))
+    # break_() inside filter() stops iteration early and returns partial results
+    # (elements that passed the predicate before the break).
+    result = Chain([1, 2, 3]).filter(lambda x: Chain.break_() if x == 2 else True).run()
+    self.assertEqual(result, [1])
 
 
 class TestBreakAsync(unittest.IsolatedAsyncioTestCase):

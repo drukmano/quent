@@ -5,14 +5,13 @@ import asyncio
 import unittest
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from quent._core import _Return, _Break
 
 
 class NegativeEdgeTests(unittest.TestCase):
 
   def test_then_after_run(self):
-    """Calling .then() after .run() should work — chain is mutable, run doesn't freeze it."""
+    """Calling .then() after .run() should work -- chain is mutable, run doesn't freeze it."""
     c = Chain(1).then(lambda x: x + 1)
     result1 = c.run()
     self.assertEqual(result1, 2)
@@ -31,20 +30,6 @@ class NegativeEdgeTests(unittest.TestCase):
     # _evaluate_value: v=multi_arg, args=(1,2,3) -> multi_arg(1,2,3) = 6
     # then lambda x: x gets 6 -> returns 6
     self.assertEqual(result, 6)
-
-  def test_decorator_on_frozen_chain(self):
-    """FrozenChain doesn't have .decorator(). Should raise AttributeError."""
-    c = Chain(1).then(lambda x: x + 1)
-    frozen = c.freeze()
-    with self.assertRaises(AttributeError):
-      frozen.decorator()  # type: ignore[attr-defined]
-
-  def test_freeze_on_frozen_chain(self):
-    """FrozenChain doesn't have .freeze(). Should raise AttributeError."""
-    c = Chain(1).then(lambda x: x + 1)
-    frozen = c.freeze()
-    with self.assertRaises(AttributeError):
-      frozen.freeze()  # type: ignore[attr-defined]
 
   def test_double_run(self):
     """Calling chain.run() twice should produce identical results."""
@@ -138,24 +123,6 @@ class NegativeEdgeTests(unittest.TestCase):
     """Chain(None).run() should return None (None is not callable, passes through)."""
     result = Chain(None).run()
     self.assertIsNone(result)
-
-  def test_frozen_chain_has_no_then(self):
-    """FrozenChain doesn't have .then(). Should raise AttributeError."""
-    frozen = Chain(1).freeze()
-    with self.assertRaises(AttributeError):
-      frozen.then(lambda x: x)  # type: ignore[attr-defined]
-
-  def test_frozen_chain_has_no_except(self):
-    """FrozenChain doesn't have .except_(). Should raise AttributeError."""
-    frozen = Chain(1).freeze()
-    with self.assertRaises(AttributeError):
-      frozen.except_(lambda rv, e: None)  # type: ignore[attr-defined]
-
-  def test_frozen_chain_has_no_finally(self):
-    """FrozenChain doesn't have .finally_(). Should raise AttributeError."""
-    frozen = Chain(1).freeze()
-    with self.assertRaises(AttributeError):
-      frozen.finally_(lambda v: None)  # type: ignore[attr-defined]
 
   def test_double_except_raises(self):
     """Registering two except_ handlers should raise QuentException."""

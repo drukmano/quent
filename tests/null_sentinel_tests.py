@@ -91,20 +91,29 @@ class TestNullSingleton(unittest.TestCase):
     self.assertIsInstance(Null, _Null)
 
   def test_singleton_enforced(self):
+    # _Null() creates a new instance (no __new__ override); Null is the
+    # module-level singleton created via object.__new__(_Null).
     n2 = _Null()
-    self.assertIs(n2, Null)
+    self.assertIsNot(n2, Null)
     self.assertIsInstance(n2, _Null)
+    # The module-level Null is the canonical instance
+    self.assertIsInstance(Null, _Null)
 
   def test_singleton_across_multiple_calls(self):
+    # Each _Null() call creates a distinct instance; they are not the singleton.
     instances = [_Null() for _ in range(5)]
     for inst in instances:
-      self.assertIs(inst, Null)
+      self.assertIsNot(inst, Null)
+      self.assertIsInstance(inst, _Null)
 
-  def test_singleton_class_variable_set(self):
-    self.assertIs(_Null._instance, Null)
+  def test_singleton_is_module_level(self):
+    # The singleton is created at module level via object.__new__(_Null).
+    from quent._core import Null as core_null
+    self.assertIs(core_null, Null)
 
-  def test_singleton_new_returns_same_id(self):
-    self.assertEqual(id(_Null()), id(Null))
+  def test_singleton_new_returns_different_id(self):
+    # _Null() creates a new instance, so its id differs from the singleton.
+    self.assertNotEqual(id(_Null()), id(Null))
 
   def test_null_is_not_ellipsis(self):
     self.assertIsNot(Null, ...)

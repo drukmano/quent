@@ -11,7 +11,6 @@ from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain, Null, QuentException
 from quent._core import _Return, _Break, _ControlFlowSignal
-from quent._chain import _FrozenChain
 from helpers import async_fn
 
 
@@ -318,12 +317,6 @@ class TestChainBoolAlwaysTrue(unittest.TestCase):
   def test_chain_with_false_true(self):
     self.assertTrue(bool(Chain(False)))
 
-  def test_frozen_chain_true(self):
-    self.assertTrue(bool(Chain().freeze()))
-
-  def test_frozen_chain_with_falsy_true(self):
-    self.assertTrue(bool(Chain(0).freeze()))
-
 
 # ---------------------------------------------------------------------------
 # Concurrent async execution
@@ -339,25 +332,6 @@ class TestConcurrentExecution(IsolatedAsyncioTestCase):
     c = Chain().then(async_double)
     results = await asyncio.gather(*[c.run(i) for i in range(5)])
     self.assertEqual(sorted(results), [0, 2, 4, 6, 8])
-
-  async def test_frozen_chain_concurrent(self):
-    """Running a frozen async chain concurrently."""
-    async def async_double(x):
-      return x * 2
-
-    frozen = Chain().then(async_double).freeze()
-    results = await asyncio.gather(*[frozen.run(i) for i in range(5)])
-    self.assertEqual(sorted(results), [0, 2, 4, 6, 8])
-
-  async def test_concurrent_with_delay(self):
-    """Concurrent tasks with actual async delay to stress interleaving."""
-    async def delayed_add(x):
-      await asyncio.sleep(0.01)
-      return x + 100
-
-    frozen = Chain().then(delayed_add).freeze()
-    results = await asyncio.gather(*[frozen.run(i) for i in range(10)])
-    self.assertEqual(sorted(results), list(range(100, 110)))
 
 
 # ---------------------------------------------------------------------------
@@ -383,24 +357,6 @@ class TestThreadSafety(unittest.TestCase):
     t.join()
     self.assertEqual(errors, [])
     self.assertEqual(results, [6])
-
-  def test_frozen_chain_multiple_threads(self):
-    """Run a frozen chain from multiple threads concurrently."""
-    frozen = Chain().then(lambda x: x * 3).freeze()
-    results = []
-    lock = threading.Lock()
-
-    def worker(val):
-      r = frozen.run(val)
-      with lock:
-        results.append(r)
-
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(10)]
-    for t in threads:
-      t.start()
-    for t in threads:
-      t.join()
-    self.assertEqual(sorted(results), [i * 3 for i in range(10)])
 
 
 # ---------------------------------------------------------------------------
@@ -536,41 +492,6 @@ class TestObjectWithCallNone(unittest.TestCase):
     # which raises TypeError since __call__ is None.
     with self.assertRaises(TypeError):
       Chain(5).then(obj).run()
-
-
-# ---------------------------------------------------------------------------
-# Modification after freeze
-# ---------------------------------------------------------------------------
-
-class TestModificationAfterFreeze(unittest.TestCase):
-
-  def test_add_then_after_freeze(self):
-    """freeze() wraps the chain but does not copy it. The frozen chain
-    delegates to the same Chain object. Modifying the underlying chain
-    after freeze is undefined behavior, but in practice the frozen chain
-    sees the added step because it's the same object.
-    """
-    c = Chain(5)
-    frozen = c.freeze()
-    # Add step AFTER freezing
-    c.then(lambda x: x * 2)
-    # Frozen chain sees the new step
-    result = frozen.run()
-    self.assertEqual(result, 10)
-
-  def test_add_except_after_freeze(self):
-    """Adding an except handler after freeze: the frozen chain sees it."""
-    c = Chain(lambda: 1 / 0)
-    frozen = c.freeze()
-    c.except_(lambda rv, e: 'caught')
-    result = frozen.run()
-    self.assertEqual(result, 'caught')
-
-  def test_frozen_wraps_same_object(self):
-    """Verify _FrozenChain._chain is the same object as the original."""
-    c = Chain(5)
-    frozen = c.freeze()
-    self.assertIs(frozen._chain, c)
 
 
 # ---------------------------------------------------------------------------

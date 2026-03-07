@@ -55,25 +55,9 @@ def _except_handler_body(
     _modify_traceback(exc, chain, link, root_link)
   if chain.on_except_link is None or not isinstance(exc, chain.on_except_exceptions):  # type: ignore[arg-type]
     raise exc
+  rv = None if root_value is Null else root_value
   try:
-    on_except = chain.on_except_link
-    v, args, kwargs = on_except.v, on_except.args, on_except.kwargs
-    rv = None if root_value is Null else root_value
-    if on_except.is_chain:
-      if args and args[0] is ...:
-        result = v._run(Null, None, None)
-      elif args or kwargs:
-        result = v._run(args[0] if args else rv, args[1:] if args else None, kwargs or {})
-      else:
-        result = v._run(rv, None, None)
-    elif args and args[0] is ...:
-      result = v()
-    elif args or kwargs:
-      result = v(*(args or ()), **(kwargs or {}))
-    elif callable(v):
-      result = v(rv, exc)
-    else:
-      result = v
+    result = _evaluate_value(chain.on_except_link, rv, extra_args=(exc,))
   except _ControlFlowSignal:
     raise QuentException('Using control flow signals inside except handlers is not allowed.') from None
   except BaseException as exc_:

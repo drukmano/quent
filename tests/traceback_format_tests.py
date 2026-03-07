@@ -322,7 +322,7 @@ class TestFrameCleaning(unittest.TestCase):
     _clean_chained_exceptions(exc1, set())
 
   def test_clean_deeply_nested(self):
-    def handler1(exc):
+    def handler1(rv, exc):
       raise RuntimeError('h1') from exc
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(handler1).run())
@@ -726,7 +726,7 @@ class TestArrowPrecision(unittest.TestCase):
 
     tb_str = _capture_tb(lambda: Chain(raise_fn).except_(bad_handler).run())
     self.assertIn('RuntimeError', tb_str)
-    self.assertIn(".except_(bad_handler, exc=ValueError('test error')) <----", tb_str)
+    self.assertIn(".except_(bad_handler, root_value=<Null>, exc=ValueError('test error')) <----", tb_str)
 
   def test_arrow_on_finally_handler(self):
     def bad_finally(root_val):
@@ -869,7 +869,7 @@ class TestChainedExceptions(unittest.TestCase):
     self.assertIn('RuntimeError: wrapped', tb_str)
 
   def test_except_and_finally_both_raise(self):
-    def bad_handler(exc):
+    def bad_handler(rv, exc):
       raise RuntimeError('except error') from exc
 
     def bad_finally(root_val):

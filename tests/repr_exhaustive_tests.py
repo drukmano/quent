@@ -1,8 +1,8 @@
-"""Exhaustive tests for __repr__ methods: Chain, _FrozenChain, _Generator,
+"""Exhaustive tests for __repr__ methods: Chain, _Generator,
 and _get_obj_name edge cases.
 
 Complements repr_tests.py with deeper coverage of edge cases, unusual inputs,
-and the interaction between nested/frozen chains and repr.
+and the interaction between nested chains and repr.
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import operator
 import unittest
 
 from quent import Chain
-from quent._chain import _FrozenChain
 from quent._core import Link
 from quent._ops import _Generator, _make_foreach, _make_filter, _make_gather, _make_with
 from quent._traceback import _get_obj_name
@@ -173,55 +172,6 @@ class TestGetObjNameEdgeCases(unittest.TestCase):
     result = _get_obj_name({'a': 1})
     self.assertEqual(result, "{'a': 1}")
 
-  def test_frozen_chain_shows_type(self):
-    """_FrozenChain does NOT have _is_chain, so falls through to repr."""
-    frozen = Chain().freeze()
-    result = _get_obj_name(frozen)
-    # _FrozenChain does not have _is_chain attr, so it goes to repr() path
-    self.assertIn('Frozen', result)
-
-
-# ---------------------------------------------------------------------------
-# TestFrozenReprExhaustive
-# ---------------------------------------------------------------------------
-
-class TestFrozenReprExhaustive(unittest.TestCase):
-
-  def test_frozen_repr(self):
-    """Frozen(Chain(...))."""
-    frozen = Chain(42).freeze()
-    r = repr(frozen)
-    self.assertTrue(r.startswith('Frozen('))
-    self.assertIn('Chain(42)', r)
-    self.assertTrue(r.endswith(')'))
-
-  def test_frozen_empty(self):
-    """Frozen(Chain())."""
-    r = repr(Chain().freeze())
-    self.assertEqual(r, 'Frozen(Chain())')
-
-  def test_frozen_with_operations(self):
-    """Frozen chain with operations."""
-    frozen = Chain(1).then(sync_fn).do(print).freeze()
-    r = repr(frozen)
-    self.assertTrue(r.startswith('Frozen('))
-    self.assertIn('.then(...)', r)
-    self.assertIn('.do(...)', r)
-
-  def test_frozen_matches_inner_repr(self):
-    """Frozen repr wraps the inner chain's repr exactly."""
-    c = Chain(42).then(sync_fn)
-    frozen = c.freeze()
-    self.assertEqual(repr(frozen), f'Frozen({repr(c)})')
-
-  def test_frozen_chain_containing_frozen_chain(self):
-    """repr of _FrozenChain containing _FrozenChain as root."""
-    inner_frozen = Chain(sync_fn).freeze()
-    outer = Chain(inner_frozen).freeze()
-    r = repr(outer)
-    self.assertTrue(r.startswith('Frozen('))
-    # The inner frozen chain is the root value of the outer chain
-    self.assertIn('Frozen(', r)
 
 
 # ---------------------------------------------------------------------------
@@ -308,32 +258,6 @@ class TestVeryLongNames(unittest.TestCase):
     fn.__qualname__ = long_name
     result = _get_obj_name(fn)
     self.assertEqual(result, long_name)
-
-
-class TestNestedFrozenRepr(unittest.TestCase):
-
-  def test_chain_with_nested_frozen_chain_repr(self):
-    """repr of chain with nested frozen chain as step."""
-    inner_frozen = Chain(sync_fn).freeze()
-    c = Chain(1).then(inner_frozen)
-    r = repr(c)
-    self.assertIn('Chain(1)', r)
-    self.assertIn('.then(...)', r)
-
-  def test_frozen_of_chain_with_frozen_step(self):
-    """Frozen chain containing a step that is itself frozen."""
-    inner_frozen = Chain(sync_fn).freeze()
-    c = Chain(1).then(inner_frozen).freeze()
-    r = repr(c)
-    self.assertTrue(r.startswith('Frozen('))
-
-  def test_double_frozen(self):
-    """Freezing an already-frozen chain (via its underlying chain)."""
-    c = Chain(42).then(sync_fn)
-    frozen1 = c.freeze()
-    # Can still call freeze on the same chain
-    frozen2 = c.freeze()
-    self.assertEqual(repr(frozen1), repr(frozen2))
 
 
 class TestGetObjNameMoreEdgeCases(unittest.TestCase):

@@ -3,7 +3,7 @@
 Gaps covered:
   1. ObjWithBadName / ObjWithBadNameAndRepr fallback paths in _get_obj_name
   2. _modify_traceback visualization error fallback (H8 fix)
-  3. disable_traceback_patching / enable_traceback_patching effect + idempotency
+  3. (removed -- traceback patching is always-on)
   4. else_() branch visibility in chain visualization (L20 fix)
   5. _get_link_name coverage for 'if' operation type
   6. kwargs-only nested chain visualization (L19 fix)
@@ -11,7 +11,6 @@ Gaps covered:
 """
 from __future__ import annotations
 
-import sys
 import traceback
 import unittest
 
@@ -24,11 +23,6 @@ from quent._traceback import (
   _get_obj_name,
   _get_link_name,
   _clean_internal_frames,
-  enable_traceback_patching,
-  disable_traceback_patching,
-  _quent_excepthook,
-  _patched_te_init,
-  _original_excepthook,
   _resolve_nested_chain,
   _format_link,
 )
@@ -171,71 +165,6 @@ class TestModifyTracebackVisualizationFallback(unittest.TestCase):
         self.assertNotIn('_core.py', tb_str)
       else:
         self.fail(f'Got unexpected RuntimeError: {exc}')
-
-
-# ---------------------------------------------------------------------------
-# Gap 3: disable_traceback_patching / enable_traceback_patching
-# ---------------------------------------------------------------------------
-
-class TestTracebackPatchingToggle(unittest.TestCase):
-  """Enable/disable traceback patching, including idempotency."""
-
-  def setUp(self):
-    # Ensure patching is enabled at the start of each test.
-    enable_traceback_patching()
-
-  def tearDown(self):
-    # Always restore patching after each test.
-    enable_traceback_patching()
-
-  def test_disable_restores_excepthook(self):
-    """disable_traceback_patching restores sys.excepthook to original."""
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, _original_excepthook)
-
-  def test_disable_restores_te_init(self):
-    """disable_traceback_patching restores TracebackException.__init__."""
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
-    disable_traceback_patching()
-    self.assertIsNot(traceback.TracebackException.__init__, _patched_te_init)
-
-  def test_enable_installs_hooks(self):
-    """enable_traceback_patching installs quent's hooks."""
-    disable_traceback_patching()
-    self.assertIsNot(sys.excepthook, _quent_excepthook)
-    enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
-
-  def test_enable_idempotent(self):
-    """Calling enable_traceback_patching twice does not break anything."""
-    enable_traceback_patching()
-    enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
-
-  def test_disable_idempotent(self):
-    """Calling disable_traceback_patching twice does not break anything."""
-    disable_traceback_patching()
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, _original_excepthook)
-
-  def test_toggle_roundtrip(self):
-    """disable -> enable -> verify hooks are reinstalled."""
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, _original_excepthook)
-    enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
-
-  def test_disable_enable_disable(self):
-    """Multiple toggles do not corrupt state."""
-    disable_traceback_patching()
-    enable_traceback_patching()
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, _original_excepthook)
-    self.assertIsNot(traceback.TracebackException.__init__, _patched_te_init)
 
 
 # ---------------------------------------------------------------------------

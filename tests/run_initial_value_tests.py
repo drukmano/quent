@@ -1,7 +1,7 @@
 """Tests for the set_initial_values flag in _run() and _run_async().
 
 Covers root_value / current_value initialization, ignore_result (do()) semantics,
-callable root evaluation, falsy values, frozen chains, empty chains, multi-run
+callable root evaluation, falsy values, empty chains, multi-run
 state isolation, and async transitions.
 """
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import unittest
 
 from quent import Chain, Null
-from quent._chain import _FrozenChain
 from helpers import async_fn, async_identity, make_tracker, make_async_tracker
 
 
@@ -205,33 +204,6 @@ class TestSetInitialValuesSync(unittest.TestCase):
     self.assertEqual(result, 6)
     self.assertEqual(tracker.calls[0], ((5,), {}))
 
-  # -- Frozen chains and initial values --
-
-  def test_frozen_chain_root_value(self):
-    """Frozen chain preserves root_value semantics."""
-    tracker = make_tracker()
-    frozen = Chain(42).then(lambda x: x + 1).finally_(tracker).freeze()
-    result = frozen.run()
-    self.assertEqual(result, 43)
-    self.assertEqual(tracker.calls[0], ((42,), {}))
-
-  def test_frozen_chain_run_value(self):
-    """Frozen chain with run(v) uses v as root."""
-    tracker = make_tracker()
-    frozen = Chain().then(lambda x: x * 3).finally_(tracker).freeze()
-    result = frozen.run(7)
-    self.assertEqual(result, 21)
-    self.assertEqual(tracker.calls[0], ((7,), {}))
-
-  def test_frozen_chain_multiple_runs_isolated(self):
-    """Frozen chain does not leak state across runs."""
-    tracker = make_tracker()
-    frozen = Chain().then(lambda x: x + 1).finally_(tracker).freeze()
-    self.assertEqual(frozen.run(1), 2)
-    self.assertEqual(frozen.run(10), 11)
-    self.assertEqual(tracker.calls[0], ((1,), {}))
-    self.assertEqual(tracker.calls[1], ((10,), {}))
-
   # -- Edge: do() between then() links --
 
   def test_do_between_thens(self):
@@ -386,26 +358,6 @@ class TestSetInitialValuesAsync(unittest.IsolatedAsyncioTestCase):
     )
     self.assertEqual(result, 102)
     self.assertEqual(side, [2])
-
-  async def test_async_frozen_chain_root_value(self):
-    """Frozen chain with async steps preserves root_value."""
-    tracker = make_tracker()
-    frozen = Chain(5).then(async_fn).then(lambda x: x * 2).finally_(tracker).freeze()
-    result = await frozen.run()
-    # 5 -> async_fn(5)=6 -> *2=12
-    self.assertEqual(result, 12)
-    self.assertEqual(tracker.calls[0], ((5,), {}))
-
-  async def test_async_frozen_multiple_runs(self):
-    """Frozen chain with async steps does not leak state."""
-    tracker = make_tracker()
-    frozen = Chain().then(async_fn).finally_(tracker).freeze()
-    r1 = await frozen.run(1)  # async_fn(1) = 2
-    r2 = await frozen.run(10) # async_fn(10) = 11
-    self.assertEqual(r1, 2)
-    self.assertEqual(r2, 11)
-    self.assertEqual(tracker.calls[0], ((1,), {}))
-    self.assertEqual(tracker.calls[1], ((10,), {}))
 
   async def test_async_root_value_with_except(self):
     """root_value set even when async chain raises and is caught by except_."""

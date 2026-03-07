@@ -158,7 +158,7 @@ class TestAwaitRunExceptionPath(IsolatedAsyncioTestCase):
   """
 
   async def test_await_run_exception_modifies_traceback(self):
-    async def async_except_handler(exc):
+    async def async_except_handler(rv, exc):
       raise RuntimeError('handler failed')
 
     chain = Chain(raise_fn).except_(async_except_handler)

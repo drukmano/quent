@@ -913,7 +913,7 @@ class TestExceptionDuringTransition(IsolatedAsyncioTestCase):
       await (
         Chain(1)
         .then(async_raise_runtime)
-        .except_(lambda e: 'caught', exceptions=ValueError)
+        .except_(lambda rv, e: 'caught', exceptions=ValueError)
         .run()
       )
 

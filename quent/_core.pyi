@@ -58,4 +58,9 @@ class Link:
     original_value: Any | None = ...,
   ) -> None: ...
 
-def _evaluate_value(link: Link, current_value: Any = ...) -> Any: ...
+def _evaluate_value(
+  link: Link,
+  current_value: Any = ...,
+  extra_args: tuple[Any, ...] = ...,
+  extra_kwargs: dict[str, Any] | None = ...,
+) -> Any: ...

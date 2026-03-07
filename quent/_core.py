@@ -213,8 +213,18 @@ class Link:
     self.original_value = original_value
 
 
-def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
-  """Core evaluation: resolve a link's value against the current pipeline value."""
+def _evaluate_value(
+  link: Link,
+  current_value: Any = Null,
+  extra_args: tuple[Any, ...] = (),
+  extra_kwargs: dict[str, Any] | None = None,
+) -> Any:
+  """Core evaluation: resolve a link's value against the current pipeline value.
+
+  extra_args/extra_kwargs are unpacked into the default callable case only
+  (no explicit link.args/kwargs, non-chain). Used by except handlers to
+  pass (root_value, exc) without duplicating dispatch logic.
+  """
   v, args, kwargs = link.v, link.args, link.kwargs
 
   # Nested chains must call _run() directly, bypassing run()'s
@@ -237,5 +247,7 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
       raise TypeError(f'{v!r} is not callable but received {"arguments" if args else "keyword arguments"}')
     return v(*(args or ()), **(kwargs or {}))
   if callable(v):
-    return v(current_value) if current_value is not Null else v()
+    if current_value is not Null:
+      return v(current_value, *extra_args, **(extra_kwargs or {}))
+    return v(*extra_args, **(extra_kwargs or {}))
   return v

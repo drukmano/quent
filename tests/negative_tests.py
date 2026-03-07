@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain, Null, QuentException
-from quent._chain import _FrozenChain
 from quent._core import _Return, _Break, _ControlFlowSignal
 from helpers import SyncCM, TrackingCM
 
@@ -364,27 +363,6 @@ class TestChainReuse(unittest.TestCase):
     c = Chain().then(lambda x: x * 3)
     results = [c.run(i) for i in range(100)]
     self.assertEqual(results, [i * 3 for i in range(100)])
-
-
-class TestFrozenChainFromEmptyChain(unittest.TestCase):
-  """Frozen chain from empty chain."""
-
-  def test_frozen_empty_returns_none(self):
-    frozen = Chain().freeze()
-    result = frozen.run()
-    self.assertIsNone(result)
-
-  def test_frozen_empty_with_value(self):
-    frozen = Chain().freeze()
-    result = frozen.run(42)
-    self.assertEqual(result, 42)
-
-  def test_frozen_empty_bool(self):
-    self.assertTrue(bool(Chain().freeze()))
-
-  def test_frozen_empty_repr(self):
-    frozen = Chain().freeze()
-    self.assertIn('Frozen', repr(frozen))
 
 
 class TestDecoratorOnDecorated(unittest.TestCase):

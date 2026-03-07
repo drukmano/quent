@@ -5,8 +5,7 @@ unawaited coroutine detection), H3 (_get_true_source_link cycle guard),
 H4 (_clean_chained_exceptions iterative), H5 (_stringify_chain depth guard),
 H6 (_modify_traceback failure suppression), M1 (_make_gather cleanup only
 closes awaitables), M4 (_quent_file uses realpath), M5 (_get_obj_name
-sanitizes newlines), M6 (error guards on exception hooks),
-disable/enable_traceback_patching.
+sanitizes newlines), M6 (error guards on exception hooks).
 """
 from __future__ import annotations
 
@@ -19,7 +18,7 @@ from inspect import isawaitable
 from typing import Any
 from unittest.mock import patch
 
-from quent import Chain, Null, disable_traceback_patching, enable_traceback_patching
+from quent import Chain, Null
 from quent._chain import _except_handler_body, _FrozenChain
 from quent._core import Link
 from quent._ops import _make_gather, _make_with, _sync_generator
@@ -30,13 +29,10 @@ from quent._traceback import (
   _get_obj_name,
   _get_true_source_link,
   _modify_traceback,
-  _original_excepthook,
   _patched_te_init,
   _quent_excepthook,
   _quent_file,
   _stringify_chain,
-  enable_traceback_patching as _enable,
-  disable_traceback_patching as _disable,
 )
 
 
@@ -826,7 +822,7 @@ class TestM6ErrorGuardsOnExceptionHooks(unittest.TestCase):
     def mock_hook(exc_type, exc_value, exc_tb):
       hook_called.append(True)
 
-    with patch('quent._traceback._original_excepthook', mock_hook):
+    with patch('sys.__excepthook__', mock_hook):
       with patch('quent._traceback._clean_chained_exceptions', side_effect=RuntimeError('clean fail')):
         # Should not raise, should still call original hook
         _quent_excepthook(ValueError, exc, None)
@@ -840,7 +836,7 @@ class TestM6ErrorGuardsOnExceptionHooks(unittest.TestCase):
     def mock_hook(exc_type, exc_value, exc_tb):
       hook_called.append((exc_type, exc_value))
 
-    with patch('quent._traceback._original_excepthook', mock_hook):
+    with patch('sys.__excepthook__', mock_hook):
       _quent_excepthook(ValueError, exc, None)
     self.assertEqual(len(hook_called), 1)
     self.assertIs(hook_called[0][1], exc)
@@ -870,114 +866,9 @@ class TestM6ErrorGuardsOnExceptionHooks(unittest.TestCase):
     def mock_hook(exc_type, exc_value, exc_tb):
       received_tb.append(exc_tb)
 
-    with patch('quent._traceback._original_excepthook', mock_hook):
+    with patch('sys.__excepthook__', mock_hook):
       _quent_excepthook(ValueError, exc, exc.__traceback__)
     self.assertEqual(len(received_tb), 1)
-
-
-# ---------------------------------------------------------------------------
-# disable/enable_traceback_patching
-# ---------------------------------------------------------------------------
-
-class TestDisableEnableTracebackPatching(unittest.TestCase):
-  """Tests for disable_traceback_patching and enable_traceback_patching."""
-
-  def setUp(self):
-    """Ensure patching is enabled at start of each test."""
-    enable_traceback_patching()
-
-  def tearDown(self):
-    """Restore patching after each test."""
-    enable_traceback_patching()
-
-  def test_disable_restores_original_excepthook(self):
-    """disable_traceback_patching restores original sys.excepthook."""
-    self.assertIs(sys.excepthook, _quent_excepthook)
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, _original_excepthook)
-
-  def test_enable_installs_quent_hook(self):
-    """enable_traceback_patching installs quent's hook."""
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, _original_excepthook)
-    enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-
-  def test_disable_restores_te_init(self):
-    """disable_traceback_patching restores TracebackException.__init__."""
-    disable_traceback_patching()
-    from quent._traceback import _original_te_init
-    self.assertIs(traceback.TracebackException.__init__, _original_te_init)
-
-  def test_enable_installs_patched_te_init(self):
-    """enable_traceback_patching installs patched TracebackException.__init__."""
-    disable_traceback_patching()
-    enable_traceback_patching()
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
-
-  def test_multiple_disable_enable_cycles(self):
-    """Multiple disable/enable cycles work correctly."""
-    for _ in range(5):
-      disable_traceback_patching()
-      self.assertIs(sys.excepthook, _original_excepthook)
-      enable_traceback_patching()
-      self.assertIs(sys.excepthook, _quent_excepthook)
-
-  def test_disable_when_already_disabled_is_noop(self):
-    """Disabling when already disabled is a no-op."""
-    disable_traceback_patching()
-    hook_before = sys.excepthook
-    disable_traceback_patching()
-    self.assertIs(sys.excepthook, hook_before)
-
-  def test_enable_when_already_enabled_is_noop(self):
-    """Enabling when already enabled is a no-op."""
-    hook_before = sys.excepthook
-    enable_traceback_patching()
-    self.assertIs(sys.excepthook, hook_before)
-
-  def test_exceptions_display_correctly_after_cycle(self):
-    """Exceptions still display correctly after disable+enable cycle."""
-    disable_traceback_patching()
-    enable_traceback_patching()
-
-    def raise_in_chain(x):
-      raise ValueError('cycle test')
-
-    c = Chain(5).then(raise_in_chain)
-    with self.assertRaises(ValueError) as ctx:
-      c.run()
-    self.assertEqual(str(ctx.exception), 'cycle test')
-
-  def test_chain_runs_with_patching_disabled(self):
-    """Chains work correctly with patching disabled."""
-    disable_traceback_patching()
-    c = Chain(5).then(lambda x: x + 1)
-    result = c.run()
-    self.assertEqual(result, 6)
-
-  def test_chain_error_with_patching_disabled(self):
-    """Chain errors still propagate with patching disabled."""
-    disable_traceback_patching()
-    c = Chain(5).then(lambda x: 1 / 0)
-    with self.assertRaises(ZeroDivisionError):
-      c.run()
-
-  def test_except_handler_with_patching_disabled(self):
-    """Except handlers work with patching disabled."""
-    disable_traceback_patching()
-    c = Chain(5).then(lambda x: 1 / 0).except_(lambda rv, e: 'caught')
-    result = c.run()
-    self.assertEqual(result, 'caught')
-
-  def test_finally_handler_with_patching_disabled(self):
-    """Finally handlers work with patching disabled."""
-    disable_traceback_patching()
-    tracker = []
-    c = Chain(5).then(lambda x: x + 1).finally_(lambda v: tracker.append(v))
-    result = c.run()
-    self.assertEqual(result, 6)
-    self.assertEqual(tracker, [5])
 
 
 # ---------------------------------------------------------------------------
@@ -1146,40 +1037,6 @@ class TestCombinedScenarios(unittest.IsolatedAsyncioTestCase):
       async for _ in gen():
         pass
     self.assertEqual(call_count, 3)  # 0, 1, 2 (raises at 2)
-
-
-class TestPatchingStateConsistency(unittest.TestCase):
-  """Verify patching state is consistent across module reloads and cycles."""
-
-  def setUp(self):
-    enable_traceback_patching()
-
-  def tearDown(self):
-    enable_traceback_patching()
-
-  def test_patching_flag_tracks_state(self):
-    """Internal _patching_enabled flag tracks the actual state."""
-    import quent._traceback as tb
-    self.assertTrue(tb._patching_enabled)
-    disable_traceback_patching()
-    self.assertFalse(tb._patching_enabled)
-    enable_traceback_patching()
-    self.assertTrue(tb._patching_enabled)
-
-  def test_rapid_toggle(self):
-    """Rapid enable/disable toggling doesn't corrupt state."""
-    for _ in range(100):
-      disable_traceback_patching()
-      enable_traceback_patching()
-    self.assertIs(sys.excepthook, _quent_excepthook)
-
-  def test_disable_enable_preserves_te_init(self):
-    """TracebackException.__init__ is correctly toggled."""
-    from quent._traceback import _original_te_init
-    disable_traceback_patching()
-    self.assertIs(traceback.TracebackException.__init__, _original_te_init)
-    enable_traceback_patching()
-    self.assertIs(traceback.TracebackException.__init__, _patched_te_init)
 
 
 if __name__ == '__main__':

@@ -150,7 +150,7 @@ ASYNC_ENTER_VALUES = {
   'AsyncCMSuppresses': 'ctx_value',
   'AsyncCMRaisesOnExit': '_self_',  # returns self
   'AsyncTrackingCM': 'async_tracked_ctx',
-  'DualCM': 'async_ctx',
+  'DualCM': 'sync_ctx',  # _make_with prefers __enter__ over __aenter__
 }
 
 # Sync CMs whose __exit__ ALWAYS returns awaitable -- must be tested in async context
@@ -649,11 +649,11 @@ class TestCMEnterValueMatrix(IsolatedAsyncioTestCase):
         elif ev is not None:
           self.assertEqual(result, ev)
 
-  async def test_dual_cm_prefers_aenter(self):
-    """DualCM should use __aenter__ returning 'async_ctx'."""
+  async def test_dual_cm_prefers_enter(self):
+    """DualCM should use __enter__ (sync preferred over async) returning 'sync_ctx'."""
     cm = DualCM()
-    result = await Chain(cm).with_(lambda ctx: ctx).run()
-    self.assertEqual(result, 'async_ctx')
+    result = Chain(cm).with_(lambda ctx: ctx).run()
+    self.assertEqual(result, 'sync_ctx')
 
   def test_sync_cm_enter_returns_none(self):
     cm = SyncCMEnterReturnsNone()

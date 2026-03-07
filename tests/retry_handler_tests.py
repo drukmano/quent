@@ -111,7 +111,7 @@ class TestRetryExceptAllFail(unittest.TestCase):
     self.assertEqual(len(fn.attempts), 3)
     self.assertEqual(handler.count, 1)
     # handler received the exception from the LAST attempt
-    exc = handler.calls[0][0][0]
+    exc = handler.calls[0][0][1]
     self.assertIsInstance(exc, ValueError)
 
   def test_except_returns_value_after_exhaustion(self):
@@ -1360,7 +1360,7 @@ class TestRetryMultipleExceptionTypes(unittest.TestCase):
     self.assertEqual(len(attempts), 4)
     self.assertEqual(handler.count, 1)
     # Last exception is from attempt 4 (even -> TypeError)
-    exc = handler.calls[0][0][0]
+    exc = handler.calls[0][0][1]
     self.assertIsInstance(exc, TypeError)
 
 
