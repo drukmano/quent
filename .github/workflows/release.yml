@@ -20,6 +20,7 @@ name: Release & Publish
 # string interpolation in run: blocks. See GitHub Security Lab advisories on workflow_run.
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: [CI]
     types: [completed]
@@ -31,7 +32,7 @@ concurrency:
 
 jobs:
   release:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -44,6 +45,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check if pyproject.toml changed
+        if: github.event_name == 'workflow_run'
         id: changed
         run: |
           CHANGED=$(gh api "repos/$REPO/commits/$SHA" \
@@ -55,7 +57,7 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
 
       - name: Check for version bump
-        if: steps.changed.outputs.pyproject_changed != '0'
+        if: github.event_name == 'workflow_dispatch' || steps.changed.outputs.pyproject_changed != '0'
         id: version
         run: |
           VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
@@ -72,7 +74,7 @@ jobs:
 
       - name: Create GitHub Release
         id: create_release
-        if: steps.changed.outputs.pyproject_changed != '0' && steps.version.outputs.exists == 'false'
+        if: (github.event_name == 'workflow_dispatch' || steps.changed.outputs.pyproject_changed != '0') && steps.version.outputs.exists == 'false'
         run: |
           gh release create "$TAG" \
             --title "$TAG" \
