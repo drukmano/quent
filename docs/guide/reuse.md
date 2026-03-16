@@ -418,10 +418,10 @@ class UserService:
 
   def get_user(self, user_id):
     return (
-      Chain(self.cache.get)
-      .if_(lambda cached: cached is None).then(self.db.fetch_user)
+      Chain(self.cache.get, user_id)
+      .if_(lambda cached: cached is None).then(self.db.fetch_user, user_id)
       .do(lambda user: self.cache.set(user_id, user))
-      .run(user_id)
+      .run()
     )
 
 # Works with sync backends

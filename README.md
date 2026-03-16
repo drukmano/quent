@@ -125,7 +125,7 @@ Build pipelines fluently. Every builder method returns `self` for chaining.
 from quent import Chain
 
 result = (
-  Chain(fetch_user)               # root callable
+  Chain(fetch_user, user_id)       # fetch user by id
   .then(validate)                  # transform
   .do(log)                         # side-effect
   .foreach(normalize_field)        # per-element
@@ -134,7 +134,7 @@ result = (
   .if_(has_premium).then(upgrade)  # conditional
   .except_(handle_error)           # error handling
   .finally_(cleanup)               # cleanup
-  .run(user_id)                    # execute
+  .run()                           # execute
 )
 ```
 

@@ -77,7 +77,7 @@ class Chain(Generic[T], _UnpicklableMixin):
 
   Example::
 
-    result = Chain(fetch_data).then(validate).do(log).run(url)
+    result = Chain(fetch_data, url).then(validate).do(log).run()
   """
 
   # Duck-typing marker used by Link.__init__ to detect Chain instances
@@ -861,7 +861,7 @@ class Chain(Generic[T], _UnpicklableMixin):
 
     Example::
 
-        Chain(lambda x: x * 2).run(5)  # 10
+        Chain(5).then(lambda x: x * 2).run()  # 10
     """
     if self._pending_if:
       msg = (
