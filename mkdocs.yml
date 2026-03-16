@@ -1,0 +1,137 @@
+site_name: quent
+site_description: "Write pipeline code once — runs sync or async automatically. Transparent sync/async bridge for Python."
+site_url: !ENV [READTHEDOCS_CANONICAL_URL, 'https://quent.readthedocs.io/']
+site_author: Ohad Drukman
+repo_url: https://github.com/drukmano/quent
+repo_name: drukmano/quent
+edit_uri: edit/master/docs/
+copyright: "Copyright &copy; 2023 – 2026 Ohad Drukman"
+
+theme:
+  name: material
+  language: en
+  custom_dir: docs/overrides
+  icon:
+    logo: material/link-variant
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.sections
+    - navigation.path
+    - navigation.footer
+    - navigation.prune
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - content.tooltips
+    - toc.follow
+    - header.autohide
+    - announce.dismiss
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: deep-purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: deep-purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+plugins:
+  - search:
+      separator: '[\s\-\.]+'
+  - social
+  - meta
+  - tags
+  - privacy
+  - typeset
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/drukmano/quent
+      name: quent on GitHub
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/quent/
+      name: quent on PyPI
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - footnotes
+  - tables
+  - abbr
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.snippets
+  - pymdownx.keys
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.smartsymbols
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Why quent: why-quent.md
+  - Guide:
+    - Chains & Methods: guide/chains.md
+    - Sync/Async Bridging: guide/async.md
+    - Error Handling: guide/error-handling.md
+    - Reuse & Composition: guide/reuse.md
+  - Recipes: recipes.md
+  - Cookbook: cookbook.md
+  - Integrations: integrations.md
+  - Comparisons:
+    - vs unasync: comparisons/vs-unasync.md
+    - vs Other Libraries: comparisons/vs-others.md
+  - API Reference: reference.md
+  - Troubleshooting: troubleshooting.md
+  - Changelog: changelog.md
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+watch:
+  - quent/

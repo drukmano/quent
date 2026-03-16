@@ -1,0 +1,984 @@
+/* ==========================================================================
+   quent — documentation styles
+   MkDocs Material — light (default) + dark (slate)
+   Brand: indigo #4f46e5 → purple #7c3aed → violet #a855f7
+   Fonts: Inter (text), JetBrains Mono (code)
+   ========================================================================== */
+
+
+/* ==========================================================================
+   1. Custom Properties
+   ========================================================================== */
+
+:root {
+  /* ---- Brand gradients ---- */
+  --quent-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #a855f7 100%);
+  --quent-gradient-text: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  --quent-gradient-subtle: linear-gradient(135deg, rgba(79, 70, 229, 0.06) 0%, rgba(124, 58, 237, 0.06) 100%);
+
+  /* ---- Shadows — light mode ---- */
+  --quent-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --quent-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --quent-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.10), 0 4px 8px rgba(0, 0, 0, 0.06);
+  --quent-shadow-glow: 0 0 20px rgba(79, 70, 229, 0.15);
+
+  /* ---- Radii ---- */
+  --quent-radius: 8px;
+  --quent-radius-lg: 12px;
+  --quent-radius-xl: 16px;
+
+  /* ---- Transitions ---- */
+  --quent-transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --quent-transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Spacing ---- */
+  --quent-section-gap: 4rem;
+
+  /* ---- Surfaces ---- */
+  --quent-card-bg: #ffffff;
+  --quent-card-border: rgba(0, 0, 0, 0.08);
+  --quent-card-border-hover: rgba(79, 70, 229, 0.3);
+  --quent-code-tint: rgba(79, 70, 229, 0.06);
+}
+
+/* Dark mode shadow & surface overrides */
+[data-md-color-scheme="slate"] {
+  --quent-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.28), 0 1px 2px rgba(0, 0, 0, 0.20);
+  --quent-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.36), 0 2px 4px rgba(0, 0, 0, 0.22);
+  --quent-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.44), 0 4px 8px rgba(0, 0, 0, 0.28);
+  --quent-shadow-glow: 0 0 24px rgba(124, 58, 237, 0.25);
+  --quent-gradient-subtle: linear-gradient(135deg, rgba(79, 70, 229, 0.10) 0%, rgba(124, 58, 237, 0.10) 100%);
+  --quent-card-bg: rgba(255, 255, 255, 0.025);
+  --quent-card-border: rgba(255, 255, 255, 0.08);
+  --quent-card-border-hover: rgba(124, 58, 237, 0.40);
+  --quent-code-tint: rgba(124, 58, 237, 0.10);
+}
+
+
+/* ==========================================================================
+   2. Selection Color
+   ========================================================================== */
+
+::selection {
+  background: rgba(79, 70, 229, 0.2);
+}
+
+[data-md-color-scheme="slate"] ::selection {
+  background: rgba(124, 58, 237, 0.3);
+}
+
+
+/* ==========================================================================
+   3. Scrollbar (WebKit)
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.26);
+}
+
+[data-md-color-scheme="slate"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+[data-md-color-scheme="slate"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.20);
+}
+
+
+/* ==========================================================================
+   4. Global Link & Interactive Transitions
+   ========================================================================== */
+
+.md-typeset a {
+  transition: color var(--quent-transition);
+}
+
+
+/* ==========================================================================
+   5. Typography
+   ========================================================================== */
+
+.md-typeset h1 {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 0.6em;
+}
+
+.md-typeset h2 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: 2em;
+  margin-bottom: 0.6em;
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 1.5em;
+}
+
+.md-typeset p {
+  line-height: 1.75;
+}
+
+/* Tighter spacing between consecutive paragraphs */
+.md-typeset p + p {
+  margin-top: 0.75em;
+}
+
+
+/* ==========================================================================
+   6. Hero Section (.hero)
+   ========================================================================== */
+
+.md-typeset .hero {
+  padding: 4rem 0 3rem;
+  text-align: center;
+}
+
+/* Gradient headline — large, fluid, eye-catching */
+.md-typeset .hero h1 {
+  font-size: clamp(2.8rem, 6vw, 4.2rem);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin-bottom: 0.4em;
+  color: #4f46e5; /* fallback for browsers without background-clip: text */
+  background: var(--quent-gradient-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Brighter gradient for dark mode legibility */
+[data-md-color-scheme="slate"] .md-typeset .hero h1 {
+  color: #818cf8; /* fallback for browsers without background-clip: text */
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Tagline — the first <p> after h1 (contains the <strong>) */
+.md-typeset .hero > p:first-of-type {
+  font-size: 1.2rem;
+  color: #494949; /* ~5.3:1 on white — WCAG AA */
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 0.8rem;
+  line-height: 1.6;
+  font-weight: 500;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .hero > p:first-of-type {
+  color: #b0b0b8; /* ~5.3:1 on slate bg — WCAG AA */
+}
+
+/* Description paragraph (second <p>) */
+.md-typeset .hero > p:nth-of-type(2) {
+  font-size: 1rem;
+  color: #545454; /* ~4.6:1 on white — WCAG AA */
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 2rem;
+  line-height: 1.7;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .hero > p:nth-of-type(2) {
+  color: #9e9ea8; /* ~4.6:1 on slate bg — WCAG AA */
+}
+
+/* CTA button row — the last <p> containing .md-button links */
+.md-typeset .hero > p:last-child {
+  display: flex;
+  gap: 0.85rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+/* Also support an explicit .cta-buttons wrapper */
+.md-typeset .hero .cta-buttons {
+  display: flex;
+  gap: 0.85rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+
+/* ==========================================================================
+   7. Buttons (.md-button)
+   ========================================================================== */
+
+.md-typeset .md-button {
+  border-radius: var(--quent-radius-lg);
+  font-weight: 600;
+  padding: 0.65rem 1.6rem;
+  transition:
+    background var(--quent-transition),
+    box-shadow var(--quent-transition),
+    transform var(--quent-transition),
+    border-color var(--quent-transition),
+    color var(--quent-transition);
+}
+
+/* Primary CTA — gradient fill, white text */
+.md-typeset .md-button--primary {
+  background: var(--quent-gradient);
+  border: none;
+  color: #ffffff !important;
+  box-shadow: var(--quent-shadow-sm);
+}
+
+.md-typeset .md-button--primary:hover,
+.md-typeset .md-button--primary:focus-visible {
+  box-shadow: var(--quent-shadow-md), var(--quent-shadow-glow);
+  transform: translateY(-2px);
+}
+
+.md-typeset .md-button--primary:active {
+  transform: scale(0.98);
+  box-shadow: var(--quent-shadow-sm);
+}
+
+/* Secondary CTA — outlined, fills on hover */
+.md-typeset .md-button:not(.md-button--primary) {
+  border: 1.5px solid var(--md-primary-fg-color);
+  background: transparent;
+  color: var(--md-primary-fg-color);
+}
+
+.md-typeset .md-button:not(.md-button--primary):hover,
+.md-typeset .md-button:not(.md-button--primary):focus-visible {
+  background: var(--quent-gradient);
+  border-color: transparent;
+  color: #ffffff !important;
+  box-shadow: var(--quent-shadow-md);
+  transform: translateY(-2px);
+}
+
+.md-typeset .md-button:not(.md-button--primary):active {
+  transform: scale(0.98);
+}
+
+
+/* ==========================================================================
+   8. "How It Works" Section (.how-it-works)
+   ========================================================================== */
+
+.md-typeset .how-it-works {
+  text-align: center;
+  padding: 2rem 0 1rem;
+}
+
+.md-typeset .how-it-works h2 {
+  margin-bottom: 2.5rem;
+}
+
+/* Step grid container */
+.md-typeset .how-it-works .steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* Fallback: if no .steps wrapper, target direct grid children */
+.md-typeset .how-it-works .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+/* Individual step card */
+.md-typeset .how-it-works .step {
+  background: var(--quent-card-bg);
+  border: 1px solid var(--quent-card-border);
+  border-radius: var(--quent-radius-lg);
+  padding: 2rem 1.5rem 1.5rem;
+  box-shadow: var(--quent-shadow-sm);
+  text-align: center;
+  position: relative;
+  transition:
+    box-shadow var(--quent-transition),
+    transform var(--quent-transition),
+    border-color var(--quent-transition);
+}
+
+.md-typeset .how-it-works .step:hover {
+  box-shadow: var(--quent-shadow-md);
+  transform: translateY(-3px);
+  border-color: var(--quent-card-border-hover);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .how-it-works .step {
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .how-it-works .step:hover {
+  border-color: var(--quent-card-border-hover);
+}
+
+/* Step number circle — gradient, centered */
+.md-typeset .how-it-works .step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--quent-gradient);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.30);
+}
+
+[data-md-color-scheme="slate"] .md-typeset .how-it-works .step-number {
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.40);
+}
+
+.md-typeset .how-it-works .step p {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #3b3b3b; /* ~6.5:1 on white — WCAG AA */
+  margin: 0.5rem 0 0;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .how-it-works .step p {
+  color: #c0c0c6; /* ~6.5:1 on slate bg — WCAG AA */
+}
+
+/* Connector line between steps (desktop only) */
+@media screen and (min-width: 769px) {
+  .md-typeset .how-it-works .step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 2.8rem;
+    right: -0.85rem;
+    width: 1.5rem;
+    height: 2px;
+    background: var(--quent-gradient);
+    opacity: 0.3;
+    pointer-events: none;
+  }
+}
+
+
+/* ==========================================================================
+   9. Feature Grid Cards
+   ========================================================================== */
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li {
+  background: var(--quent-card-bg);
+  border: 1px solid var(--quent-card-border);
+  border-radius: var(--quent-radius-lg);
+  box-shadow: var(--quent-shadow-sm);
+  border-left: 3px solid transparent;
+  transition:
+    box-shadow var(--quent-transition),
+    transform var(--quent-transition),
+    border-color var(--quent-transition),
+    border-left-color var(--quent-transition-slow);
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ol > li:hover {
+  box-shadow: var(--quent-shadow-md);
+  transform: translateY(-2px);
+  border-left-color: var(--md-primary-fg-color);
+}
+
+/* Card title (bold text) — slightly larger */
+.md-typeset .grid.cards > ul > li > p:first-child strong,
+.md-typeset .grid.cards > ol > li > p:first-child strong {
+  font-size: 1.05em;
+}
+
+/* Card link at bottom — arrow animation on hover */
+.md-typeset .grid.cards > ul > li > p:last-child > a,
+.md-typeset .grid.cards > ol > li > p:last-child > a {
+  color: var(--md-primary-fg-color);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+  transition: gap var(--quent-transition), color var(--quent-transition);
+}
+
+.md-typeset .grid.cards > ul > li > p:last-child > a::after,
+.md-typeset .grid.cards > ol > li > p:last-child > a::after {
+  content: "\2192";
+  transition: transform var(--quent-transition);
+  display: inline-block;
+}
+
+.md-typeset .grid.cards > ul > li:hover > p:last-child > a::after,
+.md-typeset .grid.cards > ol > li:hover > p:last-child > a::after {
+  transform: translateX(3px);
+}
+
+/* Card icon sizing */
+.md-typeset .grid.cards > ul > li .twemoji,
+.md-typeset .grid.cards > ol > li .twemoji {
+  font-size: 1.4rem;
+}
+
+/* Dark mode card adjustments */
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li,
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ol > li {
+  border-color: rgba(255, 255, 255, 0.07);
+  border-left-color: transparent;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li:hover,
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ol > li:hover {
+  border-left-color: var(--md-accent-fg-color);
+}
+
+
+/* ==========================================================================
+   10. Code Blocks
+   ========================================================================== */
+
+/* Block code — slightly larger font, rounded, gradient left border on hover */
+.md-typeset .highlight pre,
+.md-typeset pre {
+  font-size: 0.86rem;
+  border-radius: var(--quent-radius);
+  border-left: 2px solid transparent;
+  transition: border-left-color var(--quent-transition-slow);
+}
+
+.md-typeset .highlight:hover pre {
+  border-left-color: var(--md-primary-fg-color);
+}
+
+/* Copy button — fully rounded, gradient on hover */
+.md-typeset .highlight:hover .md-clipboard,
+.md-typeset .highlight .md-clipboard:focus {
+  opacity: 1;
+}
+
+.md-clipboard {
+  border-radius: 20px;
+  transition:
+    background var(--quent-transition),
+    opacity var(--quent-transition),
+    color var(--quent-transition);
+}
+
+.md-clipboard:hover {
+  background: var(--quent-gradient);
+  color: #ffffff;
+}
+
+/* Inline code — brand-tinted background */
+.md-typeset code {
+  border-radius: 5px;
+  padding: 0.08em 0.4em;
+  font-size: 0.87em;
+  background: var(--quent-code-tint);
+}
+
+/* Prevent double background inside pre blocks */
+.md-typeset pre code {
+  background: none;
+}
+
+
+/* ==========================================================================
+   11. Tabs (.tabbed-set)
+   ========================================================================== */
+
+/* Tab labels — uppercase, tracked, muted until active */
+.md-typeset .tabbed-labels > label {
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: #545454; /* ~4.6:1 on white — WCAG AA */
+  position: relative;
+  transition:
+    color var(--quent-transition),
+    font-weight var(--quent-transition);
+}
+
+.md-typeset .tabbed-labels > label:hover {
+  color: #333333; /* ~9.7:1 on white — WCAG AA */
+}
+
+/* Active tab — full contrast, bolder */
+.md-typeset input.tabbed-set:checked + label,
+.md-typeset .tabbed-labels > label.tabbed-labels--active {
+  color: inherit;
+  font-weight: 700;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .tabbed-labels > label {
+  color: #9e9ea8; /* ~4.6:1 on slate bg — WCAG AA */
+}
+
+[data-md-color-scheme="slate"] .md-typeset .tabbed-labels > label:hover {
+  color: #c8c8d0; /* ~7.8:1 on slate bg — WCAG AA */
+}
+
+/* Gradient underline on active tab via pseudo-element */
+.md-typeset .tabbed-labels > label::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--quent-gradient);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform var(--quent-transition);
+}
+
+.md-typeset input.tabbed-set:checked + label::after,
+.md-typeset .tabbed-labels > label.tabbed-labels--active::after {
+  transform: scaleX(1);
+}
+
+/* Tab panel — clean, no extra border */
+.md-typeset .tabbed-content {
+  border: none;
+  box-shadow: none;
+}
+
+
+/* ==========================================================================
+   12. Admonitions
+   ========================================================================== */
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: var(--quent-radius-lg);
+  box-shadow: var(--quent-shadow-sm);
+  border: none;
+  border-left: 4px solid;
+  overflow: hidden;
+}
+
+/* Title — bolder, slightly larger */
+.md-typeset .admonition .admonition-title,
+.md-typeset details summary {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+/* Collapsible details — shadow lift on hover */
+.md-typeset details {
+  transition: box-shadow var(--quent-transition);
+}
+
+.md-typeset details:hover {
+  box-shadow: var(--quent-shadow-md);
+}
+
+
+/* ==========================================================================
+   13. Tables
+   ========================================================================== */
+
+/* Wrapper for rounded corners */
+.md-typeset__table {
+  border-radius: var(--quent-radius);
+  overflow: hidden;
+}
+
+.md-typeset table:not([class]) {
+  border-radius: var(--quent-radius);
+  overflow: hidden;
+  box-shadow: var(--quent-shadow-sm);
+  font-size: 0.84rem;
+  border: 1px solid var(--quent-card-border);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* Table header — uppercase small caps, tinted background */
+.md-typeset table:not([class]) th {
+  font-weight: 700;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  background: var(--md-default-fg-color--lightest);
+  border-bottom: 1px solid var(--quent-card-border);
+  padding: 0.75em 1em;
+}
+
+/* Table cells */
+.md-typeset table:not([class]) td {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 0.6em 1em;
+}
+
+/* Alternating row tint */
+.md-typeset table:not([class]) tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+/* Row hover — brand-tinted */
+.md-typeset table:not([class]) tbody tr {
+  transition: background var(--quent-transition);
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background: rgba(79, 70, 229, 0.04);
+}
+
+/* Dark mode table overrides */
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) tbody tr:hover {
+  background: rgba(124, 58, 237, 0.06);
+}
+
+
+/* ==========================================================================
+   14. Horizontal Rules
+   ========================================================================== */
+
+.md-typeset hr {
+  border: none;
+  height: 2px;
+  max-width: 200px;
+  margin: 3rem auto;
+  background: var(--quent-gradient);
+  border-radius: 1px;
+  opacity: 0.45;
+}
+
+
+/* ==========================================================================
+   15. Announcement Bar
+   ========================================================================== */
+
+.md-banner {
+  background: var(--quent-gradient);
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
+}
+
+.md-banner__inner {
+  font-weight: 500;
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+
+.md-banner a {
+  color: rgba(255, 255, 255, 0.92);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color var(--quent-transition);
+}
+
+.md-banner a:hover {
+  color: #ffffff;
+}
+
+/* Dismiss button */
+.md-banner .md-banner__button {
+  transition: opacity var(--quent-transition);
+}
+
+.md-banner .md-banner__button:hover {
+  opacity: 0.7;
+}
+
+/* Dark mode — deeper gradient for contrast */
+[data-md-color-scheme="slate"] .md-banner {
+  background: linear-gradient(135deg, #3730a3 0%, #5b21b6 50%, #7c3aed 100%);
+}
+
+
+/* ==========================================================================
+   16. Navigation
+   ========================================================================== */
+
+/* Active nav item — bold + primary color */
+.md-nav__item--active > .md-nav__link {
+  font-weight: 600;
+  color: var(--md-primary-fg-color);
+}
+
+/* Sticky tabs — subtle bottom shadow for depth */
+.md-tabs {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Tab links — rounded top corners */
+.md-tabs__link {
+  border-radius: var(--quent-radius) var(--quent-radius) 0 0;
+  transition: color var(--quent-transition), background var(--quent-transition);
+}
+
+.md-tabs__link:hover {
+  opacity: 1;
+}
+
+/* Sidebar spacing */
+.md-sidebar__inner {
+  padding-top: 1rem;
+}
+
+.md-nav__link {
+  transition: color var(--quent-transition);
+}
+
+
+/* ==========================================================================
+   17. Search
+   ========================================================================== */
+
+.md-search__form {
+  border-radius: var(--quent-radius);
+  transition: box-shadow var(--quent-transition);
+}
+
+/* Focus glow — brand-colored ring */
+.md-search__form:focus-within {
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.20);
+}
+
+[data-md-color-scheme="slate"] .md-search__form:focus-within {
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.25);
+}
+
+
+/* ==========================================================================
+   18. Footer
+   ========================================================================== */
+
+.md-footer {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Prev/next navigation links */
+.md-footer__inner .md-footer__link {
+  border-radius: var(--quent-radius);
+  padding: 0.5rem;
+  transition:
+    box-shadow var(--quent-transition),
+    background var(--quent-transition);
+}
+
+.md-footer__inner .md-footer__link:hover {
+  box-shadow: var(--quent-shadow-sm);
+}
+
+.md-footer__title {
+  font-weight: 600;
+}
+
+/* Footer meta — muted */
+.md-footer-meta {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.82rem;
+}
+
+
+/* ==========================================================================
+   19. API Reference Signatures
+   ========================================================================== */
+
+/* Method/class headings — code-styled with left accent */
+.md-typeset .doc-heading,
+.md-typeset [id^="quent."] h2,
+.md-typeset [id^="quent."] h3 {
+  background: var(--md-code-bg-color);
+  border-left: 4px solid var(--md-primary-fg-color);
+  border-radius: 0 var(--quent-radius) var(--quent-radius) 0;
+  padding: 0.4em 0.8em;
+  font-family: var(--md-code-font-family);
+  font-size: 0.92rem;
+  margin-top: 1.6em;
+}
+
+/* Signature code blocks */
+.md-typeset .doc > pre,
+.md-typeset .doc-signature {
+  border-left: 3px solid var(--md-primary-fg-color);
+  border-radius: 0 var(--quent-radius) var(--quent-radius) 0;
+}
+
+
+/* ==========================================================================
+   20. Content Width
+   ========================================================================== */
+
+/* Comfortable reading measure */
+.md-content__inner {
+  max-width: 52rem;
+}
+
+/* Allow code blocks to be slightly wider */
+.md-typeset .highlight,
+.md-typeset .tabbed-set {
+  max-width: 56rem;
+}
+
+
+/* ==========================================================================
+   21. Responsive
+   ========================================================================== */
+
+@media screen and (max-width: 600px) {
+  .md-typeset h1 {
+    font-size: 1.6rem;
+  }
+
+  .md-typeset h2 {
+    font-size: 1.25rem;
+  }
+
+  .md-typeset .hero {
+    padding: 2rem 0 1.5rem;
+  }
+
+  .md-typeset .hero h1 {
+    font-size: 2rem;
+  }
+
+  .md-typeset .hero > p:first-of-type {
+    font-size: 1rem;
+  }
+
+  .md-typeset table:not([class]) {
+    font-size: 0.75rem;
+  }
+
+  .md-typeset table:not([class]) th {
+    font-size: 0.70rem;
+  }
+
+  .md-typeset .how-it-works .steps {
+    grid-template-columns: 1fr;
+    max-width: 400px;
+  }
+
+  .md-typeset .how-it-works .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media screen and (max-width: 960px) {
+  .md-typeset .hero h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+  }
+
+  /* Single column cards on tablets */
+  .md-typeset .grid.cards > ul,
+  .md-typeset .grid.cards > ol {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Touch-friendly tap targets */
+@media (hover: none) {
+  .md-typeset .md-button {
+    padding: 0.75rem 1.8rem;
+  }
+
+  .md-typeset .grid.cards > ul > li,
+  .md-typeset .grid.cards > ol > li {
+    padding: 1.2rem;
+  }
+}
+
+
+/* ==========================================================================
+   22. Catch-all Smooth Transitions
+   Ensure no interactive element has abrupt state changes.
+   ========================================================================== */
+
+.md-typeset .admonition,
+.md-typeset details,
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li,
+.md-typeset .step,
+.md-typeset .md-button,
+.md-footer__link {
+  transition:
+    box-shadow var(--quent-transition),
+    transform var(--quent-transition),
+    border-color var(--quent-transition),
+    background var(--quent-transition);
+}
+
+
+/* ==========================================================================
+   23. Forced Colors (Windows High Contrast Mode)
+   Restore text visibility when background-clip: text is ignored.
+   ========================================================================== */
+
+@media (forced-colors: active) {
+  .md-typeset .hero h1 {
+    -webkit-text-fill-color: currentColor;
+    background: none;
+  }
+}
+
+
+/* ==========================================================================
+   24. Reduced Motion
+   Respect OS-level "reduce motion" preference (WCAG 2.3.3).
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Disable decorative hover/active transforms only —
+     preserve functional transforms like tab underline scaleX() */
+  .md-typeset .md-button:hover,
+  .md-typeset .md-button:focus-visible,
+  .md-typeset .md-button:active,
+  .md-typeset .how-it-works .step:hover,
+  .md-typeset .grid.cards > ul > li:hover,
+  .md-typeset .grid.cards > ol > li:hover,
+  .md-typeset .grid.cards > ul > li:hover > p:last-child > a::after,
+  .md-typeset .grid.cards > ol > li:hover > p:last-child > a::after {
+    transform: none !important;
+  }
+}

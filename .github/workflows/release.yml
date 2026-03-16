@@ -1,0 +1,138 @@
+name: Release & Publish
+
+# SECURITY NOTE (workflow_run + contents:write + id-token:write):
+# This workflow triggers on workflow_run completion, which is a known privilege
+# escalation vector in GitHub Actions when combined with write permissions.
+# This usage is safe because:
+#   1. It only triggers on the master branch (not PRs or forks).
+#   2. It does NOT download or process artifacts from the triggering workflow.
+#   3. It only reads pyproject.toml from the checked-out code (not from artifacts).
+#   4. The only user-controlled input is the commit SHA (github.event.workflow_run.head_sha),
+#      which is a hex hash — not arbitrary text — and is passed via environment variable
+#      (not shell interpolation).
+#   5. The gh API call and release creation use environment variables, not ${{ }} interpolation
+#      in run: blocks, preventing script injection.
+#   6. PyPI publishing uses trusted publishing (id-token:write) scoped to the `pypi`
+#      environment, which requires environment protection rules.
+#   7. Build artifacts are produced and consumed within this workflow only —
+#      never downloaded from external sources.
+# If modifying this workflow, do NOT introduce artifact processing or user-controlled
+# string interpolation in run: blocks. See GitHub Security Lab advisories on workflow_run.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      published: ${{ steps.create_release.outputs.published }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check if pyproject.toml changed
+        id: changed
+        run: |
+          CHANGED=$(gh api "repos/$REPO/commits/$SHA" \
+            --jq '.files[].filename' | grep -c '^pyproject\.toml$' || true)
+          echo "pyproject_changed=$CHANGED" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Check for version bump
+        if: steps.changed.outputs.pyproject_changed != '0'
+        id: version
+        run: |
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists, skipping release."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "New version $VERSION detected, will create release."
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        if: steps.changed.outputs.pyproject_changed != '0' && steps.version.outputs.exists == 'false'
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --generate-notes
+          echo "published=true" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@6ee6290f1cbc4156c0bdd66691b2c144ef8df19a # v7.4.0
+
+      - name: Validate version matches tag
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "::error::Version mismatch: pyproject.toml has $VERSION but tag is $TAG"
+            exit 1
+          fi
+          echo "Version $VERSION matches tag $TAG"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Generate checksums
+        run: sha256sum dist/* > dist/checksums.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - name: Verify checksums
+        run: sha256sum --check dist/checksums.sha256 && rm dist/checksums.sha256
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0

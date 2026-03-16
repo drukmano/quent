@@ -1,0 +1,259 @@
+# SPDX-License-Identifier: MIT
+"""Generator wrappers for chain iteration (iterate/iterate_do)."""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
+
+from ._eval import _eval_signal_value, _isawaitable
+from ._exc_meta import _set_link_temp_args
+from ._link import Link
+from ._traceback import _modify_traceback
+from ._types import Null, _Break, _ControlFlowSignal, _Return, _UnpicklableMixin
+
+_T = TypeVar('_T')
+
+if TYPE_CHECKING:
+  from ._chain import Chain
+
+# Sentinel returned by _resolve_signal_value when exc.value is Null (no value to yield).
+_NO_VALUE = object()
+
+
+def _handle_iterate_exc(
+  exc: BaseException, link: Link | None, chain: Chain[Any] | None, ignore_result: bool, item: Any, idx: int
+) -> None:
+  """Attach source metadata to an iteration exception for traceback display."""
+  __tracebackhide__ = True
+  if link is not None:
+    _set_link_temp_args(exc, link, item=item, index=idx)
+    method = 'iterate_do' if ignore_result else 'iterate'
+    _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+
+
+def _resolve_signal_value(
+  exc: _ControlFlowSignal,
+  link: Link | None,
+  chain: Chain[Any] | None,
+  ignore_result: bool,
+  idx: int,
+) -> Any:
+  """Evaluate a control flow signal's value, attaching traceback metadata on failure.
+
+  Returns ``_NO_VALUE`` when the signal carries no value (``exc.value is Null``).
+  Otherwise returns the resolved value (which may be an awaitable — the caller
+  is responsible for handling that).  Raises on evaluation failure after
+  attaching iteration metadata to the exception.
+  """
+  __tracebackhide__ = True
+  if exc.value is Null:
+    return _NO_VALUE
+  try:
+    return _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+  except BaseException as eval_exc:
+    _handle_iterate_exc(eval_exc, link, chain, ignore_result, exc.value, idx)
+    raise eval_exc  # explicit raise for modified __traceback__ on Python <3.11
+
+
+def _close_and_raise_sync(awaitable: Any, signal_name: str) -> None:
+  """Close an awaitable that cannot be consumed synchronously, then raise TypeError."""
+  __tracebackhide__ = True
+  if hasattr(awaitable, 'close'):
+    awaitable.close()
+  msg = (
+    f'iterate() {signal_name} value resolved to a coroutine. '
+    f'Use "async for" with __aiter__ instead of "for" with __iter__.'
+  )
+  raise TypeError(msg) from None
+
+
+# Module-level functions (not methods) to avoid binding `self` in the generator closure.
+
+
+def _sync_generator(
+  chain_run: Callable[..., Any],
+  run_args: tuple[Any, ...],
+  fn: Callable[[Any], Any] | None,
+  ignore_result: bool,
+  chain: Chain[Any] | None = None,
+  link: Link | None = None,
+) -> Iterator[Any]:
+  # SYNC MIRROR of _async_generator — keep both in sync when modifying.
+  # Intentional divergences: sync closes awaitables + raises TypeError; async awaits them.
+  """Synchronous generator that yields each element of the chain's output."""
+  __tracebackhide__ = True
+  # Close the coroutine if the chain returned one — prevents ResourceWarning.
+  result = chain_run(*run_args)
+  if _isawaitable(result):
+    # Coroutines have .close(); Tasks/Futures have .cancel().
+    if hasattr(result, 'close'):
+      result.close()
+    elif hasattr(result, 'cancel'):
+      result.cancel()
+    msg = "Cannot use sync iteration on an async chain; use 'async for' instead"
+    raise TypeError(msg)
+  idx = 0
+  try:
+    for item in result:
+      if fn is None:
+        yield item
+      else:
+        try:
+          fn_result = fn(item)
+          if _isawaitable(fn_result):
+            if hasattr(fn_result, 'close'):
+              fn_result.close()
+            msg = (
+              f'iterate() callback {fn!r} returned a coroutine. '
+              f'Use "async for" with __aiter__ instead of "for" with __iter__.'
+            )
+            raise TypeError(msg)
+        except _ControlFlowSignal:  # Must propagate — not a regular exception.
+          raise
+        except BaseException as exc:
+          _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
+          raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+        if ignore_result:
+          yield item
+        else:
+          yield fn_result
+      idx += 1
+  except _Break as exc:
+    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+    if resolved is not _NO_VALUE:
+      if _isawaitable(resolved):
+        _close_and_raise_sync(resolved, '_Break')
+      yield resolved
+    return
+  except _Return as exc:
+    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+    if resolved is not _NO_VALUE:
+      if _isawaitable(resolved):
+        _close_and_raise_sync(resolved, '_Return')
+      yield resolved
+    return
+
+
+async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
+  """Wrap a synchronous iterator as an async iterator."""
+  __tracebackhide__ = True
+  for item in sync_iter:
+    yield item
+
+
+async def _async_generator(
+  chain_run: Callable[..., Any],
+  run_args: tuple[Any, ...],
+  fn: Callable[[Any], Any] | None,
+  ignore_result: bool,
+  chain: Chain[Any] | None = None,
+  link: Link | None = None,
+) -> AsyncIterator[Any]:
+  # ASYNC MIRROR of _sync_generator — keep both in sync when modifying.
+  # Intentional divergences: async awaits awaitables; sync closes them + raises TypeError.
+  """Asynchronous generator that yields each element of the chain's output."""
+  __tracebackhide__ = True
+  iterator = chain_run(*run_args)
+  if _isawaitable(iterator):
+    iterator = await iterator
+  if not hasattr(iterator, '__aiter__'):
+    iterator = _aiter_wrap(iterator)
+  idx = 0
+  try:
+    async for item in iterator:
+      if fn is None:
+        yield item
+      else:
+        try:
+          result = fn(item)
+          if _isawaitable(result):
+            result = await result
+        except _ControlFlowSignal:  # Must propagate — not a regular exception.
+          raise
+        except BaseException as exc:
+          _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
+          raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+        if ignore_result:
+          yield item
+        else:
+          yield result
+      idx += 1
+  except _Break as exc:
+    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+    if resolved is not _NO_VALUE:
+      if _isawaitable(resolved):
+        try:
+          resolved = await resolved
+        except BaseException as await_exc:
+          _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
+          raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
+      yield resolved
+    return
+  except _Return as exc:
+    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+    if resolved is not _NO_VALUE:
+      if _isawaitable(resolved):
+        try:
+          resolved = await resolved
+        except BaseException as await_exc:
+          _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
+          raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
+      yield resolved
+    return
+
+
+class ChainIterator(_UnpicklableMixin, Generic[_T]):
+  """Wraps chain output as a dual sync/async iterable.
+
+  Created by ``Chain.iterate()``. Supports both ``__iter__`` and
+  ``__aiter__``, choosing the appropriate generator at iteration time.
+  Calling the instance returns a new ``ChainIterator`` with updated run args,
+  making generators reusable with different inputs.
+
+  Generic over ``_T``, the element type yielded during iteration.
+  Currently ``_T`` is ``Any`` (the element type cannot be statically
+  inferred from ``Chain[T]``), but the parameter is in place for future
+  refinement.
+  """
+
+  __slots__ = ('_chain', '_chain_run', '_fn', '_ignore_result', '_link', '_run_args')
+
+  _chain: Chain[Any] | None
+  _chain_run: Callable[..., Any]
+  _fn: Callable[[Any], Any] | None
+  _ignore_result: bool
+  _link: Link | None
+  _run_args: tuple[Any, tuple[Any, ...], dict[str, Any]]
+
+  def __init__(
+    self,
+    chain_run: Callable[..., Any],
+    fn: Callable[[Any], Any] | None,
+    ignore_result: bool,
+    chain: Chain[Any] | None = None,
+    link: Link | None = None,
+  ) -> None:
+    self._chain_run = chain_run
+    self._fn = fn
+    self._ignore_result = ignore_result
+    self._chain = chain
+    self._link = link
+    self._run_args: tuple[Any, tuple[Any, ...], dict[str, Any]] = (Null, (), {})
+
+  def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> ChainIterator[_T]:
+    """Return a new ``ChainIterator`` with updated ``_run_args``, enabling reuse with different inputs."""
+    g: ChainIterator[_T] = ChainIterator(self._chain_run, self._fn, self._ignore_result, self._chain, self._link)
+    g._run_args = (v, args, kwargs)
+    return g
+
+  def __iter__(self) -> Iterator[_T]:
+    """Delegate to the module-level ``_sync_generator`` function."""
+    return _sync_generator(self._chain_run, self._run_args, self._fn, self._ignore_result, self._chain, self._link)
+
+  def __aiter__(self) -> AsyncIterator[_T]:
+    """Delegate to the module-level ``_async_generator`` function."""
+    return _async_generator(self._chain_run, self._run_args, self._fn, self._ignore_result, self._chain, self._link)
+
+  def __repr__(self) -> str:
+    return '<quent.ChainIterator>'

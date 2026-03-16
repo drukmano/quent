@@ -1,0 +1,46 @@
+# Compiled Python files
+__pycache__/
+*.pyc
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv*/
+venv*/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+._*
+Thumbs.db
+
+# MkDocs
+site/
+.cache/
+
+# Misc
+*.nosync*
+*.tmp*
+.env
+
+# Benchmarks
+benchmarks/results/
+.coverage.*

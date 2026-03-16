@@ -1,0 +1,135 @@
+[build-system]
+requires = ["setuptools>=82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quent"
+version = "5.0.0"
+authors = [{ name = "Ohad Drukman", email = "drukmano@icloud.com" }]
+description = "Write pipeline code once — runs sync or async automatically. Transparent sync/async bridge for Python. Pure Python, zero runtime dependencies on Python 3.11+."
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "typing_extensions>=4.0; python_version < '3.11'",
+]
+keywords = [
+    'chain', 'chaining', 'pipeline', 'fluent', 'pipe',
+    'async', 'sync', 'asyncio', 'coroutine', 'await',
+    'pure-python',
+    'sync-async', 'dual', 'dual-mode', 'sync-to-async', 'async-to-sync',
+    'function-composition', 'bridge', 'transparent', 'write-once',
+    'middleware', 'data-pipeline', 'workflow',
+    'unify', 'auto-async', 'await-detection',
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+
+    "Framework :: AsyncIO",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/drukmano/quent"
+Documentation = "https://quent.readthedocs.io"
+Repository = "https://github.com/drukmano/quent"
+Changelog = "https://github.com/drukmano/quent/releases"
+Issues = "https://github.com/drukmano/quent/issues"
+
+[tool.setuptools]
+packages = ["quent"]
+
+[tool.setuptools.package-data]
+quent = ["py.typed"]
+
+[tool.coverage.run]
+source = ["quent"]
+branch = true
+
+[dependency-groups]
+test = [
+    "coverage>=7.13.4",
+    "hypothesis>=6.151.9",
+]
+dev = [
+    { include-group = "test" },
+    "ruff>=0.15.6",
+    "mypy>=1.19.1",
+    "pip-audit>=2.10",
+]
+publish = [
+    "twine>=6.2",
+]
+bench = [
+    "pyperf>=2.10",
+    "line-profiler>=5.0.2",
+]
+docs = [
+    "mkdocs-material[imaging]>=9.7.5",  # also in docs/requirements.txt (for ReadTheDocs)
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 2
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",       # pycodestyle errors
+    "W",       # pycodestyle warnings
+    "F",       # pyflakes
+    "I",       # isort
+    "UP",      # pyupgrade
+    "B",       # flake8-bugbear
+    "SIM",     # flake8-simplify
+    "RUF",     # ruff-specific rules
+]
+ignore = [
+    "E741",    # ambiguous variable name (single-letter vars used intentionally)
+    "B905",    # zip-without-strict (not always appropriate)
+    "SIM105",  # contextlib.suppress (try/except preferred)
+    "SIM108",  # ternary instead of if-else (readability preference)
+    "UP007",   # use X | Y for union types (already used, but some edge cases)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = [
+    "B023",   # lambda in loop (lambdas are called immediately in subtest bodies)
+    "E711",   # comparison to None (intentional __eq__ tests)
+    "E712",   # comparison to False (intentional __eq__ tests)
+    "E731",   # lambda assignment (convenient in tests)
+    "F821",   # ExceptionGroup polyfill (undefined on Python 3.10)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["quent"]
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "single"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+check_untyped_defs = true
+disallow_incomplete_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_any_generics = true

@@ -1,0 +1,86 @@
+# quent
+
+> Transparent sync/async bridge for Python. Write pipeline code once -- quent detects awaitables at runtime and handles them automatically. Pure Python, zero dependencies, PEP 561 typed.
+
+quent provides a fluent `Chain` class for building sequential pipelines. The same chain definition works for both sync and async callables with no code duplication. Execution starts synchronously; if any step returns an awaitable, quent seamlessly transitions to an async path. `.run()` returns either a plain value or a coroutine -- the caller decides whether to `await`.
+
+- Package: quent
+- Python: >=3.10
+- License: MIT
+- Dependencies: None (pure Python on 3.11+; typing_extensions on 3.10)
+- Typing: PEP 561 (py.typed + inline annotations)
+- Install: `pip install quent`
+- GitHub: https://github.com/drukmano/quent
+- Docs: https://quent.readthedocs.io
+- PyPI: https://pypi.org/project/quent/
+
+## Documentation
+
+- [Full Documentation](https://quent.readthedocs.io/en/latest/)
+- [GitHub Repository](https://github.com/drukmano/quent)
+- [PyPI](https://pypi.org/project/quent/)
+- [Changelog](https://github.com/drukmano/quent/releases)
+
+## Quick Start
+
+```python
+from quent import Chain
+
+# Basic pipeline
+result = Chain([1, 2, 3]).foreach(lambda x: x * 2).then(sum).run()
+# 12
+
+# Same chain works with async callables -- no changes needed
+result = await Chain(url).then(fetch).then(process).run()
+
+# Side effects with .do() -- result discarded, value passes through
+result = Chain(data).do(log).then(transform).do(save).run()
+
+# Error handling -- handler receives ChainExcInfo(exc, root_value)
+result = Chain(url).then(fetch).except_(lambda ei: default_value).run()
+
+# Reuse via clone
+base = Chain().then(validate).then(transform)
+branch_a = base.clone().then(save_to_db)
+branch_b = base.clone().then(save_to_file)
+```
+
+## API Overview
+
+- [Chain(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#constructor) -- Constructor with optional root value.
+- [.then(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#then) -- Append step; result replaces current value.
+- [.do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#do) -- Side-effect step; result discarded.
+- [.foreach(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#map) -- Apply fn to each element, collect results.
+- [.foreach_do(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach_do) -- Side-effect per element, keep originals.
+- [.gather(*fns, concurrency=-1, executor=None)](https://quent.readthedocs.io/en/latest/reference/#gather) -- Run multiple functions concurrently on current value.
+- [.with_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_) -- Enter current value as context manager, call fn.
+- [.with_do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_do) -- Context manager side-effect variant.
+- [.if_(predicate=None, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#if_) -- Begin conditional; must be followed by .then() or .do().
+- [.else_(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#else_) -- Else branch for preceding if_().
+- [.else_do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#else_do) -- Side-effect else branch.
+- [.except_(fn, *args, exceptions=None, reraise=False, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#except_) -- Exception handler (one per chain).
+- [.finally_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#finally_) -- Cleanup handler (one per chain, always runs).
+- [.name(label)](https://quent.readthedocs.io/en/latest/reference/#name) -- Assign a label for traceback identification.
+- [.run(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#run) -- Execute chain.
+- [.decorator()](https://quent.readthedocs.io/en/latest/reference/#decorator) -- Wrap chain as function decorator.
+- [.iterate(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate) -- Sync/async iterator over chain output.
+- [.iterate_do(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate_do) -- Iterator with side-effect fn.
+- [.clone()](https://quent.readthedocs.io/en/latest/reference/#clone) -- Independent copy of chain.
+- [Chain.return_(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Early return from chain.
+- [Chain.break_(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from iteration; value appended to partial results.
+- [Chain.on_step](https://quent.readthedocs.io/en/latest/reference/#on_step) -- Class-level step instrumentation callback.
+- [ChainExcInfo](https://quent.readthedocs.io/en/latest/reference/#chainexcinfo) -- NamedTuple (exc, root_value) passed to except handlers.
+- [Null](https://quent.readthedocs.io/en/latest/reference/#null-sentinel) -- Sentinel for "no value provided".
+- [QuentException](https://quent.readthedocs.io/en/latest/reference/#quentexception) -- Public exception type.
+
+## Key Concepts
+
+- [Calling Conventions](https://quent.readthedocs.io/en/latest/guide/chains/) -- Two rules: explicit args override current value; no args passes current value as first argument.
+- [Sync/Async Bridging](https://quent.readthedocs.io/en/latest/guide/async/) -- Execution starts sync; transitions to async on first awaitable; caller decides whether to await.
+- [Enhanced Tracebacks](https://quent.readthedocs.io/en/latest/reference/) -- Chain visualization injected into exceptions with `<----` marker pointing to failing step.
+
+## Optional
+
+- [Source Code](https://github.com/drukmano/quent/tree/master/quent)
+- [Issue Tracker](https://github.com/drukmano/quent/issues)
+- [Full LLM Context (llms-full.txt)](https://raw.githubusercontent.com/drukmano/quent/master/llms-full.txt): Complete API reference with all method signatures, calling conventions, and behavioral details.

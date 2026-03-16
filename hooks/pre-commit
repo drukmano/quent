@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+uv run bash scripts/fix_format.sh
+
+# Re-stage any files under quent/ or tests/ that were modified by ruff format/check --fix
+# so that formatting fixes are included in the commit.
+git diff --name-only -- quent/ tests/ | while IFS= read -r file; do
+  git add -- "$file"
+done
+
+# Gate: verify no remaining unfixable lint issues
+uv run ruff check quent/ tests/

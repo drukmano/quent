@@ -1,0 +1,4 @@
+# This file exists for ReadTheDocs, which does not natively read pyproject.toml
+# dependency groups. Keep in sync with pyproject.toml [dependency-groups].docs.
+# See also: .readthedocs.yml which references this file.
+mkdocs-material[imaging]>=9.7.5

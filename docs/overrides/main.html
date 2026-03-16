@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block announce %}
+  <strong>quent v4.2</strong> &mdash; transparent sync/async bridge for Python.
+  <a href="https://github.com/drukmano/quent/releases">
+    See what's new &rarr;
+  </a>
+{% endblock %}
+
+{% block extrahead %}
+  {% if page and page.is_homepage %}
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "quent",
+    "description": "Transparent sync/async bridge for Python. Write pipeline code once, run it sync or async.",
+    "url": "https://quent.readthedocs.io",
+    "codeRepository": "https://github.com/drukmano/quent",
+    "programmingLanguage": "Python",
+    "license": "https://opensource.org/licenses/MIT",
+    "author": {
+      "@type": "Person",
+      "name": "Ohad Drukman"
+    },
+    "runtimePlatform": "Python 3.10+",
+    "operatingSystem": "OS Independent",
+    "version": "4.2.1",
+    "datePublished": "2026-03-14",
+    "downloadUrl": "https://pypi.org/project/quent/",
+    "keywords": ["python", "asyncio", "pipeline", "sync-async", "chain"]
+  }
+  </script>
+  <style>
+    /* Give the homepage more vertical breathing room */
+    .md-main__inner { margin-top: 0; }
+  </style>
+  {% endif %}
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="quent" />
+  {% if page and page.meta and page.meta.description %}
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="{{ page.meta.title or page.title }}" />
+  <meta name="twitter:description" content="{{ page.meta.description }}" />
+  {% endif %}
+{% endblock %}

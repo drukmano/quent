@@ -1,0 +1,361 @@
+# quent
+
+> Transparent sync/async bridge for Python. Write pipeline code once -- quent detects awaitables at runtime and handles them automatically. Pure Python, zero dependencies, PEP 561 typed.
+
+quent provides a fluent `Chain` class for building sequential pipelines. The same chain definition works for both sync and async callables with no code duplication. Execution starts synchronously; if any step returns an awaitable, quent seamlessly transitions to an async path. `.run()` returns either a plain value or a coroutine -- the caller decides whether to `await`.
+
+quent is NOT a collections library, not a functional programming toolkit, and not an opinionated framework. It bridges the sync/async divide and gets out of the way.
+
+- **Package:** `quent`
+- **Python:** >=3.10
+- **License:** MIT
+- **Dependencies:** None (pure Python on 3.11+; typing_extensions on 3.10)
+- **Typing:** PEP 561 typed (`py.typed` marker + inline annotations)
+- **Install:** `pip install quent`
+- **GitHub:** https://github.com/drukmano/quent
+- **Docs:** https://quent.readthedocs.io
+- **PyPI:** https://pypi.org/project/quent/
+
+## Public API
+
+Five exports:
+
+```python
+from quent import (
+    Chain, ChainExcInfo, ChainIterator, QuentException,
+    __version__,
+)
+```
+
+- `Chain` -- Main pipeline class for building and executing fluent pipelines.
+- `ChainExcInfo` -- NamedTuple `(exc, root_value)` passed to `except_()` handlers as their current value.
+- `ChainIterator` -- Type alias for the return value of `.iterate()` / `.iterate_do()`. Use for type annotations.
+- `QuentException` -- Public exception type for quent-specific errors.
+- `__version__` -- Version string (dynamically read from package metadata).
+
+Side effect: importing `quent` triggers exception hook patching for enhanced tracebacks. Suppress with `QUENT_NO_TRACEBACK=1` environment variable.
+
+## Calling Conventions
+
+This is the most important concept in quent. Every pipeline step dispatches through these 2 rules in strict priority order. The first matching rule wins.
+
+### Rules
+
+1. **Explicit Args** -- args/kwargs provided: `fn(*args, **kwargs)`. Current value NOT passed.
+2. **Default** -- callable + current value: `fn(cv)`. Callable + no value: `fn()`. Non-callable: returned as-is.
+
+Nested chains are detected via duck-typing (`_quent_is_chain` attribute) and execute with the current value as input. This is handled transparently by the evaluation function.
+
+```python
+inner = Chain().then(lambda x: x * 2)
+Chain(5).then(inner).run()                    # inner receives 5, returns 10
+Chain(5).then(fmt, 'USD', decimals=2).run()   # Rule 1: fmt('USD', decimals=2)
+Chain(5).then(str).run()                      # Rule 2: str(5) -> '5'
+Chain(5).then(42).run()                       # Rule 2: 42 (literal replaces value)
+```
+
+### Summary Table
+
+| Priority | Rule | Trigger | Invocation |
+|---|---|---|---|
+| 1 | Explicit args | Args/kwargs provided | `fn(*args, **kwargs)` |
+| 2 | Default | None of the above | `fn(cv)`, `fn()`, or `v` as-is |
+
+## Sync/Async Bridging
+
+The bridge contract is the central guarantee:
+
+> Given a pipeline of N steps, replacing any step's callable with a functionally equivalent callable of the opposite sync/async kind produces the same observable result.
+
+### How It Works
+
+1. Execution always starts synchronously. A fully sync pipeline has zero async overhead.
+2. After each step, the result is checked for awaitability.
+3. On first awaitable: engine immediately transitions to async continuation. Once async, stays async.
+4. `.run()` returns either a plain value (all sync) or a coroutine (async transition occurred).
+
+```python
+chain = Chain(5).then(lambda x: x * 2).then(async_fn)
+result = await chain.run()  # transitions to async at async_fn
+```
+
+### Three-Tier Iteration
+
+Iteration operations (`foreach`, `foreach_do`) use three tiers:
+- **Sync fast path:** Everything synchronous (most common).
+- **Mid-operation transition:** Discovers awaitable partway through; hands off live iterator + partial results to async continuation. No re-processing.
+- **Full async path:** Input is an async iterable from the start.
+
+## Chain Class
+
+### Constructor
+
+`Chain(v=Null, /, *args, **kwargs)` -- optional root value. If `v` is callable, called with `(*args, **kwargs)` when chain runs. If not callable, used as-is (`args`/`kwargs` must not be provided; TypeError). `Chain()` = no root value. `Chain(None)` = root value `None`.
+
+```python
+Chain()              # no root value
+Chain(42)            # root value is 42
+Chain(fetch, url)    # calls fetch(url) at run time
+```
+
+### Pipeline Building Methods
+
+All return `self` for fluent chaining.
+
+#### .then(v, /, *args, **kwargs) -> Chain
+
+Append a step. `v` evaluated per calling conventions; result replaces current value. `v` can be callable, literal, or nested `Chain`.
+
+#### .do(fn, /, *args, **kwargs) -> Chain
+
+Side-effect step. `fn` must be callable (TypeError otherwise). Return value discarded; current value passes through. Awaitables still awaited for side-effect completion.
+
+#### .foreach(fn, /, *, concurrency=None, executor=None) -> Chain
+
+Apply `fn` to each element of current iterable. Results collected into a list. `fn` must be callable.
+- Sequential (default): one at a time. Supports sync and async iterables.
+- Concurrent (`concurrency=N`): input eagerly materialized. Sync: ThreadPoolExecutor. Async: semaphore-limited tasks. Mixed sync/async raises TypeError.
+- `executor`: optional executor instance for sync concurrent execution (caller manages lifecycle).
+- `Chain.break_()` stops iteration early.
+
+#### .foreach_do(fn, /, *, concurrency=None, executor=None) -> Chain
+
+Side-effect per element. Original elements kept (fn's returns discarded). Same mechanics as `foreach()`.
+
+#### .gather(*fns, concurrency=-1, executor=None) -> Chain
+
+Run multiple functions concurrently on current value. Returns tuple in same order as `fns`. Always concurrent -- no sequential fallback. `concurrency=-1` means unbounded. Sync: ThreadPoolExecutor. Async: TaskGroup (3.11+) / asyncio.gather (3.10). At least one function required. Single failure propagates directly; multiple wrapped in ExceptionGroup.
+- `executor`: optional executor instance for sync concurrent execution.
+
+```python
+Chain(data).gather(validate, transform, analyze).then(
+    lambda results: combine(results[0], results[1], results[2])
+).run()
+```
+
+#### .with_(fn, /, *args, **kwargs) -> Chain
+
+Enter current value as context manager, call `fn` with the `__enter__` result. fn's result replaces current value. If `fn` raises and `__exit__` returns truthy (suppresses), current value becomes `None`. If `__exit__` raises, replaces original (original as `__context__`).
+
+#### .with_do(fn, /, *args, **kwargs) -> Chain
+
+Same as `.with_()` but fn's result discarded. Original pipeline value (the context manager object) passes through.
+
+#### .if_(predicate=None, /, *args, **kwargs) -> Chain
+
+Begin a conditional branch. Must be followed by `.then()` or `.do()`.
+- `predicate=None`: uses current value truthiness.
+- Callable predicate: called with current value per standard conventions.
+- Non-callable: truthiness used directly.
+- Args/kwargs are passed to the predicate callable.
+
+After `.if_()`, the next `.then(fn)` or `.do(fn)` becomes the truthy branch. Follow with `.else_(v)` or `.else_do(fn)` for the falsy branch.
+
+```python
+Chain(5).if_(lambda x: x > 0).then(lambda x: x * 2).else_(0).run()  # 10
+```
+
+#### .else_(v, /, *args, **kwargs) -> Chain
+
+Else branch for preceding `.if_()`. Must follow `.then()` or `.do()` immediately (QuentException otherwise). One per `if_()`.
+
+#### .else_do(fn, /, *args, **kwargs) -> Chain
+
+Side-effect else branch. Like `.else_()` but fn's result discarded.
+
+#### .name(label) -> Chain
+
+Assign a user-provided label for traceback identification. The label appears in chain visualizations, exception notes, and `repr(chain)`. No effect on execution semantics.
+
+### Error Handling
+
+#### .except_(fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Chain
+
+Exception handler. One per chain. `fn` must be callable. `exceptions`: type(s) to catch (default `Exception`). `reraise=False`: handler return becomes result. `reraise=True`: side-effects only, original re-raised.
+
+**Except handler calling convention (uses the standard 2-rule convention):**
+
+The handler receives a `ChainExcInfo(exc, root_value)` as its current value:
+
+| Registration | Invocation |
+|---|---|
+| `except_(handler)` | `handler(ChainExcInfo(exc, root_value))` |
+| `except_(handler, arg1, arg2)` | `handler(arg1, arg2)` -- ChainExcInfo NOT passed |
+| `except_(handler, key=val)` | `handler(key=val)` -- ChainExcInfo NOT passed |
+
+**Handler failure:** `reraise=True` + Exception: discarded, original re-raised. `reraise=True` + BaseException: propagates. `reraise=False`: handler's exception propagates with original as `__cause__`.
+
+Control flow signals inside except handlers raise QuentException.
+
+#### .finally_(fn, /, *args, **kwargs) -> Chain
+
+Cleanup handler. One per chain. Always runs. Uses STANDARD calling conventions. Receives root value (normalized to `None` if absent). Return value always discarded. If raises while exception active: replaces original (original as `__context__`). Control flow signals raise QuentException.
+
+### Execution Methods
+
+#### .run(v=Null, /, *args, **kwargs) -> Any
+
+Execute chain. Returns final value or coroutine if async transition occurred. `v` overrides root value when both present (`Chain(A).then(B).run(C)` == `Chain(C).then(B).run()`). Non-callable `v` with args/kwargs raises TypeError. Root value captured for error handlers. Escaped control flow signals wrapped in QuentException.
+
+#### .__call__ = run
+
+Alias. `chain('hello')` == `chain.run('hello')`.
+
+#### .decorator() -> Callable
+
+Wrap chain as function decorator. Chain cloned internally. Decorated function's return value becomes chain input. Preserves signature via `functools.wraps`.
+
+#### .iterate(fn=None) -> ChainIterator
+
+Dual sync/async iterator over chain output. Chain executed when iteration begins. Optional `fn` transforms each element. `for` = sync (TypeError if coroutine encountered). `async for` = async. ChainIterator is callable: `gen(url)` returns new iterator with those run args.
+
+#### .iterate_do(fn=None) -> ChainIterator
+
+Like `.iterate()` but fn's return values discarded. Original elements yielded.
+
+#### .clone() -> Chain
+
+Independent copy. Structure deep-copied; callables shared by reference. Nested chains recursively cloned. Subclass-safe.
+
+### Control Flow (Class Methods)
+
+#### Chain.return_(v=Null, /, *args, **kwargs) -> NoReturn
+
+Early return. BaseException subclass -- never caught by `except_()`. Propagates through nested chains. Must be called as `return Chain.return_(value)`. No value = `None`. Callable value = lazy (invoked when caught). Inside except/finally: raises QuentException.
+
+```python
+def check(x):
+    if x < 0:
+        return Chain.return_(0)  # skips remaining steps, chain returns 0
+    return x
+```
+
+#### Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn
+
+Break from `foreach`/`foreach_do`. No value = partial results. With value = value is **appended** to partial results. Outside iteration: QuentException. Inside except/finally: QuentException. Concurrent: earliest index wins. Priority: return_ > break_ > exceptions.
+
+```python
+Chain([1, 2, -1, 3]).foreach(lambda x: Chain.break_() if x < 0 else x * 2).run()  # [2, 4]
+Chain([1, 2, -1, 3]).foreach(lambda x: Chain.break_(x * 10) if x < 0 else x * 2).run()  # [2, 4, -10]
+```
+
+### Class-Level Attributes
+
+#### Chain.on_step
+
+`ClassVar[Callable[[Chain, str, Any, Any, int], None] | None]` -- default `None`. Called after each step: `(chain, step_name, input_value, result, elapsed_ns)`. Step names: `'root'`, `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'except_'`, `'finally_'`. Zero overhead when `None`. Callback errors logged but never break execution.
+
+### Dunder Methods
+
+`__bool__()` always `True`. `__repr__()` shows chain structure.
+
+## Null Sentinel
+
+Singleton distinct from `None`. Represents "no value was provided."
+
+- `Chain()` has no root value (internal Null). `Chain(None)` has root value `None`.
+- Immutable, thread-safe. `repr(Null)` returns `'<Null>'`.
+- Copying (`copy.copy`, `copy.deepcopy`) returns same instance.
+- Unpicklable: `pickle.dumps(Null)` raises TypeError.
+- Never exposed to user code. Normalized to `None` at chain boundaries.
+- When current value is Null: callable receives zero args. When `None`: callable receives `fn(None)`.
+
+## ChainExcInfo
+
+NamedTuple with two fields:
+- `exc: BaseException` -- the caught exception.
+- `root_value: Any` -- the chain's evaluated root value (normalized to `None` when absent).
+
+This is the "current value" passed to `except_()` handlers via the standard 2-rule calling convention.
+
+## QuentException
+
+Raised for: duplicate except_/finally_, else_() without if_(), break_() outside iteration, control flow signals escaping chain or used in handlers, nesting depth exceeded.
+
+## Enhanced Tracebacks
+
+Quent injects `<quent>` frames into tracebacks with chain visualization. `<----` marks the failing step. Nested chains indented. Internal quent frames cleaned. First-write-wins: only innermost failure recorded.
+
+```
+Chain(fetch_data)
+    .then(validate)
+    .do(log) <----
+    .foreach(transform)
+```
+
+**Mechanism:** `sys.excepthook` and `TracebackException.__init__` patched. Python 3.11+: note via `exc.add_note()`.
+
+**Environment variables:** `QUENT_NO_TRACEBACK=1` disables all modifications. `QUENT_TRACEBACK_VALUES=0` suppresses values (sensitive data).
+
+**Uninstall:** `quent.uninstall_hooks()` restores originals. Thread-safe, idempotent.
+
+## Advanced Topics
+
+### ExceptionGroup
+
+Multiple concurrent failures wrapped in ExceptionGroup (builtin 3.11+, polyfill 3.10). Single failures propagate directly. BaseException subclasses not wrapped. Each exception has `gather_index`/`gather_fn` in `__quent_meta__`.
+
+### Concurrency
+
+`concurrency` param on `foreach`/`foreach_do`/`gather`. `None` = sequential (iteration) / all-concurrent (gather). Integer = limit (min 1, max 1024). Sync: ThreadPoolExecutor per invocation (or custom `executor`). Async: Semaphore + TaskGroup/gather.
+
+### Other
+
+- **Nesting depth:** limit 50 (configurable). Tracked via contextvars. Propagated to threads.
+- **Dual-protocol objects:** async protocol preferred when event loop running; sync otherwise.
+
+## Complete Method Signatures
+
+```python
+class Chain:
+    def __init__(self, v=Null, /, *args, **kwargs) -> None: ...
+    def then(self, v, /, *args, **kwargs) -> Chain: ...
+    def do(self, fn, /, *args, **kwargs) -> Chain: ...
+    def foreach(self, fn, /, *, concurrency=None, executor=None) -> Chain: ...
+    def foreach_do(self, fn, /, *, concurrency=None, executor=None) -> Chain: ...
+    def gather(self, *fns, concurrency=-1, executor=None) -> Chain: ...
+    def with_(self, fn, /, *args, **kwargs) -> Chain: ...
+    def with_do(self, fn, /, *args, **kwargs) -> Chain: ...
+    def if_(self, predicate=None, /, *args, **kwargs) -> Chain: ...
+    def else_(self, v, /, *args, **kwargs) -> Chain: ...
+    def else_do(self, fn, /, *args, **kwargs) -> Chain: ...
+    def except_(self, fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Chain: ...
+    def finally_(self, fn, /, *args, **kwargs) -> Chain: ...
+    def name(self, label, /) -> Chain: ...
+    def run(self, v=Null, /, *args, **kwargs) -> Any: ...
+    def __call__(self, v=Null, /, *args, **kwargs) -> Any: ...
+    def decorator(self) -> Callable: ...
+    def iterate(self, fn=None) -> ChainIterator: ...
+    def iterate_do(self, fn=None) -> ChainIterator: ...
+    def clone(self) -> Chain: ...
+    @classmethod
+    def return_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...
+    @classmethod
+    def break_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...
+    on_step: ClassVar[Callable[[Chain, str, Any, Any, int], None] | None] = None
+    def __bool__(self) -> bool: ...
+    def __repr__(self) -> str: ...
+```
+
+## Invariants and Edge Cases
+
+1. Single except/finally per chain. Duplicates raise QuentException.
+2. `except_()` catches `Exception` by default, not `BaseException`.
+3. `finally_()` receives the root value, not the current pipeline value. Its return value is always discarded.
+4. `except_()` handler receives `ChainExcInfo(exc, root_value)` as its current value (standard 2-rule convention). Handler return value replaces chain result (when `reraise=False`).
+5. `do()` enforces callable (TypeError for non-callables). `then()` accepts any value.
+6. Control flow signals (`_Return`, `_Break`) are `BaseException` subclasses -- never caught by `except_()` handlers.
+7. Using `return_()` or `break_()` inside `except_()` or `finally_()` raises QuentException.
+8. `Chain.__bool__()` always returns `True`.
+9. `Null` is not `None`. `Chain(None).run()` returns `None`. `Chain().run()` also returns `None`, but via a different path (Null normalized at boundary).
+10. `gather()` is always concurrent. At least one function required. Returns tuple even for single function.
+11. `with_()` properly handles `__exit__` return value (True suppresses exception; current value becomes None).
+12. `iterate()` in sync mode raises TypeError if fn returns a coroutine.
+13. Chain objects cannot be pickled (raises TypeError). Deliberate security measure (CWE-502).
+14. `break_(value)` **appends** the break value to partial results. In `iterate()`, value is yielded as additional item.
+15. `return_(value)` in normal execution replaces chain result. In `iterate()`, value is yielded as final item.
+16. Root callable failure: except/finally handlers receive root value normalized to `None` (since no root was successfully produced).
+17. `with_do()` on exception suppression: original pipeline value passes through (not None as in `with_()`).
+18. Concurrent mixed sync/async raises TypeError -- first item/function determines the mode.
+19. `if_()` predicate can be callable, non-callable, or None (uses current value truthiness).
+20. `else_()` must follow `if_()` immediately -- no intervening steps.
