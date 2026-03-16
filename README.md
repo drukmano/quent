@@ -336,7 +336,11 @@ When an exception occurs inside a chain, quent injects a visualization directly 
 ```
 Traceback (most recent call last):
   ...
-  File "<quent>", line 0, in Chain(fetch_data).then(validate).then(transform) <----.do(log)
+  File "<quent>", line 1, in
+    Chain(fetch_data)
+    .then(validate)
+    .then(transform) <----
+    .do(log)
   ...
 ZeroDivisionError: division by zero
 ```

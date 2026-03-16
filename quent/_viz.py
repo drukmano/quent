@@ -380,7 +380,9 @@ def _format_link(
   # Append error marker if this is the failing link.
   # The `<----` marker visually points to the link that raised the exception
   # in the chain visualization, e.g.:
-  #   Chain(fetch).then(parse) <----.do(log)
+  #   Chain(fetch)
+  #   .then(parse) <----
+  #   .do(log)
   if not ctx.found and op_link is ctx.source_link:
     output += _ERROR_MARKER
 

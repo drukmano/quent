@@ -295,7 +295,7 @@ Traceback (most recent call last):
     .run()
      ^^^^^
   File "<quent>", line 1, in
-    Chain(fetch_data, 42) = {'id': 42, 'value': 100}
+    Chain(fetch_data, 42)
     .then(validate) <----
     .then(transform)
     .then(save)
