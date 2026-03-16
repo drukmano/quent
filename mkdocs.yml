@@ -52,6 +52,9 @@ theme:
     text: Inter
     code: JetBrains Mono
 
+hooks:
+  - docs/hooks.py
+
 plugins:
   - search:
       separator: '[\s\-\.]+'

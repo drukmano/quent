@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block announce %}
-  <strong>quent v4.2</strong> &mdash; transparent sync/async bridge for Python.
+  <strong>quent v{{ config.extra.version }}</strong> &mdash; transparent sync/async bridge for Python.
   <a href="https://github.com/drukmano/quent/releases">
     See what's new &rarr;
   </a>
@@ -25,7 +25,7 @@
     },
     "runtimePlatform": "Python 3.10+",
     "operatingSystem": "OS Independent",
-    "version": "4.2.1",
+    "version": "{{ config.extra.version }}",
     "datePublished": "2026-03-14",
     "downloadUrl": "https://pypi.org/project/quent/",
     "keywords": ["python", "asyncio", "pipeline", "sync-async", "chain"]
