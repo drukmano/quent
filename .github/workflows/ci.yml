@@ -122,7 +122,15 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
+        if: ${{ !(matrix.os == 'windows-latest' && matrix.python-version == '3.13t') }}
         run: uv sync ${{ matrix.experimental && '--no-group dev --group test' || '--group dev' }} --python ${{ matrix.python-version }}
+
+      - name: Install dependencies (Windows 3.13t — skip trio, cffi incompatible with free-threaded 3.13)
+        if: matrix.os == 'windows-latest' && matrix.python-version == '3.13t'
+        shell: bash
+        run: |
+          uv sync --no-group dev --no-group test --python ${{ matrix.python-version }}
+          uv pip install hypothesis "curio>=1.6"
 
       - name: Compile
         run: uv run python -m compileall -q quent/
