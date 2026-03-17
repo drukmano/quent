@@ -164,7 +164,7 @@ Chain([1, 2, 3]).foreach(lambda x: x ** 2).run()
 Chain(urls).foreach(fetch, concurrency=4).run()
 ```
 
-Supports both sync iterables (`__iter__`) and async iterables (`__aiter__`). When both protocols are present, the async protocol is preferred if an event loop is running. Supports mid-iteration async transition -- if `fn` returns an awaitable for any element, the operation transitions to async automatically.
+Supports both sync iterables (`__iter__`) and async iterables (`__aiter__`). When both protocols are present, the async protocol is preferred if an async event loop is running (asyncio, trio, or curio). Supports mid-iteration async transition -- if `fn` returns an awaitable for any element, the operation transitions to async automatically.
 
 Use `Chain.break_()` inside `fn` to stop iteration early. Without a value, partial results collected so far are returned. With a value, it is appended to the partial results.
 
@@ -263,7 +263,7 @@ Chain(open('data.txt')).with_(lambda f: f.read()).run()
 
 **Exception suppression:** If `fn` raises and `__exit__` returns a truthy value, the pipeline continues with `None` as the current value.
 
-**Dual-protocol objects:** When the current value supports both sync and async context manager protocols and an event loop is running, the async protocol is preferred.
+**Dual-protocol objects:** When the current value supports both sync and async context manager protocols and an async event loop is running (asyncio, trio, or curio), the async protocol is preferred.
 
 **Control flow signals:** If `fn` raises `return_()` or `break_()`, `__exit__` is called with no exception info (clean exit), and the signal propagates.
 

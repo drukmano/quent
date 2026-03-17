@@ -31,7 +31,7 @@
 - **One definition, two worlds** &mdash; a single chain works for both sync and async callers. Zero code duplication.
 - **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just chain your functions.
 - **Drop-in migration** &mdash; unify existing sync and async implementations into one pipeline. Stop maintaining two versions.
-- **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561).
+- **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561). Compatible with asyncio, trio, and curio &mdash; async event loop detection uses `sys.modules` lookups, adding zero overhead when those libraries are not loaded.
 - **Focused** &mdash; every feature exists because removing it would force separate sync and async code paths.
 
 ---

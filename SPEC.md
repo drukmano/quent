@@ -362,11 +362,11 @@ All operations participate in the transparent sync/async bridge: if any operatio
 **Sequential execution (concurrency=None):**
 - Elements are processed one at a time in iteration order.
 - If `fn` returns an awaitable for any element, the pipeline transitions to async and awaits it. Subsequent elements continue in async mode.
-- Supports both sync iterables (`__iter__`) and async iterables (`__aiter__`). When both protocols are present, the async protocol is preferred if an event loop is running; otherwise, the sync protocol is used.
+- Supports both sync iterables (`__iter__`) and async iterables (`__aiter__`). When both protocols are present, the async protocol is preferred if an async event loop is running (asyncio, trio, or curio); otherwise, the sync protocol is used.
 
 **Concurrent execution (concurrency=-1 or concurrency=N):**
 - The entire input iterable is eagerly materialized into a list before processing begins. Do not use with infinite or very large iterables.
-- The dual-protocol preference applies when materializing the iterable: when both `__iter__` and `__aiter__` are present and an event loop is running, the async protocol is used; otherwise, the sync protocol is used.
+- The dual-protocol preference applies when materializing the iterable: when both `__iter__` and `__aiter__` are present and an async event loop is running (asyncio, trio, or curio), the async protocol is used; otherwise, the sync protocol is used.
 - Sync path: uses a thread pool. The first element is probed to determine sync vs async. If the first call returns a non-awaitable, all remaining elements are dispatched to worker threads.
 - Async path: uses semaphore-limited async tasks. If the first call returns an awaitable, all elements are dispatched as async tasks with concurrency bounded by the semaphore.
 - Mixed sync/async is not supported within a single concurrent operation — if the first element determines sync execution but a later element's callable returns an awaitable, a `TypeError` is raised.
@@ -436,7 +436,7 @@ All operations participate in the transparent sync/async bridge: if any operatio
 - The current pipeline value must support the context manager protocol (`__enter__`/`__exit__` or `__aenter__`/`__aexit__`). If it supports neither, a `TypeError` is raised.
 - For sync context managers: `__enter__()` is called, `fn` is invoked with the resulting context value, and `__exit__()` is called on the success or failure path.
 - For async context managers: `__aenter__()` is awaited, `fn` is invoked, and `__aexit__()` is awaited.
-- For dual-protocol context managers (supporting both sync and async): when an event loop is running, the async protocol is preferred. Otherwise, the sync protocol is used.
+- For dual-protocol context managers (supporting both sync and async): when an async event loop is running (asyncio, trio, or curio), the async protocol is preferred. Otherwise, the sync protocol is used.
 - `fn`'s return value replaces the current pipeline value.
 - If `fn` returns an awaitable, it is awaited. The pipeline transitions to async execution if it hasn't already.
 
@@ -982,7 +982,7 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 
 **Ordering with deferred `finally_()`:** When both a deferred `with_` and a deferred `finally_()` are active, the CM exits first, then the deferred `finally_()` runs. This is enforced by nesting: `try { cm.__exit__ } finally { deferred_finally }`. The deferred finally runs even if `__exit__` raises.
 
-**Protocol selection:** For dual-protocol CMs (supporting both `__enter__`/`__exit__` and `__aenter__`/`__aexit__`), the async protocol is preferred when an event loop is running, matching §5.6. The exit protocol always matches the entry protocol.
+**Protocol selection:** For dual-protocol CMs (supporting both `__enter__`/`__exit__` and `__aenter__`/`__aexit__`), the async protocol is preferred when an async event loop is running (asyncio, trio, or curio), matching §5.6. The exit protocol always matches the entry protocol.
 
 **Sync/async rules:**
 - Sync iteration (`for`): only `__enter__`/`__exit__` is used. If the CM only supports async protocol, or if the inner `fn` returns an awaitable, a `TypeError` is raised directing the user to use `async for`.
@@ -1677,9 +1677,11 @@ Sync concurrent operations (gather, concurrent foreach/foreach_do) create a new 
 
 ### 16.10 Dual-Protocol Objects Prefer Async
 
-When a pipeline value supports both sync and async protocols — context managers (`__enter__`/`__exit__` vs `__aenter__`/`__aexit__`) or iterables (`__iter__` vs `__aiter__`) — and an event loop is currently running, the async protocol is preferred. When no event loop is running, the sync protocol is used.
+When a pipeline value supports both sync and async protocols — context managers (`__enter__`/`__exit__` vs `__aenter__`/`__aexit__`) or iterables (`__iter__` vs `__aiter__`) — and an async event loop is currently running, the async protocol is preferred. When no async event loop is running, the sync protocol is used.
 
-**Rationale:** Objects like `aiohttp.ClientSession` implement both protocols but their sync protocol is a compatibility stub — the real resource management happens in the async protocol. When running inside an event loop (which the async execution path implies), using the async protocol ensures correct behavior. This heuristic applies uniformly to both context managers and iterables, producing correct behavior without requiring the user to specify which protocol to use.
+Loop detection covers asyncio, trio, and curio without importing them — detection uses `sys.modules` lookups (~50ns dict get when a library is not loaded), so there is zero overhead when those libraries are absent.
+
+**Rationale:** Objects like `aiohttp.ClientSession` implement both protocols but their sync protocol is a compatibility stub — the real resource management happens in the async protocol. When running inside an async event loop (which the async execution path implies), using the async protocol ensures correct behavior. This heuristic applies uniformly to both context managers and iterables, producing correct behavior without requiring the user to specify which protocol to use.
 
 ### 16.11 `if_()` Design: Pending Flag and Predicate Calling Convention
 

@@ -294,7 +294,7 @@ result = (
 All three methods support async transparently:
 
 - If `fn` returns an awaitable for any element, the operation transitions to async and awaits it. Subsequent elements continue in async mode.
-- Supports both sync iterables (`__iter__`) and async iterables (`__aiter__`). When both protocols are present, the async protocol is preferred if an event loop is running.
+- Supports both sync iterables (`__iter__`) and async iterables (`__aiter__`). When both protocols are present, the async protocol is preferred if an async event loop is running (asyncio, trio, or curio).
 
 ```python
 async def fetch_details(user_id):
@@ -471,7 +471,7 @@ Both methods work transparently with sync and async context managers:
 
 - **Sync CM:** `__enter__()` / `__exit__()` used.
 - **Async CM:** `__aenter__()` / `__aexit__()` used.
-- **Dual-protocol:** When an event loop is running, the async protocol is preferred. Otherwise, the sync protocol is used.
+- **Dual-protocol:** When an async event loop is running (asyncio, trio, or curio), the async protocol is preferred. Otherwise, the sync protocol is used.
 
 If `fn` returns an awaitable inside a sync context manager, the operation transitions to async seamlessly.
 

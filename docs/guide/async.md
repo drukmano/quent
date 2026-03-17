@@ -279,7 +279,7 @@ async def stream_records():
 result = await Chain(stream_records).foreach(process).run()
 ```
 
-When an object implements both `__iter__` and `__aiter__`, the async protocol is preferred if an event loop is running.
+When an object implements both `__iter__` and `__aiter__`, the async protocol is preferred if an async event loop is running (asyncio, trio, or curio).
 
 ### Async Context Managers
 
@@ -293,7 +293,7 @@ result = await (
 )
 ```
 
-Dual-protocol context managers (supporting both sync and async) use the async protocol when an event loop is running.
+Dual-protocol context managers (supporting both sync and async) use the async protocol when an async event loop is running (asyncio, trio, or curio).
 
 ---
 
