@@ -852,6 +852,7 @@ def _run(
   is_nested: bool = False,
   *,
   deferred_finally: list[Any] | None = None,
+  deferred_with: bool = False,
 ) -> Any:
   """Synchronous execution engine.
 
@@ -918,6 +919,10 @@ def _run(
     _t0 = 0
     _input_value = None
     while link is not None:
+      if deferred_with and link.next_link is None:
+        _lname = getattr(link.v, '_link_name', None)
+        if _lname == 'with_' or _lname == 'with_do':
+          break
       if _needs_timing:
         if not first_link_processed and has_run_value:
           _input_value = _null_to_none(v)  # Root step: input is the run value.
@@ -951,6 +956,7 @@ def _run(
           on_step=_on_step,
           exec_id=_exec_id,
           deferred_finally=deferred_finally,
+          deferred_with=deferred_with,
         )
       if _needs_timing:
         _record_step(chain, link, root_link, _input_value, result, _t0, _on_step, _debug, exec_id=_exec_id)
@@ -973,8 +979,9 @@ def _run(
       link = link.next_link
 
     if __debug__:
-      # Invariant: loop walked to end of list (no early exit except via return/raise).
-      assert link is None, 'link-walk loop exited with link still set'
+      # Invariant: loop walked to end of list (no early exit except via return/raise),
+      # OR deferred_with broke out at the last _WithOp link.
+      assert link is None or deferred_with, 'link-walk loop exited with link still set'
 
     if _debug:
       _log.debug('[exec:%06x] chain %r: completed -> %s', _exec_id, chain, _debug_repr(_null_to_none(current_value)))
@@ -1066,6 +1073,7 @@ async def _run_async(
   on_step: Any = None,
   exec_id: int = 0,
   deferred_finally: list[Any] | None = None,
+  deferred_with: bool = False,
 ) -> Any:
   """Async continuation of the execution engine.
 
@@ -1121,6 +1129,10 @@ async def _run_async(
     _input_value = None
     while next_link is not None:
       link = next_link
+      if deferred_with and link.next_link is None:
+        _lname = getattr(link.v, '_link_name', None)
+        if _lname == 'with_' or _lname == 'with_do':
+          break
       if _needs_timing:
         _input_value = _null_to_none(current_value)
         _t0 = _perf_counter_ns()
@@ -1136,8 +1148,9 @@ async def _run_async(
       next_link = link.next_link
 
     if __debug__:
-      # Invariant: loop walked to end of list (no early exit except via return/raise).
-      assert next_link is None, 'link-walk loop exited with next_link still set'
+      # Invariant: loop walked to end of list (no early exit except via return/raise),
+      # OR deferred_with broke out at the last _WithOp link.
+      assert next_link is None or deferred_with, 'link-walk loop exited with next_link still set'
 
     if _debug:
       _log.debug('[exec:%06x] chain %r: completed -> %s', exec_id, chain, _debug_repr(_null_to_none(current_value)))

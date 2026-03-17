@@ -562,19 +562,27 @@ class Chain(Generic[_T], _UncopyableMixin):
   # ---- Pipeline building: context managers ----
 
   @overload
+  def with_(self) -> Self: ...
+  @overload
   def with_(self, fn: Callable[..., Awaitable[_U]], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
   @overload
   def with_(self, fn: Callable[..., _U], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
 
-  def with_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain[Any]:
+  def with_(self, fn: Any = None, /, *args: Any, **kwargs: Any) -> Chain[Any]:  # type: ignore[misc]  # overload: bare with_() returns Self
     """Enter the current value as a context manager and run *fn* with it.
 
     The current pipeline value is used as the context manager. *fn* is called
     with the context value (the ``__enter__`` / ``__aenter__`` result), and
     its return value replaces the current pipeline value.
 
+    When *fn* is omitted (bare ``with_()``), the context value itself becomes
+    the pipeline value. This form is only valid before ``iterate()`` or
+    ``flat_iterate()`` — a bare ``with_()`` not followed by an iterate variant
+    raises ``TypeError`` at run time.
+
     Args:
-      fn: Callable to invoke with the context value.
+      fn: Callable to invoke with the context value. Optional — omit to use
+        the context value directly (requires ``iterate()`` after).
       *args: Positional arguments forwarded to *fn*.
       **kwargs: Keyword arguments forwarded to *fn*.
 
@@ -585,9 +593,18 @@ class Chain(Generic[_T], _UncopyableMixin):
 
         Chain(open('data.txt')).with_(lambda f: f.read()).run()
         # Returns file contents; file is properly closed
+
+        # Bare with_() — context value is the iterable:
+        Chain(open('data.csv')).with_().iterate(process_line)
     """
-    _require_callable(fn, 'with_', self)
-    inner = Link(fn, args, kwargs)
+    if fn is not None:
+      _require_callable(fn, 'with_', self)
+      inner: Link | None = Link(fn, args, kwargs)
+    else:
+      if args or kwargs:
+        msg = 'with_() does not accept positional or keyword arguments when fn is omitted'
+        raise TypeError(msg)
+      inner = None
     return self._then(_WithOp(inner, False), original_value=inner)
 
   def with_do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
@@ -1018,15 +1035,18 @@ class Chain(Generic[_T], _UncopyableMixin):
     self._require_no_pending_if('iterate')
     link = Link(fn) if fn is not None else None
     chain_run = functools.partial(_run, self)
-    # Only retain chain/link references when fn is provided (needed for
-    # traceback enhancement).  When fn is None, no per-item error handling
-    # occurs, so the chain reference is unnecessary overhead.
+    last_link = self.current_link or self.first_link
+    deferred_with = None
+    if last_link is not None and isinstance(last_link.v, _WithOp):
+      deferred_with = (last_link.v._link, last_link.v._ignore_result)
+    has_deferred_with = deferred_with is not None
     return ChainIterator(
       chain_run,
       fn,
       ignore_result=False,
-      chain=self if fn is not None or self.on_finally_link is not None else None,
+      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
       link=link,
+      deferred_with=deferred_with,
     )
 
   def iterate_do(self, fn: Callable[[Any], Any] | None = None) -> ChainIterator[Any]:
@@ -1049,12 +1069,95 @@ class Chain(Generic[_T], _UncopyableMixin):
     self._require_no_pending_if('iterate_do')
     link = Link(fn) if fn is not None else None
     chain_run = functools.partial(_run, self)
+    last_link = self.current_link or self.first_link
+    deferred_with = None
+    if last_link is not None and isinstance(last_link.v, _WithOp):
+      deferred_with = (last_link.v._link, last_link.v._ignore_result)
+    has_deferred_with = deferred_with is not None
     return ChainIterator(
       chain_run,
       fn,
       ignore_result=True,
-      chain=self if fn is not None or self.on_finally_link is not None else None,
+      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
       link=link,
+      deferred_with=deferred_with,
+    )
+
+  def flat_iterate(
+    self,
+    fn: Callable[[Any], Any] | None = None,
+    *,
+    on_exhaust: Callable[[], Any] | None = None,
+  ) -> ChainIterator[Any]:
+    """Return a sync/async flatmap iterator over the chain's output.
+
+    Each element of the chain's iterable result is passed to *fn*, and
+    each element from *fn*'s returned iterable is yielded individually.
+    After source exhaustion, *on_exhaust* (if provided) is called and its
+    output yielded similarly.
+
+    Args:
+      fn: Optional callable that returns an iterable for each element.
+      on_exhaust: Optional callable returning a final iterable after source exhaustion.
+
+    Returns:
+      A ChainIterator supporting both ``for`` and ``async for``.
+    """
+    self._require_no_pending_if('flat_iterate')
+    link = Link(fn) if fn is not None else None
+    chain_run = functools.partial(_run, self)
+    last_link = self.current_link or self.first_link
+    deferred_with = None
+    if last_link is not None and isinstance(last_link.v, _WithOp):
+      deferred_with = (last_link.v._link, last_link.v._ignore_result)
+    has_deferred_with = deferred_with is not None
+    return ChainIterator(
+      chain_run,
+      fn,
+      ignore_result=False,
+      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
+      link=link,
+      deferred_with=deferred_with,
+      flat=True,
+      on_exhaust=on_exhaust,
+    )
+
+  def flat_iterate_do(
+    self,
+    fn: Callable[[Any], Any] | None = None,
+    *,
+    on_exhaust: Callable[[], Any] | None = None,
+  ) -> ChainIterator[Any]:
+    """Return a sync/async flatmap iterator, discarding *fn*'s return values.
+
+    Like .flat_iterate(), but *fn* runs as a side-effect — its returned
+    iterable is consumed but not yielded. The original elements are
+    yielded instead. *on_exhaust* output is still yielded.
+
+    Args:
+      fn: Optional callable for side-effects on each element.
+      on_exhaust: Optional callable returning a final iterable after source exhaustion.
+
+    Returns:
+      A ChainIterator supporting both ``for`` and ``async for``.
+    """
+    self._require_no_pending_if('flat_iterate_do')
+    link = Link(fn) if fn is not None else None
+    chain_run = functools.partial(_run, self)
+    last_link = self.current_link or self.first_link
+    deferred_with = None
+    if last_link is not None and isinstance(last_link.v, _WithOp):
+      deferred_with = (last_link.v._link, last_link.v._ignore_result)
+    has_deferred_with = deferred_with is not None
+    return ChainIterator(
+      chain_run,
+      fn,
+      ignore_result=True,
+      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
+      link=link,
+      deferred_with=deferred_with,
+      flat=True,
+      on_exhaust=on_exhaust,
     )
 
   def clone(self) -> Self:
