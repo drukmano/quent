@@ -60,6 +60,8 @@ quent = ["py.typed"]
 [dependency-groups]
 test = [
     "hypothesis>=6.151.9",
+    "trio>=0.29",
+    "curio>=1.6",
 ]
 dev = [
     { include-group = "test" },
