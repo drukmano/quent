@@ -22,6 +22,7 @@ from benchmarks._helpers import (
   identity,
   make_sync_chain,
   noop,
+  predicate_true,
 )
 from quent import Chain
 
