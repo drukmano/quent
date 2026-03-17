@@ -143,19 +143,32 @@ class IterateErrorHandlingTests(SymmetricTestCase):
     self.assertEqual(handler_calls, [])
 
   async def test_chain_finally_runs_on_chain_error(self) -> None:
-    """Chain's finally_() runs when chain execution fails (run phase)."""
+    """Chain's finally_() runs when chain execution fails (run phase).
+
+    With deferred finally, the cleanup runs AFTER iteration completes
+    (in the generator's finally block), not during the run phase.  The
+    except handler catches the error and produces [], which is iterated;
+    the deferred finally runs once that iteration finishes.
+    """
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
       cleanup_calls.append('cleanup')
 
+    # except_ catches the ZeroDivisionError and returns []; finally_ is
+    # deferred and runs in the generator's finally block after iteration ends.
     it = Chain(0).then(lambda x: 1 / x).except_(lambda _: []).finally_(cleanup).iterate()
     result = list(it)
     self.assertEqual(cleanup_calls, ['cleanup'])
     self.assertEqual(result, [])
 
-  async def test_fn_error_does_not_trigger_chain_finally(self) -> None:
-    """Errors from fn during iteration do NOT trigger chain's finally_()."""
+  async def test_fn_error_triggers_deferred_chain_finally(self) -> None:
+    """fn errors during iteration trigger the chain's deferred finally_() handler.
+
+    With deferred finally, the chain runs successfully (producing range(3)),
+    finally is deferred to the generator's finally block.  When fn raises on
+    x==1, the generator exits and the finally block runs the deferred cleanup.
+    """
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
@@ -166,13 +179,12 @@ class IterateErrorHandlingTests(SymmetricTestCase):
         raise ValueError('fn error')
       return x
 
-    # finally_ is attached to chain, but fn errors are outside chain scope
+    # Chain runs successfully; finally_ is deferred.  fn raises during
+    # iteration, triggering the generator's finally block which runs cleanup.
     it = Chain(range(3)).finally_(cleanup).iterate(failing_fn)
-    # The chain runs successfully (produces range(3)), so finally_ IS called for the run phase
-    # But fn errors during iteration are separate
     with self.assertRaises(ValueError):
       list(it)
-    # finally_ WAS called during the chain's run phase (which succeeded)
+    # Deferred finally ran via the generator's finally block.
     self.assertEqual(cleanup_calls, ['cleanup'])
 
   async def test_chain_except_catches_chain_error_async(self) -> None:
@@ -456,12 +468,12 @@ class IterationControlFlowTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §16.7 — break_ semantics differ between map() and iterate()
+# §17.7 — break_ semantics differ between map() and iterate()
 # ---------------------------------------------------------------------------
 
 
 class BreakSemanticsTests(SymmetricTestCase):
-  """§16.7 — break_(value) appends in both map and iterate."""
+  """§17.7 — break_(value) appends in both map and iterate."""
 
   async def test_map_break_with_value_appends(self) -> None:
     """In map(), break_(value) appends to partial results."""
@@ -535,12 +547,12 @@ class BreakSemanticsTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §16.8 — return_ semantics differ between chain and iterate
+# §17.8 — return_ semantics differ between chain and iterate
 # ---------------------------------------------------------------------------
 
 
 class ReturnSemanticsTests(SymmetricTestCase):
-  """§16.8 — return_(value) replaces in chain, appends in iterate."""
+  """§17.8 — return_(value) replaces in chain, appends in iterate."""
 
   async def test_chain_return_replaces_result(self) -> None:
     """In normal chain execution, return_(value) replaces entire result."""
@@ -1499,6 +1511,276 @@ class IteratePendingIfTest(unittest.TestCase):
     with self.assertRaises(QuentException) as ctx:
       Chain([1, 2, 3]).if_(lambda x: len(x) > 0).iterate_do()
     self.assertIn('pending .if_()', str(ctx.exception))
+
+
+# ---------------------------------------------------------------------------
+# Audit §9 — Additional spec gap tests
+# ---------------------------------------------------------------------------
+
+
+class IteratorReuseWithArgsTest(SymmetricTestCase):
+  """SPEC §9.3: it(callable, *args, **kwargs) reuse."""
+
+  async def test_reuse_with_callable_and_args(self) -> None:
+    """Calling iterator with callable + args creates new iterator."""
+    it = Chain().then(lambda x: [x, x + 1]).iterate()
+    result = list(it(lambda a, b: a + b, 3, 7))
+    self.assertEqual(result, [10, 11])  # (3+7)=10, [10, 11]
+
+  async def test_reuse_with_callable_and_kwargs(self) -> None:
+    """Calling iterator with callable + kwargs creates new iterator."""
+    it = Chain().then(lambda x: [x, x * 2]).iterate()
+    result = list(it(lambda key=0: key * 3, key=5))
+    self.assertEqual(result, [15, 30])  # (5*3)=15, [15, 30]
+
+
+# ---------------------------------------------------------------------------
+# §9.1 / §6.3 — Deferred finally_() in iteration
+# ---------------------------------------------------------------------------
+
+
+class IterationDeferredFinallyTests(SymmetricTestCase):
+  """§9.1 + §6.3 — finally_() is deferred to the generator's finally block.
+
+  With deferred finally, the chain's finally_() handler runs AFTER iteration
+  ends (in the generator's finally: block), not during the run phase.  This
+  ensures resources acquired during the chain's run phase remain alive
+  throughout the entire iteration.
+  """
+
+  async def test_finally_runs_after_all_items_yielded(self) -> None:
+    """Timing: finally runs AFTER the last item is yielded, not before iteration starts."""
+    order: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      order.append('cleanup')
+
+    it = Chain(range(3)).finally_(cleanup).iterate()
+    for _item in it:
+      order.append('item')
+    # cleanup must appear AFTER all item entries
+    self.assertEqual(order, ['item', 'item', 'item', 'cleanup'])
+
+  async def test_finally_runs_on_normal_exhaustion(self) -> None:
+    """Chain with finally, iterate through all items normally."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    it = Chain(range(3)).finally_(cleanup).iterate()
+    result = list(it)
+    self.assertEqual(result, [0, 1, 2])
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_finally_runs_on_generator_close(self) -> None:
+    """Create iterator, consume one item, then close the generator."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    gen = iter(Chain(range(10)).finally_(cleanup).iterate())
+    first = next(gen)
+    gen.close()
+    self.assertEqual(first, 0)
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_finally_runs_on_fn_error(self) -> None:
+    """Chain with finally + iterate(fn) where fn raises mid-iteration."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    def failing_fn(x: int) -> int:
+      if x == 2:
+        raise ValueError('fn error')
+      return x
+
+    it = Chain(range(5)).finally_(cleanup).iterate(failing_fn)
+    with self.assertRaises(ValueError):
+      list(it)
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_finally_runs_on_chain_error_no_except(self) -> None:
+    """Chain execution fails, no except handler, finally should still run."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    def fail() -> list[int]:
+      raise RuntimeError('chain error')
+
+    it = Chain(fail).finally_(cleanup).iterate()
+    with self.assertRaises(RuntimeError):
+      list(it)
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_finally_runs_on_break_signal(self) -> None:
+    """fn calls Chain.break_() mid-iteration. Finally should still run."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    def fn(x: int) -> int:
+      if x == 2:
+        return Chain.break_()
+      return x
+
+    it = Chain(range(5)).finally_(cleanup).iterate(fn)
+    result = list(it)
+    self.assertEqual(result, [0, 1])
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_finally_runs_on_return_signal(self) -> None:
+    """fn calls Chain.return_() mid-iteration. Finally should still run."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    def fn(x: int) -> int:
+      if x == 2:
+        return Chain.return_(99)
+      return x
+
+    it = Chain(range(5)).finally_(cleanup).iterate(fn)
+    result = list(it)
+    self.assertEqual(result, [0, 1, 99])
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_finally_receives_correct_root_value(self) -> None:
+    """The root value passed to the finally handler matches the chain's root value."""
+    received_root: list[object] = []
+
+    def track_root(rv: object) -> None:
+      received_root.append(rv)
+
+    src = [10, 20, 30]
+    it = Chain(src).finally_(track_root).iterate()
+    list(it)
+    self.assertEqual(received_root, [src])
+
+  async def test_async_finally_handler_awaited_in_async_for(self) -> None:
+    """Async finally handler should be properly awaited when using async for."""
+    cleanup_calls: list[str] = []
+
+    async def async_cleanup(rv: object) -> None:
+      cleanup_calls.append('async_cleanup')
+
+    it = Chain(range(3)).finally_(async_cleanup).iterate()
+    result: list[int] = []
+    async for item in it:
+      result.append(item)
+    self.assertEqual(result, [0, 1, 2])
+    self.assertEqual(cleanup_calls, ['async_cleanup'])
+
+  async def test_async_finally_handler_warns_in_sync_for(self) -> None:
+    """Async finally handler in sync for should issue RuntimeWarning (§6.3.5)."""
+    cleanup_calls: list[str] = []
+
+    async def async_cleanup(rv: object) -> None:
+      cleanup_calls.append('async_cleanup')
+
+    it = Chain(range(3)).finally_(async_cleanup).iterate()
+    with self.assertWarns(RuntimeWarning):
+      result = list(it)
+    self.assertEqual(result, [0, 1, 2])
+    # Handler was NOT awaited (coroutine was closed)
+    self.assertEqual(cleanup_calls, [])
+
+  async def test_exception_chaining_when_finally_raises(self) -> None:
+    """When fn raises AND finally raises, the finally exception propagates
+    with the fn exception as __context__ (§6.3.3).
+    """
+
+    def failing_fn(x: int) -> int:
+      if x == 1:
+        raise ValueError('fn error')
+      return x
+
+    def failing_cleanup(rv: object) -> None:
+      raise RuntimeError('cleanup failed')
+
+    it = Chain(range(3)).finally_(failing_cleanup).iterate(failing_fn)
+    with self.assertRaises(RuntimeError) as ctx:
+      list(it)
+    self.assertIsInstance(ctx.exception.__context__, ValueError)
+
+  async def test_iterate_do_deferred_finally(self) -> None:
+    """Deferred finally works with iterate_do() — fn runs as side-effect,
+    original items yielded, finally deferred.
+    """
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    side_effects: list[int] = []
+
+    def track(x: int) -> str:
+      side_effects.append(x)
+      return 'discarded'
+
+    it = Chain(range(3)).finally_(cleanup).iterate_do(track)
+    result = list(it)
+    self.assertEqual(result, [0, 1, 2])
+    self.assertEqual(side_effects, [0, 1, 2])
+    self.assertEqual(cleanup_calls, ['cleanup'])
+
+  async def test_except_during_run_finally_after_iteration(self) -> None:
+    """Except handler runs during run phase (producing a result), finally
+    deferred to after iteration.
+    """
+    order: list[str] = []
+
+    def recovery_handler(exc_info: object) -> list[int]:
+      order.append('except')
+      return [10, 20]
+
+    def cleanup(rv: object) -> None:
+      order.append('finally')
+
+    it = Chain(0).then(lambda x: 1 / x).except_(recovery_handler).finally_(cleanup).iterate()
+    result = list(it)
+    self.assertEqual(result, [10, 20])
+    # except runs during run phase (before iteration), finally runs after iteration
+    self.assertEqual(order, ['except', 'finally'])
+
+  async def test_iterator_reuse_independent_finally(self) -> None:
+    """Each use of a reusable iterator triggers its own independent finally."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    it = Chain(range(3)).finally_(cleanup).iterate()
+    list(it)
+    self.assertEqual(cleanup_calls, ['cleanup'])
+    list(it)
+    self.assertEqual(cleanup_calls, ['cleanup', 'cleanup'])
+
+  async def test_no_finally_chain_works_normally(self) -> None:
+    """Chain without finally_() works normally — no deferred overhead."""
+    result = list(Chain(range(5)).iterate())
+    self.assertEqual(result, [0, 1, 2, 3, 4])
+
+  async def test_async_iteration_deferred_finally(self) -> None:
+    """Deferred finally with async for on a sync chain with sync finally handler."""
+    cleanup_calls: list[str] = []
+
+    def cleanup(rv: object) -> None:
+      cleanup_calls.append('cleanup')
+
+    it = Chain(range(3)).finally_(cleanup).iterate()
+    result: list[int] = []
+    async for item in it:
+      result.append(item)
+    self.assertEqual(result, [0, 1, 2])
+    self.assertEqual(cleanup_calls, ['cleanup'])
 
 
 if __name__ == '__main__':

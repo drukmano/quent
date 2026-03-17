@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 import threading
-import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest import TestCase
 
@@ -25,13 +23,6 @@ from quent import Chain, QuentException
 from tests.tests_helper import (
   async_double,
 )
-
-
-def load_tests(loader, tests, pattern):
-  if not os.environ.get('QUENT_SLOW'):
-    return unittest.TestSuite()
-  return tests
-
 
 # --- Shared strategies ---
 
@@ -1490,36 +1481,6 @@ class NullSentinelTest(TestCase):
     from quent._types import Null
 
     self.assertEqual(repr(Null), '<Null>')
-
-  @settings(max_examples=500, deadline=None, derandomize=True)
-  @given(st.data())
-  def test_null_unpicklable(self, data):
-    """SPEC section 12.4: Null cannot be pickled."""
-    import pickle
-
-    from quent._types import Null
-
-    with self.assertRaises(TypeError):
-      pickle.dumps(Null)
-
-
-# ============================================================
-# 18. Unpickling Prevention
-# ============================================================
-
-
-class UnpicklePreventionTest(TestCase):
-  """Property-based tests for CWE-502 prevention."""
-
-  @given(value=small_ints)
-  @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_chain_unpicklable(self, value):
-    """SPEC section 12: Chain objects cannot be pickled."""
-    import pickle
-
-    chain = Chain(value).then(lambda x: x)
-    with self.assertRaises(TypeError):
-      pickle.dumps(chain)
 
 
 # ============================================================

@@ -83,6 +83,11 @@ class ExceptRegistrationTest(TestCase):
       Chain(1).except_(lambda _: None, exceptions=KeyboardInterrupt)
     self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
 
+  def test_exceptions_tuple_of_types(self) -> None:
+    """exceptions= accepts a tuple of types (common usage pattern)."""
+    c = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=(ZeroDivisionError, ValueError))
+    self.assertEqual(c.run(), 'caught')
+
   def test_exception_type_not_caught_propagates(self) -> None:
     """Exception not matching exceptions= propagates unhandled."""
     c = (
@@ -1844,3 +1849,98 @@ class ExceptFinallyComboSyncTest(SymmetricTestCase):
       Chain(5).then(lambda x: 1 / 0).except_(handler, reraise=True).finally_(bad_cleanup).run()
     # The original ZeroDivisionError is preserved as __context__
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
+
+
+# ---------------------------------------------------------------------------
+# Audit §9 — Additional spec gap tests
+# ---------------------------------------------------------------------------
+
+
+class AsyncExceptHandlerSuppressContextTest(IsolatedAsyncioTestCase):
+  """SPEC §6.2.4: Async handler failure with reraise=True — __suppress_context__."""
+
+  async def test_async_reraise_true_handler_failure_suppress_context(self) -> None:
+    """Async: reraise=True, handler raises Exception → __suppress_context__ set on original."""
+
+    async def async_fail(x):
+      raise ValueError('original')
+
+    async def bad_handler(info):
+      raise RuntimeError('handler fail')
+
+    c = Chain(1).then(async_fail).except_(bad_handler, reraise=True)
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter('always')
+      with self.assertRaises(ValueError) as ctx:
+        await c.run()
+    self.assertTrue(ctx.exception.__suppress_context__)
+    self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
+
+
+class ExceptBaseExceptionWarnAndCatchTest(IsolatedAsyncioTestCase):
+  """SPEC §6.2.1: BaseException warning does not prevent catching."""
+
+  async def test_keyboard_interrupt_warned_and_caught(self) -> None:
+    """exceptions=KeyboardInterrupt emits warning AND still catches the exception."""
+    handled = []
+
+    def handler(info):
+      handled.append(info.exc)
+      return 'caught'
+
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter('always')
+      c = (
+        Chain(1)
+        .then(lambda x: (_ for _ in ()).throw(KeyboardInterrupt('test')))
+        .except_(handler, exceptions=KeyboardInterrupt)
+      )
+    self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
+    result = c.run()
+    self.assertEqual(result, 'caught')
+    self.assertEqual(len(handled), 1)
+    self.assertIsInstance(handled[0], KeyboardInterrupt)
+
+
+class ForeachDoConcurrentSingleFailureTest(IsolatedAsyncioTestCase):
+  """SPEC §6.5: foreach_do concurrent single failure raised directly."""
+
+  async def test_foreach_do_concurrent_single_failure_not_wrapped(self) -> None:
+    """foreach_do with single concurrent failure: raised directly, not ExceptionGroup."""
+
+    def maybe_fail(x):
+      if x == 3:
+        raise ValueError('fail-3')
+
+    c = Chain([0, 1, 2, 3, 4]).foreach_do(maybe_fail, concurrency=5)
+    with self.assertRaises(ValueError) as ctx:
+      c.run()
+    self.assertIn('fail-3', str(ctx.exception))
+
+
+class ExceptReraiseBaseExceptionVariantsTest(IsolatedAsyncioTestCase):
+  """SPEC §6.2.4: BaseException handler failure with reraise=True — SystemExit and custom."""
+
+  async def test_system_exit_handler_failure_propagates(self) -> None:
+    """reraise=True, handler raises SystemExit → propagates naturally."""
+
+    def bad_handler(info):
+      raise SystemExit(99)
+
+    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    with self.assertRaises(SystemExit) as ctx:
+      c.run()
+    self.assertEqual(ctx.exception.code, 99)
+
+  async def test_custom_base_exception_handler_failure_propagates(self) -> None:
+    """reraise=True, handler raises custom BaseException → propagates naturally."""
+
+    class CustomBaseExc(BaseException):
+      pass
+
+    def bad_handler(info):
+      raise CustomBaseExc('custom base')
+
+    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    with self.assertRaises(CustomBaseExc):
+      c.run()

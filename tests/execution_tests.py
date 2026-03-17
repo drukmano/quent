@@ -71,8 +71,13 @@ class ChainConstructionTest(SymmetricTestCase):
     with self.assertRaises(TypeError):
       Chain(42, key='val')
 
+  async def test_chain_kwargs_without_root_raises_typeerror(self) -> None:
+    """SPEC §3: kwargs require a root value — Chain(key=val) raises TypeError."""
+    with self.assertRaises(TypeError):
+      Chain(key='val')
+
   def test_version_is_string(self):
-    """SPEC §18: __version__ is a public API string."""
+    """SPEC §19: __version__ is a public API string."""
     self.assertIsInstance(__version__, str)
     self.assertNotEqual(__version__, '')
 
@@ -667,6 +672,12 @@ class RunNonCallableWithArgsTest(TestCase):
     with self.assertRaises(TypeError):
       c.run(42, 'extra', key='val')
 
+  def test_run_kwargs_without_root_raises_typeerror(self) -> None:
+    """SPEC §8.1: run(key=val) without positional root raises TypeError."""
+    c = Chain().then(lambda x: x)
+    with self.assertRaises(TypeError):
+      c.run(key='val')
+
   def test_run_callable_with_args_ok(self) -> None:
     """run(fn, arg) succeeds when v is callable."""
     result = Chain().then(lambda x: x + 1).run(lambda a, b: a + b, 3, 4)
@@ -782,3 +793,27 @@ class AsyncControlFlowTest(SymmetricTestCase):
 
     result = await Chain(5).do(side_effect).then(lambda x: x + 1).run()
     self.assertEqual(result, 6)  # 5 passed through do, then +1
+
+
+# ---------------------------------------------------------------------------
+# Audit §9 — Additional spec gap tests
+# ---------------------------------------------------------------------------
+
+
+class RunCallableWithArgsTest(TestCase):
+  """SPEC §8.1: run(callable, *args, **kwargs) forwards args to callable."""
+
+  def test_run_callable_with_positional_args(self) -> None:
+    """run(fn, a, b) → fn(a, b) used as initial value."""
+    result = Chain().then(lambda x: x * 2).run(lambda a, b: a + b, 3, 7)
+    self.assertEqual(result, 20)  # (3+7)*2=20
+
+  def test_run_callable_with_kwargs(self) -> None:
+    """run(fn, key=val) → fn(key=val) used as initial value."""
+    result = Chain().then(lambda x: x + 1).run(lambda key=0: key * 3, key=5)
+    self.assertEqual(result, 16)  # (5*3)+1=16
+
+  def test_run_callable_with_mixed_args(self) -> None:
+    """run(fn, a, key=val) → fn(a, key=val)."""
+    result = Chain().then(lambda x: x).run(lambda a, b=10: a + b, 5, b=20)
+    self.assertEqual(result, 25)  # 5+20=25

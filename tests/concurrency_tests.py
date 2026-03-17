@@ -643,14 +643,14 @@ class GatherBaseExceptionTest(IsolatedAsyncioTestCase):
       Chain(1).gather(ok_fn, raise_regular, raise_base).run()
 
 
-# --- §16.4: Awaitable without close() in sync concurrent worker ---
+# --- §17.4: Awaitable without close() in sync concurrent worker ---
 
 
 class AwaitableNoCloseTest(TestCase):
   """§11.5: Awaitable without close() method in sync concurrent worker."""
 
   def test_awaitable_without_close_in_sync_worker(self) -> None:
-    """§16.4: Awaitable without close() in sync gather worker raises TypeError."""
+    """§17.4: Awaitable without close() in sync gather worker raises TypeError."""
 
     def sync_fn(x: int) -> int:
       return x
@@ -805,11 +805,11 @@ class ContextVarUserExecutorTest(TestCase):
     self.assertEqual(len(results), 5)
 
 
-# --- §16.2a: except_(reraise=False) coroutine → async transition (SPEC-348/515) ---
+# --- §17.2a: except_(reraise=False) coroutine → async transition (SPEC-348/515) ---
 
 
 class ExceptReraseFalseAsyncTransitionTest(IsolatedAsyncioTestCase):
-  """SPEC §16.2a (SPEC-348/515): except_(reraise=False) handler returning coroutine
+  """SPEC §17.2a (SPEC-348/515): except_(reraise=False) handler returning coroutine
   triggers async transition — the coroutine becomes the chain's result."""
 
   async def test_except_reraise_false_async_handler_returns_coroutine(self):

@@ -378,6 +378,21 @@ class MultiArgNestedChainTest(SymmetricTestCase):
     # then upper() = 'GOT-HELLO'
     self.assertEqual(result, 'GOT-HELLO')
 
+  async def test_nested_chain_kwargs_replace_not_merge(self) -> None:
+    """SPEC §4: caller kwargs replace inner chain's build-time kwargs entirely.
+
+    When .then(inner_chain, key=val) invokes an inner chain that has build-time
+    kwargs on its root, the caller's kwargs replace them — no merging.
+    """
+
+    def root_fn(*, key):
+      return f'got-{key}'
+
+    inner = Chain(root_fn, key='build_time').then(lambda x: x.upper())
+    result = Chain(999).then(inner, key='run_time').run()
+    # Caller kwargs replace build-time: root_fn(key='run_time'), not root_fn(key='build_time', ...)
+    self.assertEqual(result, 'GOT-RUN_TIME')
+
 
 # ---------------------------------------------------------------------------
 # §4: No-root-value except handler nested chain

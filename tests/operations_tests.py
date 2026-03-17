@@ -1347,7 +1347,7 @@ class WithOpsAsyncEdgeTests(IsolatedAsyncioTestCase):
     self.assertIs(result, cm)
 
   async def test_dual_protocol_prefers_async_when_loop_running(self) -> None:
-    """§15.10: Dual-protocol CM prefers async when loop running."""
+    """§16.10: Dual-protocol CM prefers async when loop running."""
 
     class DualProtocolCM:
       def __init__(self) -> None:
@@ -1374,7 +1374,7 @@ class WithOpsAsyncEdgeTests(IsolatedAsyncioTestCase):
     self.assertEqual(cm.protocol_used, 'async')
 
   def test_dual_protocol_no_event_loop_uses_sync(self) -> None:
-    """§15.10: Dual-protocol CM falls back to sync when no loop."""
+    """§16.10: Dual-protocol CM falls back to sync when no loop."""
 
     class DualProtocolCMSync:
       def __init__(self) -> None:
@@ -1604,6 +1604,78 @@ class MultiOperationCompositionTest(SymmetricTestCase):
       fn=V_FN,
       expected=8,  # foreach_do keeps [1,2], sum=3, gather(fn(3),fn(3))=(4,4), 4+4=8
     )
+
+
+# ---------------------------------------------------------------------------
+# Audit §9 — Additional spec gap tests
+# ---------------------------------------------------------------------------
+
+
+class AsyncAexitFailureContextTest(IsolatedAsyncioTestCase):
+  """SPEC §5.6: Async __aexit__ failure preserves body exception as __context__."""
+
+  async def test_async_aexit_failure_preserves_context(self) -> None:
+    """When async __aexit__ raises, __context__ is set to the original body exception."""
+
+    class AexitFailsCM:
+      async def __aenter__(self) -> int:
+        return 10
+
+      async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        raise RuntimeError('aexit boom')
+
+    c = Chain(AexitFailsCM()).with_(lambda x: (_ for _ in ()).throw(ValueError('body error')))
+    with self.assertRaises(RuntimeError) as ctx:
+      await c.run()
+    self.assertIn('aexit boom', str(ctx.exception))
+    self.assertIsInstance(ctx.exception.__context__, ValueError)
+
+
+class AsyncGatherSingleFnTupleTest(IsolatedAsyncioTestCase):
+  """SPEC §5.5: Single-fn gather returns single-element tuple in async path."""
+
+  async def test_async_gather_single_fn_returns_tuple(self) -> None:
+    """Async gather(fn) returns (result,) tuple."""
+
+    async def async_fn(x):
+      return x + 1
+
+    result = await Chain(5).gather(async_fn).run()
+    self.assertIsInstance(result, tuple)
+    self.assertEqual(len(result), 1)
+    self.assertEqual(result, (6,))
+
+
+class WithDoNestedChainReturnDiscardedTest(IsolatedAsyncioTestCase):
+  """SPEC §5.7: with_do fn return value is discarded — explicit nested chain test."""
+
+  async def test_with_do_nested_chain_return_discarded(self) -> None:
+    """with_do(Chain().then(fn)) discards nested chain result, CM object passes through."""
+    cm = SyncCM(42)
+    result = Chain(cm).with_do(Chain().then(lambda x: 'should_be_discarded')).run()
+    self.assertIs(result, cm)
+
+
+class ReturnInsideWithCleanExitTest(IsolatedAsyncioTestCase):
+  """SPEC §5.6: return_() inside with_() calls __exit__ cleanly, signal propagates."""
+
+  async def test_return_inside_with_clean_exit_tracking(self) -> None:
+    """return_() in with_ body → __exit__ called with no exception info, signal propagates."""
+    exit_args: list[Any] = []
+
+    class TrackingCM:
+      def __enter__(self) -> int:
+        return 10
+
+      def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        exit_args.append((exc_type, exc_val, exc_tb))
+        return False
+
+    result = Chain(TrackingCM()).with_(lambda v: Chain.return_('early')).then(lambda x: 'never').run()
+    self.assertEqual(result, 'early')
+    # __exit__ was called with no exception info (clean exit)
+    self.assertEqual(len(exit_args), 1)
+    self.assertEqual(exit_args[0], (None, None, None))
 
 
 if __name__ == '__main__':

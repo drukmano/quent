@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-import math
 import time
 import warnings
 from collections.abc import Callable
@@ -363,6 +362,27 @@ class DualProtocolCM:
     return False
 
 
+class SyncCMAsyncExit:
+  """Sync CM whose __exit__ returns a coroutine -- triggers async transition on exit.
+
+  Has sync __enter__ but __exit__ returns an awaitable, exercising
+  the _await_exit_success / _await_exit_suppress / _await_exit_signal
+  code paths in _sync_cm.
+  """
+
+  def __init__(self, value: Any = 10) -> None:
+    self._value = value
+
+  def __enter__(self) -> Any:
+    return self._value
+
+  def __exit__(self, *args: Any) -> Any:
+    async def _exit() -> bool:
+      return False
+
+    return _exit()
+
+
 # ---------------------------------------------------------------------------
 # Iterable fixtures
 # ---------------------------------------------------------------------------
@@ -380,6 +400,20 @@ class AsyncRange:
   async def _gen(self) -> Any:
     for i in range(self._n):
       yield i
+
+
+class AsyncPair:
+  """Async iterable yielding [x, x+1] for pipeline-numeric compatibility."""
+
+  def __init__(self, x: Any) -> None:
+    self._x = x
+
+  def __aiter__(self) -> Any:
+    return self._gen()
+
+  async def _gen(self) -> Any:
+    yield self._x
+    yield self._x + 1
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +509,8 @@ class Brick:
   apply: Callable[..., Any]
   oracle: Callable[..., Any]
   supports_concurrency: bool = False
+  has_builtin_concurrency: bool = False
+  error_oracle: Callable[[Any, str], Result | None] | None = None
   calling_convention: str = 'default'
   fn_input: Callable[..., Any] | None = None
 
@@ -534,7 +570,7 @@ def _make_bricks() -> list[Brick]:
   bricks.append(
     Brick(
       name='map_default',
-      op='map',
+      op='foreach',
       calling_convention='default',
       supports_concurrency=True,
       apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach(fn).then(sum),
@@ -555,6 +591,52 @@ def _make_bricks() -> list[Brick]:
     )
   )
 
+  # ---- map (async iterable — exercises __aiter__ path in foreach) ----
+  bricks.append(
+    Brick(
+      name='map_async_iter',
+      op='foreach',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: AsyncPair(x)).foreach(fn).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do (async iterable — exercises __aiter__ path in foreach_do) ----
+  bricks.append(
+    Brick(
+      name='foreach_do_async_iter',
+      op='foreach_do',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: AsyncPair(x)).foreach_do(fn).then(sum),
+      oracle=lambda v, fn: v + (v + 1),  # originals preserved, summed
+    )
+  )
+
+  # ---- map (async iterable + concurrency — exercises _from_aiter concurrent path) ----
+  bricks.append(
+    Brick(
+      name='map_async_iter_conc',
+      op='foreach',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: AsyncPair(x)).foreach(fn, concurrency=2).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do (async iterable + concurrency — exercises _from_aiter concurrent path) ----
+  bricks.append(
+    Brick(
+      name='foreach_do_async_iter_conc',
+      op='foreach_do',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: AsyncPair(x)).foreach_do(fn, concurrency=2).then(sum),
+      oracle=lambda v, fn: v + (v + 1),
+    )
+  )
+
   # ---- gather ----
   # default: run fns, get tuple, take first element to normalize
   bricks.append(
@@ -564,6 +646,17 @@ def _make_bricks() -> list[Brick]:
       calling_convention='default',
       supports_concurrency=True,
       apply=lambda c, fn: c.gather(fn, fn).then(lambda t: t[0]),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- gather (nested chain as fn — Chain is callable) ----
+  bricks.append(
+    Brick(
+      name='gather_nested_chain',
+      op='gather',
+      calling_convention='nested_chain',
+      apply=lambda c, fn: c.gather(Chain().then(fn), fn).then(lambda t: t[0]),
       oracle=lambda v, fn: fn(v),
     )
   )
@@ -670,6 +763,28 @@ def _make_bricks() -> list[Brick]:
     )
   )
 
+  # ---- map (nested chain as iteration body) ----
+  bricks.append(
+    Brick(
+      name='map_nested_chain',
+      op='foreach',
+      calling_convention='nested_chain',
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach(Chain().then(fn)).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do (nested chain as iteration body) ----
+  bricks.append(
+    Brick(
+      name='foreach_do_nested_chain',
+      op='foreach_do',
+      calling_convention='nested_chain',
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach_do(Chain().then(fn)).then(sum),
+      oracle=lambda v, fn: v + (v + 1),
+    )
+  )
+
   # ---- with_ (explicit args, Rule 1) ----
   bricks.append(
     Brick(
@@ -702,6 +817,61 @@ def _make_bricks() -> list[Brick]:
       calling_convention='default',
       apply=lambda c, fn: c.then(lambda x: DualProtocolCM(x)).with_(fn),
       oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- with_ (async-only CM — always triggers _full_async path) ----
+  bricks.append(
+    Brick(
+      name='with_async_cm',
+      op='with_',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: AsyncCM(x)).with_(fn),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- with_do (async-only CM — always triggers _full_async, result discarded) ----
+  bricks.append(
+    Brick(
+      name='with_do_async_cm',
+      op='with_do',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: AsyncCM(x)).with_do(fn).then(lambda cm: cm._value),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- with_ (sync CM, async __exit__ — triggers _await_exit_success path) ----
+  bricks.append(
+    Brick(
+      name='with_sync_async_exit',
+      op='with_',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: SyncCMAsyncExit(x)).with_(fn),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- with_do (sync CM, async __exit__ — triggers _await_exit_success path, result discarded) ----
+  bricks.append(
+    Brick(
+      name='with_do_sync_async_exit',
+      op='with_do',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: SyncCMAsyncExit(x)).with_do(fn).then(lambda cm: cm._value),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- with_do (dual-protocol CM — exercises _full_async in async perms, result discarded) ----
+  bricks.append(
+    Brick(
+      name='with_do_dual_cm',
+      op='with_do',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(lambda x: DualProtocolCM(x)).with_do(fn).then(lambda cm: cm._value),
+      oracle=lambda v, fn: v,
     )
   )
 
@@ -832,6 +1002,634 @@ def _make_bricks() -> list[Brick]:
     )
   )
 
+  # ---- else_do (explicit args, Rule 1) ----
+  bricks.append(
+    Brick(
+      name='else_do_args',
+      op='if_',
+      calling_convention='else_do_args',
+      apply=lambda c, fn: c.if_(lambda x: False).then(lambda x: -999).else_do(fn, 42),
+      oracle=lambda v, fn: v,
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- else_do (nested chain body) ----
+  bricks.append(
+    Brick(
+      name='else_do_nested_chain',
+      op='if_',
+      calling_convention='else_do_nested_chain',
+      apply=lambda c, fn: c.if_(lambda x: False).then(lambda x: -999).else_do(Chain().then(fn)),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- set/get (context round-trip through sync/async fn) ----
+  bricks.append(
+    Brick(
+      name='set_get',
+      op='set_get',
+      calling_convention='default',
+      apply=lambda c, fn: c.set('_bk').then(fn).then(Chain.get, '_bk'),
+      oracle=lambda v, fn: v,  # set stores v, fn transforms it, get retrieves original v
+    )
+  )
+
+  # ---- set/get round-trip (context API survives async transition) ----
+  bricks.append(
+    Brick(
+      name='set_get_roundtrip',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.set('_bridge_k').then(fn).then(Chain.get, '_bridge_k'),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- set/get descriptor (uses chain.get('key') instance method instead of Chain.get) ----
+  bricks.append(
+    Brick(
+      name='set_get_descriptor',
+      op='set_get',
+      calling_convention='default',
+      apply=lambda c, fn: c.set('_bk2').then(fn).get('_bk2'),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- set tail (set as final operation — tests set→X transitions at brick boundaries) ----
+  bricks.append(
+    Brick(
+      name='set_tail',
+      op='set_get',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(fn).set('_st'),
+      oracle=lambda v, fn: fn(v),  # set preserves CV
+    )
+  )
+
+  # ---- then with kwargs (Rule 1: kwargs trigger explicit-args path) ----
+  bricks.append(
+    Brick(
+      name='then_kwargs',
+      op='then',
+      calling_convention='args',
+      apply=lambda c, fn: c.then(fn, x=42),
+      oracle=lambda v, fn: fn(42),
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- do with kwargs ----
+  bricks.append(
+    Brick(
+      name='do_kwargs',
+      op='do',
+      calling_convention='args',
+      apply=lambda c, fn: c.do(fn, x=42),
+      oracle=lambda v, fn: v,
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- then with from_steps (constructor variant) ----
+  bricks.append(
+    Brick(
+      name='then_from_steps',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain.from_steps(fn)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- set with explicit value + get (two-arg set form) ----
+  bricks.append(
+    Brick(
+      name='set_explicit_value',
+      op='set_get',
+      calling_convention='default',
+      apply=lambda c, fn: c.set('_bk3', 99).then(fn).then(Chain.get, '_bk3'),
+      oracle=lambda v, fn: 99,
+    )
+  )
+
+  # ---- get with default (key does not exist — returns default) ----
+  bricks.append(
+    Brick(
+      name='get_with_default',
+      op='set_get',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(fn).get('_nonexistent_bridge', 42),
+      oracle=lambda v, fn: 42,
+    )
+  )
+
+  # ---- nested chain with except_ (happy path — handler not invoked) ----
+  bricks.append(
+    Brick(
+      name='except_nested',
+      op='then',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=-1) if err == 'exception' else None,
+      apply=lambda c, fn: c.then(Chain().then(fn).except_(lambda ei: -1)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- nested chain with finally_ (handler fires, return discarded) ----
+  bricks.append(
+    Brick(
+      name='finally_nested',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain().then(fn).finally_(lambda rv: None)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- gather with single function (returns 1-element tuple) ----
+  bricks.append(
+    Brick(
+      name='gather_single',
+      op='gather',
+      calling_convention='default',
+      apply=lambda c, fn: c.gather(fn).then(lambda t: t[0]),
+      oracle=lambda v, fn: fn(v),
+      supports_concurrency=True,
+    )
+  )
+
+  # ---- gather with bounded concurrency ----
+  bricks.append(
+    Brick(
+      name='gather_bounded_conc',
+      op='gather',
+      calling_convention='default',
+      apply=lambda c, fn: c.gather(fn, fn, concurrency=2).then(lambda t: t[0]),
+      oracle=lambda v, fn: fn(v),
+      supports_concurrency=True,
+    )
+  )
+
+  # ---- foreach with concurrency on sync iterable (ThreadPoolExecutor path) ----
+  bricks.append(
+    Brick(
+      name='map_sync_conc',
+      op='foreach',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach(fn, concurrency=2).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do with concurrency on sync iterable ----
+  bricks.append(
+    Brick(
+      name='foreach_do_sync_conc',
+      op='foreach_do',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach_do(fn, concurrency=2).then(sum),
+      oracle=lambda v, fn: v + (v + 1),
+    )
+  )
+
+  # ---- bare set (no fn — tests set as isolated step at brick boundaries) ----
+  bricks.append(
+    Brick(
+      name='set_bare',
+      op='set_get',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=v),
+      apply=lambda c, fn: c.set('_bare'),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- bare set with explicit value (no fn — two-arg form as isolated step) ----
+  bricks.append(
+    Brick(
+      name='set_explicit_bare',
+      op='set_get',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=v),
+      apply=lambda c, fn: c.set('_bare_e', 99),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- if_ (truthy branch with explicit args, Rule 1) ----
+  bricks.append(
+    Brick(
+      name='if_true_args',
+      op='if_',
+      calling_convention='args',
+      apply=lambda c, fn: c.if_(lambda x: True).then(fn, 42),
+      oracle=lambda v, fn: fn(42),
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- if_ (truthy branch with nested chain body) ----
+  bricks.append(
+    Brick(
+      name='if_true_nested_chain',
+      op='if_',
+      calling_convention='nested_chain',
+      apply=lambda c, fn: c.if_(lambda x: True).then(Chain().then(fn)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- if_ (falsy path, no else — value passes through unchanged) ----
+  bricks.append(
+    Brick(
+      name='if_false_passthrough',
+      op='if_',
+      calling_convention='default',
+      apply=lambda c, fn: c.if_(lambda x: False).then(lambda x: -999).then(fn),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- if_ (do branch with explicit args, Rule 1) ----
+  bricks.append(
+    Brick(
+      name='if_do_args',
+      op='if_',
+      calling_convention='args',
+      apply=lambda c, fn: c.if_(lambda x: True).do(fn, 42),
+      oracle=lambda v, fn: v,
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- if_ (predicate with kwargs, Rule 1) ----
+  bricks.append(
+    Brick(
+      name='if_pred_kwargs',
+      op='if_',
+      calling_convention='pred_kwargs',
+      apply=lambda c, fn: c.if_(fn, x=42).then(lambda x: x * 2),
+      oracle=lambda v, fn: v * 2,
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- if_ (falsy predicate + do branch, no else — passthrough) ----
+  bricks.append(
+    Brick(
+      name='if_false_do_passthrough',
+      op='if_',
+      calling_convention='default',
+      apply=lambda c, fn: c.if_(lambda x: False).do(fn).then(fn),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- if_ (falsy with do-style truthy branch + else_) ----
+  bricks.append(
+    Brick(
+      name='if_false_do_else',
+      op='if_',
+      calling_convention='default',
+      apply=lambda c, fn: c.if_(lambda x: False).do(lambda x: None).else_(fn),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- if_ (both branches do-style, predicate false) ----
+  bricks.append(
+    Brick(
+      name='if_false_do_else_do',
+      op='if_',
+      calling_convention='default',
+      apply=lambda c, fn: c.if_(lambda x: False).do(lambda x: None).else_do(fn),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- if_ (do branch with nested chain body) ----
+  bricks.append(
+    Brick(
+      name='if_do_nested_chain',
+      op='if_',
+      calling_convention='nested_chain',
+      apply=lambda c, fn: c.if_(lambda x: True).do(Chain().then(fn)),
+      oracle=lambda v, fn: v,
+    )
+  )
+
+  # ---- with_ (kwargs, Rule 1) ----
+  bricks.append(
+    Brick(
+      name='with_kwargs',
+      op='with_',
+      calling_convention='args',
+      apply=lambda c, fn: c.then(lambda x: SyncCM(x)).with_(fn, x=42),
+      oracle=lambda v, fn: fn(42),
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- with_do (kwargs, Rule 1) ----
+  bricks.append(
+    Brick(
+      name='with_do_kwargs',
+      op='with_do',
+      calling_convention='args',
+      apply=lambda c, fn: c.then(lambda x: SyncCM(x)).with_do(fn, x=42).then(lambda cm: cm._value),
+      oracle=lambda v, fn: v,
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- with_ (nested chain body with explicit args) ----
+  bricks.append(
+    Brick(
+      name='with_nested_chain_args',
+      op='with_',
+      calling_convention='nested_chain_args',
+      apply=lambda c, fn: c.then(lambda x: DualProtocolCM(x)).with_(Chain().then(fn), 42),
+      oracle=lambda v, fn: fn(42),
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- with_do (nested chain body with explicit args) ----
+  bricks.append(
+    Brick(
+      name='with_do_nested_chain_args',
+      op='with_do',
+      calling_convention='nested_chain_args',
+      apply=lambda c, fn: c.then(lambda x: DualProtocolCM(x)).with_do(Chain().then(fn), 42).then(lambda cm: cm._value),
+      oracle=lambda v, fn: v,
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- else_ (nested chain with explicit args) ----
+  bricks.append(
+    Brick(
+      name='else_nested_chain_args',
+      op='if_',
+      calling_convention='else_nested_chain_args',
+      apply=lambda c, fn: c.if_(lambda x: False).then(lambda x: -999).else_(Chain().then(fn), 42),
+      oracle=lambda v, fn: fn(42),
+      fn_input=lambda v: 42,
+    )
+  )
+
+  # ---- foreach (sync iterable, unbounded concurrency) ----
+  bricks.append(
+    Brick(
+      name='map_sync_unbounded_conc',
+      op='foreach',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach(fn, concurrency=-1).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do (sync iterable, unbounded concurrency) ----
+  bricks.append(
+    Brick(
+      name='foreach_do_sync_unbounded_conc',
+      op='foreach_do',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach_do(fn, concurrency=-1).then(sum),
+      oracle=lambda v, fn: v + (v + 1),
+    )
+  )
+
+  # ---- foreach (async iterable, unbounded concurrency) ----
+  bricks.append(
+    Brick(
+      name='map_async_iter_unbounded_conc',
+      op='foreach',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: AsyncPair(x)).foreach(fn, concurrency=-1).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do (async iterable, unbounded concurrency) ----
+  bricks.append(
+    Brick(
+      name='foreach_do_async_iter_unbounded_conc',
+      op='foreach_do',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: AsyncPair(x)).foreach_do(fn, concurrency=-1).then(sum),
+      oracle=lambda v, fn: v + (v + 1),
+    )
+  )
+
+  # ---- foreach (nested chain body + concurrency) ----
+  bricks.append(
+    Brick(
+      name='map_nested_chain_conc',
+      op='foreach',
+      calling_convention='nested_chain',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach(Chain().then(fn), concurrency=2).then(sum),
+      oracle=lambda v, fn: fn(v) + fn(v + 1),
+    )
+  )
+
+  # ---- foreach_do (nested chain body + concurrency) ----
+  bricks.append(
+    Brick(
+      name='foreach_do_nested_chain_conc',
+      op='foreach_do',
+      calling_convention='nested_chain',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.then(lambda x: [x, x + 1]).foreach_do(Chain().then(fn), concurrency=2).then(sum),
+      oracle=lambda v, fn: v + (v + 1),
+    )
+  )
+
+  # ---- gather (all nested chains) ----
+  bricks.append(
+    Brick(
+      name='gather_multi_nested_chain',
+      op='gather',
+      calling_convention='nested_chain',
+      supports_concurrency=True,
+      apply=lambda c, fn: c.gather(Chain().then(fn), Chain().then(fn)).then(lambda t: t[0]),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- gather (3 functions, unbounded concurrency) ----
+  bricks.append(
+    Brick(
+      name='gather_unbounded_3fns',
+      op='gather',
+      calling_convention='default',
+      has_builtin_concurrency=True,
+      apply=lambda c, fn: c.gather(fn, fn, fn).then(lambda t: t[0]),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- set explicit value + descriptor get ----
+  bricks.append(
+    Brick(
+      name='set_explicit_value_descriptor',
+      op='set_get',
+      calling_convention='default',
+      apply=lambda c, fn: c.set('_bk4', 99).then(fn).get('_bk4'),
+      oracle=lambda v, fn: 99,
+    )
+  )
+
+  # ---- nested chain with except_ + explicit args on handler ----
+  bricks.append(
+    Brick(
+      name='except_args_nested',
+      op='then',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=-1) if err == 'exception' else None,
+      apply=lambda c, fn: c.then(Chain().then(fn).except_(lambda ei: -1, 'unused_arg')),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- nested chain with except_ + reraise=True (happy path) ----
+  bricks.append(
+    Brick(
+      name='except_reraise_nested',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain().then(fn).except_(lambda ei: None, reraise=True)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- nested chain with except_ where handler is a nested chain ----
+  bricks.append(
+    Brick(
+      name='except_nested_chain_handler',
+      op='then',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=-1) if err == 'exception' else None,
+      apply=lambda c, fn: c.then(Chain().then(fn).except_(Chain().then(lambda ei: -1))),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- nested chain with finally_ + explicit args on handler ----
+  bricks.append(
+    Brick(
+      name='finally_args_nested',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain().then(fn).finally_(lambda rv: None, 'unused_arg')),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- nested chain with finally_ where handler is a nested chain ----
+  bricks.append(
+    Brick(
+      name='finally_nested_chain_handler',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain().then(fn).finally_(Chain().then(lambda rv: None))),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- nested chain with both except_ and finally_ (happy path) ----
+  bricks.append(
+    Brick(
+      name='except_finally_nested',
+      op='then',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=-1) if err == 'exception' else None,
+      apply=lambda c, fn: c.then(Chain().then(fn).except_(lambda ei: -1).finally_(lambda rv: None)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- clone() used as nested chain ----
+  bricks.append(
+    Brick(
+      name='then_clone_chain',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain().then(fn).clone()),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- from_steps with multiple steps ----
+  bricks.append(
+    Brick(
+      name='then_from_steps_multi',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain.from_steps(fn, lambda x: x - 1, fn)),
+      oracle=lambda v, fn: fn(fn(v) - 1),
+    )
+  )
+
+  # ---- named chain (name() is cosmetic) ----
+  bricks.append(
+    Brick(
+      name='then_named_chain',
+      op='then',
+      calling_convention='default',
+      apply=lambda c, fn: c.then(Chain().name('test').then(fn)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- decorator()-wrapped function as pipeline step ----
+  bricks.append(
+    Brick(
+      name='then_decorator_chain',
+      op='then',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=v * 100) if err == 'return_signal' else None,
+      apply=lambda c, fn: c.then(Chain().then(fn).decorator()(lambda x: x)),
+      oracle=lambda v, fn: fn(v),
+    )
+  )
+
+  # ---- with_ using suppressing CM (happy path — no error, normal execution) ----
+  bricks.append(
+    Brick(
+      name='with_suppress',
+      op='with_',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=None) if err in ('exception', 'base_exception') else None,
+      fn_input=lambda v: 10,
+      apply=lambda c, fn: c.then(lambda x: SyncCMSuppresses()).with_(fn),
+      oracle=lambda v, fn: fn(10),  # SyncCMSuppresses.__enter__ returns 10
+    )
+  )
+
+  # ---- with_do using suppressing CM ----
+  bricks.append(
+    Brick(
+      name='with_do_suppress',
+      op='with_do',
+      calling_convention='default',
+      error_oracle=lambda v, err: Result(success=True, value=10) if err in ('exception', 'base_exception') else None,
+      fn_input=lambda v: 10,
+      apply=lambda c, fn: c.then(lambda x: SyncCMSuppresses()).with_do(fn).then(lambda _: 10),
+      oracle=lambda v, fn: 10,
+    )
+  )
+
   return bricks
 
 
@@ -930,13 +1728,12 @@ async def run_bridge(
   t0 = time.monotonic()
   last_log_time = t0
 
-  total_orderings_est = sum(math.perm(n, k) for k in range(min_length, max_length + 1))
   _log(
     f'\n[bridge] starting: {n} bricks, lengths {min_length}-{max_length}, '
-    f'~{total_orderings_est} orderings, '
     f'handlers={"yes" if has_handlers else "no"}, '
     f'gather_aware={gather_aware}, '
     f'error_path={include_error_path}, concurrency={include_concurrency}'
+    f', sequential'
   )
 
   # Capture warnings instead of ignoring them.  Bridge tests legitimately trigger
@@ -950,11 +1747,13 @@ async def run_bridge(
 
     for length in range(min_length, max_length + 1):
       length_t0 = time.monotonic()
-      length_orderings = math.perm(n, length)
+      length_orderings = n**length
+      length_orderings_done = 0
       _log(f'[bridge] length={length}: {length_orderings} orderings')
 
-      for perm in itertools.permutations(bricks, length):
+      for perm in itertools.product(bricks, repeat=length):
         stats.total_orderings += 1
+        length_orderings_done += 1
         ordering_name = ' -> '.join(b.name for b in perm)
 
         # Determine error positions
@@ -1060,7 +1859,6 @@ async def run_bridge(
                               f'  reason: {reason}'
                             )
                             stats.failures.append(failure_msg)
-                            test.fail(failure_msg)
                         else:
                           if (
                             first.success != results[i].success
@@ -1073,10 +1871,11 @@ async def run_bridge(
                               f'  first:  {first}\n  other:  {results[i]}'
                             )
                             stats.failures.append(failure_msg)
-                            test.fail(failure_msg)
 
                       # Oracle correctness check (skip for gather_aware and when error brick has concurrency)
-                      error_has_conc = error_pos >= 0 and conc_combo[error_pos][1] is not None
+                      error_has_conc = error_pos >= 0 and (
+                        conc_combo[error_pos][1] is not None or perm[error_pos].has_builtin_concurrency
+                      )
                       if symmetry_ok and not error_has_conc and not gather_aware:
                         if hconfig is not None:
                           # Error bridge oracle (only at nesting_depth 0)
@@ -1089,9 +1888,23 @@ async def run_bridge(
                                 partial_value = error_brick.fn_input(pipeline_at_error)
                               else:
                                 partial_value = pipeline_at_error
+
+                              # Check if brick absorbs this error type
+                              eo = error_brick.error_oracle
+                              eo_result = eo(partial_value, err_type_name) if eo is not None else None
+                              if eo_result is not None and eo_result.success:
+                                # Brick absorbed the error. Pipeline continues as if no error.
+                                try:
+                                  remaining = compose_oracles(perm[error_pos + 1 :], eo_result.value)
+                                except Exception:
+                                  expected = None  # Oracle computation itself failed; skip check
+                                else:
+                                  expected = hconfig.oracle('none', remaining, remaining)
+                              else:
+                                expected = hconfig.oracle(err_type_name, happy_value, partial_value)
                             else:
                               partial_value = happy_value
-                            expected = hconfig.oracle(err_type_name, happy_value, partial_value)
+                              expected = hconfig.oracle(err_type_name, happy_value, partial_value)
                             if expected is not None:
                               ref = results[0]
                               if (
@@ -1103,7 +1916,6 @@ async def run_bridge(
                                   f'ORACLE MISMATCH: {combo_labels[0]}\n  actual:   {ref}\n  expected: {expected}'
                                 )
                                 stats.failures.append(failure_msg)
-                                test.fail(failure_msg)
                         else:
                           # Exhaustive bridge oracle
                           ref = results[0]
@@ -1111,8 +1923,27 @@ async def run_bridge(
                             expected_value = compose_oracles(perm, 10, sync_fn)
                             expected = Result(success=True, value=expected_value)
                           else:
-                            expected = Result(success=False, exc_type=ValueError)
-                          if (
+                            error_brick = perm[error_pos]
+                            eo = error_brick.error_oracle
+                            if eo is not None:
+                              pipeline_at_error = compose_oracles(perm[:error_pos], 10, sync_fn)
+                              eo_input = (
+                                error_brick.fn_input(pipeline_at_error)
+                                if error_brick.fn_input is not None
+                                else pipeline_at_error
+                              )
+                              eo_result = eo(eo_input, 'exception')
+                              if eo_result is not None and eo_result.success:
+                                # Skip oracle check: absorbed value may violate
+                                # downstream brick oracle assumptions (e.g. an oracle
+                                # that assumes truthy pipeline values).  Symmetry
+                                # checking still validates the bridge contract.
+                                expected = None
+                              else:
+                                expected = Result(success=False, exc_type=ValueError)
+                            else:
+                              expected = Result(success=False, exc_type=ValueError)
+                          if expected is not None and (
                             ref.success != expected.success
                             or (ref.success and ref.value != expected.value)
                             or (not ref.success and ref.exc_type != expected.exc_type)
@@ -1121,16 +1952,23 @@ async def run_bridge(
                               f'ORACLE MISMATCH: {combo_labels[0]}\n  actual:   {ref}\n  expected: {expected}'
                             )
                             stats.failures.append(failure_msg)
-                            test.fail(failure_msg)
 
                     # Progress logging every 10s
                     now = time.monotonic()
                     if now - last_log_time >= 10.0:
                       elapsed = now - t0
+                      length_elapsed = now - length_t0
+                      pct = length_orderings_done / length_orderings * 100 if length_orderings else 0
+                      if length_orderings_done > 0:
+                        rate = length_elapsed / length_orderings_done
+                        remaining = (length_orderings - length_orderings_done) * rate
+                        eta_str = f'ETA {remaining:.0f}s'
+                      else:
+                        eta_str = 'ETA ?'
                       _log(
-                        f'[bridge] {stats.total_combinations} combos, '
-                        f'{stats.total_configs} configs, '
-                        f'{elapsed:.0f}s elapsed, '
+                        f'[bridge] len={length}: {length_orderings_done}/{length_orderings} '
+                        f'({pct:.0f}%) | {stats.total_combinations} combos, '
+                        f'{elapsed:.0f}s elapsed, {eta_str}, '
                         f'{len(stats.failures)} failures'
                       )
                       last_log_time = now
@@ -1147,7 +1985,7 @@ async def run_bridge(
     ]
     if unexpected:
       msgs = '\n'.join(f'  {w.filename}:{w.lineno}: [{w.category.__name__}] {w.message}' for w in unexpected)
-      test.fail(f'[bridge] unexpected warnings emitted during bridge run:\n{msgs}')
+      stats.failures.append(f'[bridge] unexpected warnings emitted during bridge run:\n{msgs}')
 
   elapsed = time.monotonic() - t0
   _log(
@@ -1156,6 +1994,11 @@ async def run_bridge(
     f'{stats.total_combinations} combos, {elapsed:.1f}s, '
     f'{len(stats.failures)} failures'
   )
+
+  # Single assertion point for all failures (from both sequential and parallel paths)
+  if stats.failures:
+    test.fail(f'{len(stats.failures)} bridge failure(s):\n' + '\n'.join(stats.failures[:20]))
+
   return stats
 
 
@@ -1166,7 +2009,7 @@ def _apply_with_conc(c: Chain[Any], brick: Brick, fn: Any, conc: int) -> None:
   Only called for bricks where ``supports_concurrency=True``.
   """
   op = brick.op
-  if op == 'map':
+  if op == 'foreach':
     c.then(lambda x: [x, x + 1]).foreach(fn, concurrency=conc).then(sum)
   elif op == 'foreach_do':
     c.then(lambda x: [x, x + 1]).foreach_do(fn, concurrency=conc).then(sum)
@@ -1277,6 +2120,27 @@ async def async_finally_ok(rv: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Kwargs-only handler fixtures (Rule 1: kwargs trigger explicit-args path)
+# ---------------------------------------------------------------------------
+
+
+def sync_except_kwargs(*, sentinel: bool = True) -> int:
+  return 42
+
+
+async def async_except_kwargs(*, sentinel: bool = True) -> int:
+  return 42
+
+
+def sync_finally_kwargs(*, sentinel: bool = True) -> None:
+  pass
+
+
+async def async_finally_kwargs(*, sentinel: bool = True) -> None:
+  pass
+
+
+# ---------------------------------------------------------------------------
 # Error injection fixtures
 # ---------------------------------------------------------------------------
 
@@ -1298,11 +2162,11 @@ async def async_return_signal(x: Any) -> Any:
 
 
 def sync_break_signal(x: Any) -> Any:
-  Chain.break_(x * 100)
+  return Chain.break_(x * 100)
 
 
 async def async_break_signal(x: Any) -> Any:
-  Chain.break_(x * 100)
+  return Chain.break_(x * 100)
 
 
 # ---------------------------------------------------------------------------
@@ -1396,6 +2260,16 @@ def _apply_finally_with_args(chain: Any, is_handler_async: bool) -> None:
 def _apply_finally_nested_chain(chain: Any, is_handler_async: bool) -> None:
   handler = async_finally_ok if is_handler_async else sync_finally_ok
   chain.finally_(Chain().then(handler))
+
+
+def _apply_except_kwargs(chain: Any, is_handler_async: bool) -> None:
+  handler = async_except_kwargs if is_handler_async else sync_except_kwargs
+  chain.except_(handler, sentinel=True)
+
+
+def _apply_finally_kwargs(chain: Any, is_handler_async: bool) -> None:
+  handler = async_finally_kwargs if is_handler_async else sync_finally_kwargs
+  chain.finally_(handler, sentinel=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1614,6 +2488,36 @@ def _oracle_finally_nested_chain(error_type: str, happy_value: Any, partial_valu
   return None
 
 
+def _oracle_except_kwargs(error_type: str, happy_value: Any, partial_value: Any) -> Result | None:
+  """except_kwargs: handler(sentinel=True) -> 42 (Rule 1: kwargs override cv)."""
+  if error_type == 'break_signal':
+    return None
+  if error_type == 'none':
+    return Result(success=True, value=happy_value)
+  if error_type == 'exception':
+    return Result(success=True, value=42)
+  if error_type == 'base_exception':
+    return Result(success=False, exc_type=CustomBaseError)
+  if error_type == 'return_signal':
+    return Result(success=True, value=partial_value * 100)
+  return None
+
+
+def _oracle_finally_kwargs(error_type: str, happy_value: Any, partial_value: Any) -> Result | None:
+  """finally_kwargs: no except, finally runs (ok) but doesn't affect result."""
+  if error_type == 'break_signal':
+    return None
+  if error_type == 'none':
+    return Result(success=True, value=happy_value)
+  if error_type == 'exception':
+    return Result(success=False, exc_type=ValueError)
+  if error_type == 'base_exception':
+    return Result(success=False, exc_type=CustomBaseError)
+  if error_type == 'return_signal':
+    return Result(success=True, value=partial_value * 100)
+  return None
+
+
 HANDLER_CONFIGS: list[HandlerConfig] = [
   HandlerConfig(name='no_handler', apply=_apply_no_handler, oracle=_oracle_no_handler),
   HandlerConfig(name='except_consume', apply=_apply_except_consume, oracle=_oracle_except_consume),
@@ -1674,6 +2578,8 @@ HANDLER_CONFIGS: list[HandlerConfig] = [
     has_finally=True,
     oracle=_oracle_finally_nested_chain,
   ),
+  HandlerConfig(name='except_kwargs', apply=_apply_except_kwargs, oracle=_oracle_except_kwargs),
+  HandlerConfig(name='finally_kwargs', apply=_apply_finally_kwargs, has_finally=True, oracle=_oracle_finally_kwargs),
 ]
 
 
@@ -1692,16 +2598,41 @@ REPRESENTATIVE_BRICKS: list[Brick] = [
     'then_nested_chain',
     'do_default',
     'map_default',
+    'map_async_iter',
     'foreach_do_default',
+    'foreach_do_async_iter',
     'gather_default',
     'with_default',
     'with_dual_cm',
+    'with_async_cm',
+    'with_sync_async_exit',
+    'with_do_default',
+    'with_do_dual_cm',
+    'with_do_async_cm',
     'if_true_default',
     'if_do_branch',
     'if_pred_fn',
     'if_pred_nested_chain',
     'else_nested_chain',
     'else_do',
+    'set_get',
+    'set_get_roundtrip',
+    'set_get_descriptor',
+    # New representative bricks covering distinct code paths
+    'if_false_passthrough',  # falsy path with no else (passthrough)
+    'if_pred_kwargs',  # predicate with kwargs (Rule 1 on pred)
+    'if_false_do_else',  # do-style truthy branch + else_ combination
+    'with_kwargs',  # with_ kwargs path (Rule 1)
+    'with_nested_chain_args',  # with_ nested chain + explicit args
+    'else_nested_chain_args',  # else_ nested chain + explicit args
+    'map_sync_unbounded_conc',  # unbounded concurrency (concurrency=-1)
+    'gather_multi_nested_chain',  # gather with all nested chains
+    'except_args_nested',  # except handler with explicit args
+    'except_nested_chain_handler',  # except handler is a chain
+    'finally_nested_chain_handler',  # finally handler is a chain
+    'then_clone_chain',  # clone() reuse path
+    'then_decorator_chain',  # decorator() reuse path
+    'set_explicit_value_descriptor',  # two-arg set + descriptor get combo
   )
 ]
 
@@ -1753,7 +2684,7 @@ def _apply_brick_with_options(chain: Any, brick: Brick, fn: Any, conc_val: int |
 #
 # Gather error paths are excluded from the main exhaustive bridge test
 # because sync/async gather produce different exception wrapping
-# (ExceptionGroup vs direct) — a documented asymmetry (SPEC §16).
+# (ExceptionGroup vs direct) — a documented asymmetry (SPEC §17).
 #
 # This module provides asymmetry-aware bridge testing that verifies
 # semantic equivalence without requiring identical exception structure:

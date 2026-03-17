@@ -14,7 +14,9 @@ from quent import Chain, QuentException
 from tests.tests_helper import (
   SymmetricTestCase,
   async_double,
+  async_fn,
   sync_double,
+  sync_fn,
 )
 
 # ---------------------------------------------------------------------------
@@ -721,6 +723,157 @@ else:
     result = self._run_subprocess(code, {'QUENT_TRACEBACK_VALUES': '0'})
     self.assertEqual(result.returncode, 0, f'Subprocess failed: {result.stderr}')
     self.assertIn('REPR_PLACEHOLDER_CORRECT', result.stdout)
+
+
+# ---------------------------------------------------------------------------
+# §10.3 from_steps()
+# ---------------------------------------------------------------------------
+
+
+class TestFromSteps(SymmetricTestCase):
+  """SPEC §10.3: Chain.from_steps() — construct a chain from a sequence of steps."""
+
+  async def test_variadic_form_produces_correct_result(self) -> None:
+    """from_steps(a, b, c) threads value through each step in order."""
+    # sync_fn(x) = x+1, sync_double(x) = x*2
+    # 5 -> 6 -> 12
+    result = Chain.from_steps(sync_fn, sync_double).run(5)
+    self.assertEqual(result, 12)
+
+  async def test_variadic_equivalent_to_chained_then(self) -> None:
+    """from_steps(a, b, c) is equivalent to Chain().then(a).then(b).then(c)."""
+    manual = Chain().then(sync_fn).then(sync_double).run(5)
+    via_from_steps = Chain.from_steps(sync_fn, sync_double).run(5)
+    self.assertEqual(via_from_steps, manual)
+    self.assertEqual(via_from_steps, 12)
+
+  async def test_list_form_unpacked_as_steps(self) -> None:
+    """from_steps([a, b, c]) unpacks the list as the step sequence."""
+    result = Chain.from_steps([sync_fn, sync_double]).run(5)
+    self.assertEqual(result, 12)
+
+  async def test_list_form_equals_variadic_form(self) -> None:
+    """from_steps([a, b, c]) produces same result as from_steps(a, b, c)."""
+    variadic = Chain.from_steps(sync_fn, sync_double).run(5)
+    list_form = Chain.from_steps([sync_fn, sync_double]).run(5)
+    self.assertEqual(list_form, variadic)
+
+  async def test_tuple_form_unpacked_as_steps(self) -> None:
+    """from_steps((a, b, c)) unpacks the tuple as the step sequence."""
+    result = Chain.from_steps((sync_fn, sync_double)).run(5)
+    self.assertEqual(result, 12)
+
+  async def test_tuple_form_equals_variadic_form(self) -> None:
+    """from_steps((a, b, c)) produces same result as from_steps(a, b, c)."""
+    variadic = Chain.from_steps(sync_fn, sync_double).run(5)
+    tuple_form = Chain.from_steps((sync_fn, sync_double)).run(5)
+    self.assertEqual(tuple_form, variadic)
+
+  async def test_empty_no_args_returns_empty_chain(self) -> None:
+    """from_steps() with no arguments returns an empty chain — run(v) returns v."""
+    # Empty chain with a run value returns that run value
+    result = Chain.from_steps().run(5)
+    self.assertEqual(result, 5)
+
+  async def test_empty_is_equivalent_to_chain(self) -> None:
+    """from_steps() with no args is equivalent to Chain()."""
+    self.assertEqual(Chain.from_steps().run(5), Chain().run(5))
+    self.assertEqual(Chain.from_steps().run(), Chain().run())
+
+  async def test_single_step(self) -> None:
+    """from_steps(fn) with a single step works correctly."""
+    result = Chain.from_steps(sync_fn).run(10)
+    self.assertEqual(result, 11)
+
+  async def test_single_step_list_form(self) -> None:
+    """from_steps([fn]) single-element list works."""
+    result = Chain.from_steps([sync_fn]).run(10)
+    self.assertEqual(result, 11)
+
+  async def test_non_callable_literal_replaces_current_value(self) -> None:
+    """Non-callable value in steps replaces current value, per .then() semantics.
+
+    Chain.from_steps(lambda x: x+1, 42, lambda x: x*2).run(10):
+      10 -> x+1 = 11 -> 42 (literal replaces cv) -> 42*2 = 84
+    """
+    result = Chain.from_steps(lambda x: x + 1, 42, lambda x: x * 2).run(10)
+    self.assertEqual(result, 84)
+
+  async def test_nested_chain_as_step(self) -> None:
+    """A nested Chain as a step is executed with the current value."""
+    inner = Chain().then(lambda x: x + 1)
+    result = Chain.from_steps(inner).run(10)
+    self.assertEqual(result, 11)
+
+  async def test_nested_chain_as_step_in_sequence(self) -> None:
+    """Nested Chain in a multi-step from_steps sequence executes in order."""
+    inner = Chain().then(sync_double)
+    # 5 -> sync_fn(5)=6 -> inner(6)=12
+    result = Chain.from_steps(sync_fn, inner).run(5)
+    self.assertEqual(result, 12)
+
+  async def test_async_callables_returns_coroutine(self) -> None:
+    """from_steps with async steps: run() returns a coroutine, must be awaited."""
+    coro = Chain.from_steps(async_fn, async_double).run(5)
+    self.assertTrue(asyncio.iscoroutine(coro))
+    result = await coro
+    # 5 -> async_fn(5)=6 -> async_double(6)=12
+    self.assertEqual(result, 12)
+
+  async def test_mixed_sync_async_bridge(self) -> None:
+    """from_steps(sync_fn, async_fn): sync start, async transition on async step."""
+    # 5 -> sync_fn(5)=6 -> async_double(6)=12
+    result = await Chain.from_steps(sync_fn, async_double).run(5)
+    self.assertEqual(result, 12)
+
+  async def test_mixed_async_sync_bridge(self) -> None:
+    """from_steps(async_fn, sync_fn): async transition on first step, stays async."""
+    # 5 -> async_fn(5)=6 -> sync_double(6)=12
+    result = await Chain.from_steps(async_fn, sync_double).run(5)
+    self.assertEqual(result, 12)
+
+  async def test_equivalence_three_steps(self) -> None:
+    """from_steps(a, b, c).run(v) == Chain().then(a).then(b).then(c).run(v)."""
+    steps = [sync_fn, sync_double, sync_fn]
+    # 5 -> +1=6 -> *2=12 -> +1=13
+    manual = Chain().then(steps[0]).then(steps[1]).then(steps[2]).run(5)
+    via_from_steps = Chain.from_steps(*steps).run(5)
+    self.assertEqual(via_from_steps, manual)
+    self.assertEqual(via_from_steps, 13)
+
+  async def test_returns_chain_instance(self) -> None:
+    """from_steps() returns a Chain instance."""
+    c = Chain.from_steps(sync_fn)
+    self.assertIsInstance(c, Chain)
+
+  async def test_run_value_provides_initial_value(self) -> None:
+    """from_steps() creates no-root chain; run(v) provides the initial value."""
+    # No root value — use run(v) to inject
+    result = Chain.from_steps(sync_double).run(7)
+    self.assertEqual(result, 14)
+
+  async def test_empty_list_form_returns_empty_chain(self) -> None:
+    """from_steps([]) with an empty list returns an empty chain."""
+    result = Chain.from_steps([]).run(5)
+    self.assertEqual(result, 5)
+
+  async def test_empty_tuple_form_returns_empty_chain(self) -> None:
+    """from_steps(()) with an empty tuple returns an empty chain."""
+    result = Chain.from_steps(()).run(5)
+    self.assertEqual(result, 5)
+
+  async def test_multiple_steps_value_threading(self) -> None:
+    """Value threads correctly through all steps in order."""
+    # 1 -> +1=2 -> *2=4 -> +1=5 -> *2=10
+    result = Chain.from_steps(sync_fn, sync_double, sync_fn, sync_double).run(1)
+    self.assertEqual(result, 10)
+
+  async def test_list_form_three_steps_equivalence(self) -> None:
+    """from_steps([a, b, c]) == Chain().then(a).then(b).then(c) for three steps."""
+    steps = [sync_fn, sync_double, sync_fn]
+    manual = Chain().then(steps[0]).then(steps[1]).then(steps[2]).run(3)
+    via_list = Chain.from_steps(steps).run(3)
+    self.assertEqual(via_list, manual)
 
 
 if __name__ == '__main__':

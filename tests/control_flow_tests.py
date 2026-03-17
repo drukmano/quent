@@ -732,7 +732,7 @@ class ReturnLazyEvaluationTest(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §16 — Unawaited coroutine: finally skipped (SPEC-261)
+# §17 — Unawaited coroutine: finally skipped (SPEC-261)
 # ---------------------------------------------------------------------------
 
 

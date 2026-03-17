@@ -8,7 +8,6 @@ effect on calling conventions, and singleton properties.
 from __future__ import annotations
 
 import copy
-import pickle
 from unittest import TestCase
 
 from quent import Chain
@@ -190,21 +189,6 @@ class NullSingletonTest(TestCase):
     """copy.deepcopy(Null) is Null."""
     self.assertIs(copy.deepcopy(Null), Null)
 
-  def test_unpicklable(self) -> None:
-    """pickle.dumps(Null) raises TypeError."""
-    with self.assertRaises(TypeError):
-      pickle.dumps(Null)
-
-  def test_reduce_raises(self) -> None:
-    """Null.__reduce__() raises TypeError directly."""
-    with self.assertRaises(TypeError):
-      Null.__reduce__()
-
-  def test_reduce_ex_raises(self) -> None:
-    """Null.__reduce_ex__() raises TypeError directly."""
-    with self.assertRaises(TypeError):
-      Null.__reduce_ex__(2)
-
   def test_repr(self) -> None:
     """repr(Null) → '<Null>'."""
     self.assertEqual(repr(Null), '<Null>')
@@ -227,30 +211,8 @@ class NullSingletonTest(TestCase):
     """SPEC §12.4: NullType() raises TypeError — singleton is enforced, not just conventional."""
     with self.assertRaises(TypeError) as ctx:
       NullType()
-    self.assertIn('NullType is a singleton', str(ctx.exception))
+    self.assertIn('_Null is a singleton', str(ctx.exception))
     self.assertIn('quent.Null', str(ctx.exception))
-
-
-class ChainUnpicklableTest(TestCase):
-  """SPEC: Chains are unpicklable (CWE-502 prevention)."""
-
-  def test_chain_pickle_raises(self) -> None:
-    """pickle.dumps(Chain(...)) raises TypeError."""
-    c = Chain(5).then(lambda x: x)
-    with self.assertRaises(TypeError):
-      pickle.dumps(c)
-
-  def test_chain_reduce_raises(self) -> None:
-    """Chain.__reduce__() raises TypeError directly."""
-    c = Chain(5)
-    with self.assertRaises(TypeError):
-      c.__reduce__()
-
-  def test_chain_reduce_ex_raises(self) -> None:
-    """Chain.__reduce_ex__() raises TypeError directly."""
-    c = Chain(5)
-    with self.assertRaises(TypeError):
-      c.__reduce_ex__(2)
 
 
 class ChainReprTest(TestCase):

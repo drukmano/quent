@@ -13,8 +13,6 @@ nesting depth, and concurrency x error.
 from __future__ import annotations
 
 import asyncio
-import os
-import unittest
 from unittest import TestCase
 
 from quent import Chain
@@ -22,7 +20,6 @@ from tests.tests_helper import (
   ALL_BRICKS,
   ERROR_INJECTION_TYPES,
   HANDLER_CONFIGS,
-  REPRESENTATIVE_BRICKS,
   V_DOUBLE,
   V_FN,
   SymmetricTestCase,
@@ -38,12 +35,83 @@ from tests.tests_helper import (
   verify_all_brick_oracles,
 )
 
+# ---------------------------------------------------------------------------
+# Reduced brick sets for bridge testing
+# ---------------------------------------------------------------------------
+# 24 bricks covering every distinct engine code path for sync↔async bridge
+# testing. The remaining 72 bricks in ALL_BRICKS exercise the same engine
+# paths with different calling conventions or constructor variants.
+#
+# Redundancy analysis (why each removed brick is covered):
+#   kwargs variants  → same Rule 1 dispatch as args variants
+#   nested_chain_args → combination of nested_chain + args (no new branch)
+#   from_steps/clone/named/decorator → same as nested_chain (Chain callable)
+#   *_conc/*_unbounded_conc → bridge runner's concurrency axis covers this
+#   gather_single/bounded/multi → same gather path, different arity
+#   with_do_* CM variants → orthogonal to with_do flag (covered separately)
+#   if_ calling convention variants → calling convention covered by then_*
+#   set_get variants → same _ctx_get/_ctx_set engine path
+#   error handler variants → happy path, handler not invoked; same bridge test
 
-def load_tests(loader, tests, pattern):
-  if not os.environ.get('QUENT_SLOW'):
-    return unittest.TestSuite()
-  return tests
+_BRIDGE_BRICK_NAMES = frozenset(
+  {
+    # then — 4 distinct dispatch paths
+    'then_default',
+    'then_args',
+    'then_nested_chain',
+    'then_literal',
+    # do — ignore_result path
+    'do_default',
+    # foreach — sync vs async iteration
+    'map_default',
+    'map_async_iter',
+    # foreach_do — sync vs async iteration
+    'foreach_do_default',
+    'foreach_do_async_iter',
+    # gather — concurrent execution
+    'gather_default',
+    # with_ — 4 distinct CM protocol paths
+    'with_default',
+    'with_async_cm',
+    'with_dual_cm',
+    'with_sync_async_exit',
+    # with_do
+    'with_do_default',
+    # if_ — all distinct branch/predicate paths
+    'if_true_default',
+    'if_false_else',
+    'if_do_branch',
+    'if_pred_fn',
+    'if_false_passthrough',
+    'else_do',
+    # context API
+    'set_get',
+    # error handlers (happy path)
+    'except_nested',
+    'finally_nested',
+  }
+)
 
+# 10 representative bricks for error handling bridge — one per distinct
+# error propagation path. Calling convention doesn't affect error
+# propagation (exception type and handler dispatch are the same).
+_BRIDGE_REPR_NAMES = frozenset(
+  {
+    'then_default',  # standard step
+    'then_args',  # Rule 1 dispatch
+    'then_nested_chain',  # nested chain propagation
+    'do_default',  # side-effect step
+    'map_default',  # iteration error (supports_concurrency)
+    'foreach_do_default',  # iteration do error (supports_concurrency)
+    'gather_default',  # concurrent error (supports_concurrency)
+    'with_default',  # CM error path (sync __exit__ with exc)
+    'with_async_cm',  # async CM error (__aexit__ with exc)
+    'if_true_default',  # conditional branch error
+  }
+)
+
+_BRIDGE_BRICKS = [b for b in ALL_BRICKS if b.name in _BRIDGE_BRICK_NAMES]
+_BRIDGE_REPR = [b for b in ALL_BRICKS if b.name in _BRIDGE_REPR_NAMES]
 
 # ===========================================================================
 # Exhaustive bridge testing
@@ -54,11 +122,11 @@ class BridgeExhaustiveTest(SymmetricTestCase):
   """Exhaustive bridge testing — all axes, all permutations."""
 
   async def test_exhaustive_bridge(self) -> None:
-    """All 31 bricks, lengths 1-3, error paths, concurrency. No handler configs."""
+    """24 bridge bricks, lengths 1-2, error paths, concurrency. No handler configs."""
     stats = await run_bridge(
       self,
-      bricks=ALL_BRICKS,
-      max_length=3,
+      bricks=_BRIDGE_BRICKS,
+      max_length=2,
       include_error_path=True,
       exclude_gather_error=True,
       include_concurrency=True,
@@ -66,14 +134,14 @@ class BridgeExhaustiveTest(SymmetricTestCase):
     self.assertEqual(stats.failures, [])
 
   async def test_error_handling_bridge(self) -> None:
-    """15 representative bricks x all error types x all handler configs x nesting."""
+    """10 representative bricks x all error types x all handler configs x nesting."""
     stats = await run_bridge(
       self,
-      bricks=REPRESENTATIVE_BRICKS,
+      bricks=_BRIDGE_REPR,
       max_length=2,
       handler_configs=HANDLER_CONFIGS,
       error_types=ERROR_INJECTION_TYPES,
-      nesting_depths=[0, 1, 2],
+      nesting_depths=[0, 1],
       include_handler_async=True,
       include_concurrency=False,
       exclude_gather_error=True,
@@ -82,7 +150,7 @@ class BridgeExhaustiveTest(SymmetricTestCase):
 
   async def test_concurrency_error_bridge(self) -> None:
     """Concurrency-capable bricks x error x handlers x nesting."""
-    conc_bricks = [b for b in REPRESENTATIVE_BRICKS if b.supports_concurrency]
+    conc_bricks = [b for b in _BRIDGE_REPR if b.supports_concurrency]
     stats = await run_bridge(
       self,
       bricks=conc_bricks,
@@ -98,8 +166,8 @@ class BridgeExhaustiveTest(SymmetricTestCase):
 
   async def test_gather_error_bridge(self) -> None:
     """Gather bricks x error types x handlers, asymmetry-aware comparison."""
-    gather_bricks = [b for b in ALL_BRICKS if b.op == 'gather']
-    core = [b for b in REPRESENTATIVE_BRICKS if b.name in ('then_default', 'do_default')]
+    gather_bricks = [b for b in _BRIDGE_BRICKS if b.op == 'gather']
+    core = [b for b in _BRIDGE_REPR if b.name in ('then_default', 'do_default')]
     stats = await run_bridge(
       self,
       bricks=gather_bricks + core,

@@ -71,7 +71,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _with_ops.py."""
 
   async def test_sync_cm_async_exit_exception_path(self) -> None:
-    """Lines 126-132: sync CM __exit__ returns coroutine on exception path.
+    """§5.6, §8.4: sync CM __exit__ returns coroutine on exception path.
 
     The coroutine must be awaited to determine suppression.
     """
@@ -95,7 +95,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertIsNone(result)
 
   async def test_sync_cm_async_exit_success_path(self) -> None:
-    """Lines 136-140, 197: sync CM __exit__ returns coroutine on success path."""
+    """§5.6, §8.4: sync CM __exit__ returns coroutine on success path."""
 
     class AsyncExitSuccess:
       def __enter__(self) -> int:
@@ -114,14 +114,14 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, 84)
 
   def test_sync_cm_enter_raises_metadata(self) -> None:
-    """Lines 161-163: sync CM __enter__ raises — metadata stamped with '<enter failed>'."""
+    """§5.6: sync CM __enter__ raises — metadata stamped with '<enter failed>'."""
     c = Chain(SyncCMEnterRaises()).with_(lambda x: x)
     with self.assertRaises(RuntimeError) as ctx:
       c.run()
     self.assertEqual(str(ctx.exception), 'enter boom')
 
   async def test_sync_cm_control_flow_and_exit_raises(self) -> None:
-    """Lines 180-181: body raises ControlFlowSignal AND __exit__ also raises."""
+    """§5.6, §7.2: body raises ControlFlowSignal AND __exit__ also raises."""
 
     class ExitAlsoRaises:
       def __enter__(self) -> int:
@@ -143,7 +143,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertIsInstance(ctx.exception.__cause__, _Return)
 
   async def test_sync_cm_body_raises_and_exit_raises(self) -> None:
-    """Lines 187-188: body raises AND __exit__ also raises — exit_exc chained from body exc."""
+    """§5.6: body raises AND __exit__ also raises — exit_exc chained from body exc."""
     c = Chain(SyncCMExitRaises()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
     with self.assertRaises(RuntimeError) as ctx:
       result = c.run()
@@ -153,7 +153,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
 
   async def test_sync_cm_body_raises_exit_returns_coroutine(self) -> None:
-    """Line 190: body raises AND __exit__ returns coroutine (async suppress check)."""
+    """§5.6, §8.4: body raises AND __exit__ returns coroutine (async suppress check)."""
 
     class AsyncExitOnError:
       def __enter__(self) -> int:
@@ -185,7 +185,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _engine.py."""
 
   async def test_traceback_enhancement_fails_in_except(self) -> None:
-    """Lines 179-183: _modify_traceback fails during except handler — warning issued."""
+    """§13.11: _modify_traceback fails during except handler — warning issued."""
     with patch('quent._engine._modify_traceback', side_effect=Exception('tb boom')):
       c = Chain(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
       with warnings.catch_warnings(record=True) as w:
@@ -198,7 +198,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
       self.assertTrue(len(tb_warnings) > 0, 'Expected traceback enhancement warning')
 
   async def test_traceback_modification_fails_in_finally(self) -> None:
-    """Lines 246-250: traceback modification of finally-handler exception fails."""
+    """§13.11: traceback modification of finally-handler exception fails."""
 
     def bad_finally(rv: object) -> object:
       raise RuntimeError('finally boom')
@@ -215,7 +215,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
       self.assertTrue(len(tb_warnings) > 0, 'Expected traceback enhancement warning')
 
   async def test_sync_finally_raises_with_active_exception(self) -> None:
-    """Line 315: sync finally handler raises while original exception active — context chaining."""
+    """§6.3.3: sync finally handler raises while original exception active — context chaining."""
     calls: list[str] = []
 
     def bad_finally(rv: object) -> object:
@@ -229,7 +229,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
 
   async def test_async_finally_raises_with_active_exception(self) -> None:
-    """Line 338: async finally handler raises while original exception active."""
+    """§6.3.3: async finally handler raises while original exception active."""
 
     async def async_fail(x: int) -> int:
       raise ZeroDivisionError('async div')
@@ -246,7 +246,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
 
   async def test_async_except_handler_coroutine_raises_control_flow(self) -> None:
-    """Lines 367-371: async except handler returns coroutine that raises ControlFlowSignal."""
+    """§6.2.6: async except handler returns coroutine that raises ControlFlowSignal."""
 
     async def handler_with_signal(info: object) -> object:
       raise _Return(999, (), {})
@@ -259,7 +259,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('_Return', str(ctx.exception))
 
   async def test_async_except_handler_raises_base_exception(self) -> None:
-    """Lines 375-376: async except handler (reraise=True) raises BaseException."""
+    """§6.2.4: async except handler (reraise=True) raises BaseException."""
 
     async def handler_keyboard_interrupt(info: object) -> object:
       raise KeyboardInterrupt()
@@ -271,7 +271,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
         await result
 
   def test_record_exception_source_link_none(self) -> None:
-    """Line 405: _record_exception_source with link=None — early return."""
+    """§16.8: _record_exception_source with link=None — early return."""
     from quent._engine import _record_exception_source
 
     exc = ValueError('test')
@@ -279,7 +279,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     _record_exception_source(exc, None, 'some_value')
 
   def test_keyboard_interrupt_in_concurrent_step(self) -> None:
-    """Line 434: KeyboardInterrupt in concurrent step — cleaned without traceback mod."""
+    """§13.4: KeyboardInterrupt in concurrent step — cleaned without traceback mod."""
     from quent._exc_meta import _clean_quent_idx
 
     exc = KeyboardInterrupt()
@@ -288,7 +288,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertFalse(hasattr(exc, '_quent_idx'))
 
   def test_debug_repr_repr_raises(self) -> None:
-    """Lines 447-448: _debug_repr with repr() that raises."""
+    """§14.5: _debug_repr with repr() that raises."""
     from quent._engine import _debug_repr
 
     class BadRepr:
@@ -300,7 +300,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('BadRepr', result)
 
   def test_debug_repr_truncation(self) -> None:
-    """Line 450: repr exceeding max_len — truncation."""
+    """§14.5: repr exceeding max_len — truncation."""
     from quent._engine import _debug_repr
 
     result = _debug_repr('x' * 500, max_len=10)
@@ -308,7 +308,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertTrue(len(result) < 500)
 
   def test_root_link_ignore_result_raises(self) -> None:
-    """Line 548: root_link has ignore_result=True — raises QuentException (defensive invariant)."""
+    """§3: root_link has ignore_result=True — raises QuentException (defensive invariant)."""
     from quent._engine import _run
 
     # Construct a chain with a root_link whose ignore_result=True
@@ -320,7 +320,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('ignore_result', str(ctx.exception))
 
   async def test_debug_logging_paths(self) -> None:
-    """Lines 565, 701, 744, 761-762: debug logging enabled."""
+    """§14.5: debug logging enabled."""
     logger = logging.getLogger('quent')
     original_level = logger.level
     try:
@@ -355,7 +355,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
       logger.removeHandler(handler)
 
   def test_control_flow_signal_escape_from_run(self) -> None:
-    """Lines 1034-1035: ControlFlowSignal escape from run() — wrapped in QuentException."""
+    """§7.2.3, §7.3.2: ControlFlowSignal escape from run() — wrapped in QuentException."""
     # Use break_() outside of iteration context — it will escape as a signal
     c = Chain(1).then(lambda x: Chain.break_())
     with self.assertRaises(QuentException) as ctx:
@@ -363,7 +363,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('break_', str(ctx.exception).lower())
 
   def test_decorator_control_flow_signal_escape(self) -> None:
-    """Lines 1132-1133: decorator() with ControlFlowSignal escape -> QuentException."""
+    """§10.2, §7.2.3: decorator() with ControlFlowSignal escape -> QuentException."""
 
     @Chain().then(lambda x: Chain.break_()).decorator()
     def my_fn() -> str:
@@ -383,7 +383,7 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _generator.py."""
 
   def test_sync_iterate_on_async_chain(self) -> None:
-    """Lines 56-57: sync `for x in chain.iterate()` on async chain — TypeError."""
+    """§17.1: sync `for x in chain.iterate()` on async chain — TypeError."""
 
     async def async_range(n: int) -> list[int]:
       return list(range(n))
@@ -395,7 +395,7 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('sync iteration', str(ctx.exception).lower())
 
   def test_sync_iterate_break_callable_raises(self) -> None:
-    """Lines 90-92: sync iterate() where break_ callable evaluation fails.
+    """§7.3.1, §9.4: sync iterate() where break_ callable evaluation fails.
 
     The iterate generator catches _Break and evaluates its value. If evaluation fails,
     the exception is re-raised.
@@ -416,7 +416,7 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('break eval fail', str(ctx.exception))
 
   def test_sync_iterate_break_async_fn(self) -> None:
-    """Lines 94-100: sync iterate() where break value is async in sync context — TypeError."""
+    """§17.1: sync iterate() where break value is async in sync context — TypeError."""
 
     async def async_val() -> int:
       return 99
@@ -433,7 +433,7 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('coroutine', str(ctx.exception).lower())
 
   def test_sync_iterate_return_callable_raises(self) -> None:
-    """Lines 107-109: sync iterate() where return_ callable evaluation fails."""
+    """§7.2.1, §9.4: sync iterate() where return_ callable evaluation fails."""
 
     def failing_return_val() -> object:
       raise ValueError('return eval fail')
@@ -450,7 +450,7 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn('return eval fail', str(ctx.exception))
 
   def test_sync_iterate_return_async_fn(self) -> None:
-    """Lines 111-117: sync iterate() where return value is async in sync context — TypeError."""
+    """§17.1: sync iterate() where return value is async in sync context — TypeError."""
 
     async def async_val() -> int:
       return 99
@@ -476,7 +476,7 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _iter_ops.py."""
 
   async def test_empty_async_iterable_concurrent(self) -> None:
-    """Line 361: empty async iterable with concurrent mode — empty result."""
+    """§5.3: empty async iterable with concurrent mode — empty result."""
     from tests.tests_helper import AsyncRange
 
     c = Chain(AsyncRange(0)).foreach(lambda x: x + 1, concurrency=2)
@@ -486,13 +486,13 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, [])
 
   def test_empty_list_concurrent(self) -> None:
-    """Line 464: empty list with concurrent mode — empty result."""
+    """§5.3: empty list with concurrent mode — empty result."""
     c = Chain([]).foreach(lambda x: x + 1, concurrency=2)
     result = c.run()
     self.assertEqual(result, [])
 
   async def test_concurrent_break_on_first_item(self) -> None:
-    """Line 473: concurrent map where fn raises break on the probed first item."""
+    """§7.3.4, §5.3: concurrent map where fn raises break on the probed first item."""
     c = Chain([1, 2, 3]).foreach(lambda x: Chain.break_() if x == 1 else x, concurrency=2)
     result = c.run()
     if asyncio.iscoroutine(result):
@@ -500,7 +500,7 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, [])
 
   async def test_concurrent_return_signal(self) -> None:
-    """Line 516: concurrent iteration where fn raises return signal."""
+    """§7.3.5: concurrent iteration where fn raises return signal."""
     c = Chain([1, 2, 3]).foreach(lambda x: Chain.return_(99) if x == 1 else x, concurrency=2)
     result = c.run()
     if asyncio.iscoroutine(result):
@@ -508,7 +508,7 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, 99)
 
   async def test_mid_transition_return_in_map(self) -> None:
-    """Line 211: _Return raised in mid-transition async continuation."""
+    """§16.7, §7.2: _Return raised in mid-transition async continuation."""
 
     async def maybe_return(x: int) -> int:
       if x == 2:
@@ -532,7 +532,7 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _gather_ops.py."""
 
   async def test_return_signal_with_regular_exceptions(self) -> None:
-    """Line 86: return_ signal alongside regular exceptions — warning logged."""
+    """§7.3.5: return_ signal alongside regular exceptions — warning logged."""
 
     async def fn1(x: int) -> int:
       raise _Return(99, (), {})
@@ -548,7 +548,7 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, 99)
 
   def test_base_exception_in_gather_triage(self) -> None:
-    """Lines 93-95, 98: BaseException (not Exception) in gather triage."""
+    """§5.5, §6.5: BaseException (not Exception) in gather triage."""
     from quent._gather_ops import _triage_gather_exceptions
     from tests.tests_helper import CustomBaseError
 
@@ -561,7 +561,7 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn(regular_exc, result.exceptions)
 
   async def test_exception_group_from_gather(self) -> None:
-    """Line 113: ExceptionGroup from 2+ gather failures."""
+    """§6.5: ExceptionGroup from 2+ gather failures."""
 
     async def fn1(x: int) -> int:
       raise ValueError('err1')
@@ -578,7 +578,7 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(len(eg.exceptions), 2)
 
   def test_sync_gather_control_flow_signal_on_probe(self) -> None:
-    """Line 261: sync gather where first fn raises ControlFlowSignal (_Return) on probe."""
+    """§5.5, §7.2: sync gather where first fn raises ControlFlowSignal (_Return) on probe."""
     c = Chain(1).gather(lambda x: Chain.return_(99))
     result = c.run()
     self.assertEqual(result, 99)
@@ -593,23 +593,23 @@ class ChainBuilderEdgeTest(TestCase):
   """Edge cases for _chain.py builder validation."""
 
   def test_except_exceptions_string(self) -> None:
-    """Line 120-121: except_(handler, exceptions='ValueError') — TypeError."""
+    """§6.2.1: except_(handler, exceptions='ValueError') — TypeError."""
     with self.assertRaises(TypeError) as ctx:
       Chain(1).except_(lambda info: None, exceptions='ValueError')  # type: ignore[arg-type]
     self.assertIn('string', str(ctx.exception).lower())
 
   def test_except_exceptions_non_base_exception_type(self) -> None:
-    """Lines 137-138: except_(handler, exceptions=[int]) — TypeError."""
+    """§6.2.1: except_(handler, exceptions=[int]) — TypeError."""
     with self.assertRaises(TypeError):
       Chain(1).except_(lambda info: None, exceptions=[int])  # type: ignore[arg-type]
 
   def test_except_exceptions_non_iterable_non_type(self) -> None:
-    """Lines 140-141: except_(handler, exceptions=42) — TypeError."""
+    """§6.2.1: except_(handler, exceptions=42) — TypeError."""
     with self.assertRaises(TypeError):
       Chain(1).except_(lambda info: None, exceptions=42)  # type: ignore[arg-type]
 
   def test_else_non_callable_with_args(self) -> None:
-    """Lines 785-790: else_(42, 'extra_arg') — non-callable with args."""
+    """§5.9: else_(42, 'extra_arg') — non-callable with args."""
     with self.assertRaises(TypeError) as ctx:
       Chain(1).if_(lambda x: False).then(lambda x: x).else_(42, 'extra')  # type: ignore[arg-type]
     self.assertIn('not callable', str(ctx.exception).lower())
@@ -624,7 +624,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _traceback.py."""
 
   def test_chained_exceptions_depth_guard(self) -> None:
-    """Line 99: _clean_chained_exceptions depth guard — deep chain."""
+    """§13.5: _clean_chained_exceptions depth guard — deep chain."""
     from quent._traceback import _clean_chained_exceptions
 
     # Build a chain of exceptions deeper than _MAX_CHAINED_EXCEPTION_DEPTH
@@ -641,7 +641,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     self.assertLess(len(seen), 1010)
 
   def test_exception_group_sub_exception_cleaning(self) -> None:
-    """Line 111: ExceptionGroup sub-exception cleaning."""
+    """§13.5: ExceptionGroup sub-exception cleaning."""
     from quent._traceback import _clean_chained_exceptions
 
     sub1 = ValueError('sub1')
@@ -654,7 +654,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     self.assertIn(id(sub2), seen)
 
   async def test_visualization_construction_fails(self) -> None:
-    """Lines 180-194: visualization construction fails — warning and fallback."""
+    """§13.11: visualization construction fails — warning and fallback."""
     with patch('quent._traceback._stringify_chain', side_effect=Exception('viz boom')):
       c = Chain(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
       with warnings.catch_warnings(record=True) as w:
@@ -667,7 +667,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
       self.assertTrue(len(viz_warnings) > 0)
 
   def test_exception_with_no_source_link(self) -> None:
-    """Line 212: exception with no identifiable source_link — step_name becomes '?'."""
+    """§13.6: exception with no identifiable source_link — step_name becomes '?'."""
     if sys.version_info < (3, 11):
       self.skipTest('add_note / __notes__ requires Python 3.11+')
     from quent._traceback import _attach_exception_note
@@ -680,7 +680,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     self.assertTrue(found, f'Expected "?" in notes, got {notes}')
 
   def test_note_generation_fails(self) -> None:
-    """Lines 215-216: note generation fails — swallowed."""
+    """§13.11: note generation fails — swallowed."""
     from quent._traceback import _attach_exception_note
 
     class BadNameChain:
@@ -705,7 +705,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     # Should not have raised
 
   def test_try_clean_quent_exc_internal_error(self) -> None:
-    """Lines 293-295: _try_clean_quent_exc internal error — returns (False, None)."""
+    """§13.11: _try_clean_quent_exc internal error — returns (False, None)."""
     from quent._traceback import _try_clean_quent_exc
 
     class BadExc(Exception):
@@ -717,7 +717,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, (False, None))
 
   def test_excepthook_path(self) -> None:
-    """Lines 302-305: sys.excepthook path — uncaught chain exception with quent metadata."""
+    """§13.8: sys.excepthook path — uncaught chain exception with quent metadata."""
     from quent._traceback import _quent_excepthook
 
     exc = ValueError('test')
@@ -743,7 +743,7 @@ class VizEdgeTest(TestCase):
   """Edge cases for _viz.py."""
 
   def test_object_no_name_no_qualname(self) -> None:
-    """Lines 136-137: object with no __name__/__qualname__ — falls through to repr."""
+    """§13.12: object with no __name__/__qualname__ — falls through to repr."""
     from quent._viz import _get_obj_name
 
     # Plain integer has no __name__ or __qualname__ on the instance,
@@ -756,7 +756,7 @@ class VizEdgeTest(TestCase):
     self.assertEqual(name2, '[1, 2, 3]')
 
   def test_functools_partial_as_step(self) -> None:
-    """Line 141: functools.partial as chain step — 'partial(inner_name)' in visualization."""
+    """§13.12: functools.partial as chain step — 'partial(inner_name)' in visualization."""
     from quent._viz import _get_obj_name
 
     def my_fn(x: int, y: int) -> int:
@@ -768,7 +768,7 @@ class VizEdgeTest(TestCase):
     self.assertIn('my_fn', name)
 
   def test_object_repr_raises(self) -> None:
-    """Lines 147-148: object whose __repr__ raises — falls back to type name."""
+    """§13.9, §13.12: object whose __repr__ raises — falls back to type name."""
     from quent._viz import _get_obj_name
 
     class BadRepr:
@@ -790,7 +790,7 @@ class VizEdgeTest(TestCase):
     self.assertEqual(name, 'BadRepr')
 
   def test_get_true_source_link_nested_chains(self) -> None:
-    """Lines 181, 185, 189: _get_true_source_link drilling through nested chains."""
+    """§13.2, §13.3: _get_true_source_link drilling through nested chains."""
     from quent._viz import _get_true_source_link
 
     inner = Chain(lambda: 42)
@@ -803,7 +803,7 @@ class VizEdgeTest(TestCase):
     self.assertIsNotNone(result)
 
   def test_gather_visualization(self) -> None:
-    """Lines 340-342: gather operation visualization."""
+    """§13.12: gather operation visualization."""
     c = Chain(1).gather(lambda x: x, lambda x: x + 1)
     # Verify the chain can be repr'd (exercises visualization)
     r = repr(c)
@@ -819,7 +819,7 @@ class LinkDuckTypingTest(TestCase):
   """Edge cases for _link.py duck typing."""
 
   def test_quent_is_chain_but_run_not_callable(self) -> None:
-    """Line 70: object with _quent_is_chain=True but _run not callable — is_chain=False."""
+    """§4: object with _quent_is_chain=True but _run not callable — is_chain=False."""
     from quent._link import Link
 
     class FakeChain:
@@ -830,7 +830,7 @@ class LinkDuckTypingTest(TestCase):
     self.assertFalse(link.is_chain)
 
   def test_getattr_raises_non_attribute_error(self) -> None:
-    """Lines 72-73: object whose __getattr__ raises non-AttributeError."""
+    """§4: object whose __getattr__ raises non-AttributeError."""
     from quent._link import Link
 
     class BadGetattr:
@@ -850,7 +850,7 @@ class EvalEdgeTest(TestCase):
   """Edge cases for _eval.py."""
 
   def test_generator_with_iterable_coroutine_flag(self) -> None:
-    """Line 61: GeneratorType with _CO_ITERABLE_COROUTINE flag."""
+    """§8.4: GeneratorType with _CO_ITERABLE_COROUTINE flag."""
     from quent._eval import _isawaitable
 
     # Create a generator with the flag set
@@ -898,7 +898,7 @@ class TriageEdgeTest(TestCase):
   """Edge cases for triage functions."""
 
   def test_iter_triage_control_flow_signal_not_return_or_break(self) -> None:
-    """Line 85: ControlFlowSignal that is neither _Return nor _Break — raise directly."""
+    """§16.5: ControlFlowSignal that is neither _Return nor _Break — raise directly."""
     from quent._iter_ops import _triage_iter_exceptions
 
     class CustomSignal(_ControlFlowSignal):
@@ -909,7 +909,7 @@ class TriageEdgeTest(TestCase):
       _triage_iter_exceptions([signal], 5, 'map')
 
   def test_gather_triage_reraise(self) -> None:
-    """Line 103: _triage_gather_exceptions returns 'reraise' for empty-ish list."""
+    """§5.5: _triage_gather_exceptions returns 'reraise' for empty-ish list."""
     from quent._gather_ops import _dispatch_gather_triage, _GatherTriageResult
 
     triage = _GatherTriageResult('reraise')
@@ -926,10 +926,10 @@ class VizTruncationTest(TestCase):
   """Edge cases for _viz.py truncation limits."""
 
   def test_viz_max_total_calls_truncation(self) -> None:
-    """_VIZ_MAX_TOTAL_CALLS (500) truncation: deeply nested chains terminate.
+    """§13.10: _VIZ_MAX_TOTAL_CALLS (500) truncation — deeply nested chains terminate.
 
     Build a chain with enough nesting to exceed 500 recursive viz calls
-    and verify it terminates without error. See _viz.py:62-84.
+    and verify it terminates without error.
     """
     from quent._viz import _stringify_chain, _VizContext
 
@@ -949,10 +949,9 @@ class VizTruncationTest(TestCase):
     self.assertGreater(ctx.total_calls, 0)
 
   def test_viz_max_length_truncation(self) -> None:
-    """_VIZ_MAX_LENGTH (10,000) truncation adds '... <truncated>' suffix.
+    """§13.10: _VIZ_MAX_LENGTH (10,000) truncation adds '... <truncated>' suffix.
 
     Build a chain long enough to produce >10K chars of visualization.
-    See _viz.py:305-306.
     """
     from quent._viz import _stringify_chain, _VizContext
 

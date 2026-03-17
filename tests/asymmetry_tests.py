@@ -1,45 +1,48 @@
 # SPDX-License-Identifier: MIT
-"""Tests for SPEC §16 — Known Asymmetries.
+"""Tests for SPEC §17 — Known Asymmetries.
 
 Tests cover:
-- §16.1: Sync iterate TypeError on async chain
-- §16.2: Async transition for sync handler returning coroutine
-- §16.2a: except_(reraise=True) async transition
-- §16.3: Sync with_() __exit__ returning coroutine during control flow (return_ and break_)
-- §16.3: Warning content for with_ context manager signal
-- §16.4: Concurrent sync workers detecting awaitable results
-- §16.4: Awaitable closure in concurrent sync workers
-- §16.5: break_(value) semantics — uniform append behavior in foreach() and iterate()
-- §16.6: return_(value) semantics differ between chain and iterate()
+- §17.1: Sync iterate TypeError on async chain
+- §17.2: Async transition for sync handler returning coroutine
+- §17.2a: except_(reraise=True) async transition
+- Sync with_() __exit__ returning coroutine triggers async transition
+- §17.4: Concurrent sync workers detecting awaitable results
+- §17.4: Awaitable closure in concurrent sync workers
+- §17.5: break_(value) semantics — uniform append behavior in foreach() and iterate()
+- §17.6: return_(value) semantics differ between chain and iterate()
 """
 
 from __future__ import annotations
 
 import asyncio
-import warnings
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain
 
 
 class SyncCMWithAsyncExit:
-  """Sync CM whose __exit__ returns a coroutine (for §16.3 tests)."""
+  """Sync CM whose __exit__ returns a coroutine (async transition test)."""
+
+  def __init__(self):
+    self.exit_awaited = False
 
   def __enter__(self):
     return 'ctx'
 
   def __exit__(self, *args):
+    cm = self
+
     async def _async_exit():
-      pass
+      cm.exit_awaited = True
 
     return _async_exit()
 
 
-# --- §16.1: Sync iterate TypeError ---
+# --- §17.1: Sync iterate TypeError ---
 
 
 class SyncIterateTypeErrorTest(TestCase):
-  """§16.1: sync iteration on async chain raises TypeError."""
+  """§17.1: sync iteration on async chain raises TypeError."""
 
   def test_sync_iterate_async_chain(self):
     """for-loop on chain with async steps raises TypeError."""
@@ -67,7 +70,7 @@ class SyncIterateTypeErrorTest(TestCase):
 
 
 class AsyncIterateWorksTest(IsolatedAsyncioTestCase):
-  """§16.1: async for works on async chains (the correct alternative)."""
+  """§17.1: async for works on async chains (the correct alternative)."""
 
   async def test_async_iterate(self):
     """async for-loop on async chain works."""
@@ -82,11 +85,11 @@ class AsyncIterateWorksTest(IsolatedAsyncioTestCase):
     self.assertEqual(results, [2, 4, 6])
 
 
-# --- §16.2: Async transition for sync handlers ---
+# --- §17.2: Async transition for sync handlers ---
 
 
 class AsyncFinallyTransitionTest(IsolatedAsyncioTestCase):
-  """§16.2: sync chain finally returning coroutine → async transition."""
+  """§17.2: sync chain finally returning coroutine → async transition."""
 
   async def test_finally_coroutine_async_transition(self):
     """Sync chain's finally_ returning coroutine triggers async transition."""
@@ -109,7 +112,7 @@ class AsyncFinallyTransitionTest(IsolatedAsyncioTestCase):
 
 
 class AsyncFinallyTransitionNoLoopTest(TestCase):
-  """§16.2: sync chain with async finally returns a coroutine (not QuentException)."""
+  """§17.2: sync chain with async finally returns a coroutine (not QuentException)."""
 
   def test_finally_coroutine_returns_coroutine(self):
     """Sync chain's finally_ returning coroutine: run() returns a coroutine."""
@@ -126,11 +129,11 @@ class AsyncFinallyTransitionNoLoopTest(TestCase):
     result.close()
 
 
-# --- §16.2a: except_(reraise=True) async transition ---
+# --- §17.2a: except_(reraise=True) async transition ---
 
 
 class ExceptRaiseTrueAsyncTransitionTest(IsolatedAsyncioTestCase):
-  """§16.2a: except_(reraise=True) with async handler → async transition."""
+  """§17.2a: except_(reraise=True) with async handler → async transition."""
 
   async def test_except_raise_true_coroutine_async_transition(self):
     """except_(reraise=True) with async handler causes async transition; await re-raises."""
@@ -147,7 +150,7 @@ class ExceptRaiseTrueAsyncTransitionTest(IsolatedAsyncioTestCase):
     self.assertTrue(handler_ran.is_set())
 
   async def test_except_raise_true_async_handler_returns_coroutine(self):
-    """§16.2a: except_(reraise=True) with async handler causes async transition."""
+    """§17.2a: except_(reraise=True) with async handler causes async transition."""
     handler_ran = asyncio.Event()
 
     async def async_handler(info):
@@ -162,101 +165,59 @@ class ExceptRaiseTrueAsyncTransitionTest(IsolatedAsyncioTestCase):
     self.assertTrue(handler_ran.is_set())
 
 
-# --- §16.3: Sync with_() __exit__ returning coroutine during control flow ---
+# --- Sync with_() __exit__ returning coroutine triggers async transition ---
 
 
 class WithExitCoroutineDuringControlFlowTest(IsolatedAsyncioTestCase):
-  """§16.3: with_() __exit__ returning coroutine during control flow signal."""
+  """Sync CM __exit__ returning coroutine during control flow triggers async transition."""
 
   async def test_with_exit_coroutine_on_return_signal(self):
-    """Control flow signal with __exit__ returning coroutine: coroutine closed, signal propagates."""
-
-    with warnings.catch_warnings(record=True) as w:
-      warnings.simplefilter('always')
-      result = Chain(SyncCMWithAsyncExit()).with_(lambda ctx: Chain.return_('early')).run()
-
+    """return_() inside with_() where __exit__ returns coroutine: async transition, result awaited."""
+    cm = SyncCMWithAsyncExit()
+    result = await Chain(cm).with_(lambda ctx: Chain.return_('early')).run()
     self.assertEqual(result, 'early')
-    # RuntimeWarning about coroutine being closed/skipped
-    runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-    self.assertTrue(
-      len(runtime_warnings) > 0,
-      f'Expected RuntimeWarning about __exit__ coroutine, got: {[str(x.message) for x in w]}',
-    )
+    self.assertTrue(cm.exit_awaited, '__exit__ coroutine should have been awaited')
 
-  def test_with_exit_coroutine_on_break_signal(self):
-    """§16.3: break_() inside with_() where __exit__ returns coroutine triggers §16.3 behavior.
+  async def test_with_exit_coroutine_on_break_signal(self):
+    """break_() inside with_() where __exit__ returns coroutine: async transition, QuentException raised.
 
     break_() is only valid inside foreach/iterate context. Outside that context,
-    the engine wraps the _Break signal in QuentException. However, the §16.3
-    behavior (coroutine closed, RuntimeWarning emitted) still triggers at the
-    with_() level before the signal propagates to the engine. This test verifies
-    that the warning is emitted with '_Break' in the message.
+    the engine wraps the _Break signal in QuentException. The __exit__ coroutine
+    is awaited via async transition before the signal propagates.
     """
     from quent import QuentException
 
-    with warnings.catch_warnings(record=True) as w:
-      warnings.simplefilter('always')
-      with self.assertRaises(QuentException):
-        Chain(SyncCMWithAsyncExit()).with_(lambda ctx: Chain.break_('stop')).run()
-
-    # §16.3: RuntimeWarning about __exit__ coroutine being closed during _Break signal
-    runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-    warning_messages = [str(x.message) for x in runtime_warnings]
-    matching = [m for m in warning_messages if '_Break' in m and 'async cleanup was skipped' in m]
-    self.assertTrue(
-      len(matching) > 0,
-      f'Expected RuntimeWarning mentioning _Break and async cleanup, got: {warning_messages}',
-    )
+    cm = SyncCMWithAsyncExit()
+    with self.assertRaises(QuentException):
+      await Chain(cm).with_(lambda ctx: Chain.break_('stop')).run()
+    self.assertTrue(cm.exit_awaited, '__exit__ coroutine should have been awaited')
 
 
-class WithContextManagerSignalWarningTest(IsolatedAsyncioTestCase):
-  """§16.3: Warning content for with_ context manager signal."""
+class WithExitCoroutineActuallyAwaitedTest(IsolatedAsyncioTestCase):
+  """Sync CM __exit__ returning coroutine is actually awaited (not closed)."""
 
-  async def test_with_exit_coroutine_return_signal_warning_content(self):
-    """§16.3: Warning message contains signal type name for return_()."""
-
-    with warnings.catch_warnings(record=True) as w:
-      warnings.simplefilter('always')
-      result = Chain(SyncCMWithAsyncExit()).with_(lambda ctx: Chain.return_('early')).run()
-
+  async def test_with_exit_coroutine_return_signal_awaited(self):
+    """return_() with __exit__ coroutine: coroutine is awaited, not closed."""
+    cm = SyncCMWithAsyncExit()
+    result = await Chain(cm).with_(lambda ctx: Chain.return_('early')).run()
     self.assertEqual(result, 'early')
-    runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-    warning_messages = [str(x.message) for x in runtime_warnings]
-    # Warning should mention '_Return' (the signal type name) and 'async cleanup was skipped'
-    matching = [m for m in warning_messages if '_Return' in m and 'async cleanup was skipped' in m]
-    self.assertTrue(
-      len(matching) > 0,
-      f'Expected warning with _Return and async cleanup, got: {warning_messages}',
-    )
+    self.assertTrue(cm.exit_awaited, '__exit__ coroutine should have been awaited, not closed')
 
-  def test_with_exit_coroutine_break_signal_warning(self):
-    """§16.3: break_() inside with_ with coroutine __exit__ emits warning about _Break."""
-
-    # break_() inside with_ triggers §16.3: __exit__ returns a coroutine
-    # during a control flow signal. The coroutine is closed and a warning emitted.
-    # break_() outside iteration is caught by _run and wrapped in QuentException.
+  async def test_with_exit_coroutine_break_signal_awaited(self):
+    """break_() with __exit__ coroutine: coroutine is awaited, not closed."""
     from quent import QuentException
 
-    with warnings.catch_warnings(record=True) as w:
-      warnings.simplefilter('always')
-      with self.assertRaises(QuentException):
-        Chain(SyncCMWithAsyncExit()).with_(lambda ctx: Chain.break_('stop')).run()
-
-    runtime_warnings = [x for x in w if issubclass(x.category, RuntimeWarning)]
-    warning_messages = [str(x.message) for x in runtime_warnings]
-    # Warning should mention '_Break' (the signal type name) and 'async cleanup was skipped'
-    matching = [m for m in warning_messages if '_Break' in m and 'async cleanup was skipped' in m]
-    self.assertTrue(
-      len(matching) > 0,
-      f'Expected warning with _Break and async cleanup, got: {warning_messages}',
-    )
+    cm = SyncCMWithAsyncExit()
+    with self.assertRaises(QuentException):
+      await Chain(cm).with_(lambda ctx: Chain.break_('stop')).run()
+    self.assertTrue(cm.exit_awaited, '__exit__ coroutine should have been awaited, not closed')
 
 
-# --- §16.4: Concurrent sync workers detecting awaitable ---
+# --- §17.4: Concurrent sync workers detecting awaitable ---
 
 
 class ConcurrentSyncAwaitableDetectionTest(TestCase):
-  """§16.4: sync workers returning awaitable → TypeError."""
+  """§17.4: sync workers returning awaitable → TypeError."""
 
   def test_map_sync_then_async_worker(self):
     """Concurrent map: first sync, later async → TypeError."""
@@ -295,10 +256,10 @@ class ConcurrentSyncAwaitableDetectionTest(TestCase):
 
 
 class AwaitableClosureTest(TestCase):
-  """§16.4: Awaitable coroutines are closed when detected in sync concurrent workers."""
+  """§17.4: Awaitable coroutines are closed when detected in sync concurrent workers."""
 
   def test_sync_worker_awaitable_closed(self):
-    """§16.4: Awaitable result from sync worker is closed to prevent ResourceWarning."""
+    """§17.4: Awaitable result from sync worker is closed to prevent ResourceWarning."""
     closed = []
     call_count = 0
 
@@ -324,14 +285,14 @@ class AwaitableClosureTest(TestCase):
     self.assertTrue(len(closed) > 0, 'Awaitable should have been closed')
 
 
-# --- §16.5: break_(value) semantics — uniform append behavior ---
+# --- §17.5: break_(value) semantics — uniform append behavior ---
 
 
 class BreakValueMapVsIterateTest(TestCase):
-  """§16.5: break_(value) appends value to partial results in both foreach() and iterate()."""
+  """§17.5: break_(value) appends value to partial results in both foreach() and iterate()."""
 
   def test_map_break_with_value_appends_to_partial_results(self):
-    """§16.5: In map(), break_(value) appends value to partial results."""
+    """§17.5: In map(), break_(value) appends value to partial results."""
     result = Chain([1, 2, 3, 4]).foreach(lambda x: Chain.return_(42) if x == 3 else x).run()
     # break_ in map appends to partial results.
     # Let's use break_ properly:
@@ -340,13 +301,13 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(result, [1, 2, 42])
 
   def test_map_break_without_value_returns_partial(self):
-    """§16.5: In map(), break_() returns partial results as-is."""
+    """§17.5: In map(), break_() returns partial results as-is."""
     result = Chain([1, 2, 3, 4]).foreach(lambda x: Chain.break_() if x == 3 else x * 10).run()
     # break_() at x==3 returns partial results [10, 20]
     self.assertEqual(result, [10, 20])
 
   def test_iterate_break_with_value_yields_additional_item(self):
-    """§16.5: In iterate(), break_(value) yields value as one additional item."""
+    """§17.5: In iterate(), break_(value) yields value as one additional item."""
     items = []
     for item in Chain([1, 2, 3, 4]).iterate(lambda x: Chain.break_(99) if x == 3 else x * 10):
       items.append(item)
@@ -354,7 +315,7 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(items, [10, 20, 99])
 
   def test_iterate_break_without_value_stops_immediately(self):
-    """§16.5: In iterate(), break_() stops immediately with no additional item."""
+    """§17.5: In iterate(), break_() stops immediately with no additional item."""
     items = []
     for item in Chain([1, 2, 3, 4]).iterate(lambda x: Chain.break_() if x == 3 else x * 10):
       items.append(item)
@@ -362,7 +323,7 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(items, [10, 20])
 
   def test_uniform_break_value_map_and_iterate(self):
-    """§16.5: break_(value) appends uniformly in both foreach() and iterate()."""
+    """§17.5: break_(value) appends uniformly in both foreach() and iterate()."""
 
     def fn(x):
       if x == 3:
@@ -378,7 +339,7 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(iterate_result, [10, 20, 'STOP'])
 
   def test_contrast_break_no_value_map_vs_iterate(self):
-    """§16.5: Side-by-side contrast of break_() (no value) in map vs iterate."""
+    """§17.5: Side-by-side contrast of break_() (no value) in map vs iterate."""
 
     def fn(x):
       if x == 3:
@@ -395,10 +356,10 @@ class BreakValueMapVsIterateTest(TestCase):
 
 
 class BreakValueMapVsIterateAsyncTest(IsolatedAsyncioTestCase):
-  """§16.5: Async variants of break_(value) uniform append behavior."""
+  """§17.5: Async variants of break_(value) uniform append behavior."""
 
   async def test_async_map_break_with_value_appends(self):
-    """§16.5: async map() break_(value) appends value to partial results."""
+    """§17.5: async map() break_(value) appends value to partial results."""
 
     async def fn(x):
       if x == 3:
@@ -409,7 +370,7 @@ class BreakValueMapVsIterateAsyncTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, [10, 20, 'replaced'])
 
   async def test_async_iterate_break_with_value_yields(self):
-    """§16.5: async iterate() break_(value) yields as additional item."""
+    """§17.5: async iterate() break_(value) yields as additional item."""
 
     async def fn(x):
       if x == 3:
@@ -451,19 +412,19 @@ class AsyncFinallyRaisesDuringAwaitTest(IsolatedAsyncioTestCase):
     self.assertEqual(str(ctx.exception.__context__), 'original async error')
 
 
-# --- §16.6: return_(value) semantics differ between chain and iterate() ---
+# --- §17.6: return_(value) semantics differ between chain and iterate() ---
 
 
 class ReturnValueChainVsIterateTest(TestCase):
-  """§16.6: return_(value) replaces result in chain, yields final item in iterate."""
+  """§17.6: return_(value) replaces result in chain, yields final item in iterate."""
 
   def test_chain_return_replaces_entire_result(self):
-    """§16.6: In chain execution, return_(value) replaces the entire result."""
+    """§17.6: In chain execution, return_(value) replaces the entire result."""
     result = Chain(1).then(lambda x: x + 1).then(lambda x: Chain.return_('early')).then(lambda x: x * 100).run()
     self.assertEqual(result, 'early')
 
   def test_iterate_return_yields_final_item(self):
-    """§16.6: In iterate(), return_(value) yields value as final item."""
+    """§17.6: In iterate(), return_(value) yields value as final item."""
     items = []
     for item in Chain([1, 2, 3, 4]).iterate(lambda x: Chain.return_('done') if x == 3 else x * 10):
       items.append(item)
@@ -471,7 +432,7 @@ class ReturnValueChainVsIterateTest(TestCase):
     self.assertEqual(items, [10, 20, 'done'])
 
   def test_contrast_return_value_chain_vs_iterate(self):
-    """§16.6: Side-by-side contrast of return_(value) in chain vs iterate."""
+    """§17.6: Side-by-side contrast of return_(value) in chain vs iterate."""
 
     def fn(x):
       if x == 3:
@@ -488,7 +449,7 @@ class ReturnValueChainVsIterateTest(TestCase):
     self.assertEqual(iterate_result, [10, 20, 'final'])
 
   def test_iterate_return_no_value_stops(self):
-    """§16.6: In iterate(), return_() with no value stops without extra yield."""
+    """§17.6: In iterate(), return_() with no value stops without extra yield."""
     items = []
     for item in Chain([1, 2, 3, 4]).iterate(lambda x: Chain.return_() if x == 3 else x * 10):
       items.append(item)
@@ -497,10 +458,10 @@ class ReturnValueChainVsIterateTest(TestCase):
 
 
 class ReturnValueChainVsIterateAsyncTest(IsolatedAsyncioTestCase):
-  """§16.6: Async variants of return_(value) asymmetry."""
+  """§17.6: Async variants of return_(value) asymmetry."""
 
   async def test_async_chain_return_replaces_result(self):
-    """§16.6: async chain return_(value) replaces entire result."""
+    """§17.6: async chain return_(value) replaces entire result."""
 
     async def fn(x):
       return x + 1
@@ -509,7 +470,7 @@ class ReturnValueChainVsIterateAsyncTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'early')
 
   async def test_async_iterate_return_yields_final_item(self):
-    """§16.6: async iterate() return_(value) yields as final item."""
+    """§17.6: async iterate() return_(value) yields as final item."""
 
     async def fn(x):
       if x == 3:

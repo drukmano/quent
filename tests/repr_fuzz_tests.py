@@ -9,21 +9,12 @@ All assertions are derived from SPEC.md section 13.10.
 
 from __future__ import annotations
 
-import os
-import unittest
 from unittest import TestCase
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from quent._viz import _MAX_REPR_LEN, _get_obj_name, _sanitize_repr
-
-
-def load_tests(loader, tests, pattern):
-  if not os.environ.get('QUENT_SLOW'):
-    return unittest.TestSuite()
-  return tests
-
 
 # --- Adversarial strategies ---
 
