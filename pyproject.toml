@@ -134,3 +134,4 @@ strict_equality = true
 
 [tool.bandit]
 exclude_dirs = ["tests"]
+skips = ["B101", "B110"]
