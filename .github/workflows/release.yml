@@ -41,26 +41,26 @@ jobs:
       published: ${{ steps.create_release.outputs.published }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Check if pyproject.toml changed
-        if: github.event_name == 'workflow_run'
-        id: changed
+      - name: Verify CI passed (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
         run: |
-          CHANGED=$(gh api "repos/$REPO/commits/$SHA" \
-            --jq '.files[].filename' | grep -c '^pyproject\.toml$' || true)
-          echo "pyproject_changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          STATUS=$(gh api "repos/$REPO/commits/$SHA/status" --jq '.state')
+          if [ "$STATUS" != "success" ]; then
+            echo "::error::CI has not passed on this commit (status: $STATUS). Aborting release."
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ github.sha }}
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check for version bump
-        if: github.event_name == 'workflow_dispatch' || steps.changed.outputs.pyproject_changed != '0'
         id: version
         run: |
-          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          VERSION=$(python3 -c "import tomllib; f=open('pyproject.toml','rb'); v=tomllib.load(f)['project']['version']; f.close(); print(v)")
           TAG="v$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -74,7 +74,7 @@ jobs:
 
       - name: Create GitHub Release
         id: create_release
-        if: (github.event_name == 'workflow_dispatch' || steps.changed.outputs.pyproject_changed != '0') && steps.version.outputs.exists == 'false'
+        if: steps.version.outputs.exists == 'false'
         run: |
           gh release create "$TAG" \
             --title "$TAG" \
@@ -89,6 +89,10 @@ jobs:
     if: needs.release.outputs.published == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      attestations: write
+      id-token: write
+      contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -100,7 +104,7 @@ jobs:
         env:
           TAG: ${{ needs.release.outputs.tag }}
         run: |
-          VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          VERSION=$(python3 -c "import tomllib; f=open('pyproject.toml','rb'); v=tomllib.load(f)['project']['version']; f.close(); print(v)")
           if [ "v$VERSION" != "$TAG" ]; then
             echo "::error::Version mismatch: pyproject.toml has $VERSION but tag is $TAG"
             exit 1
@@ -112,6 +116,11 @@ jobs:
 
       - name: Generate checksums
         run: sha256sum dist/* > dist/checksums.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: 'dist/*'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

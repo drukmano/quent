@@ -52,12 +52,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.13t", "3.14t"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
-          - python-version: "3.13t"
+          # Free-threaded builds (experimental) — all platforms
+          - os: ubuntu-latest
+            python-version: "3.13t"
             experimental: true
-          - python-version: "3.14t"
+          - os: ubuntu-latest
+            python-version: "3.14t"
+            experimental: true
+          - os: windows-latest
+            python-version: "3.13t"
+            experimental: true
+          - os: windows-latest
+            python-version: "3.14t"
+            experimental: true
+          - os: macos-latest
+            python-version: "3.13t"
+            experimental: true
+          - os: macos-latest
+            python-version: "3.14t"
             experimental: true
 
     steps:
@@ -76,26 +91,10 @@ jobs:
         run: uv sync ${{ matrix.experimental && '--no-group dev --group test' || '--group dev' }} --python ${{ matrix.python-version }}
 
       - name: Compile
-        run: uv run bash scripts/compile.sh
+        run: uv run python -m compileall -q quent/
 
       - name: Run tests
-        env:
-          QUENT_SLOW: "1"
-        run: uv run coverage run -m unittest discover -t . -s tests -p '*_tests.py'
-
-      - name: Coverage report
-        run: uv run coverage report -m
-
-      - name: Generate coverage XML
-        if: matrix.python-version == '3.14'
-        run: uv run coverage xml
-
-      - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.14'
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
+        run: uv run python scripts/run_tests_parallel.py
 
   security:
     runs-on: ubuntu-latest
@@ -118,3 +117,6 @@ jobs:
 
       - name: Audit dependencies
         run: uv run pip-audit
+
+      - name: SAST scan
+        run: uv run bandit -r quent/ -c pyproject.toml
