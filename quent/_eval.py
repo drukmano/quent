@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from types import CoroutineType, GeneratorType
 from typing import Any
 
@@ -17,19 +18,49 @@ _get_running_loop = getattr(asyncio, '_get_running_loop', None)
 
 
 def _has_running_loop() -> bool:
-  """Check if an asyncio event loop is currently running.
+  """Check if any async event loop is currently running.
 
-  Uses the private ``asyncio._get_running_loop()`` (C-level, returns None)
-  for performance. Falls back to ``asyncio.get_running_loop()`` with
-  try/except if the private API is unavailable.
+  Detects asyncio, trio, and curio without importing them — uses
+  ``sys.modules`` to check if they are already loaded, then probes
+  their running-loop APIs. Zero overhead when a library is not loaded
+  (~50ns dict lookup returning None).
+
+  asyncio is checked first via the private C-level
+  ``asyncio._get_running_loop()`` for performance. Falls back to
+  ``asyncio.get_running_loop()`` if the private API is unavailable.
   """
+  # asyncio (common case — fast path)
   if _get_running_loop is not None:
-    return _get_running_loop() is not None
-  try:
-    asyncio.get_running_loop()
-    return True
-  except RuntimeError:
-    return False
+    if _get_running_loop() is not None:
+      return True
+  else:
+    try:
+      asyncio.get_running_loop()
+      return True
+    except RuntimeError:
+      pass
+
+  # trio — sys.modules lookup is a ~50ns dict get when trio is not loaded.
+  # trio.lowlevel is imported during normal trio operation; if trio's loop
+  # is running, this submodule will be present.
+  _trio_lowlevel = sys.modules.get('trio.lowlevel')
+  if _trio_lowlevel is not None:
+    try:
+      _trio_lowlevel.current_trio_token()
+      return True
+    except RuntimeError:
+      pass
+
+  # curio
+  _curio_meta = sys.modules.get('curio.meta')
+  if _curio_meta is not None:
+    try:
+      if _curio_meta.curio_running():
+        return True
+    except Exception:
+      pass
+
+  return False
 
 
 # CPython CO_ITERABLE_COROUTINE flag, stable since 3.5. Verified through 3.14.

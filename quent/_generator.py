@@ -325,11 +325,7 @@ async def _async_generator(
     if deferred_with is not None:
       _dw_inner_link, _dw_ignore_result = deferred_with
       cm = iterator
-      # In _async_generator we are always in an async context, so prefer
-      # __aenter__ when available.  _should_use_async_protocol checks for a
-      # running asyncio loop, which returns False under trio/other runtimes.
-      _has_aenter = hasattr(cm, '__aenter__')
-      _use_async_cm_result = True if _has_aenter else _should_use_async_protocol(cm, '__enter__', '__aenter__')
+      _use_async_cm_result = _should_use_async_protocol(cm, '__enter__', '__aenter__')
       if _use_async_cm_result is True:
         _use_async_cm = True
         ctx = await cm.__aenter__()
