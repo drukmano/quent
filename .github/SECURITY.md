@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Only the latest release (currently 4.x) receives security updates.
+Only the latest major release receives security updates.
 
 ## Reporting a Vulnerability
 

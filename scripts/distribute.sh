@@ -6,7 +6,7 @@ set -euo pipefail
 # preferred release path. Use this script only for manual releases.
 
 # Quality gate: run the full test suite before building.
-./scripts/run_tests.sh
+./run_tests.sh
 
 ./scripts/build.sh
 

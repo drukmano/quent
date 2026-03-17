@@ -55,7 +55,7 @@ body:
     attributes:
       label: quent Version
       description: "Output of: python -c \"import quent; print(quent.__version__)\""
-      placeholder: "4.0.0"
+      placeholder: "5.0.0"
     validations:
       required: true
 

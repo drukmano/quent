@@ -57,13 +57,8 @@ packages = ["quent"]
 [tool.setuptools.package-data]
 quent = ["py.typed"]
 
-[tool.coverage.run]
-source = ["quent"]
-branch = true
-
 [dependency-groups]
 test = [
-    "coverage>=7.13.4",
     "hypothesis>=6.151.9",
 ]
 dev = [
@@ -71,6 +66,7 @@ dev = [
     "ruff>=0.15.6",
     "mypy>=1.19.1",
     "pip-audit>=2.10",
+    "bandit>=1.9.4",
 ]
 publish = [
     "twine>=6.2",
@@ -133,3 +129,8 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
 disallow_any_generics = true
+no_implicit_optional = true
+strict_equality = true
+
+[tool.bandit]
+exclude_dirs = ["tests"]

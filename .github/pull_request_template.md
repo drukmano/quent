@@ -4,6 +4,7 @@
 
 ## Checklist
 
-- [ ] Tests pass (`bash run_tests.sh`)
+- [ ] Full QA pipeline passes (`bash run_tests.sh` — includes format, lint, types, tests)
+- [ ] New behavior has tests
 - [ ] Documentation updated (if applicable)
-- [ ] No breaking changes (or described below)
+- [ ] No breaking changes (or described in PR body)

@@ -14,3 +14,6 @@ done
 
 # Gate: verify no remaining unfixable lint issues
 uv run ruff check quent/ tests/
+
+# Gate: verify no type errors
+uv run mypy quent/

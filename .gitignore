@@ -14,10 +14,6 @@ dist/
 .venv*/
 venv*/
 
-# Coverage
-.coverage
-htmlcov/
-
 # Tool caches
 .mypy_cache/
 .ruff_cache/
@@ -43,4 +39,3 @@ site/
 
 # Benchmarks
 benchmarks/results/
-.coverage.*

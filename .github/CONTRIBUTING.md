@@ -20,13 +20,13 @@ bash scripts/setup.sh  # Install pre-commit hook
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
-pip install coverage ruff mypy pip-audit hypothesis
+pip install ruff mypy pip-audit hypothesis
 bash scripts/setup.sh
 ```
 
 ## Running Tests
 
-Full QA pipeline (format, lint, type check, tests with coverage):
+Full QA pipeline (format, lint, type check, tests):
 
 ```bash
 bash run_tests.sh
