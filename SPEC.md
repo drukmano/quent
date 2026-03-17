@@ -20,6 +20,9 @@
 - [7. Control Flow](#7-control-flow)
 - [8. Execution](#8-execution)
 - [9. Iteration](#9-iteration)
+  - [9.5 flat_iterate()](#95-flat_itefn--none---on_exhaust--none)
+  - [9.6 flat_iterate_do()](#96-flat_iterate_dofn--none---on_exhaust--none)
+  - [9.7 Deferred with_ in Iteration](#97-deferred-with_-in-iteration)
 - [10. Reuse](#10-reuse)
 - [11. Concurrency](#11-concurrency)
 - [12. Null Sentinel](#12-null-sentinel)
@@ -442,6 +445,8 @@ All operations participate in the transparent sync/async bridge: if any operatio
 **Exit handler failure:** If `__exit__` itself raises an exception, that exception propagates and **replaces** the original body exception, matching Python's native `with` statement behavior. The original body exception is preserved as `__context__` on the new exception.
 
 **Control flow signals:** If `fn` raises a control flow signal (`return_()` or `break_()`), `__exit__` is called with no exception info (clean exit), and the signal propagates to the outer pipeline.
+
+**Bare form — `with_()`:** When `fn` is omitted, the context value (the result of `__enter__`/`__aenter__`) replaces the pipeline value directly. This form is only valid before an iteration terminal (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`) — the context manager entry is deferred to iteration time (see §9.7). A bare `with_()` not followed by an iterate variant raises `TypeError` at run time. Positional or keyword arguments without `fn` raise `TypeError` at build time.
 
 ### 5.7 `with_do(fn, /, *args, **kwargs)`
 
@@ -915,6 +920,73 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 
 - **`return_(v)`**: During iteration, `return_()` yields the return value (if one is provided) and then stops iteration. The return value is evaluated following the standard calling convention — if it is callable, it is called; if it is a literal, it is yielded as-is. This differs from normal chain execution, where `return_()` replaces the chain's result entirely. In iteration, previously yielded values have already been emitted to the caller and cannot be "replaced." Therefore, the return value is yielded as a final item before stopping iteration, rather than replacing all prior output.
 - **`break_(v)`**: Stops iteration. If a value is provided, it is yielded before stopping. If no value is provided, iteration stops immediately with no additional value yielded.
+
+### 9.5 `flat_iterate(fn=None, *, on_exhaust=None)`
+
+**Contract:** Return a dual sync/async flatmap iterator over the chain's output. Each element of the chain's iterable result is either iterated directly (when `fn` is `None`, flattening one level of nesting) or transformed by `fn` into a sub-iterable whose items are individually yielded.
+
+**Arguments:**
+- `fn` — optional callable that receives each element and returns an iterable. Each item from the returned iterable is yielded individually. When `None`, each source element is iterated directly (flattening one level).
+- `on_exhaust` — optional zero-argument callable invoked once after the source iterable is fully consumed. Must return an iterable; each item is yielded into the stream. Intended for emitting buffered or remaining items after the source ends (e.g., flushing a codec buffer).
+
+**Return value:** Returns a `ChainIterator` object (same as `iterate()`).
+
+**Behavior:**
+- Flattens one level of nesting: source `[[1, 2], [3]]` yields `1, 2, 3`.
+- When `fn` is provided: each source element is passed to `fn`, and each sub-item from `fn`'s returned iterable is yielded.
+- When `fn` is `None`: each source element is iterated directly (it must be iterable).
+- After the source is exhausted, if `on_exhaust` is provided, `on_exhaust()` is called and each item from its return value is yielded into the stream.
+- All iteration behavior — sync/async support, error handling, deferred `finally_()`, control flow (§9.4), iterator reuse (§9.3) — matches `iterate()` (§9.1).
+
+**Error behavior:**
+- Exceptions from `fn` propagate to the caller at the iteration point, as with `iterate()`.
+- If `on_exhaust()` raises, the exception propagates at the iteration point.
+- If `fn` or `on_exhaust` returns an awaitable during sync iteration (`for`), a `TypeError` is raised directing the user to use `async for`.
+
+### 9.6 `flat_iterate_do(fn=None, *, on_exhaust=None)`
+
+**Contract:** Like `flat_iterate()`, but `fn` runs as a side-effect — its returned iterable is fully consumed (driving side-effects) but not yielded. The original source elements are yielded instead.
+
+**Arguments:** Same as `flat_iterate()`.
+
+**Behavior:**
+- `fn` is invoked for each element. Its returned iterable is fully consumed (executing side-effects), but the sub-items are discarded.
+- The original source element is yielded for each iteration step.
+- `on_exhaust` output is yielded normally (not discarded) — the "do" discard semantic applies only to `fn`'s results.
+- When `fn` is `None`: behaves identically to `flat_iterate()` with no `fn` (flattens one level).
+- All other behavior matches `flat_iterate()`.
+
+### 9.7 Deferred `with_` in Iteration
+
+**Contract:** When `with_(fn)`, `with_do(fn)`, or bare `with_()` is the last pipeline step before an iteration terminal (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`), context manager entry is **deferred** to iteration time. The context manager remains open for the entire duration of iteration and is exited when iteration ends.
+
+**Motivation:** Without deferral, `with_()` would enter the CM during the chain's `run()` phase and exit it before iteration begins — the resource would be closed before any items are consumed. Deferral keeps the CM open throughout iteration, matching the natural lifetime of `with` blocks in Python.
+
+**Detection:** The iterate method inspects the chain's last link. If it holds a `_WithOp`, the inner link and `ignore_result` flag are extracted. The `_WithOp` is executed in the generator rather than during the chain's run phase.
+
+**Lifecycle:**
+1. The chain runs normally, producing a value that must be a context manager.
+2. At iteration start, the CM is entered via `__enter__()` (or `__aenter__()`).
+3. If `with_(fn)` was used: `fn` is invoked with the context value per the standard calling convention. The result becomes the iterable for iteration.
+4. If `with_do(fn)` was used: `fn` runs as a side-effect (result discarded); the CM object itself becomes the iterable (it must be iterable).
+5. If bare `with_()` was used: the context value (the `__enter__` result) becomes the iterable directly.
+6. Iteration proceeds with the CM open.
+7. The CM is exited in the generator's `finally:` block, guaranteeing cleanup on all exit paths.
+
+**CM exit semantics:**
+- **Normal completion / source exhausted:** `__exit__(None, None, None)`.
+- **`break`, `return_()`, `break_()` (control flow):** `__exit__(None, None, None)` — control flow signals are not errors.
+- **Generator `.close()` / `GeneratorExit`:** `__exit__(None, None, None)`.
+- **Exception during iteration:** `__exit__(*sys.exc_info())` — the CM receives the exception. If `__exit__` returns truthy, the exception is suppressed and the generator stops cleanly. If falsy, the exception propagates.
+- **`__exit__` itself raises:** The new exception replaces the original (if any), matching Python's native `with` statement behavior.
+
+**Ordering with deferred `finally_()`:** When both a deferred `with_` and a deferred `finally_()` are active, the CM exits first, then the deferred `finally_()` runs. This is enforced by nesting: `try { cm.__exit__ } finally { deferred_finally }`. The deferred finally runs even if `__exit__` raises.
+
+**Protocol selection:** For dual-protocol CMs (supporting both `__enter__`/`__exit__` and `__aenter__`/`__aexit__`), the async protocol is preferred when an event loop is running, matching §5.6. The exit protocol always matches the entry protocol.
+
+**Sync/async rules:**
+- Sync iteration (`for`): only `__enter__`/`__exit__` is used. If the CM only supports async protocol, or if the inner `fn` returns an awaitable, a `TypeError` is raised directing the user to use `async for`.
+- Async iteration (`async for`): both protocols are supported, with async preferred for dual-protocol CMs.
 
 ---
 
