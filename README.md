@@ -427,6 +427,53 @@ See the [examples/](examples/) directory for complete, runnable recipes covering
 
 ---
 
+## Testing
+
+quent's correctness rests on a single guarantee: any pipeline step can be swapped between sync and async without changing the result. The test suite is purpose-built to prove this exhaustively.
+
+### Scale
+
+- **1,342 test methods** across 20 test modules and 286 test classes
+- **21 CI matrix combinations** &mdash; 3 OSes (Ubuntu, macOS, Windows) &times; 5 Python versions (3.10&ndash;3.14), plus free-threaded builds (3.13t, 3.14t)
+- **Security scanning** &mdash; `pip-audit` for dependency vulnerabilities, `bandit` SAST for source code
+
+### Exhaustive Bridge Testing
+
+The core testing infrastructure proves the sync/async bridge contract across a 7-axis combinatorial space:
+
+1. **Operation type** &mdash; 96 "bricks" covering every chain operation &times; every calling convention
+2. **Chain length** &mdash; pipelines of 1 to N steps
+3. **Operation order** &mdash; every permutation of operations (with repetition)
+4. **Sync/async per position** &mdash; each step independently sync or async (2<sup>N</sup> combinations per pipeline)
+5. **Error injection** &mdash; exceptions, base exceptions, and control flow signals at each position
+6. **Concurrency** &mdash; sequential and concurrent variants
+7. **Handler configuration** &mdash; 18 error handler combinations (except/finally/both, sync/async, consuming/reraising/failing)
+
+For each configuration, all 2<sup>N</sup> sync/async permutations run and must produce identical results. No expected values are precomputed &mdash; the invariant is that **all permutations agree with each other**. Correctness is independently verified by composing pure-Python oracle functions.
+
+### Additional Testing Strategies
+
+- **Transition matrix** &mdash; all 17,576 triplets of 26 atomic operations verify that every method adjacency produces correct results in all sync/async variants
+- **Property-based testing** &mdash; Hypothesis generates random inputs for 179 property and fuzz tests, including CWE-117 repr sanitization with adversarial ANSI escape sequences
+- **Thread safety** &mdash; 30&ndash;50 concurrent threads with barrier synchronization verify safe concurrent execution of fully constructed chains
+- **Oracle validation** &mdash; each of the 96 bricks has an independent oracle function; oracles are verified against quent before being used in bridge assertions
+- **Warning validation** &mdash; all warnings emitted during exhaustive runs are captured and validated against expected patterns
+
+### Running Tests
+
+```bash
+# Full suite (format + lint + type check + tests)
+./run_tests.sh
+
+# Tests only (parallel -- wall-clock time = slowest module)
+python scripts/run_tests_parallel.py
+
+# Single module
+python -m unittest tests.bridge_tests
+```
+
+---
+
 ## Documentation
 
 Full documentation &mdash; including guides, advanced usage, recipes, and framework integration examples &mdash; is available at **[quent.readthedocs.io](https://quent.readthedocs.io)**.
