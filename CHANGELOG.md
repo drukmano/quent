@@ -1,11 +1,3 @@
----
-title: Changelog
-description: Release history and migration notes for quent.
-tags:
-  - changelog
-  - releases
----
-
 # Changelog
 
 All notable changes to this project will be documented in this file.

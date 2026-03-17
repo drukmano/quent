@@ -29,7 +29,7 @@ This separation is the foundation of the thread-safety model.
 
 ---
 
-## Constructor: `Chain(v=Null, *args, **kwargs)`
+## Constructor: `Chain(v=<no value>, *args, **kwargs)`
 
 A chain is created by calling the `Chain` constructor. The root value seeds the pipeline.
 
@@ -250,7 +250,7 @@ result = Chain(5).then(inner).run()
 
 These methods operate on the **elements** of the current pipeline value (which must be iterable).
 
-### `.foreach(fn, *, concurrency=None)` -- Transform Each Element
+### `.foreach(fn, *, concurrency=None, executor=None)` -- Transform Each Element
 
 Apply `fn` to each element and collect the results into a list:
 
@@ -263,7 +263,7 @@ result = Chain([1, 2, 3]).foreach(lambda x: x ** 2).run()
 
 The list of results replaces the current pipeline value.
 
-### `.foreach_do(fn, *, concurrency=None)` -- Side-Effect Per Element
+### `.foreach_do(fn, *, concurrency=None, executor=None)` -- Side-Effect Per Element
 
 Apply `fn` to each element as a side-effect. The **original elements** (not fn's return values) are collected:
 
@@ -525,6 +525,23 @@ result = (
 !!! warning
     `.else_()` must follow **immediately** after the `.then()` or `.do()` that follows `.if_()` -- no other operations in between. Otherwise, `QuentException` is raised. Only one `.else_()` per `.if_()`.
 
+### `.else_do(fn, *args, **kwargs)` -- Side-Effect Else Branch
+
+Register an else branch whose result is **discarded** (the current pipeline value passes through unchanged):
+
+```python
+result = (
+  Chain(-5)
+  .if_(lambda x: x > 0).then(str)
+  .else_do(print)
+  .run()
+)
+# prints: -5 (side-effect from else_do)
+# result = -5 (current value passes through)
+```
+
+`.else_do()` follows the same positioning rules as `.else_()` -- it must immediately follow the `.then()` or `.do()` after `.if_()`.
+
 ### Without a Predicate
 
 When `predicate` is omitted, the truthiness of the current pipeline value itself is used:
@@ -568,7 +585,7 @@ The value passed to `.then()` can be a callable, a non-callable value (used as-i
 # Nested chain
 .if_(predicate).then(Chain().then(validate).then(process))
 
-# Callable with explicit args (Rule 4 -- current value not passed)
+# Callable with explicit args (Rule 1 -- current value not passed)
 .if_(predicate).then(transform, arg1, arg2, key='value')
 ```
 
@@ -577,7 +594,7 @@ The value passed to `.then()` can be a callable, a non-callable value (used as-i
 Predicates use the standard 2-rule calling convention. If args/kwargs are provided to `.if_()`, they are forwarded to the predicate callable.
 
 !!! note
-    Nested Chain predicates go through `Chain.run()`, so control flow signals (`return_()`, `break_()`) inside predicates are caught and wrapped in `QuentException`. Predicates should not alter control flow.
+    When a predicate is a nested Chain, `return_()` inside the predicate chain propagates to the outer chain (early exit is valid from a predicate). `break_()` inside a predicate chain raises `QuentException` -- predicates are not iteration contexts.
 
 ### Async Predicates and Branches
 

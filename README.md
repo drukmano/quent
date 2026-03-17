@@ -11,8 +11,6 @@
     &nbsp;
     <a href="https://github.com/drukmano/quent/actions/workflows/ci.yml"><img src="https://github.com/drukmano/quent/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     &nbsp;
-    <a href="https://app.codecov.io/gh/drukmano/quent"><img src="https://img.shields.io/codecov/c/github/drukmano/quent?style=flat-square" alt="Coverage"></a>
-    &nbsp;
     <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
     &nbsp;
     <a href="https://pepy.tech/project/quent"><img src="https://static.pepy.tech/badge/quent/month" alt="Downloads"></a>
@@ -33,7 +31,7 @@
 - **One definition, two worlds** &mdash; a single chain works for both sync and async callers. Zero code duplication.
 - **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just chain your functions.
 - **Drop-in migration** &mdash; unify existing sync and async implementations into one pipeline. Stop maintaining two versions.
-- **Pure Python** &mdash; zero runtime dependencies on Python 3.11+. Fully typed (PEP 561).
+- **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561).
 - **Focused** &mdash; every feature exists because removing it would force separate sync and async code paths.
 
 ---
@@ -356,7 +354,7 @@ Opt out by setting `QUENT_NO_TRACEBACK=1` before importing quent.
 ### Constructor
 
 ```python
-Chain(v=Null, /, *args, **kwargs)
+Chain(v=<no value>, /, *args, **kwargs)
 ```
 
 <br>
@@ -415,7 +413,6 @@ All methods return `self` for fluent chaining.
 | `Chain` | Main pipeline class |
 | `ChainExcInfo` | NamedTuple `(exc, root_value)` passed to except handlers |
 | `ChainIterator` | Type alias for `.iterate()` / `.iterate_do()` return values |
-| `Null` | Sentinel for "no value provided" (distinct from `None`) |
 | `QuentException` | Exception type for quent-specific errors |
 | `__version__` | Package version string |
 | `Chain.on_step` | Optional callback `(chain, step_name, input_value, result, elapsed_ns)` for instrumentation |
@@ -443,7 +440,7 @@ See the [contributing guide](https://github.com/drukmano/quent/blob/master/.gith
 ```bash
 git clone https://github.com/drukmano/quent.git
 cd quent
-uv sync --group dev       # or: pip install -e . && pip install coverage ruff mypy
+uv sync --group dev       # or: pip install -e . && pip install ruff mypy
 bash scripts/run_tests.sh
 ```
 

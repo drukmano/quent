@@ -1,6 +1,6 @@
 ---
 title: "Async Handling -- Transparent Sync/Async Bridging"
-description: "How quent transparently bridges sync and async Python code. Covers automatic async detection, mixed pipelines, the three-tier execution pattern, and fire-and-forget tasks."
+description: "How quent transparently bridges sync and async Python code. Covers automatic async detection, mixed pipelines, the three-tier execution pattern, and async transitions."
 tags:
   - async
   - sync
@@ -297,7 +297,7 @@ Dual-protocol context managers (supporting both sync and async) use the async pr
 
 ---
 
-## Fire-and-Forget Tasks
+## Async Finally in Sync Chains
 
 There is one edge case where the sync and async worlds collide: when a **sync chain's** `finally_()` handler returns a coroutine.
 
@@ -319,66 +319,22 @@ chain = (
   .finally_(async_cleanup)
 )
 
-result = chain.run(data)
-# async_cleanup returns a coroutine, but the chain is sync --
-# there is nothing to await it.
+result = await chain.run(data)
+# async_cleanup returns a coroutine -- quent performs an async transition.
+# run() returns a coroutine instead of a plain value.
 ```
 
 ### What quent Does
 
-When this happens, quent:
-
-1. **Schedules** the coroutine as a fire-and-forget task via `asyncio.create_task()`.
-2. **Emits** a `RuntimeWarning` explaining the behavior.
-3. **Maintains** a strong reference to the task in a thread-safe registry, preventing garbage collection.
-4. **Reports** any exception from the background task via a `RuntimeWarning`.
-
-If there is **no running event loop**, a `QuentException` is raised instead.
-
-!!! warning
-    Fire-and-forget means the handler's result is not part of the chain's return value, and any exception it raises appears only as a warning. If you need guaranteed execution of an async handler, ensure the chain triggers an async transition so the handler can be properly awaited.
+When a sync chain's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the chain's result is returned (success path) or the active exception is re-raised (failure path). The chain result flows through the async wrapper -- nothing is discarded.
 
 ### except_() Handler Edge Cases
 
-The behavior differs for `except_()` handlers:
+The same async transition model applies to `except_()` handlers:
 
-- **`except_()` with `reraise=True`:** When the handler returns a coroutine in a sync chain, the behavior is **async transition**, not fire-and-forget. `run()` returns a coroutine. The caller awaits it, the handler completes, and the original exception is re-raised. This ensures reliable completion.
+- **`except_()` with `reraise=True`:** When the handler returns a coroutine in a sync chain, `run()` returns a coroutine. The caller awaits it, the handler completes, and the original exception is re-raised. This ensures reliable completion of async side-effects.
 
-- **`except_()` with `reraise=False`:** When the handler returns a coroutine, this is a normal async transition -- the coroutine becomes the chain's result. Not fire-and-forget.
-
-### Task Registry
-
-Background tasks are held in a thread-safe registry to prevent garbage collection:
-
-- Tasks auto-remove via a done callback when they complete.
-- Hard limit of **10,000** concurrent fire-and-forget tasks. Exceeding it raises `QuentException`.
-- On Python 3.14+, `asyncio.create_task(eager_start=True)` is used.
-- Errors in completed tasks are logged at WARNING level and emitted as `RuntimeWarning`.
-
-### drain_tasks()
-
-Call `drain_tasks()` before shutting down the event loop to ensure all fire-and-forget tasks complete:
-
-```python
-from quent import drain_tasks
-
-# Default 30s timeout
-await drain_tasks()
-
-# Custom timeout
-await drain_tasks(timeout=10.0)
-
-# Wait indefinitely
-await drain_tasks(timeout=None)
-```
-
-`drain_tasks()` loops until the registry is empty (tasks spawned during draining are caught in subsequent rounds). Returns the number of tasks remaining (0 means all completed).
-
-### Related Functions
-
-- **`pending_task_count()`** -- returns the current number of in-flight fire-and-forget tasks.
-- **`set_on_task_error(callback)`** -- registers a callback invoked when a fire-and-forget task fails. The callback receives the exception.
-- **`get_on_task_error()`** -- returns the currently registered error callback, or `None`.
+- **`except_()` with `reraise=False`:** When the handler returns a coroutine, this is a normal async transition -- the coroutine becomes the chain's result. The caller awaits it to get the handler's resolved value.
 
 ---
 
@@ -440,7 +396,7 @@ result = pipeline.run(user_id)
 
 ### Concurrent Execution with gather
 
-`.gather()` runs multiple functions concurrently. If any function returns an awaitable, all awaitables are gathered for true parallel execution:
+`.gather()` runs multiple functions concurrently. The first function is probed to detect sync vs async. If it returns an awaitable, all functions run as async tasks concurrently. All functions must be consistently sync or async:
 
 ```python
 import asyncio

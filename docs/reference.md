@@ -26,7 +26,7 @@ from quent import (
 ## Chain
 
 ```python
-class Chain(v=Null, /, *args, **kwargs)
+class Chain(v=<no value>, /, *args, **kwargs)
 ```
 
 A sequential pipeline that transparently bridges synchronous and asynchronous operations. Steps are appended with fluent methods (`.then()`, `.do()`, etc.) and the chain is executed with `.run()`.
@@ -34,14 +34,14 @@ A sequential pipeline that transparently bridges synchronous and asynchronous op
 ### Constructor
 
 ```python
-Chain(v=Null, /, *args, **kwargs)
+Chain(v=<no value>, /, *args, **kwargs)
 ```
 
 Create a new chain with an optional root value or callable.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `v` | `Any` | Root value or callable. Defaults to `Null` (no root value). |
+| `v` | `Any` | Root value or callable. Defaults to no value (the internal `Null` sentinel, distinct from `None`). |
 | `*args` | `Any` | Positional arguments passed to `v` when it is callable. |
 | `**kwargs` | `Any` | Keyword arguments passed to `v` when it is callable. |
 
@@ -154,7 +154,7 @@ Apply `fn` to each element of the current iterable value. Collects results into 
 
 - `TypeError` if `fn` is not callable.
 - `TypeError` if `concurrency` is not an integer (including `bool`).
-- `ValueError` if `concurrency` is less than 1 or greater than 1024.
+- `ValueError` if `concurrency` is less than 1 (excluding `-1` for unbounded).
 
 ```python
 Chain([1, 2, 3]).foreach(lambda x: x ** 2).run()
@@ -219,7 +219,7 @@ Run multiple functions on the current pipeline value **concurrently**. Returns a
 - `QuentException` if zero functions are provided.
 - `TypeError` if any fn is not callable.
 - `TypeError` if `concurrency` is not an integer (including `bool`).
-- `ValueError` if `concurrency` is less than 1 or greater than 1024.
+- `ValueError` if `concurrency` is less than 1 (excluding `-1` for unbounded).
 
 ```python
 Chain(10).gather(
@@ -388,14 +388,14 @@ The `concurrency` parameter is available on `.foreach()`, `.foreach_do()`, and `
 | `None` (default) | Sequential (foreach/foreach_do). All concurrent (gather). | Sequential (foreach/foreach_do). All concurrent (gather). |
 | Positive integer | `ThreadPoolExecutor(max_workers=concurrency)` | `asyncio.Semaphore(concurrency)` to limit concurrent tasks |
 
-**Validation:** Must be a positive integer (`>= 1`, `<= 1024`) or `None`. Booleans are rejected (`TypeError`). Out of range raises `ValueError`.
+**Validation:** Must be a positive integer (`>= 1`) or `None`. Booleans are rejected (`TypeError`). Values less than `1` raise `ValueError`.
 
 **Sync/async detection:** The first item/function is probed. If it returns an awaitable, async path is used. If not, sync path. Mixed sync/async within a single concurrent operation raises `TypeError`.
 
 **Concurrent iteration materializes eagerly:** The entire input iterable is converted to a list before processing begins. Do not use with infinite or very large iterables.
 
-!!! note "Upper bound"
-    The hard upper bound is **1024**. This prevents accidental creation of unbounded thread pools or semaphore limits.
+!!! note "Unbounded concurrency"
+    Use `concurrency=-1` for unbounded concurrent execution. The effective concurrency equals the number of items at runtime.
 
 ---
 
@@ -506,7 +506,7 @@ Register a cleanup handler. Only **one** `finally_` per chain. Always runs regar
 Chain(acquire_resource).then(process).finally_(release_resource).run()
 ```
 
-**Async finally in sync chains:** When a sync chain's finally handler returns a coroutine, it is scheduled as a fire-and-forget background task with a `RuntimeWarning`. If no event loop is running, a `QuentException` is raised.
+**Async finally in sync chains:** When a sync chain's finally handler returns a coroutine, the engine performs an async transition: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the chain's result is returned (or the active exception is re-raised).
 
 ---
 
@@ -530,7 +530,7 @@ The full error handling flow:
 #### run
 
 ```python
-chain.run(v=Null, /, *args, **kwargs) -> Any
+chain.run(v=<no value>, /, *args, **kwargs) -> Any
 ```
 
 Execute the chain and return the final result.
@@ -568,7 +568,7 @@ chain.run(10)  # 20
 #### \_\_call\_\_
 
 ```python
-chain(v=Null, /, *args, **kwargs) -> Any
+chain(v=<no value>, /, *args, **kwargs) -> Any
 ```
 
 Alias for [`run()`](#run). A chain instance is directly callable:
@@ -717,7 +717,7 @@ The decorated function preserves its original signature via `functools.wraps`. C
 #### return\_
 
 ```python
-Chain.return_(v=Null, /, *args, **kwargs) -> NoReturn
+Chain.return_(v=<no value>, /, *args, **kwargs) -> NoReturn
 ```
 
 Signal early termination of chain execution. The optional value becomes the chain's result.
@@ -746,7 +746,7 @@ Signal early termination of chain execution. The optional value becomes the chai
 #### break\_
 
 ```python
-Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn
+Chain.break_(v=<no value>, /, *args, **kwargs) -> NoReturn
 ```
 
 Signal early termination of a `foreach()`/`foreach_do()` iteration.
@@ -1051,7 +1051,7 @@ Package version string via `importlib.metadata.version('quent')`.
 
 ```python
 # Constructor
-Chain(v=Null, /, *args, **kwargs)
+Chain(v=<no value>, /, *args, **kwargs)
 
 # Pipeline building
 chain.then(v, /, *args, **kwargs) -> Chain
@@ -1071,8 +1071,8 @@ chain.except_(fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Chain
 chain.finally_(fn, /, *args, **kwargs) -> Chain
 
 # Execution
-chain.run(v=Null, /, *args, **kwargs) -> Any
-chain(v=Null, /, *args, **kwargs) -> Any  # alias for run()
+chain.run(v=<no value>, /, *args, **kwargs) -> Any
+chain(v=<no value>, /, *args, **kwargs) -> Any  # alias for run()
 
 # Iteration
 chain.iterate(fn=None) -> ChainIterator
@@ -1083,8 +1083,8 @@ chain.clone() -> Chain
 chain.decorator() -> Callable
 
 # Control flow (class methods)
-Chain.return_(v=Null, /, *args, **kwargs) -> NoReturn
-Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn
+Chain.return_(v=<no value>, /, *args, **kwargs) -> NoReturn
+Chain.break_(v=<no value>, /, *args, **kwargs) -> NoReturn
 
 # Instrumentation (class attribute)
 Chain.on_step: Callable[[Chain, str, Any, Any, int], None] | None = None

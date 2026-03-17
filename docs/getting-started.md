@@ -455,6 +455,6 @@ Now that you understand the basics, explore the rest of the documentation:
 
 - **[Why Quent](why-quent.md)** -- understand the problem quent solves and when to use it
 - **[Chains](guide/chains.md)** -- comprehensive guide to pipeline building, context managers, conditionals, and control flow
-- **[Async Handling](guide/async.md)** -- deep dive into sync/async bridging, the two-tier execution model, and fire-and-forget tasks
+- **[Async Handling](guide/async.md)** -- deep dive into sync/async bridging, the two-tier execution model, and async transitions
 - **[Error Handling](guide/error-handling.md)** -- exception handlers, cleanup, and enhanced tracebacks
 - **[Reuse and Patterns](guide/reuse.md)** -- cloning, nesting, decorators, and composition patterns

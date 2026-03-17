@@ -104,11 +104,11 @@ The `exceptions` parameter accepts a single exception type or an iterable of typ
 ## Except Handler Calling Convention
 
 !!! important
-    The `except_()` handler uses the **standard 2-rule calling convention**. Its current value is a `ChainExcInfo(exc, root_value)` NamedTuple.
+    The `except_()` handler follows the same 2-rule calling convention as all other pipeline contexts. The only difference is what constitutes the "current value": for except handlers, it is `ChainExcInfo(exc, root_value)` rather than the pipeline value.
 
 ### How It Works
 
-The handler receives a `ChainExcInfo` as its current value. The standard 2-rule dispatch then applies:
+The handler receives a `ChainExcInfo` NamedTuple as its current value. The standard 2-rule dispatch then applies:
 
 | Registration | Handler invocation |
 |-------------|-------------------|
@@ -242,9 +242,9 @@ The finally handler follows the **standard** calling conventions (2 rules), with
 
 ### Async Finally in Sync Chains
 
-When a sync chain's finally handler returns a coroutine, the coroutine is scheduled as a **fire-and-forget background task** with a `RuntimeWarning`. If no event loop is running, a `QuentException` is raised and the cleanup does not execute.
+When a sync chain's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the chain's result is returned (success path) or the active exception is re-raised (failure path).
 
-See [Async Handling -- Fire-and-Forget Tasks](async.md#fire-and-forget-tasks) for details.
+See [Async Handling](async.md) for details on the sync/async transition model.
 
 ---
 
@@ -385,16 +385,6 @@ Suppresses argument values in visualizations while preserving step names and str
 QUENT_TRACEBACK_VALUES=0 python my_script.py
 ```
 
-#### `uninstall_hooks()`
-
-Restores `sys.excepthook` and `TracebackException.__init__` to their pre-quent values at runtime:
-
-```python
-from quent import uninstall_hooks
-
-uninstall_hooks()  # idempotent, thread-safe
-```
-
 ---
 
 ## Nested Chains for Per-Step Error Handling
@@ -485,7 +475,7 @@ pipeline = (
 
 | Feature | Limit | Default catches | Handler receives | Return value |
 |---------|-------|-----------------|------------------|--------------|
-| `.except_()` | 1 per chain | `Exception` | Exception as first arg, then handler-specific rules | Replaces chain result (or re-raises with `reraise=True`) |
+| `.except_()` | 1 per chain | `Exception` | `ChainExcInfo(exc, root_value)` as current value, standard 2-rule calling convention | Replaces chain result (or re-raises with `reraise=True`) |
 | `.finally_()` | 1 per chain | N/A (always runs) | Root value (standard calling convention) | Always discarded |
 
 ---
@@ -493,5 +483,5 @@ pipeline = (
 ## Next Steps
 
 - **[Chains](chains.md)** -- pipeline building, context managers, conditionals, and control flow
-- **[Async Handling](async.md)** -- sync/async bridging, fire-and-forget patterns
+- **[Async Handling](async.md)** -- sync/async bridging, async transition patterns
 - **[Reuse and Patterns](reuse.md)** -- cloning, nesting, decorators, and composition

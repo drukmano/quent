@@ -103,7 +103,7 @@ result = (
 
 ---
 
-## 3. Calling `.else_()` Without Preceding `.if_()`
+## 3. Calling `.else_()` or `.else_do()` Without Preceding `.if_()`
 
 ### Error
 
@@ -124,7 +124,7 @@ Usage: chain.if_(predicate).then(handler).else_(alternative)
 
 ### Cause
 
-`.else_()` must be chained **immediately** after `.if_().then()` or `.if_().do()`. Any intervening operation breaks the association:
+`.else_()` and `.else_do()` must be chained **immediately** after `.if_().then()` or `.if_().do()`. Any intervening operation breaks the association:
 
 ```python
 from quent import Chain
@@ -331,16 +331,12 @@ TypeError: map() concurrency must be a positive integer, got bool
 ValueError: map() concurrency must be >= 1, got 0
 ```
 
-```
-ValueError: map() concurrency must be <= 1024, got 2000
-```
-
 ### Cause
 
 The `concurrency` parameter has strict validation:
 
-- Must be a positive integer or `None`. Booleans are rejected.
-- Must be `>= 1` and `<= 1024`.
+- Must be a positive integer, `-1` (unbounded), or `None`. Booleans are rejected.
+- Must be `>= 1` or `-1`.
 
 ### Fix
 
@@ -348,10 +344,10 @@ The `concurrency` parameter has strict validation:
 # WRONG
 Chain(urls).foreach(fetch, concurrency=True)   # bool rejected
 Chain(urls).foreach(fetch, concurrency=0)      # must be >= 1
-Chain(urls).foreach(fetch, concurrency=2000)   # must be <= 1024
 
 # RIGHT
 Chain(urls).foreach(fetch, concurrency=4)
+Chain(urls).foreach(fetch, concurrency=-1)     # unbounded
 ```
 
 ---
@@ -384,34 +380,7 @@ result = chain.run()
 
 ---
 
-## 10. Fire-and-Forget Task Limit Exceeded
-
-### Error
-
-```
-quent.QuentException: Fire-and-forget task limit (10000) exceeded (10000 tasks pending).
-Call drain_tasks() to wait for pending tasks to complete.
-```
-
-### Cause
-
-Hard limit of 10,000 concurrent fire-and-forget tasks. These are created when a sync chain's `except_()` or `finally_()` handler returns a coroutine.
-
-### Fix
-
-Call `drain_tasks()` periodically or at shutdown:
-
-```python
-from quent import drain_tasks
-
-await drain_tasks()
-```
-
-If hitting this limit frequently, ensure handlers complete promptly or use `await chain.run()` so handlers are properly awaited.
-
----
-
-## 11. Enhanced Traceback Opt-Out
+## 10. Enhanced Traceback Opt-Out
 
 ### Symptom
 
@@ -427,15 +396,6 @@ export QUENT_NO_TRACEBACK=1
 
 This disables all traceback modifications: visualization injection, frame cleaning, and hook patching.
 
-### Fix: Runtime
-
-Call `uninstall_hooks()` after import:
-
-```python
-from quent import uninstall_hooks
-uninstall_hooks()
-```
-
 ### Suppressing Values in Tracebacks
 
 To keep chain visualizations but hide sensitive data:
@@ -448,7 +408,7 @@ This replaces argument values with type-name placeholders (e.g., `<str>` instead
 
 ---
 
-## 12. `ExceptionGroup` from Concurrent Operations
+## 11. `ExceptionGroup` from Concurrent Operations
 
 ### Symptom
 
@@ -490,20 +450,15 @@ result = (
 
 ---
 
-## 13. `RuntimeWarning` About Fire-and-Forget
+## 12. Async Transition from Sync Chain Handlers
 
 ### Symptom
 
-You see a warning like:
-
-```
-RuntimeWarning: sync chain finally_() handler returned a coroutine;
-scheduling as fire-and-forget background task
-```
+Your sync chain's `run()` returns a coroutine instead of a plain value.
 
 ### Cause
 
-A sync chain's `finally_()` handler returned a coroutine. Since the sync execution path cannot `await`, the coroutine is scheduled as a background task.
+A sync chain's `finally_()` or `except_()` handler returned a coroutine. The engine performs an async transition: `run()` returns a coroutine instead of a plain value.
 
 ### Fix
 
@@ -522,7 +477,7 @@ chain.finally_(lambda rv: sync_cleanup(rv))
 
 ---
 
-## 14. Control Flow Signals in Handlers
+## 13. Control Flow Signals in Handlers
 
 ### Error
 

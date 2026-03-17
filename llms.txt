@@ -47,10 +47,10 @@ branch_b = base.clone().then(save_to_file)
 
 ## API Overview
 
-- [Chain(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#constructor) -- Constructor with optional root value.
+- [Chain(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#constructor) -- Constructor with optional root value.
 - [.then(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#then) -- Append step; result replaces current value.
 - [.do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#do) -- Side-effect step; result discarded.
-- [.foreach(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#map) -- Apply fn to each element, collect results.
+- [.foreach(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach) -- Apply fn to each element, collect results.
 - [.foreach_do(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach_do) -- Side-effect per element, keep originals.
 - [.gather(*fns, concurrency=-1, executor=None)](https://quent.readthedocs.io/en/latest/reference/#gather) -- Run multiple functions concurrently on current value.
 - [.with_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_) -- Enter current value as context manager, call fn.
@@ -61,13 +61,13 @@ branch_b = base.clone().then(save_to_file)
 - [.except_(fn, *args, exceptions=None, reraise=False, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#except_) -- Exception handler (one per chain).
 - [.finally_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#finally_) -- Cleanup handler (one per chain, always runs).
 - [.name(label)](https://quent.readthedocs.io/en/latest/reference/#name) -- Assign a label for traceback identification.
-- [.run(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#run) -- Execute chain.
+- [.run(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#run) -- Execute chain.
 - [.decorator()](https://quent.readthedocs.io/en/latest/reference/#decorator) -- Wrap chain as function decorator.
 - [.iterate(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate) -- Sync/async iterator over chain output.
 - [.iterate_do(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate_do) -- Iterator with side-effect fn.
 - [.clone()](https://quent.readthedocs.io/en/latest/reference/#clone) -- Independent copy of chain.
-- [Chain.return_(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Early return from chain.
-- [Chain.break_(v=Null, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from iteration; value appended to partial results.
+- [Chain.return_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Early return from chain.
+- [Chain.break_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from iteration; value appended to partial results.
 - [Chain.on_step](https://quent.readthedocs.io/en/latest/reference/#on_step) -- Class-level step instrumentation callback.
 - [ChainExcInfo](https://quent.readthedocs.io/en/latest/reference/#chainexcinfo) -- NamedTuple (exc, root_value) passed to except handlers.
 - [Null](https://quent.readthedocs.io/en/latest/reference/#null-sentinel) -- Sentinel for "no value provided".
