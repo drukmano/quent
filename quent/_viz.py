@@ -19,6 +19,8 @@ _MAX_REPR_LEN = 200
 _MAX_CALL_ARGS_LEN = 500
 _VIZ_MAX_LINKS_PER_LEVEL = 100
 _VIZ_MAX_LENGTH = 10_000
+_VIZ_MAX_NESTING_DEPTH = 50
+_VIZ_MAX_TOTAL_CALLS = 500
 _VIZ_INDENT_WIDTH = 4
 
 # Regex for stripping ANSI escape sequences (CSI, OSC, and simple ESC sequences).
@@ -26,12 +28,14 @@ _ANSI_ESCAPE_RE = re.compile(
   r'\x1b\[[0-9;?!>]*[A-Za-z]'  # CSI sequences
   r'|\x1b][^\x07\x1b]*\x07'  # OSC terminated by BEL
   r'|\x1b][^\x07\x1b]*\x1b\\'  # OSC terminated by ST (ESC + backslash)
+  r'|\x1bP[^\x1b]*\x1b\\'  # DCS (Device Control String) terminated by ST
   r'|\x1b[^[\]()]'  # Simple ESC sequences
 )
 
 # Unicode control characters to strip (C0/C1 controls except tab, newline, carriage return).
 _CONTROL_CHAR_RE = re.compile(
-  r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb]'
+  r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb'
+  r'\U000e0001-\U000e007f]'
 )
 
 # QUENT_TRACEBACK_VALUES=0 suppresses argument values in chain visualizations
@@ -59,9 +63,6 @@ def _sanitize_repr(s: str) -> str:
 
 
 # ---- Stringification context ----
-
-
-_VIZ_MAX_TOTAL_CALLS = 500
 
 
 class _VizContext:
@@ -168,7 +169,9 @@ def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | Non
 # ---- Source link resolution ----
 
 
-def _get_true_source_link(source_link: Link | None, root_link: Link | None, max_depth: int = 50) -> Link | None:
+def _get_true_source_link(
+  source_link: Link | None, root_link: Link | None, max_depth: int = _VIZ_MAX_NESTING_DEPTH
+) -> Link | None:
   """Drill through nested chains to find the actual callable that caused the exception."""
   # Defensive: prevents infinite loops if chains reference each other (DAG invariant).
   seen = set()
@@ -184,6 +187,8 @@ def _get_true_source_link(source_link: Link | None, root_link: Link | None, max_
       break
     if chain.root_link is not None:
       source_link = chain.root_link
+    elif chain.first_link is not None:
+      source_link = chain.first_link
     else:
       break
   if source_link is None:
@@ -200,7 +205,7 @@ def _resolve_nested_chain(
   kwargs: dict[str, Any] | None,
   nest_lvl: int,
   ctx: _VizContext,
-  max_depth: int = 50,
+  max_depth: int = _VIZ_MAX_NESTING_DEPTH,
 ) -> str:
   """Resolve a nested chain link into its indented string representation.
 
@@ -247,7 +252,7 @@ def _stringify_chain(
   *,
   ctx: _VizContext,
   extra_links: list[tuple[Link, str]] | None = None,
-  max_depth: int = 50,
+  max_depth: int = _VIZ_MAX_NESTING_DEPTH,
 ) -> str:
   """Build the full string visualization of a chain.
 
@@ -310,7 +315,7 @@ def _stringify_chain(
 
 
 def _format_link(
-  link: Link, nest_lvl: int, ctx: _VizContext, method_name: str | None = None, max_depth: int = 50
+  link: Link, nest_lvl: int, ctx: _VizContext, method_name: str | None = None, max_depth: int = _VIZ_MAX_NESTING_DEPTH
 ) -> str:
   """Format a single link, including nested chains and operation-specific rendering.
 

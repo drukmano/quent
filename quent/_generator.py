@@ -3,14 +3,17 @@
 
 from __future__ import annotations
 
+import sys
+import warnings
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from ._engine import _run_async_finally, _run_sync_finally
 from ._eval import _eval_signal_value, _isawaitable
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._traceback import _modify_traceback
-from ._types import Null, _Break, _ControlFlowSignal, _Return, _UnpicklableMixin
+from ._types import Null, _Break, _ControlFlowSignal, _Return, _UncopyableMixin
 
 _T = TypeVar('_T')
 
@@ -68,6 +71,36 @@ def _close_and_raise_sync(awaitable: Any, signal_name: str) -> None:
   raise TypeError(msg) from None
 
 
+def _run_deferred_finally_sync(chain: Chain[Any], deferred: list[Any]) -> None:
+  """Run a deferred finally handler synchronously after iteration ends."""
+  __tracebackhide__ = True
+  root_value, root_link, exec_id = deferred[0], deferred[1], deferred[2]
+  active_exc = sys.exc_info()[1]
+  if isinstance(active_exc, (GeneratorExit, _ControlFlowSignal)):
+    active_exc = None
+  result = _run_sync_finally(chain, root_value, root_link, active_exc, exec_id=exec_id)
+  if result is not None:
+    # Handler returned a coroutine — can't await in sync context.
+    if hasattr(result, 'close'):
+      result.close()
+    warnings.warn(
+      'iterate(): finally handler returned a coroutine during sync iteration; '
+      "the handler was not awaited. Use 'async for' to await async finally handlers.",
+      RuntimeWarning,
+      stacklevel=2,
+    )
+
+
+async def _run_deferred_finally_async(chain: Chain[Any], deferred: list[Any]) -> None:
+  """Run a deferred finally handler asynchronously after async iteration ends."""
+  __tracebackhide__ = True
+  root_value, root_link, exec_id = deferred[0], deferred[1], deferred[2]
+  active_exc = sys.exc_info()[1]
+  if isinstance(active_exc, (GeneratorExit, _ControlFlowSignal)):
+    active_exc = None
+  await _run_async_finally(chain, root_value, root_link, active_exc, exec_id=exec_id)
+
+
 # Module-level functions (not methods) to avoid binding `self` in the generator closure.
 
 
@@ -83,56 +116,63 @@ def _sync_generator(
   # Intentional divergences: sync closes awaitables + raises TypeError; async awaits them.
   """Synchronous generator that yields each element of the chain's output."""
   __tracebackhide__ = True
-  # Close the coroutine if the chain returned one — prevents ResourceWarning.
-  result = chain_run(*run_args)
-  if _isawaitable(result):
-    # Coroutines have .close(); Tasks/Futures have .cancel().
-    if hasattr(result, 'close'):
-      result.close()
-    elif hasattr(result, 'cancel'):
-      result.cancel()
-    msg = "Cannot use sync iteration on an async chain; use 'async for' instead"
-    raise TypeError(msg)
-  idx = 0
+  _has_deferred = chain is not None and chain.on_finally_link is not None
+  _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   try:
-    for item in result:
-      if fn is None:
-        yield item
-      else:
-        try:
-          fn_result = fn(item)
-          if _isawaitable(fn_result):
-            if hasattr(fn_result, 'close'):
-              fn_result.close()
-            msg = (
-              f'iterate() callback {fn!r} returned a coroutine. '
-              f'Use "async for" with __aiter__ instead of "for" with __iter__.'
-            )
-            raise TypeError(msg)
-        except _ControlFlowSignal:  # Must propagate — not a regular exception.
-          raise
-        except BaseException as exc:
-          _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
-          raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
-        if ignore_result:
+    # Close the coroutine if the chain returned one — prevents ResourceWarning.
+    result = chain_run(*run_args, deferred_finally=_deferred) if _deferred is not None else chain_run(*run_args)
+    if _isawaitable(result):
+      # Coroutines have .close(); Tasks/Futures have .cancel().
+      if hasattr(result, 'close'):
+        result.close()
+      elif hasattr(result, 'cancel'):
+        result.cancel()
+      msg = "Cannot use sync iteration on an async chain; use 'async for' instead"
+      raise TypeError(msg)
+    idx = 0
+    try:
+      for item in result:
+        if fn is None:
           yield item
         else:
-          yield fn_result
-      idx += 1
-  except _Break as exc:
-    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
-    if resolved is not _NO_VALUE:
-      if _isawaitable(resolved):
-        _close_and_raise_sync(resolved, '_Break')
-      yield resolved
-    return
-  except _Return as exc:
-    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
-    if resolved is not _NO_VALUE:
-      if _isawaitable(resolved):
-        _close_and_raise_sync(resolved, '_Return')
-      yield resolved
-    return
+          try:
+            fn_result = fn(item)
+            if _isawaitable(fn_result):
+              if hasattr(fn_result, 'close'):
+                fn_result.close()
+              msg = (
+                f'iterate() callback {fn!r} returned a coroutine. '
+                f'Use "async for" with __aiter__ instead of "for" with __iter__.'
+              )
+              raise TypeError(msg)
+          except _ControlFlowSignal:  # Must propagate — not a regular exception.
+            raise
+          except BaseException as exc:
+            _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
+            raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+          if ignore_result:
+            yield item
+          else:
+            yield fn_result
+        idx += 1
+    except _Break as exc:
+      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+      if resolved is not _NO_VALUE:
+        if _isawaitable(resolved):
+          _close_and_raise_sync(resolved, '_Break')
+        yield resolved
+      return
+    except _Return as exc:
+      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+      if resolved is not _NO_VALUE:
+        if _isawaitable(resolved):
+          _close_and_raise_sync(resolved, '_Return')
+        yield resolved
+      return
+  finally:
+    if _deferred is not None:
+      assert chain is not None  # guaranteed by _has_deferred guard
+      _run_deferred_finally_sync(chain, _deferred)
 
 
 async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
@@ -154,56 +194,63 @@ async def _async_generator(
   # Intentional divergences: async awaits awaitables; sync closes them + raises TypeError.
   """Asynchronous generator that yields each element of the chain's output."""
   __tracebackhide__ = True
-  iterator = chain_run(*run_args)
-  if _isawaitable(iterator):
-    iterator = await iterator
-  if not hasattr(iterator, '__aiter__'):
-    iterator = _aiter_wrap(iterator)
-  idx = 0
+  _has_deferred = chain is not None and chain.on_finally_link is not None
+  _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   try:
-    async for item in iterator:
-      if fn is None:
-        yield item
-      else:
-        try:
-          result = fn(item)
-          if _isawaitable(result):
-            result = await result
-        except _ControlFlowSignal:  # Must propagate — not a regular exception.
-          raise
-        except BaseException as exc:
-          _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
-          raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
-        if ignore_result:
+    iterator = chain_run(*run_args, deferred_finally=_deferred) if _deferred is not None else chain_run(*run_args)
+    if _isawaitable(iterator):
+      iterator = await iterator
+    if not hasattr(iterator, '__aiter__'):
+      iterator = _aiter_wrap(iterator)
+    idx = 0
+    try:
+      async for item in iterator:
+        if fn is None:
           yield item
         else:
-          yield result
-      idx += 1
-  except _Break as exc:
-    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
-    if resolved is not _NO_VALUE:
-      if _isawaitable(resolved):
-        try:
-          resolved = await resolved
-        except BaseException as await_exc:
-          _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
-          raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
-      yield resolved
-    return
-  except _Return as exc:
-    resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
-    if resolved is not _NO_VALUE:
-      if _isawaitable(resolved):
-        try:
-          resolved = await resolved
-        except BaseException as await_exc:
-          _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
-          raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
-      yield resolved
-    return
+          try:
+            result = fn(item)
+            if _isawaitable(result):
+              result = await result
+          except _ControlFlowSignal:  # Must propagate — not a regular exception.
+            raise
+          except BaseException as exc:
+            _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
+            raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+          if ignore_result:
+            yield item
+          else:
+            yield result
+        idx += 1
+    except _Break as exc:
+      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+      if resolved is not _NO_VALUE:
+        if _isawaitable(resolved):
+          try:
+            resolved = await resolved
+          except BaseException as await_exc:
+            _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
+            raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
+        yield resolved
+      return
+    except _Return as exc:
+      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+      if resolved is not _NO_VALUE:
+        if _isawaitable(resolved):
+          try:
+            resolved = await resolved
+          except BaseException as await_exc:
+            _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
+            raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
+        yield resolved
+      return
+  finally:
+    if _deferred is not None:
+      assert chain is not None  # guaranteed by _has_deferred guard
+      await _run_deferred_finally_async(chain, _deferred)
 
 
-class ChainIterator(_UnpicklableMixin, Generic[_T]):
+class ChainIterator(_UncopyableMixin, Generic[_T]):
   """Wraps chain output as a dual sync/async iterable.
 
   Created by ``Chain.iterate()``. Supports both ``__iter__`` and

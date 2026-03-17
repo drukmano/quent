@@ -46,6 +46,14 @@ if TYPE_CHECKING:
   from ._chain import Chain
 
 
+def _cleanup_outermost_meta(meta: dict[str, Any]) -> None:
+  """Defense-in-depth: ensure heavy refs are removed even if visualization failed."""
+  meta.pop(META_SOURCE_LINK, None)
+  meta.pop(META_LINK_TEMP_ARGS, None)
+  meta.pop(META_GATHER_INDEX, None)
+  meta.pop(META_GATHER_FN, None)
+
+
 # ---- Module-level constants ----
 
 _log = logging.getLogger('quent')
@@ -189,11 +197,14 @@ def _inject_visualization(
       raise RuntimeError('SECURITY: exec() must only use _RAISE_CODE')
     try:
       exec(code, globals_, {})  # nosec B102 — code object is pre-compiled from constant 'raise __exc__'; user input only reaches co_name metadata, never executed code
-    except BaseException:
+    except BaseException as caught_exc:
       # Must be BaseException (not Exception) to catch the deliberately re-raised
-      # exc, which may be any BaseException subclass.  Theoretical race: a
-      # KeyboardInterrupt arriving during exec() would be caught here, but the
-      # window is negligibly small (~nanoseconds).
+      # exc, which may be any BaseException subclass.
+      # Safety: if a KeyboardInterrupt or SystemExit arrives during exec(),
+      # re-raise it immediately — these must never be absorbed by traceback
+      # machinery.
+      if caught_exc is not exc_value and isinstance(caught_exc, (KeyboardInterrupt, SystemExit)):
+        raise
       new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]  # exc_info()[1] is guaranteed non-None inside except block
       exc.__traceback__ = _clean_internal_frames(new_tb)
     finally:
@@ -270,10 +281,7 @@ def _modify_traceback(
     if chain is not None and link is not None and not is_nested:
       _meta = getattr(exc, '__quent_meta__', None)
       if _meta is not None:
-        _meta.pop(META_SOURCE_LINK, None)
-        _meta.pop(META_LINK_TEMP_ARGS, None)
-        _meta.pop(META_GATHER_INDEX, None)
-        _meta.pop(META_GATHER_FN, None)
+        _cleanup_outermost_meta(_meta)
       _clean_quent_idx(exc)
     # Return unmodified exception for consistent caller interface.
     return exc.with_traceback(exc.__traceback__)
@@ -295,23 +303,11 @@ def _modify_traceback(
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
   # Defense-in-depth cleanup for the outermost chain only: remove heavy
-  # chain-internal references from __quent_meta__ for exceptions that
-  # propagate without being consumed by except_().  The primary cleanup
-  # point is _clean_exc_meta (called when except_() consumes an exception).
-  # This secondary cleanup prevents internal Link objects, callables, and
-  # their arguments from leaking to user code — especially relevant in
-  # concurrent operations where link_temp_args may contain user data
-  # (item=, current_value=).
-  # Only run at the outermost chain: nested chains need source_link and
-  # link_temp_args intact for the outer chain's visualization pass.
+  # chain-internal references from __quent_meta__ so they don't leak to
+  # user code.  Intentionally redundant with _inject_visualization's
+  # internal pops — covers the fallback path if visualization failed.
   if chain is not None and link is not None and not is_nested:
-    # These pops are intentionally redundant with the pops at lines 245-247 and
-    # _inject_visualization's internal pop.  They act as defense-in-depth: if
-    # _inject_visualization fails and falls back to plain frame cleaning, these
-    # ensure META_SOURCE_LINK and META_LINK_TEMP_ARGS are still removed from
-    # the exception metadata before it reaches user code.
-    meta.pop(META_SOURCE_LINK, None)
-    meta.pop(META_LINK_TEMP_ARGS, None)
+    _cleanup_outermost_meta(meta)
   # Clean _quent_idx: ad-hoc attribute attached by concurrent workers
   # (see _exc_meta._clean_quent_idx docstring).
   _clean_quent_idx(exc)
@@ -380,18 +376,20 @@ def _patched_te_init(
 if _traceback_enabled:
   # Verify TracebackException.__init__ has the expected positional signature.
   # If a future Python version changes the parameter order, our patch would
-  # silently misbehave.  Detect this early and disable patching.
+  # silently misbehave.  Detect this early and skip the TE patch.
   import inspect as _inspect
 
+  _te_signature_ok = True
   try:
     # Check the current TE.__init__ (not _original_te_init) to detect
     # if a future Python version changed the parameter order.
     _te_params = list(_inspect.signature(traceback.TracebackException.__init__).parameters.keys())
     if _te_params[:4] != ['self', 'exc_type', 'exc_value', 'exc_traceback']:
+      _te_signature_ok = False
       # stacklevel=1: module-level code during import; no user frame above.
       warnings.warn(
         'quent: TracebackException.__init__ has an unexpected signature; '
-        'traceback enhancements may not work correctly.',
+        'skipping TracebackException patch to avoid incorrect argument forwarding.',
         RuntimeWarning,
         stacklevel=1,
       )
@@ -406,5 +404,6 @@ if _traceback_enabled:
   # the true originals were captured once by the _hooks_captured guard above.
   if sys.excepthook is not _quent_excepthook:
     sys.excepthook = _quent_excepthook
-  if traceback.TracebackException.__init__ is not _patched_te_init:
+  if _te_signature_ok and traceback.TracebackException.__init__ is not _patched_te_init:
     traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]  # monkeypatching __init__ for traceback enhancement
+  del _te_signature_ok

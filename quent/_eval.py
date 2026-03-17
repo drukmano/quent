@@ -8,9 +8,8 @@ from types import CoroutineType, GeneratorType
 from typing import Any
 
 from ._link import Link
-from ._types import Null, _Break, _Return
+from ._types import _EMPTY_TUPLE, Null, _Break, _Return
 
-# Pre-allocated empty tuple to avoid per-call allocations in _evaluate_value.
 # Cache the private C-level function for zero-overhead event loop detection.
 # Returns None instead of raising RuntimeError — avoids ~1-2μs exception overhead
 # on the sync path. Stable across Python 3.10+ (used by uvloop, anyio, etc.).
@@ -33,8 +32,7 @@ def _has_running_loop() -> bool:
     return False
 
 
-_EMPTY_TUPLE: tuple[Any, ...] = ()
-
+# CPython CO_ITERABLE_COROUTINE flag, stable since 3.5. Verified through 3.14.
 _CO_ITERABLE_COROUTINE = 0x100
 
 

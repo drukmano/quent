@@ -5,13 +5,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ._types import _UnpicklableMixin
+from ._types import _UncopyableMixin
 
 if TYPE_CHECKING:
   from ._if_ops import _IfOp
 
 
-class Link(_UnpicklableMixin):
+class Link(_UncopyableMixin):
   """Atomic operation node in a chain's singly-linked list.
 
   Each Link holds a callable (or raw value, or nested Chain) plus the

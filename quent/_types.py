@@ -111,11 +111,6 @@ class _Null:
   ``Chain(None)`` creates a chain with root value ``None``; ``Chain()``
   creates a chain with no root value at all.
 
-  Pickling is blocked for consistency with Chain and Link (CWE-502).
-  While Null itself contains no callables, allowing pickle round-trips
-  of the sentinel could create false expectations about the serializability
-  of quent objects in general.
-
   This class is a singleton — use ``quent.Null`` directly.  Attempting to
   instantiate ``NullType()`` after the singleton has been created raises
   ``TypeError``.
@@ -125,7 +120,7 @@ class _Null:
 
   def __new__(cls) -> _Null:
     if _null_instance_created:
-      raise TypeError('NullType is a singleton — use quent.Null instead of instantiating NullType()')
+      raise TypeError('_Null is a singleton — use quent.Null instead of instantiating _Null()')
     return object.__new__(cls)
 
   def __repr__(self) -> str:
@@ -137,11 +132,9 @@ class _Null:
   def __deepcopy__(self, memo: dict[int, Any]) -> _Null:
     return self
 
-  def __reduce__(self, *_args: Any, **_kwargs: Any) -> NoReturn:
-    raise TypeError('Null sentinel cannot be pickled. Use quent.Null directly instead of serializing it (CWE-502).')
-
-  def __reduce_ex__(self, *_args: Any, **_kwargs: Any) -> NoReturn:
-    raise TypeError('Null sentinel cannot be pickled. Use quent.Null directly instead of serializing it (CWE-502).')
+  def __reduce__(self) -> tuple[Any, ...]:
+    # Return the singleton directly on unpickling.
+    return (_get_null, ())
 
 
 # Bypass _Null.__new__ entirely so the singleton flag check is not triggered
@@ -149,6 +142,11 @@ class _Null:
 # subsequent _Null() / NullType() call raises TypeError.
 Null: _Null = object.__new__(_Null)
 _null_instance_created = True
+
+
+def _get_null() -> _Null:
+  """Return the Null singleton — used as the pickle reconstructor for _Null."""
+  return Null
 
 
 # ---- Exceptions ----
@@ -199,6 +197,12 @@ class _ControlFlowSignal(BaseException):
     self.signal_args = args
     self.signal_kwargs = kwargs
 
+  def __repr__(self) -> str:
+    return f'{type(self).__name__}(value={self.value!r})'
+
+  def __str__(self) -> str:
+    return type(self).__name__
+
 
 class _Return(_ControlFlowSignal):
   """Signal early return from a chain with an optional value."""
@@ -212,30 +216,39 @@ class _Break(_ControlFlowSignal):
   __slots__ = ()
 
 
-# ---- Unpickling prevention ----
+# ---- Shared constants ----
+
+# Pre-allocated empty tuple to avoid per-call allocations in hot paths.
+_EMPTY_TUPLE: tuple[Any, ...] = ()
+
+# ---- Copy prevention ----
 
 
-class _UnpicklableMixin:
-  """Mixin that blocks pickling for security (CWE-502).
+class _UncopyableMixin:
+  """Mixin that blocks shallow and deep copying for correctness.
 
-  Both Chain and Link contain arbitrary callables whose execution during
-  unpickling could lead to arbitrary code execution.  This mixin injects
-  ``__reduce__`` and ``__reduce_ex__`` methods that raise ``TypeError``.
+  Chain and Link are singly-linked lists.  A shallow copy would produce a
+  broken object with shared node references; a deep copy is semantically
+  undefined for objects containing arbitrary callables.  ``__copy__`` and
+  ``__deepcopy__`` are therefore blocked unconditionally.
+
+  For Chain objects, use ``clone()`` to produce a correct independent copy.
   """
 
   __slots__ = ()
 
-  def _raise_pickle_error(self) -> NoReturn:
-    """Raise TypeError with a descriptive message explaining why pickling is blocked."""
+  def _raise_copy_error(self) -> NoReturn:
+    """Raise TypeError with a descriptive message explaining why copying is blocked."""
     msg = (
-      f'{type(self).__name__} objects cannot be pickled. '
-      f'{type(self).__name__}s contain arbitrary callables whose execution during '
-      f'unpickling could lead to arbitrary code execution (CWE-502).'
+      f'{type(self).__name__} objects cannot be copied with copy.copy()/copy.deepcopy(). '
+      f'Use {type(self).__name__}.clone() instead.'
+      if hasattr(self, 'clone')
+      else f'{type(self).__name__} objects cannot be copied with copy.copy()/copy.deepcopy().'
     )
     raise TypeError(msg)
 
-  def __reduce__(self, *_args: Any, **_kwargs: Any) -> NoReturn:
-    self._raise_pickle_error()
+  def __copy__(self) -> NoReturn:
+    self._raise_copy_error()
 
-  def __reduce_ex__(self, *_args: Any, **_kwargs: Any) -> NoReturn:
-    self._raise_pickle_error()
+  def __deepcopy__(self, memo: Any = None) -> NoReturn:
+    self._raise_copy_error()

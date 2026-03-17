@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
-from ._engine import _user_stacklevel
 from ._eval import _evaluate_value, _isawaitable, _should_use_async_protocol
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
@@ -31,7 +29,8 @@ class _WithOp:
     --------------------------------  -------------  ----------------------------------
     Sync CM, sync body                __call__       → _sync_cm, _suppressed_result
     Sync CM, async body transition    __call__       → _sync_cm → _to_async, _suppressed_result
-    Sync CM, async __exit__           __call__       → _sync_cm → _await_exit_suppress / _await_exit_success
+    Sync CM, async __exit__           __call__       → _sync_cm → _await_exit_suppress /
+                                                       _await_exit_success / _await_exit_signal
     Async CM (or dual-protocol CM     __call__       → _full_async, _suppressed_result
       with running event loop)
   """
@@ -139,6 +138,15 @@ class _WithOp:
       return outer_value
     return result
 
+  async def _await_exit_signal(self, exit_result: Any, signal: _ControlFlowSignal) -> Any:
+    """Await an async __exit__ on the control flow signal path, then re-raise."""
+    __tracebackhide__ = True
+    try:
+      await exit_result
+    except BaseException as exit_exc:
+      raise exit_exc from signal
+    raise signal
+
   def _sync_cm(self, cm: Any, outer_value: Any) -> Any:
     """Execute the sync context manager lifecycle: __enter__ -> body -> __exit__.
 
@@ -163,15 +171,8 @@ class _WithOp:
     except _ControlFlowSignal as signal:
       try:
         exit_result = cm.__exit__(None, None, None)
-        # Close any coroutine from __exit__ to prevent ResourceWarning.
-        if _isawaitable(exit_result) and hasattr(exit_result, 'close'):
-          exit_result.close()
-          warnings.warn(
-            f'quent: with_() __exit__ returned a coroutine during sync {type(signal).__name__};'
-            ' async cleanup was skipped.',
-            RuntimeWarning,
-            stacklevel=_user_stacklevel(),
-          )
+        if _isawaitable(exit_result):
+          return self._await_exit_signal(exit_result, signal)
       except BaseException as exit_exc:
         raise exit_exc from signal
       raise

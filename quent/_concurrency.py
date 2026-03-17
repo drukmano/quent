@@ -59,6 +59,61 @@ async def _run_taskgroup(n: int, worker_fn: Callable[[int], Coroutine[Any, Any, 
     raise
 
 
+def _make_dispatch(
+  worker_fn: Callable[[int], Coroutine[Any, Any, None]],
+  concurrency: int,
+  n: int,
+) -> Callable[[int], Coroutine[Any, Any, None]]:
+  """Wrap *worker_fn* with an ``asyncio.Semaphore`` when concurrency is bounded.
+
+  When ``concurrency >= n`` (unbounded), returns *worker_fn* directly —
+  no semaphore overhead.  Otherwise, returns a wrapper that acquires the
+  semaphore before delegating to *worker_fn*.
+  """
+  if concurrency >= n:
+    return worker_fn
+
+  sem = asyncio.Semaphore(concurrency)
+
+  async def _bounded_worker(idx: int) -> None:
+    __tracebackhide__ = True
+    async with sem:
+      await worker_fn(idx)
+
+  return _bounded_worker
+
+
+async def _create_tasks_py310(
+  n: int,
+  dispatch: Callable[[int], Coroutine[Any, Any, None]],
+) -> list[asyncio.Task[None]]:
+  """Create *n* tasks using the Python 3.10 fallback path.
+
+  Handles partial creation failure: if ``_create_task_fn`` raises for
+  task *i*, closes that coroutine, cancels and awaits tasks 0..i-1,
+  then re-raises.
+  """
+  __tracebackhide__ = True
+  tasks: list[asyncio.Task[None]] = []
+  try:
+    for idx in range(n):
+      coro = dispatch(idx)
+      try:
+        tasks.append(_create_task_fn(coro))
+      except BaseException:
+        coro.close()
+        raise
+  except BaseException:
+    # Partial task creation failure: cancel already-created tasks and
+    # await them to avoid "Task was destroyed but it is pending" warnings.
+    if tasks:
+      for t in tasks:
+        t.cancel()
+      await asyncio.wait(tasks)
+    raise
+  return tasks
+
+
 async def _cancel_pending_tasks(tasks: Sequence[asyncio.Future[Any]], *, timeout: float | None = None) -> None:
   """Cancel unfinished tasks and wait for all to complete.
 

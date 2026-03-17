@@ -16,7 +16,8 @@ if TYPE_CHECKING:
 from ._concurrency import (
   _HAS_TASK_GROUP,
   _cancel_pending_tasks,
-  _create_task_fn,
+  _create_tasks_py310,
+  _make_dispatch,
   _run_taskgroup,
   _run_threadpool_sync,
 )
@@ -24,6 +25,11 @@ from ._eval import _handle_break_exc, _isawaitable, _should_use_async_protocol
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._types import ExceptionGroup, Null, _Break, _ControlFlowSignal, _Return
+
+# Dedicated sentinel for unprocessed results in concurrent arrays.
+# Using Null would cause a double-invocation bug if user code ever
+# returned the Null sentinel (even though it is not part of the public API).
+_UNPROCESSED: object = object()
 
 # ---- Exception triage helpers for concurrent iteration ----
 #
@@ -272,21 +278,21 @@ class _IterOp:
 
 
 def _batch_collect_foreach(items: list[Any], results: list[Any], count: int) -> list[Any]:
-  """Collect fn results (map mode), skipping Null sentinels.
+  """Collect fn results (map mode), skipping unprocessed sentinels.
 
   Batch collector for concurrent results — distinct from ``_IterOp._collect_foreach``
   which is a per-item collector for sequential iteration.
   """
-  return [r for r in results[:count] if r is not Null]
+  return [r for r in results[:count] if r is not _UNPROCESSED]
 
 
 def _batch_collect_foreach_do(items: list[Any], results: list[Any], count: int) -> list[Any]:
-  """Collect original items (foreach_do mode), skipping Null sentinels.
+  """Collect original items (foreach_do mode), skipping unprocessed sentinels.
 
   Batch collector for concurrent results — distinct from ``_IterOp._collect_foreach_do``
   which is a per-item collector for sequential iteration.
   """
-  return [item for item, r in zip(items[:count], results[:count]) if r is not Null]
+  return [item for item, r in zip(items[:count], results[:count]) if r is not _UNPROCESSED]
 
 
 # Pre-resolved dispatch table for concurrent result collection — eliminates
@@ -302,6 +308,10 @@ class _ConcurrentIterOp:
 
   Uses ThreadPoolExecutor for sync callables and asyncio.Semaphore with
   TaskGroup (3.11+) or asyncio.gather (3.10) for async callables.
+
+  Note: this class follows a parallel structure with ``_ConcurrentGatherOp``
+  in ``_gather_ops.py`` (probe-first-item, dispatch-to-threadpool-or-async,
+  triage-exceptions).  Shared low-level utilities live in ``_concurrency.py``.
   Sync/async is detected by probing the first item.
 
   **Executor lifecycle:** A new ``ThreadPoolExecutor`` is created per sync
@@ -354,37 +364,37 @@ class _ConcurrentIterOp:
     n = len(items)
     if n == 0:
       return []
-    results: list[Any] = [Null] * n
+    results: list[Any] = [_UNPROCESSED] * n
     # Resolve -1 (unbounded) to len(items) at runtime.
     effective_concurrency = n if self._concurrency == -1 else self._concurrency
-    sem = asyncio.Semaphore(effective_concurrency)
     fn = self._fn
     link = self._link
     batch_collect = self._batch_collect
 
     async def _worker(idx: int) -> None:
       __tracebackhide__ = True
-      async with sem:
-        try:
-          if idx == 0 and first_result is not Null:
-            r = first_result
-          else:
-            r = fn(items[idx])
-          if _isawaitable(r):
-            r = await r
-          results[idx] = r
-        except _Break as exc:
-          # _quent_idx: records which input item this worker was processing.
-          # _triage_iter_exceptions reads it to select the earliest-index
-          # failure when multiple concurrent workers raise simultaneously.
-          exc._quent_idx = idx  # type: ignore[attr-defined]  # dynamically attaching index for triage ordering
-          raise
-        except _ControlFlowSignal:
-          raise
-        except BaseException as exc:
-          exc._quent_idx = idx  # type: ignore[attr-defined]  # dynamically attaching index for triage ordering (see _Break handler above)
-          _set_link_temp_args(exc, link, item=items[idx], index=idx)
-          raise
+      try:
+        if idx == 0 and first_result is not Null:
+          r = first_result
+        else:
+          r = fn(items[idx])
+        if _isawaitable(r):
+          r = await r
+        results[idx] = r
+      except _Break as exc:
+        # _quent_idx: records which input item this worker was processing.
+        # _triage_iter_exceptions reads it to select the earliest-index
+        # failure when multiple concurrent workers raise simultaneously.
+        exc._quent_idx = idx  # type: ignore[attr-defined]  # dynamically attaching index for triage ordering
+        raise
+      except _ControlFlowSignal:
+        raise
+      except BaseException as exc:
+        exc._quent_idx = idx  # type: ignore[attr-defined]  # dynamically attaching index for triage ordering (see _Break handler above)
+        _set_link_temp_args(exc, link, item=items[idx], index=idx)
+        raise
+
+    _dispatch = _make_dispatch(_worker, effective_concurrency, n)
 
     # Mypy suppression notes for concurrent paths:
     # [attr-defined] on asyncio.TaskGroup — not available on Python 3.10
@@ -394,7 +404,7 @@ class _ConcurrentIterOp:
 
     # -- Path 1: Python 3.11+ TaskGroup --
     if _HAS_TASK_GROUP:
-      sub_excs = await _run_taskgroup(n, _worker)
+      sub_excs = await _run_taskgroup(n, _dispatch)
       if sub_excs is not None:
         triage = _triage_iter_exceptions(sub_excs, n, self._mode)
         if triage.action == 'return':
@@ -406,29 +416,17 @@ class _ConcurrentIterOp:
         raise sub_excs[0]
     else:
       # -- Path 2: Python 3.10 asyncio.gather fallback --
-      tasks: list[asyncio.Task[None]] = []
-      try:
-        for idx in range(n):
-          coro = _worker(idx)
-          try:
-            tasks.append(_create_task_fn(coro))
-          except BaseException:
-            coro.close()
-            raise
-      except BaseException:
-        # Partial task creation failure: cancel already-created tasks.
-        for t in tasks:
-          t.cancel()
-        raise
+      tasks = await _create_tasks_py310(n, _dispatch)
       try:
         await asyncio.gather(*tasks)
       except BaseException:
         await _cancel_pending_tasks(tasks)
-        task_exceptions: list[BaseException] = [
-          t.exception()  # type: ignore[misc]  # Future.exception() returns Optional; filtered by is not None
-          for t in tasks
-          if t.done() and not t.cancelled() and t.exception() is not None
-        ]
+        task_exceptions: list[BaseException] = []
+        for t in tasks:
+          if t.done() and not t.cancelled():
+            exc = t.exception()
+            if exc is not None:
+              task_exceptions.append(exc)
         triage = _triage_iter_exceptions(task_exceptions, n, self._mode)
         if triage.action == 'return':
           raise triage.exc from None  # type: ignore[misc]  # see block comment
@@ -459,7 +457,7 @@ class _ConcurrentIterOp:
     n = len(items)
     if n == 0:
       return []
-    results: list[Any] = [Null] * n
+    results: list[Any] = [_UNPROCESSED] * n
     fn = self._fn
     link = self._link
     batch_collect = self._batch_collect
@@ -473,7 +471,15 @@ class _ConcurrentIterOp:
         if isinstance(exc, _Break):
           return _handle_break_exc(exc, [])
         raise
-      # For n>1, capture for triage alongside threadpool exceptions.
+      # _Return at probe index 0 with n>1: propagate immediately — no need
+      # to submit remaining items to the thread pool.
+      if isinstance(exc, _Return):
+        raise
+      # _Break at probe index 0 with n>1: handle immediately — no results
+      # exist before index 0, so there is nothing to collect.
+      if isinstance(exc, _Break):
+        return _handle_break_exc(exc, [])
+      # Other control flow signals: capture for triage alongside threadpool exceptions.
       exc._quent_idx = 0  # type: ignore[attr-defined, unused-ignore]  # dynamically attaching index for triage ordering
       probe_exc = exc
     except BaseException as exc:

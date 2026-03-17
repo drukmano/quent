@@ -10,19 +10,21 @@ from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from concurrent.futures import Executor
 from typing import Any, ClassVar, Generic, NoReturn, ParamSpec, TypeVar, overload
 
-from ._engine import _run, _user_stacklevel
+from ._context import _MISSING, _ctx_get, _ctx_set
+from ._engine import _run
 from ._gather_ops import _make_gather
 from ._generator import ChainIterator
 from ._if_ops import _IfOp
 from ._iter_ops import _make_iter_op
 from ._link import _CLONE_SENTINEL, Link, _clone_link
+from ._traceback import _user_stacklevel
 from ._types import (
   Null,
   QuentException,
   _Break,
   _ControlFlowSignal,
   _Return,
-  _UnpicklableMixin,
+  _UncopyableMixin,
 )
 from ._validation import _normalize_exception_types, _require_callable, _validate_concurrency, _validate_executor
 from ._viz import _stringify_chain, _VizContext
@@ -35,14 +37,94 @@ else:
 
 _P = ParamSpec('_P')
 _R = TypeVar('_R')
-T = TypeVar('T')
-U = TypeVar('U')
+_T = TypeVar('_T')
+_U = TypeVar('_U')
 
 
-# ---- Chain ----
+class _SetDescriptor:
+  """Descriptor enabling dual-mode Chain.set().
+
+  Instance access -- ``chain.set(key)`` or ``chain.set(key, value)``:
+    Appends a pipeline step that stores a value under *key* in the
+    execution context.  With one arg, stores the current pipeline value;
+    with two, stores the explicit *value*.  Current value is unchanged
+    (like ``.do()``).  Returns the chain for fluent chaining.
+
+  Class access -- ``Chain.set(key, value)``:
+    Stores an explicit *value* under *key* in the execution context.
+    Not a pipeline step -- takes effect immediately. Returns ``None``.
+  """
+
+  @overload
+  def __get__(self, obj: Chain[Any], objtype: type | None = None) -> Callable[..., Chain[Any]]: ...
+  @overload
+  def __get__(self, obj: None, objtype: type) -> Callable[[str, Any], None]: ...
+
+  def __get__(self, obj: Any, objtype: Any = None) -> Any:
+    if obj is not None:
+      # Instance access: chain.set('key') or chain.set('key', value) -> pipeline step
+      def instance_set(key: str, value: Any = _MISSING) -> Any:
+        if value is _MISSING:
+
+          def _store(cv: Any = None) -> None:
+            _ctx_set(key, cv)
+
+          _store.__qualname__ = _store.__name__ = f'set({key!r})'
+        else:
+
+          def _store(cv: Any = None) -> None:
+            _ctx_set(key, value)
+
+          _store.__qualname__ = _store.__name__ = f'set({key!r}, ...)'
+
+        obj._require_no_pending_if('set')
+        return obj._then(_store, (), {}, ignore_result=True)
+
+      return instance_set
+    else:
+      # Class access: Chain.set('key', value) -> immediate store
+      def static_set(key: str, value: Any) -> None:
+        _ctx_set(key, value)
+
+      return static_set
 
 
-class Chain(Generic[T], _UnpicklableMixin):
+class _GetDescriptor:
+  """Descriptor enabling dual-mode Chain.get().
+
+  Instance access -- ``chain.get(key)`` or ``chain.get(key, default)``:
+    Appends a pipeline step that retrieves the value stored under *key*
+    from the execution context. The retrieved value replaces the current
+    value (like ``.then()``). Returns the chain for fluent chaining.
+
+  Class access -- ``Chain.get(key)`` or ``Chain.get(key, default)``:
+    Retrieves a value from the execution context immediately.
+    Not a pipeline step.
+  """
+
+  @overload
+  def __get__(self, obj: Chain[Any], objtype: type | None = None) -> Callable[..., Chain[Any]]: ...
+  @overload
+  def __get__(self, obj: None, objtype: type) -> Callable[..., Any]: ...
+
+  def __get__(self, obj: Any, objtype: Any = None) -> Any:
+    if obj is not None:
+      # Instance access: chain.get('key') -> pipeline step
+      def instance_get(key: str, default: Any = _MISSING) -> Any:
+        def _retrieve(cv: Any = None) -> Any:
+          return _ctx_get(key, default)
+
+        _retrieve.__qualname__ = _retrieve.__name__ = f'get({key!r})'
+        obj._require_no_pending_if('get')
+        return obj._then(_retrieve, (), {})
+
+      return instance_get
+    else:
+      # Class access: Chain.get('key') -> immediate retrieval
+      return _ctx_get
+
+
+class Chain(Generic[_T], _UncopyableMixin):
   """A sequential pipeline that transparently bridges sync and async execution.
 
   Chain is the core primitive of quent. It models a pipeline as a singly-linked
@@ -100,6 +182,9 @@ class Chain(Generic[T], _UnpicklableMixin):
   # running concurrently is a data race under free-threaded Python (PEP 703).
   on_step: ClassVar[Callable[[Chain[Any], str, Any, Any, int], None] | None] = None
 
+  set = _SetDescriptor()
+  get = _GetDescriptor()
+
   __slots__ = (
     '_if_predicate_link',
     '_name',
@@ -127,11 +212,11 @@ class Chain(Generic[T], _UnpicklableMixin):
   # ---- Construction ----
 
   @overload
-  def __init__(self, v: Callable[..., Awaitable[T]], /, *args: Any, **kwargs: Any) -> None: ...
+  def __init__(self, v: Callable[..., Awaitable[_T]], /, *args: Any, **kwargs: Any) -> None: ...
   @overload
-  def __init__(self, v: Callable[..., T], /, *args: Any, **kwargs: Any) -> None: ...
+  def __init__(self, v: Callable[..., _T], /, *args: Any, **kwargs: Any) -> None: ...
   @overload
-  def __init__(self, v: T, /) -> None: ...
+  def __init__(self, v: _T, /) -> None: ...
   @overload
   def __init__(self) -> None: ...
 
@@ -151,6 +236,8 @@ class Chain(Generic[T], _UnpicklableMixin):
       - ``Chain()`` → ``Chain[Any]`` (unbound)
     """
     self._name = None
+    if v is Null and (args or kwargs):
+      raise TypeError('Chain() keyword arguments require a root value as the first positional argument')
     self.root_link = Link(v, args, kwargs) if v is not Null else None
     self.first_link = None
     self.current_link = None
@@ -171,7 +258,7 @@ class Chain(Generic[T], _UnpicklableMixin):
     """Always True — prevents chains from being treated as falsy in boolean contexts."""
     return True
 
-  def __call__(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> T | Coroutine[Any, Any, T]:
+  def __call__(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> _T | Coroutine[Any, Any, _T]:
     """Alias for .run(). Allows calling the chain directly."""
     return self.run(v, *args, **kwargs)
 
@@ -266,11 +353,11 @@ class Chain(Generic[T], _UnpicklableMixin):
     return self  # fluent
 
   @overload
-  def then(self, v: Callable[..., Awaitable[U]], /, *args: Any, **kwargs: Any) -> Chain[U]: ...
+  def then(self, v: Callable[..., Awaitable[_U]], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
   @overload
-  def then(self, v: Callable[..., U], /, *args: Any, **kwargs: Any) -> Chain[U]: ...
+  def then(self, v: Callable[..., _U], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
   @overload
-  def then(self, v: U, /) -> Chain[U]: ...
+  def then(self, v: _U, /) -> Chain[_U]: ...
 
   def then(self, v: Any, /, *args: Any, **kwargs: Any) -> Chain[Any]:
     """Append a pipeline step whose result replaces the current value.
@@ -338,8 +425,8 @@ class Chain(Generic[T], _UnpicklableMixin):
   # ---- Pipeline building: iteration and concurrency ----
 
   def foreach(
-    self, fn: Callable[[Any], U], /, *, concurrency: int | None = None, executor: Executor | None = None
-  ) -> Chain[list[U]]:
+    self, fn: Callable[[Any], _U], /, *, concurrency: int | None = None, executor: Executor | None = None
+  ) -> Chain[list[_U]]:
     """Apply *fn* to each element of the current iterable, collecting results.
 
     The current pipeline value must be iterable. Each element is passed to
@@ -427,7 +514,7 @@ class Chain(Generic[T], _UnpicklableMixin):
     return self._then(_make_iter_op(inner, 'foreach_do', concurrency, executor), original_value=inner)
 
   def gather(
-    self, *fns: Callable[[T], Any], concurrency: int = -1, executor: Executor | None = None
+    self, *fns: Callable[[_T], Any], concurrency: int = -1, executor: Executor | None = None
   ) -> Chain[tuple[Any, ...]]:
     """Run multiple functions concurrently on the current value.
 
@@ -475,9 +562,9 @@ class Chain(Generic[T], _UnpicklableMixin):
   # ---- Pipeline building: context managers ----
 
   @overload
-  def with_(self, fn: Callable[..., Awaitable[U]], /, *args: Any, **kwargs: Any) -> Chain[U]: ...
+  def with_(self, fn: Callable[..., Awaitable[_U]], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
   @overload
-  def with_(self, fn: Callable[..., U], /, *args: Any, **kwargs: Any) -> Chain[U]: ...
+  def with_(self, fn: Callable[..., _U], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
 
   def with_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain[Any]:
     """Enter the current value as a context manager and run *fn* with it.
@@ -587,6 +674,31 @@ class Chain(Generic[T], _UnpicklableMixin):
     fn_link = Link(v, args, kwargs, ignore_result=ignore_result)
     return self._then(_IfOp(predicate_link, fn_link), original_value=fn_link)
 
+  def _validate_else_precondition(self, method: str) -> Link:
+    """Validate and return the last link for else_() / else_do()."""
+    if self._pending_if:
+      msg = (
+        f'{method}() called while if_() is still pending — '
+        f'add .then() or .do() between if_() and {method}(). '
+        f'Usage: chain.if_(pred).then(v).{method}(alt)'
+      )
+      raise QuentException(msg)
+    last = self.current_link if self.current_link is not None else self.first_link
+    if last is None:
+      msg = (
+        f'{method}() requires a preceding if_().then() — the chain has no steps yet. '
+        f'Usage: chain.if_(pred).then(v).{method}(alt)'
+      )
+      raise QuentException(msg)
+    if not isinstance(last.v, _IfOp):
+      msg = (
+        f'{method}() must follow immediately after if_().then() with no operations in between. '
+        f'The last operation in this chain is not if_(). '
+        f'Usage: chain.if_(pred).then(v).{method}(alt)'
+      )
+      raise QuentException(msg)
+    return last
+
   def else_(self, v: Any, /, *args: Any, **kwargs: Any) -> Self:
     """Register an else branch for the preceding ``.if_().then()`` step.
 
@@ -610,27 +722,7 @@ class Chain(Generic[T], _UnpicklableMixin):
 
         Chain(-5).if_(lambda x: x > 0).then(str).else_(abs).run()  # 5
     """
-    if self._pending_if:
-      msg = (
-        'else_() called while if_() is still pending — '
-        'add .then() or .do() between if_() and else_(). '
-        'Usage: chain.if_(pred).then(v).else_(alt)'
-      )
-      raise QuentException(msg)
-    last = self.current_link if self.current_link is not None else self.first_link
-    if last is None:
-      msg = (
-        'else_() requires a preceding if_().then() — the chain has no steps yet. '
-        'Usage: chain.if_(pred).then(v).else_(alt)'
-      )
-      raise QuentException(msg)
-    if not isinstance(last.v, _IfOp):
-      msg = (
-        'else_() must follow immediately after if_().then() with no operations in between. '
-        'The last operation in this chain is not if_(). '
-        'Usage: chain.if_(pred).then(v).else_(alt)'
-      )
-      raise QuentException(msg)
+    last = self._validate_else_precondition('else_')
     else_link = Link(v, args, kwargs)
     last.v.set_else(else_link)
     return self  # fluent
@@ -664,27 +756,7 @@ class Chain(Generic[T], _UnpicklableMixin):
         # returns: -5 (print's return value discarded, original value passes through)
     """
     _require_callable(fn, 'else_do', self)
-    if self._pending_if:
-      msg = (
-        'else_do() called while if_() is still pending — '
-        'add .then() or .do() between if_() and else_do(). '
-        'Usage: chain.if_(pred).then(v).else_do(fn)'
-      )
-      raise QuentException(msg)
-    last = self.current_link if self.current_link is not None else self.first_link
-    if last is None:
-      msg = (
-        'else_do() requires a preceding if_().then() — the chain has no steps yet. '
-        'Usage: chain.if_(pred).then(v).else_do(fn)'
-      )
-      raise QuentException(msg)
-    if not isinstance(last.v, _IfOp):
-      msg = (
-        'else_do() must follow immediately after if_().then() with no operations in between. '
-        'The last operation in this chain is not if_(). '
-        'Usage: chain.if_(pred).then(v).else_do(fn)'
-      )
-      raise QuentException(msg)
+    last = self._validate_else_precondition('else_do')
     else_link = Link(fn, args, kwargs, ignore_result=True)
     last.v.set_else(else_link)
     return self  # fluent
@@ -805,6 +877,21 @@ class Chain(Generic[T], _UnpicklableMixin):
     self.on_finally_link = Link(fn, args, kwargs)
     return self  # fluent
 
+  @staticmethod
+  def _wrap_escaped_signal(signal: _ControlFlowSignal, source: str) -> QuentException:
+    """Wrap a control flow signal that escaped the chain into a QuentException."""
+    msg = f'A {type(signal).__name__} signal escaped the chain via {source}().'
+    return QuentException(msg)
+
+  def _require_no_pending_if(self, method: str) -> None:
+    """Raise if an if_() is pending without a matching then()/do()."""
+    if self._pending_if:
+      msg = (
+        f'{method}() called with a pending .if_() that was never consumed by .then() or .do(). '
+        f'Usage: chain.if_(pred).then(v).{method}()'
+      )
+      raise QuentException(msg)
+
   # ---- Execution ----
 
   def _run(
@@ -828,7 +915,7 @@ class Chain(Generic[T], _UnpicklableMixin):
     """
     return _run(self, v, args, kwargs, is_nested)
 
-  def run(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> T | Coroutine[Any, Any, T]:
+  def run(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> _T | Coroutine[Any, Any, _T]:
     """Execute the chain and return the final pipeline value.
 
     This is the public entry point. It delegates to _run() (in
@@ -863,20 +950,16 @@ class Chain(Generic[T], _UnpicklableMixin):
 
         Chain(5).then(lambda x: x * 2).run()  # 10
     """
-    if self._pending_if:
-      msg = (
-        'run() called with a pending .if_() that was never consumed by .then() or .do(). '
-        'Usage: chain.if_(pred).then(v).run()'
-      )
-      raise QuentException(msg)
+    self._require_no_pending_if('run')
+    if v is Null and (args or kwargs):
+      raise TypeError('run() keyword arguments require a root value as the first positional argument')
     if v is not Null and (args or kwargs) and not callable(v):
       msg = f'run() received arguments but v is not callable (got {type(v).__name__})'
       raise TypeError(msg)
     try:
       return self._run(v, args, kwargs, is_nested=False)  # type: ignore[no-any-return]
     except _ControlFlowSignal as signal:
-      msg = f'A {type(signal).__name__} signal escaped the chain via run().'
-      raise QuentException(msg) from None
+      raise self._wrap_escaped_signal(signal, 'run') from None
 
   # ---- Utilities and iteration ----
 
@@ -896,12 +979,7 @@ class Chain(Generic[T], _UnpicklableMixin):
 
         get_name()  # 'ALICE'
     """
-    if self._pending_if:
-      msg = (
-        'decorator() called with a pending .if_() that was never consumed by .then() or .do(). '
-        'Usage: chain.if_(pred).then(v).decorator()'
-      )
-      raise QuentException(msg)
+    self._require_no_pending_if('decorator')
     chain = self.clone()
 
     def _decorator(fn: Callable[_P, _R]) -> Callable[_P, _R]:
@@ -909,15 +987,12 @@ class Chain(Generic[T], _UnpicklableMixin):
       def _wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         __tracebackhide__ = True
         try:
-          # Thread safety: is_nested=False is passed explicitly rather than
-          # relying on chain.is_nested.  The cloned chain is shared across all
-          # invocations of the decorated function, so chain.is_nested is shared
-          # mutable state.  The explicit parameter ensures correct behavior
-          # under concurrent calls.
+          # Thread safety: is_nested=False is passed explicitly as a parameter
+          # rather than as chain state.  This avoids shared mutable state when
+          # the cloned chain is invoked concurrently from multiple threads.
           return chain._run(fn, args, kwargs, is_nested=False)  # type: ignore[no-any-return]  # _run returns Any; decorator signature provides narrower _R for callers
         except _ControlFlowSignal as signal:
-          msg = f'A {type(signal).__name__} signal escaped the chain via decorator().'
-          raise QuentException(msg) from None
+          raise Chain._wrap_escaped_signal(signal, 'decorator') from None
 
       return _wrapper
 
@@ -940,18 +1015,19 @@ class Chain(Generic[T], _UnpicklableMixin):
         for item in Chain(range(5)).iterate(lambda x: x ** 2):
             print(item)  # 0, 1, 4, 9, 16
     """
-    if self._pending_if:
-      msg = (
-        'iterate() called with a pending .if_() that was never consumed by .then() or .do(). '
-        'Usage: chain.if_(pred).then(v).iterate()'
-      )
-      raise QuentException(msg)
+    self._require_no_pending_if('iterate')
     link = Link(fn) if fn is not None else None
     chain_run = functools.partial(_run, self)
     # Only retain chain/link references when fn is provided (needed for
     # traceback enhancement).  When fn is None, no per-item error handling
     # occurs, so the chain reference is unnecessary overhead.
-    return ChainIterator(chain_run, fn, ignore_result=False, chain=self if fn is not None else None, link=link)
+    return ChainIterator(
+      chain_run,
+      fn,
+      ignore_result=False,
+      chain=self if fn is not None or self.on_finally_link is not None else None,
+      link=link,
+    )
 
   def iterate_do(self, fn: Callable[[Any], Any] | None = None) -> ChainIterator[Any]:
     """Return a sync/async iterator, discarding *fn*'s return values.
@@ -970,15 +1046,16 @@ class Chain(Generic[T], _UnpicklableMixin):
         for item in Chain(range(3)).iterate_do(print):
             pass  # prints 0, 1, 2; yields 0, 1, 2
     """
-    if self._pending_if:
-      msg = (
-        'iterate_do() called with a pending .if_() that was never consumed by .then() or .do(). '
-        'Usage: chain.if_(pred).then(v).iterate_do()'
-      )
-      raise QuentException(msg)
+    self._require_no_pending_if('iterate_do')
     link = Link(fn) if fn is not None else None
     chain_run = functools.partial(_run, self)
-    return ChainIterator(chain_run, fn, ignore_result=True, chain=self if fn is not None else None, link=link)
+    return ChainIterator(
+      chain_run,
+      fn,
+      ignore_result=True,
+      chain=self if fn is not None or self.on_finally_link is not None else None,
+      link=link,
+    )
 
   def clone(self) -> Self:
     """Create an independent copy of this chain for fork-and-extend patterns.
@@ -997,6 +1074,7 @@ class Chain(Generic[T], _UnpicklableMixin):
         base = Chain().then(validate).then(normalize)
         for_api = base.clone().then(to_json)  # base is not modified
     """
+    self._require_no_pending_if('clone')
     cls = type(self)
     new = cls.__new__(cls)
     new._name = self._name
@@ -1033,3 +1111,31 @@ class Chain(Generic[T], _UnpicklableMixin):
         raise QuentException(f'clone() missing slots: {_missing}')
 
     return new
+
+  @classmethod
+  def from_steps(cls, *steps: Any) -> Self:
+    """Create a new chain from an iterable of steps.
+
+    Accepts either a flat sequence of steps as positional arguments, or a
+    single list/tuple argument containing the steps. Each step is appended
+    to the chain via ``_then()``.
+
+    Args:
+      *steps: Steps to add to the chain. If a single list or tuple is
+        passed, its contents are used as the steps.
+
+    Returns:
+      A new Chain with all steps appended.
+
+    Example::
+
+        Chain.from_steps(validate, normalize, str.upper).run('  hello  ')
+        Chain.from_steps([validate, normalize, str.upper]).run('  hello  ')
+    """
+    resolved: tuple[Any, ...] | list[Any] = steps
+    if len(steps) == 1 and isinstance(steps[0], (list, tuple)):
+      resolved = steps[0]
+    chain = cls()
+    for step in resolved:
+      chain._then(step)
+    return chain

@@ -8,14 +8,13 @@ execution traces including link results and async transitions.
 
 from __future__ import annotations
 
-import itertools
 import logging
+import threading
 import time
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ._eval import (
-  _EMPTY_TUPLE,
   _evaluate_value,
   _handle_return_exc,
   _isawaitable,
@@ -39,16 +38,33 @@ if TYPE_CHECKING:
 _log = logging.getLogger('quent')
 _perf_counter_ns = time.perf_counter_ns
 _DEBUG_LEVEL = logging.DEBUG
-_exec_counter = itertools.count()
+_exec_counter_lock = threading.Lock()
+_exec_counter_value = 0
 
 
-def _timing_ctx(chain: Chain[Any], on_step: Any = None) -> tuple[Any, bool, bool]:
+def _next_exec_id() -> int:
+  """Return a unique execution ID, safe under free-threaded Python (PEP 703).
+
+  Masked to 6 hex digits (0x000000-0xFFFFFF) per spec 14.5, wrapping after
+  16,777,215 executions to maintain the fixed-width ``[exec:XXXXXX]`` format.
+  """
+  global _exec_counter_value
+  with _exec_counter_lock:
+    val = _exec_counter_value
+    _exec_counter_value += 1
+  return val & 0xFFFFFF
+
+
+_UNSET_ON_STEP = object()
+
+
+def _timing_ctx(chain: Chain[Any], on_step: Any = _UNSET_ON_STEP) -> tuple[Any, bool, bool]:
   """Return (on_step, debug, needs_timing) for the given chain.
 
   ``on_step`` may be passed in from ``_run``'s call to ``_run_async`` (which
   already resolved it) to avoid a redundant ``type(chain).on_step`` lookup.
   """
-  _on_step = on_step if on_step is not None else type(chain).on_step
+  _on_step = type(chain).on_step if on_step is _UNSET_ON_STEP else on_step
   _debug = _log.isEnabledFor(_DEBUG_LEVEL)
   return _on_step, _debug, _on_step is not None or _debug
 
@@ -103,11 +119,10 @@ def _except_handler_body(
   try:
     _modify_traceback(exc, chain, link, root_link, is_nested=is_nested)
   except Exception as e:
+    _clean_exc_meta(exc)
     warnings.warn(f'quent: traceback enhancement failed: {e!r}', RuntimeWarning, stacklevel=_user_stacklevel())
   if chain.on_except_link is None:
     raise exc
-  if __debug__:
-    assert chain.on_except_exceptions is not None, 'on_except_exceptions must be set when on_except_link is set'
   if chain.on_except_exceptions is None:  # invariant: set when on_except_link is set
     raise QuentException('on_except_exceptions must be set when on_except_link is set')
   if not isinstance(exc, chain.on_except_exceptions):
@@ -132,15 +147,17 @@ def _except_handler_body(
 def _finally_handler_body(chain: Chain[Any], root_value: Any, root_link: Link | None, is_nested: bool = False) -> Any:
   """Evaluate the chain's finally handler and return its result."""
   __tracebackhide__ = True
+  assert chain.on_finally_link is not None  # guaranteed by caller
+  _finally_link = chain.on_finally_link
   try:
-    return _evaluate_value(chain.on_finally_link, _null_to_none(root_value))  # type: ignore[arg-type]  # on_finally_link is guaranteed non-None (checked by caller)
+    return _evaluate_value(_finally_link, _null_to_none(root_value))
   except _ControlFlowSignal as signal:
     raise QuentException(_signal_in_handler_msg(signal, 'finally')) from None
   except BaseException as exc_:
     if root_value is not Null:
-      _set_link_temp_args(exc_, chain.on_finally_link, root_value=root_value)  # type: ignore[arg-type]  # on_finally_link is guaranteed non-None (checked by caller)
+      _set_link_temp_args(exc_, _finally_link, root_value=root_value)
     try:
-      _modify_traceback(exc_, chain, chain.on_finally_link, root_link, is_nested=is_nested)
+      _modify_traceback(exc_, chain, _finally_link, root_link, is_nested=is_nested)
     except Exception as e:
       warnings.warn(f'quent: traceback enhancement failed: {e!r}', RuntimeWarning, stacklevel=_user_stacklevel())
     raise exc_
@@ -161,14 +178,16 @@ async def _await_finally_result(
   - Catching BaseException (stamps exception source, modifies traceback)
   """
   __tracebackhide__ = True
+  assert chain.on_finally_link is not None  # guaranteed by caller
+  _finally_link = chain.on_finally_link
   try:
     await finally_result
   except _ControlFlowSignal as signal:
     raise QuentException(_signal_in_handler_msg(signal, 'finally')) from None
   except BaseException as exc_:
     if root_value is not Null:
-      _set_link_temp_args(exc_, chain.on_finally_link, root_value=root_value)  # type: ignore[arg-type]  # on_finally_link is guaranteed non-None (checked by caller)
-    _modify_traceback(exc_, chain, chain.on_finally_link, root_link, is_nested=is_nested)
+      _set_link_temp_args(exc_, _finally_link, root_value=root_value)
+    _modify_traceback(exc_, chain, _finally_link, root_link, is_nested=is_nested)
     raise exc_
 
 
@@ -270,6 +289,7 @@ async def _async_except_handler(
   sync_t0: int = 0,
   is_nested: bool = False,
   exec_id: int = 0,
+  deferred_finally: list[Any] | None = None,
 ) -> Any:
   """Async transition: await except handler, then re-raise (reraise=True) or return result (reraise=False)."""
   __tracebackhide__ = True
@@ -295,11 +315,13 @@ async def _async_except_handler(
     except BaseException as handler_exc:
       if reraise:
         if not isinstance(handler_exc, Exception):
+          _clean_exc_meta(exc)
           _active_exc = handler_exc  # Ensure finally sees the true active exception
           raise  # BaseException (KeyboardInterrupt, SystemExit) propagates naturally
         _warn_except_handler_failed(exc, handler_exc)
         exc.__suppress_context__ = True
       else:
+        _clean_exc_meta(exc)
         _active_exc = handler_exc
         raise handler_exc from exc
     if _needs_timing and chain.on_except_link is not None:
@@ -313,7 +335,11 @@ async def _async_except_handler(
     _active_exc = None
     return _null_to_none(result)
   finally:
-    if chain.on_finally_link is not None:
+    if deferred_finally is not None:
+      deferred_finally[0] = root_value
+      deferred_finally[1] = root_link
+      deferred_finally[2] = exec_id
+    elif chain.on_finally_link is not None:
       await _run_async_finally(chain, root_value, root_link, _active_exc, is_nested=is_nested, exec_id=exec_id)
 
 
@@ -323,8 +349,14 @@ def _record_exception_source(exc: BaseException, link: Link | None, current_valu
   First-write-wins: only the innermost failing link is recorded. Temp args
   are attached when the link has no explicit args and isn't a chain or
   operation, so the traceback can show what value was flowing through.
+
+  Also cleans the ad-hoc ``_quent_idx`` attribute that concurrent workers
+  may have attached — this is defense-in-depth to ensure it never leaks
+  onto exceptions visible to user code, even for BaseException subclasses
+  that bypass ``_modify_traceback`` / ``_clean_exc_meta``.
   """
   __tracebackhide__ = True
+  _clean_quent_idx(exc)
   meta = _get_exc_meta(exc)
   if meta.get(META_SOURCE_LINK) is None and link is not None:
     meta[META_SOURCE_LINK] = link
@@ -456,9 +488,10 @@ def _record_finally_step(
   Shared by ``_run_sync_finally`` and ``_run_async_finally``. The caller
   must verify ``_needs_timing`` before calling.
   """
+  assert chain.on_finally_link is not None  # guaranteed by caller
   _record_step(
     chain,
-    chain.on_finally_link,  # type: ignore[arg-type]  # on_finally_link is guaranteed non-None (checked by caller)
+    chain.on_finally_link,
     root_link,
     _null_to_none(root_value),
     result,
@@ -487,10 +520,11 @@ def _record_except_step(
   caller must verify ``_needs_timing and chain.on_except_link is not None``
   before calling.
   """
+  assert chain.on_except_link is not None  # guaranteed by caller
   _except_input = ChainExcInfo(exc=exc, root_value=_null_to_none(root_value))
   _record_step(
     chain,
-    chain.on_except_link,  # type: ignore[arg-type]  # on_except_link is guaranteed non-None (checked by caller)
+    chain.on_except_link,
     root_link,
     _except_input,
     result,
@@ -505,7 +539,7 @@ def _record_except_step(
 # ---- Sync except-handler dispatch ----
 
 
-class _SyncExceptResult:
+class _SyncExceptResult(NamedTuple):
   """State returned by ``_run_sync_except_handler`` to its caller.
 
   Bundles the updated execution state so ``_run`` can apply it without
@@ -513,21 +547,11 @@ class _SyncExceptResult:
   handler returned an awaitable and the caller should ``return`` it.
   """
 
-  __slots__ = ('active_exc', 'async_coro', 'exc_to_propagate', 'ignore_finally', 'sync_result')
-
-  def __init__(
-    self,
-    ignore_finally: bool,
-    active_exc: BaseException | None,
-    exc_to_propagate: BaseException | None,
-    sync_result: Any,
-    async_coro: Any,
-  ) -> None:
-    self.ignore_finally = ignore_finally
-    self.active_exc = active_exc
-    self.exc_to_propagate = exc_to_propagate
-    self.sync_result = sync_result
-    self.async_coro = async_coro
+  ignore_finally: bool
+  active_exc: BaseException | None
+  exc_to_propagate: BaseException | None
+  sync_result: Any
+  async_coro: Any
 
 
 def _run_sync_except_handler(
@@ -542,6 +566,7 @@ def _run_sync_except_handler(
   _on_step: Any,
   _debug: bool,
   _exec_id: int,
+  deferred_finally: list[Any] | None = None,
 ) -> _SyncExceptResult:
   """Dispatch the except handler in the sync execution path.
 
@@ -583,6 +608,8 @@ def _run_sync_except_handler(
       # without _warn_except_handler_failed — this is intentional (system
       # signals should not be delayed by warning logic).  Note: _active_exc
       # is updated so the finally handler sees the most recent active exception.
+      if propagating_exc is not exc:
+        _clean_exc_meta(exc)
       _active_exc = propagating_exc
       _exc_to_propagate = propagating_exc
   else:
@@ -601,6 +628,7 @@ def _run_sync_except_handler(
         sync_t0=_t0_exc if _needs_timing else 0,
         is_nested=is_nested,
         exec_id=_exec_id,
+        deferred_finally=deferred_finally,
       )
       return _SyncExceptResult(
         ignore_finally=True,
@@ -639,6 +667,7 @@ def _run_sync_finally_dispatch(
   root_link: Link | None,
   _active_exc: BaseException | None,
   _sync_result: Any,
+  _exc_to_propagate: BaseException | None = None,
   *,
   is_nested: bool,
   exec_id: int,
@@ -659,9 +688,15 @@ def _run_sync_finally_dispatch(
     elif _sync_result is not Null:
       # Success path: wrap the finally coroutine with the chain result.
       return _async_finally_transition(_fin_coro, _sync_result, None, chain, root_value, root_link, is_nested=is_nested)
+    elif _exc_to_propagate is not None:
+      # Control flow signal propagating (e.g., nested _Break/_Return) — still need
+      # to await the finally handler to honor the "always runs" contract (spec §6.3.2).
+      return _async_finally_transition(
+        _fin_coro, Null, _exc_to_propagate, chain, root_value, root_link, is_nested=is_nested
+      )
     else:
-      # Edge case: exception propagating but not captured in _active_exc
-      # (e.g., nested _Break/_Return). Close the coro to avoid ResourceWarning.
+      # Defensive: no active exception, no result, no propagating exception.
+      # Close the coro to avoid ResourceWarning.
       if hasattr(_fin_coro, 'close'):
         _fin_coro.close()
   return None
@@ -727,6 +762,7 @@ async def _run_async_except_dispatch(
       except BaseException as handler_exc:
         if chain.on_except_reraise:
           if not isinstance(handler_exc, Exception):
+            _clean_exc_meta(exc)
             _active_exc = handler_exc  # Ensure finally sees the true active exception
             raise  # BaseException (KeyboardInterrupt, SystemExit) propagates naturally
           # reraise=True: handler ran for side-effects only; re-raise original.
@@ -740,6 +776,7 @@ async def _run_async_except_dispatch(
             True  # Prevent circular/misleading chain: handler failure already logged via _warn_except_handler_failed
           )
           raise exc  # noqa: B904
+        _clean_exc_meta(exc)
         _active_exc = handler_exc
         raise handler_exc from exc
     if _needs_timing and chain.on_except_link is not None:
@@ -774,7 +811,7 @@ def _resolve_root_link(
 
   Returns ``(link, root_link)`` after handling:
   - Run-value dispatch: wraps ``v`` in a synthetic root link.
-  - kwargs-only dispatch: merges caller args/kwargs into the existing root.
+  - kwargs-only dispatch: replaces root args/kwargs with caller's args/kwargs.
   - Passthrough: uses ``chain.root_link`` or ``chain.first_link``.
   - Validates the root_link invariant (no ``ignore_result``).
   """
@@ -784,13 +821,10 @@ def _resolve_root_link(
     link.next_link = chain.first_link
     root_link = link
   elif (args or kwargs) and root_link is not None:
-    # kwargs-only dispatch (v is Null): merge the caller's args/kwargs
-    # into a synthetic root link that wraps the chain's existing root
-    # callable.  This supports nested chain kwargs-only invocation:
-    #   .then(inner_chain, key=val)  ->  inner_chain runs with kwargs only
-    merged_args = (*(root_link.args or _EMPTY_TUPLE), *(args or _EMPTY_TUPLE))
-    merged_kwargs = {**(root_link.kwargs or {}), **(kwargs or {})}
-    link = Link(root_link.v, merged_args or None, merged_kwargs or None)
+    # kwargs-only dispatch (v is Null): caller's args/kwargs replace
+    # the root link's build-time args/kwargs entirely.
+    # Supports nested chain invocation: .then(inner_chain, key=val)
+    link = Link(root_link.v, args or None, kwargs or None)
     link.next_link = root_link.next_link
     root_link = link
   elif root_link is not None:
@@ -816,6 +850,8 @@ def _run(
   args: tuple[Any, ...] | None,
   kwargs: dict[str, Any] | None,
   is_nested: bool = False,
+  *,
+  deferred_finally: list[Any] | None = None,
 ) -> Any:
   """Synchronous execution engine.
 
@@ -848,8 +884,8 @@ def _run(
   ignore_finally = False  # True when _run_async handles cleanup
   _on_step = type(chain).on_step
   if _on_step is not None or _log.isEnabledFor(_DEBUG_LEVEL):
-    _on_step, _debug, _needs_timing = _timing_ctx(chain)
-    _exec_id = next(_exec_counter)
+    _on_step, _debug, _needs_timing = _timing_ctx(chain, _on_step)
+    _exec_id = _next_exec_id()
   else:
     _debug = False
     _needs_timing = False
@@ -868,6 +904,11 @@ def _run(
 
   try:
     link, root_link = _resolve_root_link(chain, v, args, kwargs, root_link, has_run_value)
+
+    if __debug__:
+      # Invariant: root_link never has ignore_result (validated by _resolve_root_link,
+      # but asserted here as a safety net per JPL Rule 5 — assertions at invariant points).
+      assert root_link is None or not root_link.ignore_result, 'root_link must not have ignore_result=True'
 
     # Link-walk loop (sync path).  The async counterpart lives in
     # _run_async().  Shared logic: _record_step().  Differences:
@@ -909,6 +950,7 @@ def _run(
           sync_input_value=_input_value if _needs_timing else None,
           on_step=_on_step,
           exec_id=_exec_id,
+          deferred_finally=deferred_finally,
         )
       if _needs_timing:
         _record_step(chain, link, root_link, _input_value, result, _t0, _on_step, _debug, exec_id=_exec_id)
@@ -930,6 +972,10 @@ def _run(
         current_value = result
       link = link.next_link
 
+    if __debug__:
+      # Invariant: loop walked to end of list (no early exit except via return/raise).
+      assert link is None, 'link-walk loop exited with link still set'
+
     if _debug:
       _log.debug('[exec:%06x] chain %r: completed -> %s', _exec_id, chain, _debug_repr(_null_to_none(current_value)))
     # If all steps were .do() (ignore_result=True) with no root value,
@@ -937,9 +983,13 @@ def _run(
     _sync_result = _null_to_none(current_value)
 
   except _Return as exc:
+    if _debug:
+      _log.debug('[exec:%06x] chain %r: early return', _exec_id, chain)
     _sync_result = _handle_return_exc(exc, is_nested)
 
   except _Break as exc:
+    if _debug:
+      _log.debug('[exec:%06x] chain %r: break signal', _exec_id, chain)
     if is_nested:
       _exc_to_propagate = exc
     else:
@@ -964,6 +1014,7 @@ def _run(
       _on_step=_on_step,
       _debug=_debug,
       _exec_id=_exec_id,
+      deferred_finally=deferred_finally,
     )
     ignore_finally = _seh.ignore_finally
     _active_exc = _seh.active_exc
@@ -974,13 +1025,18 @@ def _run(
       return _seh.async_coro
 
   finally:
-    if not ignore_finally and chain.on_finally_link is not None:
+    if deferred_finally is not None and not ignore_finally:
+      deferred_finally[0] = root_value
+      deferred_finally[1] = root_link
+      deferred_finally[2] = _exec_id
+    elif not ignore_finally and chain.on_finally_link is not None:
       _fin_override = _run_sync_finally_dispatch(
         chain,
         root_value,
         root_link,
         _active_exc,
         _sync_result,
+        _exc_to_propagate,
         is_nested=is_nested,
         exec_id=_exec_id,
       )
@@ -1009,6 +1065,7 @@ async def _run_async(
   sync_input_value: Any = None,
   on_step: Any = None,
   exec_id: int = 0,
+  deferred_finally: list[Any] | None = None,
 ) -> Any:
   """Async continuation of the execution engine.
 
@@ -1029,6 +1086,10 @@ async def _run_async(
 
   if _debug:
     _log.debug('[exec:%06x] chain %r: async continuation started', exec_id, chain)
+
+  if __debug__:
+    # Invariant carried from _run(): root_link never has ignore_result.
+    assert root_link is None or not root_link.ignore_result, 'root_link must not have ignore_result=True'
 
   try:
     # Complete the in-progress step handed off from _run().
@@ -1074,17 +1135,25 @@ async def _run_async(
         current_value = result
       next_link = link.next_link
 
+    if __debug__:
+      # Invariant: loop walked to end of list (no early exit except via return/raise).
+      assert next_link is None, 'link-walk loop exited with next_link still set'
+
     if _debug:
       _log.debug('[exec:%06x] chain %r: completed -> %s', exec_id, chain, _debug_repr(_null_to_none(current_value)))
     return _null_to_none(current_value)
 
   except _Return as exc:
+    if _debug:
+      _log.debug('[exec:%06x] chain %r: early return', exec_id, chain)
     result = _handle_return_exc(exc, is_nested)
     if _isawaitable(result):
       return await result
     return result
 
   except _Break:
+    if _debug:
+      _log.debug('[exec:%06x] chain %r: break signal', exec_id, chain)
     if is_nested:
       raise
     msg = 'Chain.break_() cannot be used outside of a foreach/foreach_do iteration.'
@@ -1115,5 +1184,9 @@ async def _run_async(
       raise
 
   finally:
-    if chain.on_finally_link is not None:
+    if deferred_finally is not None:
+      deferred_finally[0] = root_value
+      deferred_finally[1] = root_link
+      deferred_finally[2] = exec_id
+    elif chain.on_finally_link is not None:
       await _run_async_finally(chain, root_value, root_link, _active_exc, is_nested=is_nested, exec_id=exec_id)

@@ -10,30 +10,31 @@ from typing import Any
 from ._types import QuentException
 
 
+def _chain_suffix(chain: Any) -> str:
+  """Format a chain name suffix for error messages."""
+  if chain is not None and getattr(chain, '_name', None) is not None:
+    return f' (in chain {chain._name!r})'
+  return ''
+
+
 def _require_callable(v: Any, method: str, chain: Any = None) -> None:
   """Raise TypeError if *v* is not callable."""
   if not callable(v):
-    chain_suffix = (
-      f' (in chain {chain._name!r})' if chain is not None and getattr(chain, '_name', None) is not None else ''
-    )
-    msg = f'{method}() requires a callable, got {type(v).__name__}{chain_suffix}'
+    msg = f'{method}() requires a callable, got {type(v).__name__}{_chain_suffix(chain)}'
     raise TypeError(msg)
 
 
 def _validate_concurrency(concurrency: int | None, method: str, chain: Any = None) -> None:
   """Validate the concurrency parameter for iteration and gather operations."""
   if concurrency is not None:
-    chain_suffix = (
-      f' (in chain {chain._name!r})' if chain is not None and getattr(chain, '_name', None) is not None else ''
-    )
+    suffix = _chain_suffix(chain)
     if isinstance(concurrency, bool) or not isinstance(concurrency, int):
       msg = (
-        f'{method}() concurrency must be a positive integer or -1 (unbounded), '
-        f'got {type(concurrency).__name__}{chain_suffix}'
+        f'{method}() concurrency must be a positive integer or -1 (unbounded), got {type(concurrency).__name__}{suffix}'
       )
       raise TypeError(msg)
     if concurrency != -1 and concurrency < 1:
-      msg = f'{method}() concurrency must be -1 (unbounded) or a positive integer, got {concurrency}{chain_suffix}'
+      msg = f'{method}() concurrency must be -1 (unbounded) or a positive integer, got {concurrency}{suffix}'
       raise ValueError(msg)
 
 
