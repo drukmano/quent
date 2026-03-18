@@ -26,7 +26,7 @@ error response instead of raising.
 
 ```python
 import logging
-from quent import Chain
+from quent import Q
 
 log = logging.getLogger(__name__)
 
@@ -34,10 +34,10 @@ def fetch_and_parse(url):
   """Fetch, parse, and validate a JSON API response.
 
   Works with both sync (requests) and async (aiohttp) HTTP clients --
-  the same chain handles either transparently.
+  the same pipeline handles either transparently.
   """
   return (
-    Chain(url)
+    Q(url)
     .then(http_client.get)
     .then(lambda r: r.json())
     .then(validate_response)
@@ -58,7 +58,7 @@ result = await fetch_and_parse('https://api.example.com/data')
 
 Key points:
 
-- **`except_` receives a single `ChainExcInfo(exc, root_value)` NamedTuple.** Access the exception via `.exc` and the root value via `.root_value`.
+- **`except_` receives a single `QuentExcInfo(exc, root_value)` NamedTuple.** Access the exception via `.exc` and the root value via `.root_value`.
 - **`finally_` also receives the root value.** It logs regardless of success or failure. Its return value is always discarded.
 
 ---
@@ -67,11 +67,11 @@ Key points:
 
 An ETL-style pipeline: extract records from a source, log counts, filter invalid
 entries, normalize the valid ones, and load them into a database. `.do()` steps
-log progress without altering the data flowing through the chain.
+log progress without altering the data flowing through the pipeline.
 
 ```python
 import logging
-from quent import Chain
+from quent import Q
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def normalize(record):
   }
 
 pipeline = (
-  Chain()
+  Q()
   .then(extract_records)
   .do(lambda records: log.info('Extracted %d records', len(records)))
   .then(lambda records: [r for r in records if is_valid(r)])
@@ -115,14 +115,14 @@ Read a file, process its content, and return the result. The context manager
 ensures the file handle is properly closed even if processing raises.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def process_content(text):
   lines = text.strip().splitlines()
   return [line for line in lines if not line.startswith('#')]
 
 result = (
-  Chain(input_path)
+  Q(input_path)
   .then(open)
   .with_(lambda f: f.read())
   .then(process_content)
@@ -133,19 +133,19 @@ result = (
 For a write-after-read pattern with two context managers:
 
 ```python
-from quent import Chain
+from quent import Q
 
 def transform(text):
   return text.upper()
 
 def read_and_write(input_path, output_path):
   return (
-    Chain(input_path)
+    Q(input_path)
     .then(open)
     .with_(lambda f: f.read())
     .then(transform)
     .do(lambda content: (
-      Chain(output_path)
+      Q(output_path)
       .then(lambda p: open(p, 'w'))
       .with_(lambda f: f.write(content))
       .run()
@@ -162,34 +162,34 @@ Key points:
 
 ---
 
-## Validation Chain with Early Return
+## Validation Pipeline with Early Return
 
-Multi-step validation where each step can short-circuit the chain by returning
-early. If any check fails, the chain exits immediately with a structured error.
+Multi-step validation where each step can short-circuit the pipeline by returning
+early. If any check fails, the pipeline exits immediately with a structured error.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def check_required(data):
   if not data.get('name'):
-    return Chain.return_({'valid': False, 'error': 'name is required'})
+    return Q.return_({'valid': False, 'error': 'name is required'})
   if not data.get('email'):
-    return Chain.return_({'valid': False, 'error': 'email is required'})
+    return Q.return_({'valid': False, 'error': 'email is required'})
   return data
 
 def check_format(data):
   if '@' not in data.get('email', ''):
-    return Chain.return_({'valid': False, 'error': 'invalid email format'})
+    return Q.return_({'valid': False, 'error': 'invalid email format'})
   return data
 
 def check_permissions(data):
   if data.get('role') not in ('admin', 'user'):
-    return Chain.return_({'valid': False, 'error': 'invalid role'})
+    return Q.return_({'valid': False, 'error': 'invalid role'})
   return data
 
 def validate(data):
   return (
-    Chain(data)
+    Q(data)
     .then(check_required)
     .then(check_format)
     .then(check_permissions)
@@ -207,9 +207,9 @@ result = validate({'name': 'Bob'})
 
 Key points:
 
-- **`Chain.return_(value)` exits the chain immediately.** Must be used as `return Chain.return_(...)`.
+- **`Q.return_(value)` exits the pipeline immediately.** Must be used as `return Q.return_(...)`.
 - **`except_` is a safety net.** Catches unexpected exceptions. Control flow signals (`return_`, `break_`) bypass `except_`.
-- **Validators are plain functions.** They receive data, check it, and either return it or call `Chain.return_()`.
+- **Validators are plain functions.** They receive data, check it, and either return it or call `Q.return_()`.
 
 ---
 
@@ -218,7 +218,7 @@ Key points:
 Enrich a user record by fetching data from multiple sources simultaneously.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def get_preferences(user):
   return db.query('SELECT * FROM prefs WHERE user_id = %s', user['id'])
@@ -230,7 +230,7 @@ def get_recommendations(user):
   return ml_service.recommend(user['id'])
 
 enriched = (
-  Chain(user_id)
+  Q(user_id)
   .then(fetch_user)
   .gather(
     get_preferences,
@@ -260,10 +260,10 @@ Key points:
 Route data through different processing paths based on a runtime condition.
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(request)
+  Q(request)
   .if_(lambda r: r.content_type == 'application/json').then(parse_json)
   .else_(parse_xml)
   .then(validate)
@@ -275,11 +275,11 @@ result = (
 When the predicate is `None`, the truthiness of the current value is used:
 
 ```python
-from quent import Chain
+from quent import Q
 
 def fetch_cached(key):
   return (
-    Chain(key)
+    Q(key)
     .then(cache.get)
     .if_().then(lambda v: v)          # truthy -> cache hit
     .else_(lambda _: db.fetch(key))  # falsy -> cache miss
@@ -300,29 +300,29 @@ Key points:
 Process items one at a time, stopping when a condition is met.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def process_item(item):
   result = transform(item)
   if result.get('found'):
-    return Chain.break_(result)  # stop, yield this as final item
+    return Q.break_(result)  # stop, yield this as final item
   return result
 
 # Sync
-for result in Chain(items).iterate(process_item):
+for result in Q(items).iterate(process_item):
   if result.get('found'):
     return result
 
-# Async -- same chain, same iterate() call
-async for result in Chain(items).iterate(process_item):
+# Async -- same pipeline, same iterate() call
+async for result in Q(items).iterate(process_item):
   if result.get('found'):
     return result
 ```
 
 Key points:
 
-- **`.iterate(fn)` yields each element** of the chain's output. If `fn` is provided, it transforms each element.
-- **`Chain.break_(value)` stops iteration early.** The optional value is yielded as the final element.
+- **`.iterate(fn)` yields each element** of the pipeline's output. If `fn` is provided, it transforms each element.
+- **`Q.break_(value)` stops iteration early.** The optional value is yielded as the final element.
 - **Same definition, both iteration modes.** `__iter__` for sync, `__aiter__` for async.
 
 ---
@@ -334,7 +334,7 @@ A reusable retry wrapper using nested chains and `except_()`.
 ```python
 import time
 import random
-from quent import Chain
+from quent import Q
 
 def retry(fn, *, max_attempts=3, base_delay=0.1):
   """Wrap a callable with exponential backoff retry."""
@@ -353,7 +353,7 @@ def retry(fn, *, max_attempts=3, base_delay=0.1):
 
 # Use in a pipeline
 result = (
-  Chain('https://api.example.com/data')
+  Q('https://api.example.com/data')
   .then(retry(http_client.get, max_attempts=4, base_delay=0.05))
   .then(lambda r: r.json())
   .except_(lambda ei: {'error': str(ei.exc), 'url': ei.root_value})
@@ -391,7 +391,7 @@ Prevent cascading failures by tracking error rates with a closure.
 
 ```python
 import time
-from quent import Chain
+from quent import Q
 
 def make_circuit_breaker(threshold=5, reset_timeout=30):
   """Create a circuit breaker that opens after `threshold` failures."""
@@ -399,7 +399,7 @@ def make_circuit_breaker(threshold=5, reset_timeout=30):
 
   def check_circuit(value):
     if time.monotonic() < state['open_until']:
-      return Chain.return_({'error': 'circuit open', 'retry_after': state['open_until'] - time.monotonic()})
+      return Q.return_({'error': 'circuit open', 'retry_after': state['open_until'] - time.monotonic()})
     return value
 
   def on_success(result):
@@ -416,7 +416,7 @@ def make_circuit_breaker(threshold=5, reset_timeout=30):
 check, on_ok, on_fail = make_circuit_breaker(threshold=3, reset_timeout=60)
 
 result = (
-  Chain(request)
+  Q(request)
   .then(check)
   .then(call_service)
   .do(on_ok)
@@ -432,11 +432,11 @@ result = (
 Process items concurrently with a bounded concurrency limit.
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Process at most 4 items concurrently
 results = (
-  Chain(urls)
+  Q(urls)
   .foreach(fetch_and_parse, concurrency=4)
   .then(lambda results: [r for r in results if r['status'] == 'ok'])
   .run()
@@ -444,7 +444,7 @@ results = (
 
 # Gather with a concurrency cap
 result = (
-  Chain(user_id)
+  Q(user_id)
   .gather(
     get_profile,
     get_orders,
@@ -470,7 +470,7 @@ Memoize expensive computations using a wrapper.
 
 ```python
 from functools import lru_cache
-from quent import Chain
+from quent import Q
 
 @lru_cache(maxsize=128)
 def expensive_transform(data):
@@ -478,7 +478,7 @@ def expensive_transform(data):
   return complex_algorithm(data)
 
 result = (
-  Chain(raw_data)
+  Q(raw_data)
   .then(normalize)
   .then(expensive_transform)
   .then(format_output)
@@ -489,7 +489,7 @@ result = (
 For a more sophisticated cache-through pattern:
 
 ```python
-from quent import Chain
+from quent import Q
 
 def make_cache_steps(cache, key_fn):
   """Return (check, store) callables for cache-through logic."""
@@ -497,7 +497,7 @@ def make_cache_steps(cache, key_fn):
     key = key_fn(value)
     cached = cache.get(key)
     if cached is not None:
-      return Chain.return_(cached)
+      return Q.return_(cached)
     return value
 
   def store_result(result):
@@ -508,7 +508,7 @@ def make_cache_steps(cache, key_fn):
 check_cache, store_result = make_cache_steps(redis_cache, lambda uid: f'user:{uid}')
 
 result = (
-  Chain(user_id)
+  Q(user_id)
   .then(check_cache)
   .then(fetch_user)
   .then(enrich_profile)
@@ -524,7 +524,7 @@ result = (
 Lazy processing of large datasets using `iterate()`.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def fetch_pages():
   """Generator that yields pages of data."""
@@ -537,11 +537,11 @@ def fetch_pages():
     page += 1
 
 # Process items lazily -- only one page at a time in memory
-for item in Chain(fetch_pages).iterate(transform):
+for item in Q(fetch_pages).iterate(transform):
   save(item)
 
 # Async variant
-async for item in Chain(async_fetch_pages).iterate(async_transform):
+async for item in Q(async_fetch_pages).iterate(async_transform):
   await save(item)
 ```
 
@@ -552,11 +552,11 @@ async for item in Chain(async_fetch_pages).iterate(async_transform):
 Split processing across multiple functions, then merge results.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def analyze_text(text):
   return (
-    Chain(text)
+    Q(text)
     .gather(
       count_words,
       detect_language,
@@ -576,16 +576,16 @@ def analyze_text(text):
 For nested fan-out where gathered results are further processed:
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(document)
+  Q(document)
   .gather(
     extract_metadata,
     extract_content,
   )
   .then(lambda r: (
-    Chain(r[1])
+    Q(r[1])
     .gather(
       summarize,
       classify,
@@ -610,7 +610,7 @@ result = (
 A Redis pipeline wrapper that works with both sync and async clients.
 
 ```python
-from quent import Chain
+from quent import Q
 
 class RedisBatch:
   def __init__(self, r, transaction=False):
@@ -626,7 +626,7 @@ class RedisBatch:
     for op in self.operations:
       op(pipe)
     return (
-      Chain(pipe.execute)
+      Q(pipe.execute)
       .then(self.process_results)
       .finally_(lambda _: pipe.reset())
       .run()
@@ -664,7 +664,7 @@ Wrap async operations with a timeout.
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 async def with_timeout(fn, timeout_seconds):
   """Wrap an async callable with a timeout."""
@@ -673,7 +673,7 @@ async def with_timeout(fn, timeout_seconds):
   return wrapper
 
 result = await (
-  Chain(url)
+  Q(url)
   .then(with_timeout(fetch, 10.0))
   .then(parse_response)
   .except_(

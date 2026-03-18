@@ -1,6 +1,6 @@
 ---
 title: "Getting Started with Quent"
-description: "Learn how to install quent and build your first Python pipeline chain. Covers value flow, calling conventions, collection operations, and running chains sync or async."
+description: "Learn how to install quent and build your first Python pipeline. Covers value flow, calling conventions, collection operations, and running pipelines sync or async."
 tags:
   - tutorial
   - getting started
@@ -22,15 +22,15 @@ pip install quent
 
 quent requires **Python 3.10** or later and has **zero runtime dependencies** -- it is pure Python.
 
-## Your First Chain
+## Your First Pipeline
 
-A `Chain` is a sequential pipeline. You add steps with `.then()`, and execute with `.run()`:
+A `Q` object is a sequential pipeline. You add steps with `.then()`, and execute with `.run()`:
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(5)
+  Q(5)
   .then(lambda x: x * 2)   # 5 * 2 = 10
   .then(lambda x: x + 3)   # 10 + 3 = 13
   .run()
@@ -40,10 +40,10 @@ result = (
 
 Here is what happens:
 
-1. `Chain(5)` creates a chain with root value `5`.
+1. `Q(5)` creates a pipeline with root value `5`.
 2. The first `.then()` receives `5`, returns `10`. This **replaces** the current value.
 3. The second `.then()` receives `10`, returns `13`.
-4. `.run()` executes the chain and returns the final value.
+4. `.run()` executes the pipeline and returns the final value.
 
 Every `.then()` call appends a step to the pipeline. The result of each step becomes the input to the next.
 
@@ -53,19 +53,19 @@ Every `.then()` call appends a step to the pipeline. The result of each step bec
 
 ### The Pipeline Model
 
-A chain is a sequential pipeline modeled as a singly-linked list. Steps are appended in O(1) time. Execution walks head-to-tail, threading a **current value** through each step.
+A pipeline is a sequential pipeline modeled as a singly-linked list. Steps are appended in O(1) time. Execution walks head-to-tail, threading a **current value** through each step.
 
 - **Build time:** You construct the pipeline by calling `.then()`, `.do()`, `.foreach()`, etc. Each call appends a step.
 - **Run time:** `.run()` walks the pipeline, evaluating each step in order.
 
-Building is mutable (appending changes the chain). Execution is immutable (the pipeline structure is never modified during execution). A fully constructed chain can be executed concurrently from multiple threads.
+Building is mutable (appending changes the pipeline). Execution is immutable (the pipeline structure is never modified during execution). A fully constructed pipeline can be executed concurrently from multiple threads.
 
 ### Value Threading
 
 The pipeline threads a single value from step to step:
 
 ```
-Chain(root)          root is evaluated -> current_value = result
+Q(root)          root is evaluated -> current_value = result
   .then(f)           f(current_value) -> current_value = result
   .do(g)             g(current_value) -> result discarded, current_value unchanged
   .then(h)           h(current_value) -> current_value = result
@@ -76,13 +76,13 @@ When the pipeline completes with no value ever having been produced, the result 
 
 ### Sync/Async Transparency
 
-This is quent's defining feature. A single chain definition works for both sync and async callables:
+This is quent's defining feature. A single pipeline definition works for both sync and async callables:
 
 ```python
-from quent import Chain
+from quent import Q
 
 pipeline = (
-  Chain()
+  Q()
   .then(fetch)
   .then(validate)
   .then(transform)
@@ -115,10 +115,10 @@ The two most common methods are `.then()` and `.do()`. They differ in one critic
 - **`.do(fn)`** -- fn runs as a **side-effect**. Its result is **discarded**, and the current value passes through unchanged.
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(10)
+  Q(10)
   .then(lambda x: x * 2)  # receives 10, returns 20 -> current value is now 20
   .do(print)               # receives 20, prints it, result discarded -> current value stays 20
   .then(lambda x: x + 1)  # receives 20, returns 21 -> current value is now 21
@@ -140,23 +140,23 @@ Use `.then()` when you want to transform the value. Use `.do()` when you want to
 quent works with **any Python callable**: functions, lambdas, methods, classes, objects with `__call__`, coroutine functions -- anything Python considers callable.
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Regular functions
 def double(x):
   return x * 2
 
 # Lambdas
-Chain(5).then(lambda x: x + 1).run()  # 6
+Q(5).then(lambda x: x + 1).run()  # 6
 
 # Built-in functions
-Chain(5).then(str).run()  # '5'
+Q(5).then(str).run()  # '5'
 
 # Classes (calling a class creates an instance)
-Chain(42).then(str).run()  # '42'
+Q(42).then(str).run()  # '42'
 
 # Bound methods
-Chain('  hello  ').then(str.strip).run()  # 'hello'
+Q('  hello  ').then(str.strip).run()  # 'hello'
 ```
 
 ### Non-callable Values
@@ -164,7 +164,7 @@ Chain('  hello  ').then(str.strip).run()  # 'hello'
 `.then()` also accepts non-callable values. A non-callable value simply replaces the current pipeline value:
 
 ```python
-Chain(5).then(lambda x: x * 2).then(42).run()
+Q(5).then(lambda x: x * 2).then(42).run()
 # 42 -- the literal replaces the current value
 ```
 
@@ -184,12 +184,12 @@ When a step's callable is invoked, quent decides what arguments to pass based on
 When positional arguments or keyword arguments are provided at registration time, the callable receives **only those arguments**. The current pipeline value is **not** passed:
 
 ```python
-from quent import Chain
+from quent import Q
 
 def greet(name, greeting="Hello"):
   return f"{greeting}, {name}!"
 
-result = Chain(42).then(greet, "World").run()
+result = Q(42).then(greet, "World").run()
 # calls greet("World") -> "Hello, World!"
 # the current value (42) is NOT passed
 ```
@@ -203,28 +203,28 @@ When no explicit arguments are provided:
 - **Not callable:** The value is returned as-is
 
 ```python
-from quent import Chain
+from quent import Q
 
-Chain(5).then(str).run()          # str(5) -> '5'
-Chain().then(dict).run()          # dict() -> {}
-Chain(5).then(42).run()           # 42 (non-callable, returned as-is)
+Q(5).then(str).run()          # str(5) -> '5'
+Q().then(dict).run()          # dict() -> {}
+Q(5).then(42).run()           # 42 (non-callable, returned as-is)
 ```
 
-### Nested Chains
+### Nested Pipelines
 
-When the step's value is itself a `Chain`, the nested chain is executed with the current value as its input:
+When the step's value is itself a `Q` instance, the nested pipeline is executed with the current value as its input:
 
 ```python
-from quent import Chain
+from quent import Q
 
-inner = Chain().then(lambda x: x * 2).then(lambda x: x + 1)
+inner = Q().then(lambda x: x * 2).then(lambda x: x + 1)
 
-result = Chain(5).then(inner).run()
+result = Q(5).then(inner).run()
 # inner receives 5, runs its steps: 5 * 2 = 10, 10 + 1 = 11
 # result = 11
 ```
 
-Control flow signals (`return_()`, `break_()`) propagate through nested chains to the outer chain.
+Control flow signals (`return_()`, `break_()`) propagate through nested pipelines to the outer pipeline.
 
 ### Summary Table
 
@@ -243,14 +243,14 @@ Control flow signals (`return_()`, `break_()`) propagate through nested chains t
 quent provides two methods for working with iterables:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # .foreach() -- transform each element, collect results
-result = Chain([1, 2, 3]).foreach(lambda x: x * 2).run()
+result = Q([1, 2, 3]).foreach(lambda x: x * 2).run()
 # result = [2, 4, 6]
 
 # .foreach_do() -- side-effect on each element, keep originals
-result = Chain([1, 2, 3]).foreach_do(print).run()
+result = Q([1, 2, 3]).foreach_do(print).run()
 # prints: 1, 2, 3 (each on its own line)
 # result = [1, 2, 3]
 ```
@@ -263,10 +263,10 @@ These follow the same pattern as `then` vs `do`:
 To filter elements, use `.then()` with a list comprehension:
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain([1, 2, 3, 4, 5, 6])
+  Q([1, 2, 3, 4, 5, 6])
   .then(lambda xs: [x for x in xs if x % 2 == 0])  # [2, 4, 6]
   .foreach(lambda x: x ** 2)                         # [4, 16, 36]
   .then(sum)                                          # 56
@@ -282,20 +282,20 @@ Both work transparently with both sync and async callables.
 
 ---
 
-## Running Chains
+## Running Pipelines
 
 ### .run() and \_\_call\_\_
 
-`.run()` executes the chain and returns the result. Calling the chain directly does the same thing:
+`.run()` executes the pipeline and returns the result. Calling the pipeline directly does the same thing:
 
 ```python
-from quent import Chain
+from quent import Q
 
-chain = Chain(5).then(lambda x: x * 2)
+q = Q(5).then(lambda x: x * 2)
 
 # These are equivalent
-result = chain.run()
-result = chain()
+result = q.run()
+result = q()
 ```
 
 ### Injecting a Run-Time Value
@@ -303,23 +303,23 @@ result = chain()
 `.run(value)` injects a value that **replaces** the build-time root value for that execution:
 
 ```python
-from quent import Chain
+from quent import Q
 
-double = Chain().then(lambda x: x * 2)
+double = Q().then(lambda x: x * 2)
 
 result = double.run(5)   # 10
 result = double.run(100) # 200
 ```
 
-This makes chains reusable -- define the pipeline once, run it with different inputs.
+This makes pipelines reusable -- define the pipeline once, run it with different inputs.
 
 When both a root value and a run value exist, the run value wins:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Run value (C) replaces root value (A)
-Chain('A').then(str.upper).run('hello')  # 'HELLO', not 'A'
+Q('A').then(str.upper).run('hello')  # 'HELLO', not 'A'
 ```
 
 ### Return Type
@@ -330,15 +330,15 @@ The return type of `.run()` depends on what happens during execution:
 - If any step returns an awaitable, `.run()` returns a coroutine that must be awaited.
 
 ```python
-from quent import Chain
+from quent import Q
 
-chain = Chain().then(process).then(save)
+q = Q().then(process).then(save)
 
 # If process and save are sync functions:
-result = chain.run(data)        # returns the value directly
+result = q.run(data)        # returns the value directly
 
 # If either is async:
-result = await chain.run(data)  # returns a coroutine, so await it
+result = await q.run(data)  # returns a coroutine, so await it
 ```
 
 ---
@@ -348,23 +348,23 @@ result = await chain.run(data)  # returns a coroutine, so await it
 `None` is a valid pipeline value in quent. This is distinct from having **no value** at all:
 
 ```python
-from quent import Chain
+from quent import Q
 
-# Chain with root value None -- None flows through the pipeline
-chain = Chain(None)
+# Q with root value None -- None flows through the pipeline
+q = Q(None)
 
-# Chain with no root value -- the pipeline starts empty
-chain = Chain()
+# Q with no root value -- the pipeline starts empty
+q = Q()
 ```
 
 The difference matters for calling conventions:
 
 ```python
 # fn(None) -- current value is None
-Chain(None).then(fn).run()
+Q(None).then(fn).run()
 
 # fn() -- no current value exists
-Chain().then(fn).run()
+Q().then(fn).run()
 ```
 
 quent uses an internal `Null` sentinel to distinguish these cases. It is not part of the public API; you do not need to interact with it directly.
@@ -376,11 +376,11 @@ quent uses an internal `Null` sentinel to distinguish these cases. It is not par
 Here is a complete example showing the same pipeline working with both sync and async callables:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Define the pipeline once
 pipeline = (
-  Chain()
+  Q()
   .then(validate)
   .then(transform)
   .do(log)
@@ -421,7 +421,7 @@ With quent, there is only one:
 # With quent: one definition, both worlds
 def process(data):
   return (
-    Chain(data)
+    Q(data)
     .then(validate)
     .then(transform)
     .do(save)
@@ -429,18 +429,18 @@ def process(data):
   )
 ```
 
-If any step happens to be async, the chain handles the transition automatically. The caller `await`s if needed. No duplication.
+If any step happens to be async, the pipeline handles the transition automatically. The caller `await`s if needed. No duplication.
 
 ---
 
-## Reusing Chains
+## Reusing Pipelines
 
-Chains are mutable -- calling `.then()` modifies the original. Use `.clone()` to create independent copies:
+Pipelines are mutable -- calling `.then()` modifies the original. Use `.clone()` to create independent copies:
 
 ```python
-from quent import Chain
+from quent import Q
 
-base = Chain().then(validate).then(normalize)
+base = Q().then(validate).then(normalize)
 for_api = base.clone().then(to_json)
 for_db = base.clone().then(to_sql)
 ```
@@ -454,7 +454,7 @@ For more on reuse patterns, see [Reuse and Patterns](guide/reuse.md).
 Now that you understand the basics, explore the rest of the documentation:
 
 - **[Why Quent](why-quent.md)** -- understand the problem quent solves and when to use it
-- **[Chains](guide/chains.md)** -- comprehensive guide to pipeline building, context managers, conditionals, and control flow
+- **[Pipelines](guide/chains.md)** -- comprehensive guide to pipeline building, context managers, conditionals, and control flow
 - **[Async Handling](guide/async.md)** -- deep dive into sync/async bridging, the two-tier execution model, and async transitions
 - **[Error Handling](guide/error-handling.md)** -- exception handlers, cleanup, and enhanced tracebacks
 - **[Reuse and Patterns](guide/reuse.md)** -- cloning, nesting, decorators, and composition patterns

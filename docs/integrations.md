@@ -20,7 +20,7 @@ tags:
 
 These recipes show how quent integrates with popular Python frameworks and libraries. Each example demonstrates the core value proposition: **write your pipeline logic once, and it works with both sync and async code**.
 
-Every recipe follows the same structure: first, the duplicated sync + async code you would write without quent, then the single unified chain that replaces both.
+Every recipe follows the same structure: first, the duplicated sync + async code you would write without quent, then the single unified pipeline that replaces both.
 
 ---
 
@@ -67,7 +67,7 @@ async def process_order_async(order_id: str) -> dict:
 ### With quent
 
 ```python
-from quent import Chain
+from quent import Q
 from fastapi import FastAPI
 
 app = FastAPI()
@@ -82,13 +82,13 @@ def calculate_total(data: dict) -> dict:
   data['processed'] = True
   return data
 
-def process_order(order_id: str, *, fetch, notify) -> Chain:
+def process_order(order_id: str, *, fetch, notify) -> Q:
   """Build the order processing pipeline.
 
   `fetch` and `notify` can be sync or async.
   """
   return (
-    Chain(order_id)
+    Q(order_id)
     .then(fetch)
     .then(validate_order)
     .then(calculate_total)
@@ -114,10 +114,10 @@ def process_order_task(order_id: str):
 ```
 
 !!! tip "How it works"
-    The `process_order` function builds a single Chain. When called with async callables (from the FastAPI endpoint), the chain returns a coroutine. When called with sync callables (from the Celery task), it returns a value directly. The validation and total calculation steps are plain sync functions that work in both paths.
+    The `process_order` function builds a single Q pipeline. When called with async callables (from the FastAPI endpoint), the chain returns a coroutine. When called with sync callables (from the Celery task), it returns a value directly. The validation and total calculation steps are plain sync functions that work in both paths.
 
-!!! warning "Chains are not picklable in practice"
-    Most chain contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a Chain for Celery task arguments. Build the chain inside the task function, as shown above.
+!!! warning "Q pipelines are not picklable in practice"
+    Most pipeline contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a `Q` instance for Celery task arguments. Build the pipeline inside the task function, as shown above.
 
 ### Using `Depends` for dependency injection
 
@@ -132,7 +132,7 @@ async def get_db() -> AsyncSession:
 @app.get('/users/{user_id}/summary')
 async def user_summary(user_id: int, db: AsyncSession = Depends(get_db)):
   return await (
-    Chain(user_id)
+    Q(user_id)
     .then(lambda uid: db.get(User, uid))
     .then(build_summary)
     .except_(lambda ei: {'error': str(ei.exc)}, exceptions=ValueError)
@@ -153,7 +153,7 @@ Django supports both sync and async views side by side. During a migration, the 
 
 ```python
 from django.http import JsonResponse
-from quent import Chain
+from quent import Q
 
 def format_article_response(article, related):
   return {
@@ -169,11 +169,11 @@ def make_article_pipeline(get_article, save_article, list_related):
   """
   def pipeline(article_id):
     return (
-      Chain(article_id)
+      Q(article_id)
       .then(get_article)
       .do(save_article)
       .then(lambda article: (
-        Chain(article)
+        Q(article)
         .then(list_related)
         .then(lambda related: format_article_response(article, related))
         .run()
@@ -202,7 +202,7 @@ async def article_detail_async(request, article_id):
 ```
 
 !!! tip "How it works"
-    `make_article_pipeline` builds a Chain agnostic to sync/async. The formatting and exception handling are written once. When Django finishes migrating to async, remove the sync callables and the sync view -- the pipeline definition does not change.
+    `make_article_pipeline` builds a `Q` pipeline agnostic to sync/async. The formatting and exception handling are written once. When Django finishes migrating to async, remove the sync callables and the sync view -- the pipeline definition does not change.
 
 ---
 
@@ -228,7 +228,7 @@ class UserRepoAsync:
 
 ```python
 from sqlalchemy import select
-from quent import Chain
+from quent import Q
 
 class UserRepo:
   """Works with both sync Session and async AsyncSession."""
@@ -237,13 +237,13 @@ class UserRepo:
     self.session = session
 
   def get_by_id(self, user_id: int):
-    return Chain(self.session.get, User, user_id).run()
+    return Q(self.session.get, User, user_id).run()
 
   def create(self, name: str, email: str):
     user = User(name=name, email=email)
     self.session.add(user)
     return (
-      Chain(lambda: self.session.commit())
+      Q(lambda: self.session.commit())
       .then(lambda: user)
       .run()
     )
@@ -251,7 +251,7 @@ class UserRepo:
   def list_active(self):
     stmt = select(User).where(User.is_active == True)
     return (
-      Chain(self.session.scalars, stmt)
+      Q(self.session.scalars, stmt)
       .then(lambda result: list(result))
       .run()
     )
@@ -276,9 +276,9 @@ async with async_session_factory() as session:
 ```python
 def transfer_funds(session, from_id: int, to_id: int, amount: float):
   return (
-    Chain(session.begin)
+    Q(session.begin)
     .with_(lambda txn: (
-      Chain(session.get, Account, from_id)
+      Q(session.get, Account, from_id)
       .then(lambda acc: _debit(acc, amount))
       .do(lambda _: session.flush())
       .then(lambda _: session.get(Account, to_id))
@@ -302,7 +302,7 @@ httpx provides `httpx.Client` (sync) and `httpx.AsyncClient` (async) with nearly
 
 ```python
 import httpx
-from quent import Chain
+from quent import Q
 
 class ApiClient:
   BASE_URL = 'https://api.example.com/v2'
@@ -312,7 +312,7 @@ class ApiClient:
 
   def _request(self, method: str, path: str, **kwargs):
     return (
-      Chain(self.client_factory)
+      Q(self.client_factory)
       .with_(lambda client: getattr(client, method)(
         f'{self.BASE_URL}{path}', **kwargs
       ))
@@ -350,9 +350,9 @@ user = await async_client.get_user(42)
 ```python
 def get_user_with_details(self, user_id: int):
   return (
-    Chain(self.client_factory)
+    Q(self.client_factory)
     .with_(lambda client: (
-      Chain(user_id)
+      Q(user_id)
       .gather(
         lambda uid: client.get(f'{self.BASE_URL}/users/{uid}'),
         lambda uid: client.get(f'{self.BASE_URL}/users/{uid}/orders'),
@@ -380,7 +380,7 @@ def get_user_with_details(self, user_id: int):
 
 ```python
 import json
-from quent import Chain
+from quent import Q
 
 class Cache:
   """Cache-aside layer for both sync and async Redis clients."""
@@ -391,11 +391,11 @@ class Cache:
 
   def get_or_fetch(self, key: str, fetch_fn):
     return (
-      Chain(key)
+      Q(key)
       .then(self.r.get)
       .if_().then(lambda cached: json.loads(cached))
       .else_(lambda _: (
-        Chain(fetch_fn)
+        Q(fetch_fn)
         .do(lambda value: self.r.setex(key, self.ttl, json.dumps(value)))
         .run()
       ))
@@ -403,7 +403,7 @@ class Cache:
     )
 
   def invalidate(self, key: str):
-    return Chain(self.r.delete, key).run()
+    return Q(self.r.delete, key).run()
 ```
 
 ```python
@@ -424,11 +424,11 @@ value = await cache.get_or_fetch('user:42', lambda: db.aget_user(42))
 ```python
 def get_or_fetch_resilient(self, key: str, fetch_fn):
   return (
-    Chain(key)
+    Q(key)
     .then(self.r.get)
     .if_().then(lambda cached: json.loads(cached))
     .else_(lambda _: (
-      Chain(fetch_fn)
+      Q(fetch_fn)
       .do(lambda value: self.r.setex(key, self.ttl, json.dumps(value)))
       .run()
     ))
@@ -447,7 +447,7 @@ def get_or_fetch_resilient(self, key: str, fetch_fn):
 ### With quent
 
 ```python
-from quent import Chain
+from quent import Q
 from celery import Celery
 
 celery_app = Celery('tasks', broker='redis://localhost:6379/0')
@@ -459,7 +459,7 @@ def calculate_invoice(order: dict) -> dict:
 
 def build_invoice_pipeline(order_id, *, fetch, store, notify):
   return (
-    Chain(order_id)
+    Q(order_id)
     .then(fetch)
     .then(calculate_invoice)
     .do(store)
@@ -488,15 +488,15 @@ async def generate_invoice_endpoint(order_id: str) -> dict:
   )
 ```
 
-!!! warning "Chains are not picklable in practice"
-    Most chain contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a Chain for Celery task arguments. Build the chain inside the task function, as shown above.
+!!! warning "Q pipelines are not picklable in practice"
+    Most pipeline contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a `Q` instance for Celery task arguments. Build the pipeline inside the task function, as shown above.
 
 ### Reusable pipeline factories with helper functions
 
 ```python
 def build_invoice_pipeline(order_id, *, fetch, store, notify, log_fn, emit_fn):
   return (
-    Chain(order_id)
+    Q(order_id)
     .then(fetch)
     .then(calculate_invoice)
     .do(store)
@@ -515,7 +515,7 @@ def build_invoice_pipeline(order_id, *, fetch, store, notify, log_fn, emit_fn):
 
 ```python
 from pydantic import BaseModel, ValidationError
-from quent import Chain
+from quent import Q
 
 class UserProfile(BaseModel):
   id: int
@@ -533,7 +533,7 @@ def normalize_profile(profile: UserProfile) -> dict:
 
 def ingest_user(fetch_fn):
   return (
-    Chain(fetch_fn)
+    Q(fetch_fn)
     .then(UserProfile.model_validate)
     .then(normalize_profile)
     .except_(
@@ -556,7 +556,7 @@ result = await ingest_user(async_fetch_user_profile)
 
 ```python
 from pydantic import BaseModel, ValidationError
-from quent import Chain
+from quent import Q
 
 class Address(BaseModel):
   street: str
@@ -573,7 +573,7 @@ class OrderRequest(BaseModel):
 
 def validate_checkout(payload: dict):
   return (
-    Chain(payload)
+    Q(payload)
     .gather(
       lambda p: Address.model_validate(p['shipping_address']),
       lambda p: PaymentMethod.model_validate(p['payment']),
@@ -595,18 +595,18 @@ def validate_checkout(payload: dict):
 
 ---
 
-## pytest -- Testing Chains with Sync and Async Callables
+## pytest -- Testing Pipelines with Sync and Async Callables
 
 ### With quent
 
 ```python
 import unittest
 from unittest.mock import AsyncMock, MagicMock
-from quent import Chain
+from quent import Q
 
 def build_pipeline(fetch, transform, save, item_id):
   return (
-    Chain(item_id)
+    Q(item_id)
     .then(fetch)
     .then(transform)
     .do(save)
@@ -647,7 +647,7 @@ class TestPipeline(unittest.IsolatedAsyncioTestCase):
   async def test_error_handler(self):
     fetch = MagicMock(side_effect=ValueError('bad'))
     result = (
-      Chain(1)
+      Q(1)
       .then(fetch)
       .except_(lambda ei: {'error': str(ei.exc), 'input': ei.root_value})
       .run()
@@ -667,7 +667,7 @@ async def test_intermediate_values(self):
   transform = MagicMock(return_value={'id': 1, 'status': 'processed'})
 
   result = (
-    Chain(1)
+    Q(1)
     .then(fetch)
     .do(lambda v: seen.append(('after_fetch', v)))
     .then(transform)
@@ -682,7 +682,7 @@ async def test_intermediate_values(self):
 ```
 
 !!! note "pytest-asyncio users"
-    Replace `IsolatedAsyncioTestCase` with `@pytest.mark.asyncio` on each async test function. The chain-testing patterns are identical.
+    Replace `IsolatedAsyncioTestCase` with `@pytest.mark.asyncio` on each async test function. The pipeline-testing patterns are identical.
 
 ---
 
@@ -692,7 +692,7 @@ async def test_intermediate_values(self):
 
 ```python
 import json
-from quent import Chain
+from quent import Q
 
 class S3Service:
   """Unified S3 service for boto3 (sync) or aiobotocore (async) clients."""
@@ -702,7 +702,7 @@ class S3Service:
 
   def get_json(self, bucket: str, key: str):
     return (
-      Chain(self.client.get_object, Bucket=bucket, Key=key)
+      Q(self.client.get_object, Bucket=bucket, Key=key)
       .then(lambda resp: resp['Body'].read())
       .then(json.loads)
       .run()
@@ -710,14 +710,14 @@ class S3Service:
 
   def put_json(self, bucket: str, key: str, data: dict):
     return (
-      Chain(self.client.put_object, Bucket=bucket, Key=key,
+      Q(self.client.put_object, Bucket=bucket, Key=key,
             Body=json.dumps(data), ContentType='application/json')
       .run()
     )
 
   def copy_object(self, src_bucket: str, src_key: str, dst_bucket: str, dst_key: str):
     return (
-      Chain(self.client.copy_object,
+      Q(self.client.copy_object,
             CopySource={'Bucket': src_bucket, 'Key': src_key},
             Bucket=dst_bucket, Key=dst_key)
       .run()
@@ -746,15 +746,15 @@ async with aio_session.create_client('s3') as async_client:
 
 ```python
 import aiobotocore.session
-from quent import Chain
+from quent import Q
 
 aio_session = aiobotocore.session.get_session()
 
 def get_json_oneshot(bucket: str, key: str):
   return (
-    Chain(aio_session.create_client, 's3')
+    Q(aio_session.create_client, 's3')
     .with_(lambda client: (
-      Chain(client.get_object, Bucket=bucket, Key=key)
+      Q(client.get_object, Bucket=bucket, Key=key)
       .then(lambda resp: resp['Body'].read())
       .then(json.loads)
       .run()
@@ -773,13 +773,13 @@ data = await get_json_oneshot('my-bucket', 'config.json')
 
 ```python
 from flask import Flask, request, jsonify
-from quent import Chain
+from quent import Q
 
 app = Flask(__name__)
 
 def validate_payload(data):
   if not data.get('name'):
-    return Chain.return_(jsonify({'error': 'name required'}), 400)
+    return Q.return_(jsonify({'error': 'name required'}), 400)
   return data
 
 def process_and_save(data):
@@ -790,7 +790,7 @@ def process_and_save(data):
 @app.post('/users')
 def create_user():
   return (
-    Chain(request.get_json)
+    Q(request.get_json)
     .then(validate_payload)
     .then(process_and_save)
     .then(lambda data: jsonify(data))
@@ -809,7 +809,7 @@ def create_user():
 
 ```python
 import click
-from quent import Chain
+from quent import Q
 
 @click.command()
 @click.argument('input_file')
@@ -818,7 +818,7 @@ from quent import Chain
 def process(input_file, output, fmt):
   """Process a data file through a transformation pipeline."""
   result = (
-    Chain(input_file)
+    Q(input_file)
     .then(read_file)
     .then(lambda records: [r for r in records if is_valid(r)])
     .foreach(normalize)

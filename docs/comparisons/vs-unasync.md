@@ -99,7 +99,7 @@ callables, and quent detects at runtime whether each step returns an awaitable.
 
 ### The approach
 
-1. You define a `Chain` -- a sequence of callables.
+1. You define a `Q` pipeline -- a sequence of callables.
 2. When you call `.run()`, quent executes each step synchronously.
 3. After each step, it checks the return value for awaitability.
 4. If the result is awaitable (a coroutine, Task, Future), execution transitions
@@ -112,10 +112,10 @@ callables, and quent detects at runtime whether each step returns an awaitable.
 No build step. No configuration. Install and use:
 
 ```python
-from quent import Chain
+from quent import Q
 
 pipeline = (
-  Chain()
+  Q()
   .then(fetch_data)
   .then(validate)
   .then(transform)
@@ -133,13 +133,13 @@ The same pipeline works with any mix of sync and async callables without changes
 | Aspect | unasync | quent |
 |--------|---------|-------|
 | **Approach** | Code generation (build time) | Runtime bridging |
-| **You write** | Async Python code | Chain definitions with callables |
-| **You get** | Generated sync copy of your code | Same chain works for both sync and async |
+| **You write** | Async Python code | Q definitions with callables |
+| **You get** | Generated sync copy of your code | Same pipeline works for both sync and async |
 | **Runtime overhead** | Zero -- generated code is plain Python | Minimal -- one awaitable check per step |
 | **Build step required** | Yes (setuptools plugin) | No |
 | **Dependencies** | Build-time dependency | Zero runtime dependencies |
-| **Code style** | Standard Python (async version) | Fluent chain API |
-| **Output** | Two separate code files (async + sync) | One chain definition |
+| **Code style** | Standard Python (async version) | Fluent pipeline API |
+| **Output** | Two separate code files (async + sync) | One pipeline definition |
 | **Mixed sync/async in one pipeline** | No -- each file is either async or sync | Yes -- any step can be either |
 | **Debugging** | Two code paths to debug | One code path + enhanced tracebacks |
 | **Error handling** | Standard try/except in each version | `except_()`, `finally_()` built in |
@@ -187,16 +187,16 @@ from mylib._sync.processor import process_record   # sync callers
 
 ### With quent
 
-You write one chain definition:
+You write one pipeline definition:
 
 ```python
 # mylib/processor.py
 
-from quent import Chain
+from quent import Q
 
 def process_record(db, record):
   return (
-    Chain(record)
+    Q(record)
     .then(db.validate)
     .then(db.enrich)
     .then(normalize)
@@ -222,7 +222,7 @@ result = await process_record(async_db, record)
 - **unasync** gives you standard Python in both versions. No new API to learn.
   The generated sync code is readable and debuggable like any normal Python.
 - **quent** gives you a single definition. No generated files, no build step,
-  no separate import paths. But you do learn the Chain API.
+  no separate import paths. But you do learn the quent API.
 
 ## When to Choose unasync
 
@@ -253,7 +253,7 @@ quent is the better choice when:
   that are sync and others that are async. unasync generates code that is entirely
   sync or entirely async -- it cannot mix.
 
-- **You want runtime flexibility.** The same chain adapts to whatever callables
+- **You want runtime flexibility.** The same pipeline adapts to whatever callables
   it receives. You can pass a sync database client or an async one to the same
   function.
 
@@ -279,7 +279,7 @@ integration points where runtime flexibility or mixed sync/async is needed.
 
 | Question | unasync | quent |
 |----------|---------|-------|
-| Do I write standard Python? | Yes | Chain API |
+| Do I write standard Python? | Yes | Q API |
 | Is there a build step? | Yes | No |
 | Can I mix sync and async? | No | Yes |
 | Is there runtime overhead? | No | Minimal |
@@ -294,5 +294,5 @@ zero build cost. Choose based on which tradeoffs matter more for your project.
 ## Further Reading
 
 - [Why Quent](../why-quent.md) -- the problem quent solves and when to use it
-- [Getting Started](../getting-started.md) -- install quent and build your first chain
+- [Getting Started](../getting-started.md) -- install quent and build your first pipeline
 - [Quent vs Other Libraries](vs-others.md) -- how quent compares to returns, toolz, pipe, and Expression

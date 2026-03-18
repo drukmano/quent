@@ -116,7 +116,7 @@ nav:
   - Getting Started: getting-started.md
   - Why quent: why-quent.md
   - Guide:
-    - Chains & Methods: guide/chains.md
+    - Pipelines & Methods: guide/chains.md
     - Sync/Async Bridging: guide/async.md
     - Error Handling: guide/error-handling.md
     - Reuse & Composition: guide/reuse.md

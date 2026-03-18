@@ -11,33 +11,33 @@ search:
 
 # Error Handling
 
-quent provides two mechanisms for dealing with errors in pipelines: **`.except_()`** for catching exceptions and **`.finally_()`** for cleanup. Each can be registered **at most once** per chain -- a second registration raises `QuentException`.
+quent provides two mechanisms for dealing with errors in pipelines: **`.except_()`** for catching exceptions and **`.finally_()`** for cleanup. Each can be registered **at most once** per pipeline -- a second registration raises `QuentException`.
 
-Both work transparently with sync and async callables. For per-step error handling, use nested chains -- each nested chain gets its own except/finally pair.
+Both work transparently with sync and async callables. For per-step error handling, use nested pipelines -- each nested pipeline gets its own except/finally pair.
 
 ---
 
-## Design: One Handler Per Chain
+## Design: One Handler Per Pipeline
 
-Chains support exactly one exception handler and one cleanup handler each. This constraint keeps the execution model simple and predictable: you always know which handler runs, in what order, and what happens to the exception.
+Pipelines support exactly one exception handler and one cleanup handler each. This constraint keeps the execution model simple and predictable: you always know which handler runs, in what order, and what happens to the exception.
 
-For per-step error handling, compose nested chains:
+For per-step error handling, compose nested pipelines:
 
 ```python
-from quent import Chain
+from quent import Q
 
-# Each nested chain gets its own except_
+# Each nested pipeline gets its own except_
 step_with_fallback = (
-  Chain()
+  Q()
   .then(risky_operation)
   .except_(lambda ei: 'fallback')
 )
 
 pipeline = (
-  Chain()
+  Q()
   .then(step_with_fallback)  # has its own error handling
   .then(next_step)
-  .except_(handle_pipeline_error)  # separate handler for the outer chain
+  .except_(handle_pipeline_error)  # separate handler for the outer pipeline
 )
 ```
 
@@ -51,26 +51,26 @@ pipeline = (
 .except_(fn, /, *args, exceptions=None, reraise=False, **kwargs)
 ```
 
-Register an exception handler for the chain. When an exception occurs during chain execution, the handler is called with the exception and (optionally) additional arguments.
+Register an exception handler for the pipeline. When an exception occurs during pipeline execution, the handler is called with the exception and (optionally) additional arguments.
 
 ### Basic Usage
 
 ```python
-from quent import Chain, ChainExcInfo
+from quent import Q, QuentExcInfo
 
-def handle_error(ei: ChainExcInfo):
+def handle_error(ei: QuentExcInfo):
   print(f"Error: {ei.exc}")
   return "fallback value"
 
 result = (
-  Chain(data)
+  Q(data)
   .then(process)
   .then(save)
   .except_(handle_error)
   .run()
 )
-# If process() or save() raises, handle_error receives ChainExcInfo(exc, root_value).
-# The handler's return value ("fallback value") becomes the chain's result.
+# If process() or save() raises, handle_error receives QuentExcInfo(exc, root_value).
+# The handler's return value ("fallback value") becomes the pipeline's result.
 ```
 
 ### What except\_ Catches
@@ -104,29 +104,29 @@ The `exceptions` parameter accepts a single exception type or an iterable of typ
 ## Except Handler Calling Convention
 
 !!! important
-    The `except_()` handler follows the same 2-rule calling convention as all other pipeline contexts. The only difference is what constitutes the "current value": for except handlers, it is `ChainExcInfo(exc, root_value)` rather than the pipeline value.
+    The `except_()` handler follows the same 2-rule calling convention as all other pipeline contexts. The only difference is what constitutes the "current value": for except handlers, it is `QuentExcInfo(exc, root_value)` rather than the pipeline value.
 
 ### How It Works
 
-The handler receives a `ChainExcInfo` NamedTuple as its current value. The standard 2-rule dispatch then applies:
+The handler receives a `QuentExcInfo` NamedTuple as its current value. The standard 2-rule dispatch then applies:
 
 | Registration | Handler invocation |
 |-------------|-------------------|
-| `except_(handler)` | `handler(ChainExcInfo(exc, root_value))` |
-| `except_(handler, arg1, arg2)` | `handler(arg1, arg2)` -- ChainExcInfo NOT passed |
-| `except_(handler, key=val)` | `handler(key=val)` -- ChainExcInfo NOT passed |
+| `except_(handler)` | `handler(QuentExcInfo(exc, root_value))` |
+| `except_(handler, arg1, arg2)` | `handler(arg1, arg2)` -- QuentExcInfo NOT passed |
+| `except_(handler, key=val)` | `handler(key=val)` -- QuentExcInfo NOT passed |
 
-Access the exception via `.exc` and the root value via `.root_value` on the `ChainExcInfo` NamedTuple. The `root_value` is normalized to `None` if the chain was created with no root value.
+Access the exception via `.exc` and the root value via `.root_value` on the `QuentExcInfo` NamedTuple. The `root_value` is normalized to `None` if the pipeline was created with no root value.
 
 ```python
-from quent import Chain, ChainExcInfo
+from quent import Q, QuentExcInfo
 
-def handle_error(ei: ChainExcInfo):
+def handle_error(ei: QuentExcInfo):
   print(f"Failed on input {ei.root_value}: {ei.exc}")
   return "default"
 
 .except_(handle_error)
-# calls: handle_error(ChainExcInfo(exc, root_value))
+# calls: handle_error(QuentExcInfo(exc, root_value))
 ```
 
 ---
@@ -137,13 +137,13 @@ The `reraise` parameter controls what happens after the handler runs:
 
 ### `reraise=False` (default) -- Consume the Exception
 
-The handler's return value **replaces** the chain's result. The exception is consumed -- it does not propagate. The chain is considered to have succeeded.
+The handler's return value **replaces** the pipeline's result. The exception is consumed -- it does not propagate. The chain is considered to have succeeded.
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(42)
+  Q(42)
   .then(lambda x: x / 0)
   .except_(lambda ei: f"failed on {ei.root_value}: {ei.exc}")
   .run()
@@ -157,18 +157,18 @@ result = (
 The handler runs for **side-effects only** (e.g., logging, alerting). After the handler completes, the **original exception** is re-raised. The handler's return value is ignored.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def notify_admin(ei):
   send_alert(f"Pipeline failed: {ei.exc}")
 
 result = (
-  Chain(data)
+  Q(data)
   .then(process)
   .except_(notify_admin, reraise=True)
   .run()
 )
-# notify_admin is called with ChainExcInfo, then the original exception is re-raised.
+# notify_admin is called with QuentExcInfo, then the original exception is re-raised.
 ```
 
 ---
@@ -184,7 +184,7 @@ When the handler itself raises while `reraise=True`:
 
 ### With `reraise=False`
 
-When the handler raises while `reraise=False`, the handler's exception propagates. The original chain exception is set as `__cause__` (via `raise handler_exc from original_exc`).
+When the handler raises while `reraise=False`, the handler's exception propagates. The original pipeline exception is set as `__cause__` (via `raise handler_exc from original_exc`).
 
 ---
 
@@ -196,24 +196,24 @@ When the handler raises while `reraise=False`, the handler's exception propagate
 .finally_(fn, /, *args, **kwargs)
 ```
 
-Register a cleanup handler that **always runs**, whether the chain succeeds or fails.
+Register a cleanup handler that **always runs**, whether the pipeline succeeds or fails.
 
 ### Key Behaviors
 
 1. **Always runs** -- on both success and failure paths, matching Python's `try/finally` semantics.
-2. **Receives the root value** -- the chain's original input, not the current intermediate value. Normalized to `None` if no root value exists.
-3. **Return value is always discarded** -- the finally handler cannot alter the chain's result.
+2. **Receives the root value** -- the pipeline's original input, not the current intermediate value. Normalized to `None` if no root value exists.
+3. **Return value is always discarded** -- the finally handler cannot alter the pipeline's result.
 4. **Follows the standard calling convention** -- not the except handler's special convention.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def cleanup(original_input):
   print(f"Cleaning up for input: {original_input}")
   release_resources()
 
 result = (
-  Chain(resource_id)
+  Q(resource_id)
   .then(acquire_resource)
   .then(process_resource)
   .finally_(cleanup)
@@ -238,11 +238,11 @@ The finally handler follows the **standard** calling conventions (2 rules), with
 ### Finally Handler Failure
 
 - **Exception already active:** The finally handler's exception **replaces** the original exception (matching Python's `try/finally` behavior). The original is preserved as `__context__`.
-- **Success path:** The finally handler's exception propagates as the chain's error.
+- **Success path:** The finally handler's exception propagates as the pipeline's error.
 
-### Async Finally in Sync Chains
+### Async Finally in Sync Pipelines
 
-When a sync chain's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the chain's result is returned (success path) or the active exception is re-raised (failure path).
+When a sync pipeline's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the pipeline's result is returned (success path) or the active exception is re-raised (failure path).
 
 See [Async Handling](async.md) for details on the sync/async transition model.
 
@@ -250,15 +250,15 @@ See [Async Handling](async.md) for details on the sync/async transition model.
 
 ## Control Flow Restrictions
 
-Using `Chain.return_()` or `Chain.break_()` inside an `except_()` or `finally_()` handler raises `QuentException`:
+Using `Q.return_()` or `Q.break_()` inside an `except_()` or `finally_()` handler raises `QuentException`:
 
 ```python
-from quent import Chain
+from quent import Q
 
 def bad_handler(ei):
-  return Chain.return_("value")  # raises QuentException
+  return Q.return_("value")  # raises QuentException
 
-Chain(data).then(process).except_(bad_handler).run()
+Q(data).then(process).except_(bad_handler).run()
 # QuentException: Using control flow signals inside except handlers is not allowed.
 ```
 
@@ -271,7 +271,7 @@ Control flow signals are not allowed in error or cleanup handlers -- they must b
 The full error handling flow:
 
 ```
-chain executes
+pipeline executes
   |
   +--> step raises exception:
   |      |
@@ -279,7 +279,7 @@ chain executes
   |      |      |
   |      |      +--> YES: except_ handler runs
   |      |      |      |
-  |      |      |      +--> reraise=False: handler result = chain result
+  |      |      |      +--> reraise=False: handler result = pipeline result
   |      |      |      |    finally_ runs in success context
   |      |      |      |
   |      |      |      +--> reraise=True: handler runs for side-effects
@@ -304,7 +304,7 @@ When concurrent operations (`gather()`, or `foreach()`/`foreach_do()` with `conc
 
 ```python
 try:
-  await Chain(data).gather(validate, enrich, score).run()
+  await Q(data).gather(validate, enrich, score).run()
 except ExceptionGroup as eg:
   for exc in eg.exceptions:
     print(exc)
@@ -324,7 +324,7 @@ The `ExceptionGroup` message indicates the source and count:
 
 ## Enhanced Tracebacks
 
-When an exception occurs inside a chain, quent automatically injects a visualization into the traceback showing the full pipeline and marking the failing step.
+When an exception occurs inside a pipeline, quent automatically injects a visualization into the traceback showing the full pipeline and marking the failing step.
 
 ### Example Output
 
@@ -334,7 +334,7 @@ Traceback (most recent call last):
     .run()
      ^^^^^
   File "<quent>", line 1, in
-    Chain(fetch_data, 42)
+    Q(fetch_data, 42)
     .then(validate) <----
     .then(transform)
     .then(save)
@@ -345,19 +345,19 @@ ValueError: Value too large
 
 ### What quent Does
 
-1. **Chain visualization:** A synthetic `<quent>` frame is injected showing every step. The `<----` marker identifies the failing step.
+1. **Pipeline visualization:** A synthetic `<quent>` frame is injected showing every step. The `<----` marker identifies the failing step.
 2. **Frame cleaning:** Internal quent frames are removed. You see only your code and the `<quent>` visualization.
 3. **Exception notes** (Python 3.11+): A one-line note is attached via `add_note()`, surviving traceback reformatting.
 4. **Chained exceptions:** Frames are cleaned from `__cause__`, `__context__`, and `ExceptionGroup` sub-exceptions.
 
-### Nested Chain Visualization
+### Nested Pipeline Visualization
 
 Nested chains are rendered with indentation:
 
 ```
-Chain(fetch)
+Q(fetch)
     .then(
-        Chain(parse)
+        Q(parse)
             .then(validate) <----
     )
     .do(log)
@@ -387,29 +387,29 @@ QUENT_TRACEBACK_VALUES=0 python my_script.py
 
 ---
 
-## Nested Chains for Per-Step Error Handling
+## Nested Pipelines for Per-Step Error Handling
 
-Since each chain allows only one `except_()`, use nested chains for granular error handling:
+Since each pipeline allows only one `except_()`, use nested pipelines for granular error handling:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Step with its own error recovery
 fetch_with_fallback = (
-  Chain()
+  Q()
   .then(fetch_from_primary)
   .except_(lambda ei: fetch_from_backup())
 )
 
 # Step with its own error recovery
 save_with_retry = (
-  Chain()
+  Q()
   .then(save_to_database)
   .except_(lambda ei: retry_save(ei.root_value), reraise=True)
 )
 
 pipeline = (
-  Chain()
+  Q()
   .then(fetch_with_fallback)
   .then(validate)
   .then(save_with_retry)
@@ -418,7 +418,7 @@ pipeline = (
 )
 ```
 
-Each nested chain's handlers apply only to that nested chain's execution. Unhandled exceptions propagate to the outer chain.
+Each nested pipeline's handlers apply only to that pipeline's execution. Unhandled exceptions propagate to the outer pipeline.
 
 ---
 
@@ -427,10 +427,10 @@ Each nested chain's handlers apply only to that nested chain's execution. Unhand
 ### Logging and Re-raising
 
 ```python
-from quent import Chain
+from quent import Q
 
 pipeline = (
-  Chain()
+  Q()
   .then(fetch)
   .then(process)
   .except_(lambda ei: logger.error(f"Pipeline failed: {ei.exc}"), reraise=True)
@@ -441,10 +441,10 @@ pipeline = (
 ### Fallback Values
 
 ```python
-from quent import Chain
+from quent import Q
 
 pipeline = (
-  Chain()
+  Q()
   .then(fetch_from_cache)
   .except_(lambda ei: fetch_from_database())
 )
@@ -453,10 +453,10 @@ pipeline = (
 ### Selective Exception Handling
 
 ```python
-from quent import Chain
+from quent import Q
 
 pipeline = (
-  Chain()
+  Q()
   .then(fetch)
   .then(process)
   .except_(
@@ -475,13 +475,13 @@ pipeline = (
 
 | Feature | Limit | Default catches | Handler receives | Return value |
 |---------|-------|-----------------|------------------|--------------|
-| `.except_()` | 1 per chain | `Exception` | `ChainExcInfo(exc, root_value)` as current value, standard 2-rule calling convention | Replaces chain result (or re-raises with `reraise=True`) |
-| `.finally_()` | 1 per chain | N/A (always runs) | Root value (standard calling convention) | Always discarded |
+| `.except_()` | 1 per pipeline | `Exception` | `QuentExcInfo(exc, root_value)` as current value, standard 2-rule calling convention | Replaces chain result (or re-raises with `reraise=True`) |
+| `.finally_()` | 1 per pipeline | N/A (always runs) | Root value (standard calling convention) | Always discarded |
 
 ---
 
 ## Next Steps
 
-- **[Chains](chains.md)** -- pipeline building, context managers, conditionals, and control flow
+- **[Pipelines](chains.md)** -- pipeline building, context managers, conditionals, and control flow
 - **[Async Handling](async.md)** -- sync/async bridging, async transition patterns
 - **[Reuse and Patterns](reuse.md)** -- cloning, nesting, decorators, and composition

@@ -87,10 +87,10 @@ quent uses this to bridge the gap automatically.
 The same validation pipeline, written once:
 
 ```python
-from quent import Chain
+from quent import Q
 
 validate_and_store = (
-  Chain()
+  Q()
   .then(check_schema)
   .then(enrich)
   .then(normalize)
@@ -113,7 +113,7 @@ result = await validate_and_store.run(record)
 quent starts executing synchronously. After each step, it inspects the return value
 using a fast custom awaitable check (~10x faster than `inspect.isawaitable()`).
 The moment it encounters an awaitable, execution seamlessly transitions to async
-mode for the remainder of the chain. The caller gets back either a plain value or
+mode for the remainder of the pipeline. The caller gets back either a plain value or
 a coroutine -- and the caller already knows which one it expects.
 
 No annotations. No wrappers. No ceremony. The pipeline definition does not mention
@@ -122,12 +122,12 @@ sync or async at all.
 ### Real-World Example: A Library That Supports Both Callers
 
 ```python
-from quent import Chain
+from quent import Q
 
 def process_data(data_source):
   """Works with both sync and async data sources."""
   return (
-    Chain(data_source.fetch)
+    Q(data_source.fetch)
     .then(validate)
     .then(transform)
     .then(data_source.save)
@@ -251,7 +251,7 @@ variables is simpler and more readable. quent adds no value here.
 just use `async`/`await` directly. quent's bridging capability is irrelevant when
 there is nothing to bridge.
 
-**Simple one-step operations.** Wrapping a single function call in a Chain is
+**Simple one-step operations.** Wrapping a single function call in a `Q` pipeline is
 overhead with no benefit. quent is useful for multi-step pipelines, not individual
 function calls.
 
@@ -259,7 +259,7 @@ function calls.
 no branching, no error handling, and no reuse, plain Python is clearer:
 
 ```python
-# Just write this directly -- no Chain needed
+# Just write this directly -- no pipeline needed
 data = fetch(source)
 result = transform(data)
 save(result)
@@ -282,11 +282,11 @@ transitive dependency tree to audit.
 ### PEP 561 Typed
 
 Inline type annotations throughout the codebase. Your editor and type checker
-understand Chain's API. `py.typed` marker included for PEP 561 compliance.
+understand quent's API. `py.typed` marker included for PEP 561 compliance.
 
 ### Enhanced Tracebacks
 
-When an exception occurs inside a chain, quent injects a visualization into the
+When an exception occurs inside a pipeline, quent injects a visualization into the
 traceback showing the full pipeline and marking exactly which step failed:
 
 ```
@@ -295,7 +295,7 @@ Traceback (most recent call last):
     .run()
      ^^^^^
   File "<quent>", line 1, in
-    Chain(fetch_data, 42)
+    Q(fetch_data, 42)
     .then(validate) <----
     .then(transform)
     .then(save)
@@ -318,7 +318,7 @@ protocol implementations required.
 
 ## Next Steps
 
-- **[Getting Started](getting-started.md)** -- install quent and build your first chain
-- **[Chains](guide/chains.md)** -- comprehensive guide to all pipeline operations
+- **[Getting Started](getting-started.md)** -- install quent and build your first pipeline
+- **[Pipelines](guide/chains.md)** -- comprehensive guide to all pipeline operations
 - **[Async Handling](guide/async.md)** -- deep dive into the sync/async bridging mechanism
 - **[Error Handling](guide/error-handling.md)** -- exception handlers, cleanup, and enhanced tracebacks

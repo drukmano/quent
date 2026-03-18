@@ -2,7 +2,7 @@
 
 > Transparent sync/async bridge for Python. Write pipeline code once -- quent detects awaitables at runtime and handles them automatically. Pure Python, zero dependencies, PEP 561 typed.
 
-quent provides a fluent `Chain` class for building sequential pipelines. The same chain definition works for both sync and async callables with no code duplication. Execution starts synchronously; if any step returns an awaitable, quent seamlessly transitions to an async path. `.run()` returns either a plain value or a coroutine -- the caller decides whether to `await`.
+quent provides a fluent `Q` class for building sequential pipelines. The same pipeline definition works for both sync and async callables with no code duplication. Execution starts synchronously; if any step returns an awaitable, quent seamlessly transitions to an async path. `.run()` returns either a plain value or a coroutine -- the caller decides whether to `await`.
 
 quent is NOT a collections library, not a functional programming toolkit, and not an opinionated framework. It bridges the sync/async divide and gets out of the way.
 
@@ -22,14 +22,14 @@ Five exports:
 
 ```python
 from quent import (
-    Chain, ChainExcInfo, ChainIterator, QuentException,
+    Q, QuentExcInfo, QuentIterator, QuentException,
     __version__,
 )
 ```
 
-- `Chain` -- Main pipeline class for building and executing fluent pipelines.
-- `ChainExcInfo` -- NamedTuple `(exc, root_value)` passed to `except_()` handlers as their current value.
-- `ChainIterator` -- Type alias for the return value of `.iterate()` / `.iterate_do()` / `.flat_iterate()` / `.flat_iterate_do()`. Use for type annotations.
+- `Q` -- Main pipeline class for building and executing fluent pipelines.
+- `QuentExcInfo` -- NamedTuple `(exc, root_value)` passed to `except_()` handlers as their current value.
+- `QuentIterator` -- Type alias for the return value of `.iterate()` / `.iterate_do()` / `.flat_iterate()` / `.flat_iterate_do()`. Use for type annotations.
 - `QuentException` -- Public exception type for quent-specific errors.
 - `__version__` -- Version string (dynamically read from package metadata).
 
@@ -44,14 +44,14 @@ This is the most important concept in quent. Every pipeline step dispatches thro
 1. **Explicit Args** -- args/kwargs provided: `fn(*args, **kwargs)`. Current value NOT passed.
 2. **Default** -- callable + current value: `fn(cv)`. Callable + no value: `fn()`. Non-callable: returned as-is.
 
-Nested chains are detected via duck-typing (`_quent_is_chain` attribute) and execute with the current value as input. This is handled transparently by the evaluation function.
+Nested pipelines are detected via duck-typing (`_quent_is_q` attribute) and execute with the current value as input. This is handled transparently by the evaluation function.
 
 ```python
-inner = Chain().then(lambda x: x * 2)
-Chain(5).then(inner).run()                    # inner receives 5, returns 10
-Chain(5).then(fmt, 'USD', decimals=2).run()   # Rule 1: fmt('USD', decimals=2)
-Chain(5).then(str).run()                      # Rule 2: str(5) -> '5'
-Chain(5).then(42).run()                       # Rule 2: 42 (literal replaces value)
+inner = Q().then(lambda x: x * 2)
+Q(5).then(inner).run()                    # inner receives 5, returns 10
+Q(5).then(fmt, 'USD', decimals=2).run()   # Rule 1: fmt('USD', decimals=2)
+Q(5).then(str).run()                      # Rule 2: str(5) -> '5'
+Q(5).then(42).run()                       # Rule 2: 42 (literal replaces value)
 ```
 
 ### Summary Table
@@ -61,15 +61,15 @@ Chain(5).then(42).run()                       # Rule 2: 42 (literal replaces val
 | 1 | Explicit args | Args/kwargs provided | `fn(*args, **kwargs)` |
 | 2 | Default | None of the above | `fn(cv)`, `fn()`, or `v` as-is |
 
-### Nested Chain Invocation Forms
+### Nested Pipeline Invocation Forms
 
 | Registration | Invocation |
 |---|---|
-| `.then(inner_chain)` | `inner_chain` runs with `current_value` as input |
-| `.then(inner_chain, arg1, arg2)` | `inner_chain` runs with `arg1` as input and `(arg2,)` as extra args -- cv NOT passed |
-| `.then(inner_chain, key=val)` | `inner_chain` runs with kwargs only, no run value -- cv NOT passed |
+| `.then(inner_q)` | `inner_q` runs with `current_value` as input |
+| `.then(inner_q, arg1, arg2)` | `inner_q` runs with `arg1` as input and `(arg2,)` as extra args -- cv NOT passed |
+| `.then(inner_q, key=val)` | `inner_q` runs with kwargs only, no run value -- cv NOT passed |
 
-When a nested chain is invoked with explicit args/kwargs (Rule 1), the caller's args/kwargs replace the inner chain's build-time root args/kwargs entirely -- no merging. Control flow signals propagate from nested chains to the outer chain.
+When a nested pipeline is invoked with explicit args/kwargs (Rule 1), the caller's args/kwargs replace the inner pipeline's build-time root args/kwargs entirely -- no merging. Control flow signals propagate from nested pipelines to the outer pipeline.
 
 ## Sync/Async Bridging
 
@@ -85,8 +85,8 @@ The bridge contract is the central guarantee:
 4. `.run()` returns either a plain value (all sync) or a coroutine (async transition occurred).
 
 ```python
-chain = Chain(5).then(lambda x: x * 2).then(async_fn)
-result = await chain.run()  # transitions to async at async_fn
+q = Q(5).then(lambda x: x * 2).then(async_fn)
+result = await q.run()  # transitions to async at async_fn
 ```
 
 ### Three-Tier Iteration
@@ -100,107 +100,107 @@ Iteration operations (`foreach`, `foreach_do`) use three tiers:
 
 Works with asyncio, trio, and curio. Detection uses `sys.modules` lookups (~50ns dict get when a library is not loaded), adding zero overhead when those libraries are not present. Dual-protocol objects (context managers and iterables supporting both sync and async protocols) automatically prefer the async protocol under any running event loop.
 
-## Chain Class
+## The `Q` Class
 
 ### Constructor
 
-`Chain(v=Null, /, *args, **kwargs)` -- optional root value. If `v` is callable, called with `(*args, **kwargs)` when chain runs. If not callable, used as-is (`args`/`kwargs` must not be provided; TypeError). `Chain()` = no root value. `Chain(None)` = root value `None`.
+`Q(v=Null, /, *args, **kwargs)` -- optional root value. If `v` is callable, called with `(*args, **kwargs)` when pipeline runs. If not callable, used as-is (`args`/`kwargs` must not be provided; TypeError). `Q()` = no root value. `Q(None)` = root value `None`.
 
 ```python
-Chain()              # no root value
-Chain(42)            # root value is 42
-Chain(fetch, url)    # calls fetch(url) at run time
+Q()              # no root value
+Q(42)            # root value is 42
+Q(fetch, url)    # calls fetch(url) at run time
 ```
 
 ### Pipeline Building Methods
 
 All return `self` for fluent chaining.
 
-#### .then(v, /, *args, **kwargs) -> Chain
+#### .then(v, /, *args, **kwargs) -> Q
 
-Append a step. `v` evaluated per calling conventions; result replaces current value. `v` can be callable, literal, or nested `Chain`.
+Append a step. `v` evaluated per calling conventions; result replaces current value. `v` can be callable, literal, or nested `Q`.
 
-#### .do(fn, /, *args, **kwargs) -> Chain
+#### .do(fn, /, *args, **kwargs) -> Q
 
 Side-effect step. `fn` must be callable (TypeError otherwise). Return value discarded; current value passes through. Awaitables still awaited for side-effect completion.
 
-#### .foreach(fn, /, *, concurrency=None, executor=None) -> Chain
+#### .foreach(fn, /, *, concurrency=None, executor=None) -> Q
 
 Apply `fn` to each element of current iterable. Results collected into a list. `fn` must be callable.
 - Sequential (default): one at a time. Supports sync and async iterables. Supports mid-iteration async transition.
 - Concurrent (`concurrency=N`): input eagerly materialized. Sync: ThreadPoolExecutor. Async: semaphore-limited tasks. Mixed sync/async raises TypeError.
 - `concurrency=-1`: unbounded concurrent (effective concurrency = `len(items)` at runtime).
 - `executor`: optional Executor instance for sync concurrent execution (caller manages lifecycle).
-- `Chain.break_()` stops iteration early.
+- `Q.break_()` stops iteration early.
 - Dual-protocol iterables: when both `__iter__` and `__aiter__` are present and an async event loop is running (asyncio, trio, or curio), async protocol preferred.
 
-#### .foreach_do(fn, /, *, concurrency=None, executor=None) -> Chain
+#### .foreach_do(fn, /, *, concurrency=None, executor=None) -> Q
 
 Side-effect per element. Original elements kept (fn's returns discarded). Same mechanics as `foreach()`.
 
-#### .gather(*fns, concurrency=-1, executor=None) -> Chain
+#### .gather(*fns, concurrency=-1, executor=None) -> Q
 
 Run multiple functions concurrently on current value. Returns tuple in same order as `fns`. Always concurrent -- no sequential fallback. `concurrency=-1` means unbounded. Sync: ThreadPoolExecutor. Async: TaskGroup (3.11+) / asyncio.gather (3.10). At least one function required. Single failure propagates directly; multiple wrapped in ExceptionGroup.
 - `executor`: optional Executor instance for sync concurrent execution.
-- `Chain.break_()` is NOT allowed in gather -- raises QuentException.
+- `Q.break_()` is NOT allowed in gather -- raises QuentException.
 
 ```python
-Chain(data).gather(validate, transform, analyze).then(
+Q(data).gather(validate, transform, analyze).then(
     lambda results: combine(results[0], results[1], results[2])
 ).run()
 ```
 
-#### .with_(fn, /, *args, **kwargs) -> Chain
+#### .with_(fn, /, *args, **kwargs) -> Q
 
 Enter current value as context manager, call `fn` with the `__enter__` result. fn's result replaces current value. If `fn` raises and `__exit__` returns truthy (suppresses), current value becomes `None`. If `__exit__` raises, replaces original (original as `__context__`).
 - Dual-protocol CMs: async protocol preferred when event loop running.
 - Control flow signals: `__exit__` called with no exception info (clean exit), signal propagates.
 
-#### .with_do(fn, /, *args, **kwargs) -> Chain
+#### .with_do(fn, /, *args, **kwargs) -> Q
 
 Same as `.with_()` but fn's result discarded. Original pipeline value (the context manager object) passes through. On exception suppression: original pipeline value passes through (not None as in `with_()`).
 
-#### .if_(predicate=None, /, *args, **kwargs) -> Chain
+#### .if_(predicate=None, /, *args, **kwargs) -> Q
 
 Begin a conditional branch. Must be followed by `.then()` or `.do()`.
 - `predicate=None`: uses current value truthiness. Null sentinel is falsy.
 - Callable predicate: called with current value per standard conventions.
 - Non-callable: truthiness used directly.
 - Args/kwargs are passed to the predicate callable (Rule 1).
-- Nested Chain as predicate: executed with current value; `return_()` propagates, `break_()` raises QuentException.
+- Nested Q as predicate: executed with current value; `return_()` propagates, `break_()` raises QuentException.
 
 After `.if_()`, the next `.then(fn)` or `.do(fn)` becomes the truthy branch. Follow with `.else_(v)` or `.else_do(fn)` for the falsy branch.
 
-Build-time constraints: calling `if_()` while another `if_()` is pending raises QuentException. Calling `.run()`, `.else_()`, `.decorator()`, `.iterate()`, `.iterate_do()`, `.set()`, or `.get()` while `if_()` is pending raises QuentException.
+Build-time constraints: calling `if_()` while another `if_()` is pending raises QuentException. Calling `.run()`, `.else_()`, `.as_decorator()`, `.iterate()`, `.iterate_do()`, `.set()`, or `.get()` while `if_()` is pending raises QuentException.
 
 ```python
-Chain(5).if_(lambda x: x > 0).then(lambda x: x * 2).else_(0).run()  # 10
+Q(5).if_(lambda x: x > 0).then(lambda x: x * 2).else_(0).run()  # 10
 ```
 
-#### .else_(v, /, *args, **kwargs) -> Chain
+#### .else_(v, /, *args, **kwargs) -> Q
 
 Else branch for preceding `.if_()`. Must follow `.then()` or `.do()` immediately (QuentException otherwise). One per `if_()`.
 
-#### .else_do(fn, /, *args, **kwargs) -> Chain
+#### .else_do(fn, /, *args, **kwargs) -> Q
 
 Side-effect else branch. Like `.else_()` but fn's result discarded. `fn` must be callable.
 
-#### .name(label) -> Chain
+#### .name(label) -> Q
 
-Assign a user-provided label for traceback identification. The label appears in chain visualizations, exception notes, and `repr(chain)`. No effect on execution semantics. `clone()` copies the name.
+Assign a user-provided label for traceback identification. The label appears in pipeline visualizations, exception notes, and `repr(q)`. No effect on execution semantics. `clone()` copies the name.
 
 ### Context API
 
 Pipeline steps are positional -- each step receives only the current value. The context API provides named storage scoped to the execution context, accessible from any step without altering the pipeline's value flow. Storage is backed by a `ContextVar`-based dictionary with copy-on-write semantics.
 
-#### .set(key) / .set(key, value) -> Chain (instance -- pipeline step)
+#### .set(key) / .set(key, value) -> Q (instance -- pipeline step)
 
 Append a pipeline step that stores a value in the execution context. Current value unchanged (like `.do()`).
-- One-arg form `chain.set(key)` -- stores the current pipeline value under `key`. Null normalized to None.
-- Two-arg form `chain.set(key, value)` -- stores the explicit `value` under `key`.
+- One-arg form `q.set(key)` -- stores the current pipeline value under `key`. Null normalized to None.
+- Two-arg form `q.set(key, value)` -- stores the explicit `value` under `key`.
 
 ```python
-Chain(fetch_user)
+Q(fetch_user)
   .set('user')                      # store CV in context
   .set('source', 'api')            # store explicit value
   .then(validate_permissions)       # transform continues
@@ -211,15 +211,15 @@ Chain(fetch_user)
 
 **`if_()` constraint:** `.set()` does not consume a pending `if_()`. Calling `.set()` while `if_()` is pending raises QuentException.
 
-#### Chain.set(key, value) -> None (class -- immediate)
+#### Q.set(key, value) -> None (class -- immediate)
 
 Store a value in the execution context immediately. Not a pipeline step -- takes effect at call site.
 
 ```python
-Chain.set('config', load_config())    # pre-populate context
+Q.set('config', load_config())    # pre-populate context
 ```
 
-#### .get(key) / .get(key, default) -> Chain (instance -- pipeline step)
+#### .get(key) / .get(key, default) -> Q (instance -- pipeline step)
 
 Retrieve a value from context. The retrieved value **replaces** the current value (like `.then()`).
 - Key found: stored value becomes current value.
@@ -228,7 +228,7 @@ Retrieve a value from context. The retrieved value **replaces** the current valu
 
 **`if_()` constraint:** same as `.set()`.
 
-#### Chain.get(key) / Chain.get(key, default) -> Any (class -- immediate)
+#### Q.get(key) / Q.get(key, default) -> Any (class -- immediate)
 
 Retrieve from context immediately. Not a pipeline step. Key not found without default raises `KeyError`.
 
@@ -242,23 +242,23 @@ Retrieve from context immediately. Not a pipeline step. Key not found without de
 
 #### Dual Dispatch via Descriptor
 
-Both `Chain.set` and `Chain.get` are Python descriptors. Instance access (`chain.set(...)`) appends a pipeline step. Class access (`Chain.set(...)`) operates on context immediately. This allows a single attribute name to serve both patterns.
+Both `Q.set` and `Q.get` are Python descriptors. Instance access (`q.set(...)`) appends a pipeline step. Class access (`Q.set(...)`) operates on context immediately. This allows a single attribute name to serve both patterns.
 
 ### Error Handling
 
-#### .except_(fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Chain
+#### .except_(fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Q
 
-Exception handler. One per chain. `fn` must be callable. `exceptions`: type(s) to catch (default `Exception`). `reraise=False`: handler return becomes result. `reraise=True`: side-effects only, original re-raised.
+Exception handler. One per pipeline. `fn` must be callable. `exceptions`: type(s) to catch (default `Exception`). `reraise=False`: handler return becomes result. `reraise=True`: side-effects only, original re-raised.
 
 **Except handler calling convention (uses the standard 2-rule convention):**
 
-The handler receives a `ChainExcInfo(exc, root_value)` as its current value:
+The handler receives a `QuentExcInfo(exc, root_value)` as its current value:
 
 | Registration | Invocation |
 |---|---|
-| `except_(handler)` | `handler(ChainExcInfo(exc, root_value))` |
-| `except_(handler, arg1, arg2)` | `handler(arg1, arg2)` -- ChainExcInfo NOT passed |
-| `except_(handler, key=val)` | `handler(key=val)` -- ChainExcInfo NOT passed |
+| `except_(handler)` | `handler(QuentExcInfo(exc, root_value))` |
+| `except_(handler, arg1, arg2)` | `handler(arg1, arg2)` -- QuentExcInfo NOT passed |
+| `except_(handler, key=val)` | `handler(key=val)` -- QuentExcInfo NOT passed |
 
 **Handler failure:** `reraise=True` + Exception: discarded, original re-raised (RuntimeWarning emitted). `reraise=True` + BaseException: propagates. `reraise=False`: handler's exception propagates with original as `__cause__`.
 
@@ -270,11 +270,11 @@ The handler receives a `ChainExcInfo(exc, root_value)` as its current value:
 
 Control flow signals inside except handlers raise QuentException.
 
-#### .finally_(fn, /, *args, **kwargs) -> Chain
+#### .finally_(fn, /, *args, **kwargs) -> Q
 
-Cleanup handler. One per chain. Always runs. Uses STANDARD calling conventions. Receives root value (normalized to `None` if absent). Return value always discarded. If raises while exception active: replaces original (original as `__context__`). Control flow signals raise QuentException.
+Cleanup handler. One per pipeline. Always runs. Uses STANDARD calling conventions. Receives root value (normalized to `None` if absent). Return value always discarded. If raises while exception active: replaces original (original as `__context__`). Control flow signals raise QuentException.
 
-**Async finally in sync chains:** When a sync chain's finally handler returns a coroutine, `run()` returns a coroutine (async transition). The handler is awaited, then the result is returned or exception re-raised.
+**Async finally in sync pipelines:** When a sync pipeline's finally handler returns a coroutine, `run()` returns a coroutine (async transition). The handler is awaited, then the result is returned or exception re-raised.
 
 **Async finally in sync iteration:** When `for` loop is used and finally handler returns a coroutine, the coroutine is closed and a RuntimeWarning is issued. Use `async for` for async finally handlers.
 
@@ -282,37 +282,37 @@ Cleanup handler. One per chain. Always runs. Uses STANDARD calling conventions. 
 
 #### .run(v=Null, /, *args, **kwargs) -> Any
 
-Execute chain. Returns final value or coroutine if async transition occurred. `v` overrides root value when both present (`Chain(A).then(B).run(C)` == `Chain(C).then(B).run()`). Non-callable `v` with args/kwargs raises TypeError. Root value captured for error handlers. Escaped control flow signals wrapped in QuentException.
+Execute pipeline. Returns final value or coroutine if async transition occurred. `v` overrides root value when both present (`Q(A).then(B).run(C)` == `Q(C).then(B).run()`). Non-callable `v` with args/kwargs raises TypeError. Root value captured for error handlers. Escaped control flow signals wrapped in QuentException.
 
 `v=<no value>` with args/kwargs raises TypeError (args need a positional root value).
 
 #### .__call__ = run
 
-Alias. `chain('hello')` == `chain.run('hello')`.
+Alias. `q('hello')` == `q.run('hello')`.
 
-#### .decorator() -> Callable
+#### .as_decorator() -> Callable
 
-Wrap chain as function decorator. Chain cloned internally. Decorated function's return value becomes chain input. Preserves signature via `functools.wraps`.
+Wrap pipeline as function decorator. Pipeline cloned internally. Decorated function's return value becomes pipeline input. Preserves signature via `functools.wraps`.
 
 ### Iteration Methods
 
-#### .iterate(fn=None) -> ChainIterator
+#### .iterate(fn=None) -> QuentIterator
 
-Dual sync/async iterator over chain output. Chain executed when iteration begins. Optional `fn` transforms each element. `for` = sync (TypeError if coroutine encountered). `async for` = async. ChainIterator is callable: `gen(url)` returns new iterator with those run args.
+Dual sync/async iterator over pipeline output. Pipeline executed when iteration begins. Optional `fn` transforms each element. `for` = sync (TypeError if coroutine encountered). `async for` = async. QuentIterator is callable: `gen(url)` returns new iterator with those run args.
 
-**`finally_()` is deferred** in iteration -- runs in the generator's `finally:` block after iteration ends, not before it begins. This ensures resources acquired during chain execution remain alive throughout iteration. Deferred finally runs on ALL exit paths: normal exhaustion, generator `.close()`, `break`, `return`, `fn` errors, and chain errors.
+**`finally_()` is deferred** in iteration -- runs in the generator's `finally:` block after iteration ends, not before it begins. This ensures resources acquired during pipeline execution remain alive throughout iteration. Deferred finally runs on ALL exit paths: normal exhaustion, generator `.close()`, `break`, `return`, `fn` errors, and pipeline errors.
 
 **Control flow:** `return_(v)` yields the value as a final item then stops. `break_(v)` yields the value then stops. Without a value, stops immediately.
 
-**Error handling:** `except_()` applies to the chain's `run()` phase. Exceptions from the iteration callback `fn` are NOT covered by `except_()` -- they propagate directly.
+**Error handling:** `except_()` applies to the pipeline's `run()` phase. Exceptions from the iteration callback `fn` are NOT covered by `except_()` -- they propagate directly.
 
-#### .iterate_do(fn=None) -> ChainIterator
+#### .iterate_do(fn=None) -> QuentIterator
 
 Like `.iterate()` but fn's return values discarded. Original elements yielded.
 
-#### .flat_iterate(fn=None, *, flush=None) -> ChainIterator
+#### .flat_iterate(fn=None, *, flush=None) -> QuentIterator
 
-Flatmap iterator over chain output. Each element is either iterated directly (when `fn` is `None`, flattening one level) or transformed by `fn` into a sub-iterable whose items are individually yielded.
+Flatmap iterator over pipeline output. Each element is either iterated directly (when `fn` is `None`, flattening one level) or transformed by `fn` into a sub-iterable whose items are individually yielded.
 
 - `fn` -- optional callable: receives each element, returns an iterable. Each sub-item yielded individually. When `None`, each source element iterated directly.
 - `flush` -- optional zero-argument callable invoked once after source exhausted. Must return an iterable; each item yielded into the stream. For emitting buffered/remaining items.
@@ -321,15 +321,15 @@ All iteration behavior matches `iterate()`: sync/async, error handling, deferred
 
 ```python
 # Flatten one level
-for item in Chain([[1, 2], [3, 4]]).flat_iterate():
+for item in Q([[1, 2], [3, 4]]).flat_iterate():
     print(item)  # 1, 2, 3, 4
 
 # Map to sub-iterables
-for word in Chain(['hello world', 'foo bar']).flat_iterate(str.split):
+for word in Q(['hello world', 'foo bar']).flat_iterate(str.split):
     print(word)  # hello, world, foo, bar
 ```
 
-#### .flat_iterate_do(fn=None, *, flush=None) -> ChainIterator
+#### .flat_iterate_do(fn=None, *, flush=None) -> QuentIterator
 
 Like `flat_iterate()` but `fn` runs as side-effect: its returned iterable is fully consumed (driving side-effects) but discarded. Original source elements yielded instead. When `fn` is `None`, behaves identically to `flat_iterate()`. The `flush` output is always yielded (the "do" discard applies only to `fn`'s results).
 
@@ -340,7 +340,7 @@ When `.with_(fn)` or `.with_do(fn)` is the last pipeline step before an iteratio
 **Why:** Without deferral, `with_()` would enter the CM during `run()` and exit before iteration begins -- resource closed before items consumed.
 
 **Lifecycle:**
-1. Chain runs normally, producing a context manager value.
+1. Pipeline runs normally, producing a context manager value.
 2. At iteration start, CM entered via `__enter__()` (or `__aenter__()`).
 3. `with_(fn)`: `fn` invoked with context value per standard convention. Result becomes iterable.
 4. `with_do(fn)`: `fn` runs as side-effect (discarded); CM object itself becomes iterable.
@@ -362,125 +362,125 @@ When `.with_(fn)` or `.with_do(fn)` is the last pipeline step before an iteratio
 
 ```python
 # File stays open for entire iteration, then closes
-for line in Chain(open, 'data.txt').with_(lambda f: f).iterate(str.strip):
+for line in Q(open, 'data.txt').with_(lambda f: f).iterate(str.strip):
     process(line)
 ```
 
 ### Reuse
 
-#### .clone() -> Chain
+#### .clone() -> Q
 
-Independent copy. Structure deep-copied; callables shared by reference. Nested chains recursively cloned. Subclass-safe. Keyword arg dicts shallow-copied (mutable). Positional arg tuples shared (immutable). Name label copied. Clones behave as top-level chains.
+Independent copy. Structure deep-copied; callables shared by reference. Nested pipelines recursively cloned. Subclass-safe. Keyword arg dicts shallow-copied (mutable). Positional arg tuples shared (immutable). Name label copied. Clones behave as top-level pipelines.
 
-#### Chain.from_steps(*steps) -> Chain
+#### Q.from_steps(*steps) -> Q
 
-Construct a chain from a sequence of steps. Each appended via `.then()`. Creates an empty chain (no root value). If a single argument is a `list` or `tuple`, it is auto-unpacked. Steps can be callables, literals, or nested Chains. No arguments returns empty chain. Equivalent: `Chain.from_steps(a, b, c)` == `Chain().then(a).then(b).then(c)`.
+Construct a pipeline from a sequence of steps. Each appended via `.then()`. Creates an empty pipeline (no root value). If a single argument is a `list` or `tuple`, it is auto-unpacked. Steps can be callables, literals, or nested Qs. No arguments returns empty pipeline. Equivalent: `Q.from_steps(a, b, c)` == `Q().then(a).then(b).then(c)`.
 
 ```python
 # Dynamic pipeline from plugin registry
 plugins = load_plugins()
-pipeline = Chain.from_steps([p.transform for p in plugins])
+pipeline = Q.from_steps([p.transform for p in plugins])
 ```
 
 ### Control Flow (Class Methods)
 
-#### Chain.return_(v=Null, /, *args, **kwargs) -> NoReturn
+#### Q.return_(v=Null, /, *args, **kwargs) -> NoReturn
 
-Early return. BaseException subclass -- never caught by `except_()`. Propagates through nested chains. Must be called as `return Chain.return_(value)`. No value = `None`. Callable value = lazy (invoked when caught). Inside except/finally: raises QuentException.
+Early return. BaseException subclass -- never caught by `except_()`. Propagates through nested pipelines. Must be called as `return Q.return_(value)`. No value = `None`. Callable value = lazy (invoked when caught). Inside except/finally: raises QuentException.
 
 ```python
 def check(x):
     if x < 0:
-        return Chain.return_(0)  # skips remaining steps, chain returns 0
+        return Q.return_(0)  # skips remaining steps, pipeline returns 0
     return x
 ```
 
-#### Chain.break_(v=Null, /, *args, **kwargs) -> NoReturn
+#### Q.break_(v=Null, /, *args, **kwargs) -> NoReturn
 
 Break from `foreach`/`foreach_do`. No value = partial results. With value = value is **appended** to partial results. Outside iteration: QuentException. Inside except/finally: QuentException. In `gather()`: QuentException. Concurrent: earliest index wins. Priority: return_ > break_ > exceptions.
 
 ```python
-Chain([1, 2, -1, 3]).foreach(lambda x: Chain.break_() if x < 0 else x * 2).run()  # [2, 4]
-Chain([1, 2, -1, 3]).foreach(lambda x: Chain.break_(x * 10) if x < 0 else x * 2).run()  # [2, 4, -10]
+Q([1, 2, -1, 3]).foreach(lambda x: Q.break_() if x < 0 else x * 2).run()  # [2, 4]
+Q([1, 2, -1, 3]).foreach(lambda x: Q.break_(x * 10) if x < 0 else x * 2).run()  # [2, 4, -10]
 ```
 
 ### Instrumentation
 
-#### Chain.on_step
+#### Q.on_step
 
 `ClassVar[Callable | None]` -- default `None`. Class-level callback for step instrumentation. Supports two signatures:
 
 **6-argument form (preferred):**
 ```python
-def on_step(chain: Chain, step_name: str, input_value: Any, result: Any, elapsed_ns: int, exception: BaseException | None) -> None
+def on_step(q: Q, step_name: str, input_value: Any, result: Any, elapsed_ns: int, exception: BaseException | None) -> None
 ```
 
 **5-argument form (backward-compatible):**
 ```python
-def on_step(chain: Chain, step_name: str, input_value: Any, result: Any, elapsed_ns: int) -> None
+def on_step(q: Q, step_name: str, input_value: Any, result: Any, elapsed_ns: int) -> None
 ```
 
 The engine auto-detects callback arity via `inspect.signature` (cached on first call). 5-arg callbacks are NOT called on step failure. 6-arg callbacks are called on both success and failure.
 
 Arguments:
-- `chain` -- the Chain instance being executed.
+- `q` -- the Q instance being executed.
 - `step_name` -- `'root'`, `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'except_'`, or `'finally_'`. The `'if_'` name covers the entire conditional (truthy + falsy branch). `'else_'`/`'else_do'` are not separate events.
-- `input_value` -- current pipeline value before step. Normalized to `None` (Null never exposed). For `except_`, this is `ChainExcInfo`. For `finally_`, this is root value.
+- `input_value` -- current pipeline value before step. Normalized to `None` (Null never exposed). For `except_`, this is `QuentExcInfo`. For `finally_`, this is root value.
 - `result` -- value produced. On failure (`exception` is not `None`), `result` is `None`.
 - `elapsed_ns` -- wall-clock nanoseconds via `time.perf_counter_ns()`.
 - `exception` -- the exception raised by the step, or `None` on success. Fires *before* `except_()` handler runs.
 
 Zero overhead when `None`. Callback errors logged at WARNING, never break execution.
 
-Thread safety: class-level, set before concurrent execution. Subclass overrides respected via `type(chain).on_step`.
+Thread safety: class-level, set before concurrent execution. Subclass overrides respected via `type(q).on_step`.
 
 ### Dunder Methods
 
-`__bool__()` always `True`. `__repr__()` shows chain structure using traceback visualization format.
+`__bool__()` always `True`. `__repr__()` shows pipeline structure using traceback visualization format.
 
 ## Null Sentinel
 
 Singleton distinct from `None`. Represents "no value was provided."
 
-- `Chain()` has no root value (internal Null). `Chain(None)` has root value `None`.
+- `Q()` has no root value (internal Null). `Q(None)` has root value `None`.
 - Immutable, thread-safe. `repr(Null)` returns `'<Null>'`.
 - Copying (`copy.copy`, `copy.deepcopy`) returns same instance.
 - Picklable: `pickle.dumps(Null)` round-trips to the singleton via `__reduce__`.
-- Never exposed to user code. Normalized to `None` at chain boundaries.
+- Never exposed to user code. Normalized to `None` at pipeline boundaries.
 - When current value is Null: callable receives zero args. When `None`: callable receives `fn(None)`.
 - Duplicate instantiation blocked with TypeError.
 
-## ChainExcInfo
+## QuentExcInfo
 
 NamedTuple with two fields:
 - `exc: BaseException` -- the caught exception.
-- `root_value: Any` -- the chain's evaluated root value (normalized to `None` when absent).
+- `root_value: Any` -- the pipeline's evaluated root value (normalized to `None` when absent).
 
 This is the "current value" passed to `except_()` handlers via the standard 2-rule calling convention.
 
-## ChainIterator
+## QuentIterator
 
 Dual sync/async iterator returned by `.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`.
 - Supports `__iter__` (for `for` loops) and `__aiter__` (for `async for` loops).
-- Callable: `it(v, *args, **kwargs)` returns a new iterator with those arguments as run-time parameters for the chain.
+- Callable: `it(v, *args, **kwargs)` returns a new iterator with those arguments as run-time parameters for the pipeline.
 - Each call produces a fresh iterator instance; original configuration preserved.
 
 ## QuentException
 
-Raised for: duplicate except_/finally_, else_() without if_(), break_() outside iteration, break_() in gather(), control flow signals escaping chain or used in handlers, pending if_() at run/decorator/iterate, set()/get() while if_() pending, nesting depth exceeded.
+Raised for: duplicate except_/finally_, else_() without if_(), break_() outside iteration, break_() in gather(), control flow signals escaping pipeline or used in handlers, pending if_() at run/as_decorator/iterate, set()/get() while if_() pending, nesting depth exceeded.
 
 ## Enhanced Tracebacks
 
-Quent injects `<quent>` frames into tracebacks with chain visualization. `<----` marks the failing step. Nested chains indented. Internal quent frames cleaned. First-write-wins: only innermost failure recorded.
+Quent injects `<quent>` frames into tracebacks with pipeline visualization. `<----` marks the failing step. Nested pipelines indented. Internal quent frames cleaned. First-write-wins: only innermost failure recorded.
 
 ```
-Chain(fetch_data)
+Q(fetch_data)
     .then(validate)
     .do(log) <----
     .foreach(transform)
 ```
 
-**Mechanism:** `sys.excepthook` and `TracebackException.__init__` patched. Python 3.11+: note via `exc.add_note()`. Named chains render as `Chain[label](root)`.
+**Mechanism:** `sys.excepthook` and `TracebackException.__init__` patched. Python 3.11+: note via `exc.add_note()`. Named pipelines render as `Q[label](root)`.
 
 **Repr sanitization (CWE-117):** ANSI escape sequences stripped, unicode control characters stripped, repr length truncated to 200 chars.
 
@@ -494,15 +494,15 @@ Chain(fetch_data)
 
 **Uninstall:** `quent.uninstall_hooks()` restores originals. Thread-safe, idempotent.
 
-**`__repr__` via visualization:** `repr(chain)` uses same format without `<----` marker. Same limits apply.
+**`__repr__` via visualization:** `repr(q)` uses same format without `<----` marker. Same limits apply.
 
 ### Exception Notes (Python 3.11+)
 
 Concise one-line note attached via `exc.add_note()`:
 
 ```
-quent: exception at .then(validate) in Chain(fetch_data)
-quent: exception at .then(validate) in Chain[auth_pipeline](fetch_data)
+quent: exception at .then(validate) in Q(fetch_data)
+quent: exception at .then(validate) in Q[auth_pipeline](fetch_data)
 ```
 
 Idempotent -- no duplicate notes. Survives traceback reformatting.
@@ -554,8 +554,8 @@ Messages: `"gather() encountered N exceptions"`, `"foreach() encountered N excep
 
 ## Thread Safety
 
-- **Building:** NOT thread-safe. Chains must be fully constructed before sharing.
-- **Execution:** A fully constructed chain is safe to execute concurrently from multiple threads, including free-threaded Python (PEP 703). Execution uses only function-local state and never mutates the list structure.
+- **Building:** NOT thread-safe. Pipelines must be fully constructed before sharing.
+- **Execution:** A fully constructed pipeline is safe to execute concurrently from multiple threads, including free-threaded Python (PEP 703). Execution uses only function-local state and never mutates the list structure.
 - **`on_step`:** Class-level. Must be set before concurrent execution. The callback must be thread-safe.
 
 ## Execution Order
@@ -571,7 +571,7 @@ Full error handling flow:
 4. On success: finally runs in success context.
 5. Finally always runs last.
 
-## Async Transition for Sync Chain Handlers
+## Async Transition for Sync Pipeline Handlers
 
 **`except_()` with `reraise=True`:** If handler returns coroutine, `run()` returns coroutine. Handler awaited, then original exception re-raised.
 
@@ -583,46 +583,46 @@ Full error handling flow:
 
 Step-level logging via `'quent'` logger with per-execution hex IDs:
 
-- `[exec:<id>] chain <repr>: run started`
-- `[exec:<id>] chain <repr>: <step_name> -> <result_repr>`
-- `[exec:<id>] chain <repr>: async transition at <step_name>`
-- `[exec:<id>] chain <repr>: completed -> <result_repr>`
-- `[exec:<id>] chain <repr>: failed at <step_name>: <exc_repr>`
-- `[exec:<id>] chain <repr>: async continuation started`
+- `[exec:<id>] pipeline <repr>: run started`
+- `[exec:<id>] pipeline <repr>: <step_name> -> <result_repr>`
+- `[exec:<id>] pipeline <repr>: async transition at <step_name>`
+- `[exec:<id>] pipeline <repr>: completed -> <result_repr>`
+- `[exec:<id>] pipeline <repr>: failed at <step_name>: <exc_repr>`
+- `[exec:<id>] pipeline <repr>: async continuation started`
 
 Gated by `_log.isEnabledFor(DEBUG)` -- zero cost when disabled. Respects `QUENT_TRACEBACK_VALUES=0`.
 
 ## Complete Method Signatures
 
 ```python
-class Chain:
+class Q:
     def __init__(self, v=Null, /, *args, **kwargs) -> None: ...
-    def then(self, v, /, *args, **kwargs) -> Chain: ...
-    def do(self, fn, /, *args, **kwargs) -> Chain: ...
-    def foreach(self, fn, /, *, concurrency=None, executor=None) -> Chain: ...
-    def foreach_do(self, fn, /, *, concurrency=None, executor=None) -> Chain: ...
-    def gather(self, *fns, concurrency=-1, executor=None) -> Chain: ...
-    def with_(self, fn, /, *args, **kwargs) -> Chain: ...
-    def with_do(self, fn, /, *args, **kwargs) -> Chain: ...
-    def if_(self, predicate=None, /, *args, **kwargs) -> Chain: ...
-    def else_(self, v, /, *args, **kwargs) -> Chain: ...
-    def else_do(self, fn, /, *args, **kwargs) -> Chain: ...
-    def except_(self, fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Chain: ...
-    def finally_(self, fn, /, *args, **kwargs) -> Chain: ...
-    def name(self, label, /) -> Chain: ...
+    def then(self, v, /, *args, **kwargs) -> Q: ...
+    def do(self, fn, /, *args, **kwargs) -> Q: ...
+    def foreach(self, fn, /, *, concurrency=None, executor=None) -> Q: ...
+    def foreach_do(self, fn, /, *, concurrency=None, executor=None) -> Q: ...
+    def gather(self, *fns, concurrency=-1, executor=None) -> Q: ...
+    def with_(self, fn, /, *args, **kwargs) -> Q: ...
+    def with_do(self, fn, /, *args, **kwargs) -> Q: ...
+    def if_(self, predicate=None, /, *args, **kwargs) -> Q: ...
+    def else_(self, v, /, *args, **kwargs) -> Q: ...
+    def else_do(self, fn, /, *args, **kwargs) -> Q: ...
+    def except_(self, fn, /, *args, exceptions=None, reraise=False, **kwargs) -> Q: ...
+    def finally_(self, fn, /, *args, **kwargs) -> Q: ...
+    def name(self, label, /) -> Q: ...
     # Context API (descriptors -- instance = pipeline step, class = immediate)
-    set: _SetDescriptor  # chain.set(key) / chain.set(key, val) / Chain.set(key, val)
-    get: _GetDescriptor  # chain.get(key) / chain.get(key, default) / Chain.get(key) / Chain.get(key, default)
+    set: _SetDescriptor  # q.set(key) / q.set(key, val) / Q.set(key, val)
+    get: _GetDescriptor  # q.get(key) / q.get(key, default) / Q.get(key) / Q.get(key, default)
     def run(self, v=Null, /, *args, **kwargs) -> Any: ...
     def __call__(self, v=Null, /, *args, **kwargs) -> Any: ...
-    def decorator(self) -> Callable: ...
-    def iterate(self, fn=None) -> ChainIterator: ...
-    def iterate_do(self, fn=None) -> ChainIterator: ...
-    def flat_iterate(self, fn=None, *, flush=None) -> ChainIterator: ...
-    def flat_iterate_do(self, fn=None, *, flush=None) -> ChainIterator: ...
-    def clone(self) -> Chain: ...
+    def as_decorator(self) -> Callable: ...
+    def iterate(self, fn=None) -> QuentIterator: ...
+    def iterate_do(self, fn=None) -> QuentIterator: ...
+    def flat_iterate(self, fn=None, *, flush=None) -> QuentIterator: ...
+    def flat_iterate_do(self, fn=None, *, flush=None) -> QuentIterator: ...
+    def clone(self) -> Q: ...
     @classmethod
-    def from_steps(cls, *steps) -> Chain: ...
+    def from_steps(cls, *steps) -> Q: ...
     @classmethod
     def return_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...
     @classmethod
@@ -634,27 +634,27 @@ class Chain:
 
 ## Invariants and Edge Cases
 
-1. Single except/finally per chain. Duplicates raise QuentException.
+1. Single except/finally per pipeline. Duplicates raise QuentException.
 2. `except_()` catches `Exception` by default, not `BaseException`.
 3. `finally_()` receives the root value, not the current pipeline value. Its return value is always discarded.
-4. `except_()` handler receives `ChainExcInfo(exc, root_value)` as its current value (standard 2-rule convention). Handler return value replaces chain result (when `reraise=False`).
+4. `except_()` handler receives `QuentExcInfo(exc, root_value)` as its current value (standard 2-rule convention). Handler return value replaces pipeline result (when `reraise=False`).
 5. `do()` enforces callable (TypeError for non-callables). `then()` accepts any value.
 6. Control flow signals (`_Return`, `_Break`) are `BaseException` subclasses -- never caught by `except_()` handlers.
 7. Using `return_()` or `break_()` inside `except_()` or `finally_()` raises QuentException.
-8. `Chain.__bool__()` always returns `True`.
-9. `Null` is not `None`. `Chain(None).run()` returns `None`. `Chain().run()` also returns `None`, but via a different path (Null normalized at boundary).
+8. `Q.__bool__()` always returns `True`.
+9. `Null` is not `None`. `Q(None).run()` returns `None`. `Q().run()` also returns `None`, but via a different path (Null normalized at boundary).
 10. `gather()` is always concurrent. At least one function required. Returns tuple even for single function.
 11. `with_()` properly handles `__exit__` return value (True suppresses exception; current value becomes None).
 12. `iterate()` in sync mode raises TypeError if fn returns a coroutine.
-13. `copy.copy()`/`copy.deepcopy()` are blocked on Chain objects (`TypeError`). Use `.clone()` for independent copies. Pickling is not blocked -- most chain contents naturally fail to pickle.
+13. `copy.copy()`/`copy.deepcopy()` are blocked on Q objects (`TypeError`). Use `.clone()` for independent copies. Pickling is not blocked -- most pipeline contents naturally fail to pickle.
 14. `break_(value)` **appends** the break value to partial results. In `iterate()`, value is yielded as additional item.
-15. `return_(value)` in normal execution replaces chain result. In `iterate()`, value is yielded as final item.
+15. `return_(value)` in normal execution replaces pipeline result. In `iterate()`, value is yielded as final item.
 16. Root callable failure: except/finally handlers receive root value normalized to `None` (since no root was successfully produced).
 17. `with_do()` on exception suppression: original pipeline value passes through (not None as in `with_()`).
 18. Concurrent mixed sync/async raises TypeError -- first item/function determines the mode.
 19. `if_()` predicate can be callable, non-callable, or None (uses current value truthiness).
 20. `else_()` must follow `if_()` immediately -- no intervening steps.
-21. `from_steps()` with a single list/tuple argument auto-unpacks it. No arguments returns empty chain.
+21. `from_steps()` with a single list/tuple argument auto-unpacks it. No arguments returns empty pipeline.
 22. `flat_iterate()` flattens one level when `fn` is `None`. When `fn` provided, each element mapped to sub-iterable.
 23. `flat_iterate_do()` discards `fn`'s sub-iterable items but yields original source elements. `flush` output always yielded.
 24. Deferred `with_` in iteration: CM exits before deferred `finally_()`. Both run on all exit paths.
@@ -681,8 +681,8 @@ Base class providing helpers for exhaustive sync/async bridge testing. Tests der
 
 Core testing infrastructure proving the bridge contract across a 7-axis combinatorial space:
 
-1. **Operation type** -- 96 "bricks" covering every chain operation x every calling convention
-2. **Chain length** -- pipelines of 1 to N steps
+1. **Operation type** -- 96 "bricks" covering every pipeline operation x every calling convention
+2. **Pipeline length** -- pipelines of 1 to N steps
 3. **Operation order** -- every permutation of operations (with repetition)
 4. **Sync/async per position** -- each step independently sync or async (2^N combinations per pipeline)
 5. **Error injection** -- exceptions, base exceptions, and control flow signals at each position
@@ -714,8 +714,8 @@ python -m unittest tests.bridge_tests
 
 ## Design Decisions
 
-### Single except_/finally_ Per Chain
-One error boundary per chain. Per-step error handling via nested chains with their own except_/finally_.
+### Single except_/finally_ Per Pipeline
+One error boundary per pipeline. Per-step error handling via nested pipelines with their own except_/finally_.
 
 ### Gather Is Always Concurrent
 Eliminates bridge asymmetry. Both sync (ThreadPoolExecutor) and async (TaskGroup/gather) modes are concurrent, producing consistent behavior.

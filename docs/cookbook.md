@@ -28,7 +28,7 @@ Read a CSV file, filter rows, normalize fields, and output JSON.
 ```python
 import csv
 import json
-from quent import Chain
+from quent import Q
 
 def read_csv(path):
   with open(path) as f:
@@ -43,7 +43,7 @@ def normalize_record(record):
   }
 
 result = (
-  Chain('users.csv')
+  Q('users.csv')
   .then(read_csv)
   .then(lambda records: [r for r in records if r.get('email')])  # drop rows without email
   .foreach(normalize_record)
@@ -58,7 +58,7 @@ Group, aggregate, and sort data in a single pipeline.
 
 ```python
 from collections import Counter
-from quent import Chain
+from quent import Q
 
 def group_by_category(items):
   groups = {}
@@ -73,7 +73,7 @@ def aggregate(groups):
   }
 
 summary = (
-  Chain(fetch_sales_data)
+  Q(fetch_sales_data)
   .then(lambda items: [item for item in items if item['price'] > 0])
   .then(group_by_category)
   .then(aggregate)
@@ -91,11 +91,11 @@ summary = (
 Fetch data from several APIs, merge results, and handle partial failures.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def fetch_user_data(user_id):
   return (
-    Chain(user_id)
+    Q(user_id)
     .gather(
       lambda uid: api.get(f'/users/{uid}'),
       lambda uid: api.get(f'/users/{uid}/orders'),
@@ -125,7 +125,7 @@ data = await fetch_user_data(42)
 Build a reusable request pipeline with composable middleware.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def add_headers(req, headers):
   return {**req, 'headers': {**req.get('headers', {}), **headers}}
@@ -137,7 +137,7 @@ def add_auth(req, token):
   }
 
 result = (
-  Chain({'method': 'GET', 'url': '/api/users'})
+  Q({'method': 'GET', 'url': '/api/users'})
   .then(add_headers, {'Accept': 'application/json'})
   .then(add_auth, auth_token)
   .do(lambda req: logger.info('Request: %s %s', req['method'], req['url']))
@@ -156,7 +156,7 @@ result = (
 Use `.with_()` to manage database connections as context managers.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def query_users(db):
   return db.execute('SELECT * FROM users WHERE active = 1').fetchall()
@@ -168,9 +168,9 @@ def format_users(rows):
 import sqlite3
 
 users = (
-  Chain(lambda: sqlite3.connect('app.db'))
+  Q(lambda: sqlite3.connect('app.db'))
   .with_(lambda db: (
-    Chain(db)
+    Q(db)
     .then(query_users)
     .then(format_users)
     .run()
@@ -178,13 +178,13 @@ users = (
   .run()
 )
 
-# aiosqlite (async) -- same chain structure
+# aiosqlite (async) -- same pipeline structure
 import aiosqlite
 
 users = await (
-  Chain(aiosqlite.connect, 'app.db')
+  Q(aiosqlite.connect, 'app.db')
   .with_(lambda db: (
-    Chain(db)
+    Q(db)
     .then(query_users)
     .then(format_users)
     .run()
@@ -202,7 +202,7 @@ users = await (
 Process files in a pipeline with guaranteed cleanup.
 
 ```python
-from quent import Chain
+from quent import Q
 
 def transform_lines(text):
   lines = text.strip().splitlines()
@@ -214,12 +214,12 @@ def transform_lines(text):
 
 def process_file(input_path, output_path):
   return (
-    Chain(input_path)
+    Q(input_path)
     .then(open)
     .with_(lambda f: f.read())
     .then(transform_lines)
     .do(lambda content: (
-      Chain(output_path)
+      Q(output_path)
       .then(lambda p: open(p, 'w'))
       .with_(lambda f: f.write(content))
       .run()
@@ -239,7 +239,7 @@ Load configuration from multiple sources, validate, and merge into a final confi
 ```python
 import json
 import os
-from quent import Chain
+from quent import Q
 
 def load_file(path):
   with open(path) as f:
@@ -257,11 +257,11 @@ def validate_config(config):
   required = ['database_url', 'secret_key']
   missing = [k for k in required if k not in config]
   if missing:
-    return Chain.return_({'error': f'Missing keys: {missing}'})
+    return Q.return_({'error': f'Missing keys: {missing}'})
   return config
 
 config = (
-  Chain('config.json')
+  Q('config.json')
   .then(load_file)
   .then(load_env_overrides)
   .then(validate_config)
@@ -274,18 +274,18 @@ config = (
 
 ## Testing Patterns
 
-### Unit Testing Chains with Mocks
+### Unit Testing Pipelines with Mocks
 
-Chains work naturally with `unittest.mock` -- swap callables with mocks to test in isolation.
+Q pipelines work naturally with `unittest.mock` -- swap callables with mocks to test in isolation.
 
 ```python
 import unittest
 from unittest.mock import AsyncMock, MagicMock
-from quent import Chain
+from quent import Q
 
 def build_pipeline(fetch, transform, save):
   return (
-    Chain()
+    Q()
     .then(fetch)
     .then(transform)
     .do(save)
@@ -321,7 +321,7 @@ class TestPipeline(unittest.IsolatedAsyncioTestCase):
     fetch = MagicMock(side_effect=ValueError('bad input'))
 
     result = (
-      Chain(1)
+      Q(1)
       .then(fetch)
       .except_(lambda ei: {'error': str(ei.exc), 'input': ei.root_value})
       .run()
@@ -332,6 +332,6 @@ class TestPipeline(unittest.IsolatedAsyncioTestCase):
 
 Key points:
 
-- **Same chain, both mock types.** `MagicMock` for sync, `AsyncMock` for async -- the chain handles either transparently.
+- **Same pipeline, both mock types.** `MagicMock` for sync, `AsyncMock` for async -- the pipeline handles either transparently.
 - **`.do()` observers let you inspect intermediate values** without altering the pipeline flow.
 - **`except_()` handlers are testable** by making mocks raise.

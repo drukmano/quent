@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting — Common Errors and How to Fix Them"
-description: "Solutions for common quent errors: forgetting return before Chain.return_(), break_() outside iteration, else_() without if_(), non-callable in do(), exception handling pitfalls, duplicate handler registration, copying, concurrency validation, nesting depth, and task limits."
+description: "Solutions for common quent errors: forgetting return before Q.return_(), break_() outside iteration, else_() without if_(), non-callable in do(), exception handling pitfalls, duplicate handler registration, copying, concurrency validation, nesting depth, and task limits."
 tags:
   - troubleshooting
   - errors
@@ -16,59 +16,59 @@ This page covers the most common mistakes when using quent, with exact error mes
 
 ---
 
-## 1. Forgetting `return` Before `Chain.return_()`
+## 1. Forgetting `return` Before `Q.return_()`
 
 ### Symptom
 
-Your linter reports unreachable code after `Chain.return_()`, or readers are confused about the control flow:
+Your linter reports unreachable code after `Q.return_()`, or readers are confused about the control flow:
 
 ```python
 def process(x):
   if x < 0:
-    Chain.return_('negative')  # <-- missing `return`
+    Q.return_('negative')  # <-- missing `return`
     print('this looks unreachable')  # linter warning
   return x * 2
 ```
 
 ### What happens
 
-`Chain.return_()` works by raising an internal `_Return` exception. Because it raises immediately, the call itself will exit the function -- so the chain **does** receive the early-return signal even without `return`. However, omitting `return` is misleading: it looks like `Chain.return_()` is a no-op side-effect call, and linters will flag subsequent code as unreachable.
+`Q.return_()` works by raising an internal `_Return` exception. Because it raises immediately, the call itself will exit the function -- so the pipeline **does** receive the early-return signal even without `return`. However, omitting `return` is misleading: it looks like `Q.return_()` is a no-op side-effect call, and linters will flag subsequent code as unreachable.
 
 ### Fix
 
-Always write `return Chain.return_(...)`:
+Always write `return Q.return_(...)`:
 
 ```python
 def process(x):
   if x < 0:
-    return Chain.return_('negative')
+    return Q.return_('negative')
   return x * 2
 ```
 
 !!! tip
-    Using `return` makes the control flow explicit -- both for human readers and for static analysis tools. The value returned by `Chain.return_()` is never actually used (it raises before returning), but the `return` statement communicates intent.
+    Using `return` makes the control flow explicit -- both for human readers and for static analysis tools. The value returned by `Q.return_()` is never actually used (it raises before returning), but the `return` statement communicates intent.
 
 ---
 
-## 2. Using `Chain.break_()` Outside Iteration
+## 2. Using `Q.break_()` Outside Iteration
 
 ### Error
 
 ```
-quent.QuentException: Chain.break_() cannot be used outside of an iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).
+quent.QuentException: Q.break_() cannot be used outside of an iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).
 ```
 
 ### Cause
 
-`Chain.break_()` is only valid inside callbacks passed to `.foreach()` or `.foreach_do()`. If you call it from a `.then()` or `.do()` step, the `_Break` signal has no iteration loop to catch it, so it escapes to `run()` and is wrapped in `QuentException`.
+`Q.break_()` is only valid inside callbacks passed to `.foreach()` or `.foreach_do()`. If you call it from a `.then()` or `.do()` step, the `_Break` signal has no iteration loop to catch it, so it escapes to `run()` and is wrapped in `QuentException`.
 
 ```python
-from quent import Chain
+from quent import Q
 
 # WRONG -- break_() in a .then() step
 result = (
-  Chain(5)
-  .then(lambda x: Chain.break_(x) if x > 3 else x)
+  Q(5)
+  .then(lambda x: Q.break_(x) if x > 3 else x)
   .run()
 )
 # raises QuentException
@@ -76,30 +76,30 @@ result = (
 
 ### Fix
 
-Use `Chain.return_()` to exit the entire chain early. Use `Chain.break_()` only inside iteration callbacks:
+Use `Q.return_()` to exit the entire pipeline early. Use `Q.break_()` only inside iteration callbacks:
 
 ```python
-from quent import Chain
+from quent import Q
 
-# Use return_() to exit the chain early
+# Use return_() to exit the pipeline early
 result = (
-  Chain(5)
-  .then(lambda x: Chain.return_(x) if x > 3 else x * 2)
+  Q(5)
+  .then(lambda x: Q.return_(x) if x > 3 else x * 2)
   .run()
 )
 # result == 5
 
 # Use break_() inside .foreach()
 result = (
-  Chain([1, 2, 3, 4, 5])
-  .foreach(lambda x: Chain.break_() if x > 3 else x * 2)
+  Q([1, 2, 3, 4, 5])
+  .foreach(lambda x: Q.break_() if x > 3 else x * 2)
   .run()
 )
 # result == [2, 4, 6]
 ```
 
 !!! warning
-    `Chain.break_()` is also invalid inside `.except_()` and `.finally_()` handlers and inside `.gather()` operations.
+    `Q.break_()` is also invalid inside `.except_()` and `.finally_()` handlers and inside `.gather()` operations.
 
 ---
 
@@ -107,19 +107,19 @@ result = (
 
 ### Error
 
-If the chain has no steps at all:
+If the pipeline has no steps at all:
 
 ```
-quent.QuentException: else_() requires a preceding if_() — the chain has no steps yet.
-Usage: chain.if_(predicate).then(handler).else_(alternative)
+quent.QuentException: else_() requires a preceding if_() — the pipeline has no steps yet.
+Usage: q.if_(predicate).then(handler).else_(alternative)
 ```
 
 If the last step is not an `.if_()` or `.then()`/`.do()` following `.if_()`:
 
 ```
 quent.QuentException: else_() must follow immediately after if_() with no operations
-in between. The last operation in this chain is not if_().
-Usage: chain.if_(predicate).then(handler).else_(alternative)
+in between. The last operation in this pipeline is not if_().
+Usage: q.if_(predicate).then(handler).else_(alternative)
 ```
 
 ### Cause
@@ -127,11 +127,11 @@ Usage: chain.if_(predicate).then(handler).else_(alternative)
 `.else_()` and `.else_do()` must be chained **immediately** after `.if_().then()` or `.if_().do()`. Any intervening operation breaks the association:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # WRONG -- .do(print) between .if_().then() and .else_()
 result = (
-  Chain(value)
+  Q(value)
   .if_(lambda x: x > 0).then(process_positive)
   .do(print)
   .else_(process_negative)  # raises QuentException
@@ -144,11 +144,11 @@ result = (
 Ensure `.else_()` immediately follows `.if_()`:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Correct
 result = (
-  Chain(value)
+  Q(value)
   .if_(lambda x: x > 0).then(process_positive)
   .else_(process_negative)
   .do(print)  # side-effects go after the if/else block
@@ -174,10 +174,10 @@ TypeError: do() requires a callable, got <type_name>
 `.do()` enforces that its argument is callable. A non-callable `.do(42)` would silently do nothing (the value is discarded since `.do()` is a side-effect step), so this is caught at build time.
 
 ```python
-from quent import Chain
+from quent import Q
 
 # WRONG
-result = Chain(42).do('not a function').run()  # raises TypeError
+result = Q(42).do('not a function').run()  # raises TypeError
 ```
 
 ### Fix
@@ -185,13 +185,13 @@ result = Chain(42).do('not a function').run()  # raises TypeError
 Use `.then()` for literal values, `.do()` only for callables:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # .then() for literal values
-result = Chain(42).then('replacement').run()  # result == 'replacement'
+result = Q(42).then('replacement').run()  # result == 'replacement'
 
 # .do() for side-effects
-result = Chain(42).do(print).run()  # prints 42, result == 42
+result = Q(42).do(print).run()  # prints 42, result == 42
 ```
 
 !!! info "`.then()` vs `.do()` -- key difference"
@@ -204,7 +204,7 @@ result = Chain(42).do(print).run()  # prints 42, result == 42
 
 ### Symptom
 
-You press Ctrl+C during chain execution and expect your handler to catch it, but it propagates instead.
+You press Ctrl+C during pipeline execution and expect your handler to catch it, but it propagates instead.
 
 ### Cause
 
@@ -215,10 +215,10 @@ You press Ctrl+C during chain execution and expect your handler to catch it, but
 If you genuinely need to catch `BaseException` subclasses, specify them explicitly:
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(long_running_task)
+  Q(long_running_task)
   .except_(handle_error, exceptions=(Exception, KeyboardInterrupt))
   .run()
 )
@@ -228,11 +228,11 @@ result = (
     Catching `KeyboardInterrupt` or `SystemExit` prevents users from terminating your program. quent emits a warning when you do this. In almost all cases, use `.finally_()` for cleanup instead -- finally handlers run even when these signals propagate.
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Preferred: finally_() for cleanup, let interrupts propagate
 result = (
-  Chain(long_running_task)
+  Q(long_running_task)
   .except_(handle_recoverable_error)
   .finally_(lambda _: cleanup())
   .run()
@@ -255,14 +255,14 @@ quent.QuentException: You can only register one 'finally' callback.
 
 ### Cause
 
-Each chain supports at most one `except_()` and one `finally_()`. This is enforced at registration time.
+Each pipeline supports at most one `except_()` and one `finally_()`. This is enforced at registration time.
 
 ### Fix
 
 Consolidate into a single handler, or use nested chains for per-section error handling:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Consolidate
 def combined_handler(exc):
@@ -272,14 +272,14 @@ def combined_handler(exc):
     return handle_validation_error(exc)
   raise exc
 
-chain = Chain(data).then(process).except_(combined_handler)
+q = Q(data).then(process).except_(combined_handler)
 
 # Or use nested chains
-fetch_chain = Chain().then(fetch_data).except_(handle_fetch_error)
-process_chain = Chain().then(validate).then(transform).except_(handle_process_error)
+fetch_q = Q().then(fetch_data).except_(handle_fetch_error)
+process_q = Q().then(validate).then(transform).except_(handle_process_error)
 
 pipeline = (
-  Chain(url)
+  Q(url)
   .then(fetch_chain)
   .then(process_chain)
   .finally_(lambda _: cleanup())
@@ -289,26 +289,26 @@ pipeline = (
 
 ---
 
-## 7. `TypeError` When Copying a Chain
+## 7. `TypeError` When Copying a `Q` Instance
 
 ### Error
 
 ```
-TypeError: Chain objects cannot be copied with copy.copy()/copy.deepcopy(). Use Chain.clone() instead.
+TypeError: Q objects cannot be copied with copy.copy()/copy.deepcopy(). Use Q.clone() instead.
 ```
 
 ### Cause
 
-`copy.copy()` and `copy.deepcopy()` are blocked on Chain objects. A shallow copy would produce a broken object with shared linked-list node references, leading to subtle corruption. A deep copy is semantically undefined for objects containing arbitrary callables.
+`copy.copy()` and `copy.deepcopy()` are blocked on `Q` instances. A shallow copy would produce a broken object with shared linked-list node references, leading to subtle corruption. A deep copy is semantically undefined for objects containing arbitrary callables.
 
 ### Fix
 
 Use `.clone()` to produce a correct independent copy:
 
 ```python
-from quent import Chain
+from quent import Q
 
-base = Chain().then(validate).then(transform)
+base = Q().then(validate).then(transform)
 branch_a = base.clone().then(to_json)    # independent copy
 branch_b = base.clone().then(to_record)  # independent copy
 ```
@@ -338,40 +338,40 @@ The `concurrency` parameter has strict validation:
 
 ```python
 # WRONG
-Chain(urls).foreach(fetch, concurrency=True)   # bool rejected
-Chain(urls).foreach(fetch, concurrency=0)      # must be >= 1
+Q(urls).foreach(fetch, concurrency=True)   # bool rejected
+Q(urls).foreach(fetch, concurrency=0)      # must be >= 1
 
 # RIGHT
-Chain(urls).foreach(fetch, concurrency=4)
-Chain(urls).foreach(fetch, concurrency=-1)     # unbounded
+Q(urls).foreach(fetch, concurrency=4)
+Q(urls).foreach(fetch, concurrency=-1)     # unbounded
 ```
 
 ---
 
-## 9. Chain Nesting Depth Exceeded
+## 9. Pipeline Nesting Depth Exceeded
 
 ### Error
 
 ```
-quent.QuentException: Maximum chain nesting depth (50) exceeded.
+quent.QuentException: Maximum pipeline nesting depth (50) exceeded.
 ```
 
 ### Cause
 
-Nested chain execution is capped at depth 50 to prevent stack overflow from circular or deeply recursive compositions.
+Nested pipeline execution is capped at depth 50 to prevent stack overflow from circular or deeply recursive compositions.
 
 ### Fix
 
 Flatten your pipeline instead of nesting deeply:
 
 ```python
-from quent import Chain
+from quent import Q
 
-# Instead of deep nesting, compose steps in a single chain
-chain = Chain(42)
+# Instead of deep nesting, compose steps in a single pipeline
+q = Q(42)
 for step in processing_steps:
-  chain = chain.then(step)
-result = chain.run()
+  q = q.then(step)
+result = q.run()
 ```
 
 ---
@@ -394,7 +394,7 @@ This disables all traceback modifications: visualization injection, frame cleani
 
 ### Suppressing Values in Tracebacks
 
-To keep chain visualizations but hide sensitive data:
+To keep pipeline visualizations but hide sensitive data:
 
 ```bash
 export QUENT_TRACEBACK_VALUES=0
@@ -419,11 +419,11 @@ When multiple concurrent workers fail, all exceptions are wrapped in an `Excepti
 Handle `ExceptionGroup` using `except*` (Python 3.11+) or the `.subgroup()` / `.split()` methods:
 
 ```python
-from quent import Chain
+from quent import Q
 
 try:
   result = (
-    Chain(urls)
+    Q(urls)
     .foreach(fetch, concurrency=4)
     .run()
   )
@@ -433,11 +433,11 @@ except* ValueError as eg:
   print(f'{len(eg.exceptions)} value errors')
 ```
 
-Or catch `ExceptionGroup` in the chain's `except_()`:
+Or catch `ExceptionGroup` in the pipeline's `except_()`
 
 ```python
 result = (
-  Chain(urls)
+  Q(urls)
   .foreach(fetch, concurrency=4)
   .except_(lambda ei: handle_group(ei.exc) if isinstance(ei.exc, ExceptionGroup) else handle_single(ei.exc))
   .run()
@@ -446,29 +446,29 @@ result = (
 
 ---
 
-## 12. Async Transition from Sync Chain Handlers
+## 12. Async Transition from Sync Pipeline Handlers
 
 ### Symptom
 
-Your sync chain's `run()` returns a coroutine instead of a plain value.
+Your sync pipeline's `run()` returns a coroutine instead of a plain value.
 
 ### Cause
 
-A sync chain's `finally_()` or `except_()` handler returned a coroutine. The engine performs an async transition: `run()` returns a coroutine instead of a plain value.
+A sync pipeline's `finally_()` or `except_()` handler returned a coroutine. The engine performs an async transition: `run()` returns a coroutine instead of a plain value.
 
 ### Fix
 
 Either:
 
-1. Use `await chain.run()` in an async context so the handler is properly awaited.
+1. Use `await q.run()` in an async context so the handler is properly awaited.
 2. Make the handler synchronous.
 
 ```python
 # Option 1: await in async context
-result = await chain.run()
+result = await q.run()
 
 # Option 2: sync handler
-chain.finally_(lambda rv: sync_cleanup(rv))
+q.finally_(lambda rv: sync_cleanup(rv))
 ```
 
 ---
@@ -478,31 +478,31 @@ chain.finally_(lambda rv: sync_cleanup(rv))
 ### Error
 
 ```
-quent.QuentException: Chain.return_() cannot be used inside except_() handler.
+quent.QuentException: Q.return_() cannot be used inside except_() handler.
 ```
 
 ```
-quent.QuentException: Chain.break_() cannot be used inside finally_() handler.
+quent.QuentException: Q.break_() cannot be used inside finally_() handler.
 ```
 
 ### Cause
 
-`Chain.return_()` and `Chain.break_()` are not allowed inside `except_()` or `finally_()` handlers. Control flow signals must be used in the main pipeline.
+`Q.return_()` and `Q.break_()` are not allowed inside `except_()` or `finally_()` handlers. Control flow signals must be used in the main pipeline.
 
 ### Fix
 
 Move the control flow logic into the main pipeline using nested chains:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # WRONG -- return_() in except handler
-chain = Chain(data).then(process).except_(
-  lambda exc: Chain.return_('fallback')  # raises QuentException
+q = Q(data).then(process).except_(
+  lambda exc: Q.return_('fallback')  # raises QuentException
 )
 
 # RIGHT -- use the handler's return value
-chain = Chain(data).then(process).except_(
+q = Q(data).then(process).except_(
   lambda exc: 'fallback'  # handler's return value replaces the result
 )
 ```

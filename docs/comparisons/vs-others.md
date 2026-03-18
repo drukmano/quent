@@ -78,7 +78,7 @@ through the type system using containers like `Result[Success, Failure]` and
 operate on those containers.
 
 **quent is about sync/async unification.** It lets you write a pipeline once and
-run it with sync or async callables. Values flow through the chain unwrapped --
+run it with sync or async callables. Values flow through the pipeline unwrapped --
 plain Python objects, not monadic containers.
 
 ```python
@@ -88,8 +88,8 @@ result = Success(42).bind(lambda x: Success(x * 2))
 # result is Success(84) -- still wrapped
 
 # quent: values flow through unwrapped
-from quent import Chain
-result = Chain(42).then(lambda x: x * 2).run()
+from quent import Q
+result = Q(42).then(lambda x: x * 2).run()
 # result is 84 -- a plain int
 ```
 
@@ -109,7 +109,7 @@ result = Chain(42).then(lambda x: x * 2).run()
 
 - You need sync/async bridging. returns' `Future` container handles async, but
   it does not transparently bridge sync and async the way quent does. With quent,
-  the same chain works with sync callables, async callables, or any mix.
+  the same pipeline works with sync callables, async callables, or any mix.
 - You want pipeline features like error handling, context manager handling,
   concurrent execution via `gather()`, and enhanced tracebacks.
 - You prefer working with plain Python values rather than wrapping everything
@@ -167,7 +167,7 @@ Everything is synchronous.
 **quent is a pipeline execution engine with async bridging.** It runs a sequence
 of steps and handles sync/async transitions automatically.
 
-The surface-level similarity is `pipe` vs `Chain`:
+The surface-level similarity is `pipe` vs quent:
 
 ```python
 # toolz
@@ -175,8 +175,8 @@ from toolz import pipe
 result = pipe(data, validate, transform, save)
 
 # quent
-from quent import Chain
-result = Chain(data).then(validate).then(transform).then(save).run()
+from quent import Q
+result = Q(data).then(validate).then(transform).then(save).run()
 ```
 
 These look similar for the simple case, but they diverge quickly:
@@ -316,7 +316,7 @@ tagged unions, and immutable collection types (`Seq`, `Block`, `Map`).
 F#-style patterns -- `Option`, `Result`, `pipe`, computational expressions,
 tagged unions, and immutable collections.
 
-**quent is a sync/async pipeline bridge.** It provides a chain-based API for
+**quent is a sync/async pipeline bridge.** It provides a pipeline-based API for
 running callables with transparent async detection.
 
 Expression does have some async support through `AsyncResult` and `AsyncSeq`,
@@ -346,7 +346,7 @@ divide.
 |---------|-------|---------|-------|------|------------|
 | **Primary purpose** | Sync/async bridge | Monadic FP | FP utilities | Syntax sugar | F#-style FP |
 | **Sync/async bridge** | Transparent | Partial (Future) | No | No | Partial (AsyncResult) |
-| **Pipeline syntax** | `.then()` chain | `flow()` + `bind()` | `pipe()` / `compose()` | `\|` operator | `pipe()` / fluent |
+| **Pipeline syntax** | `.then()` pipeline | `flow()` + `bind()` | `pipe()` / `compose()` | `\|` operator | `pipe()` / fluent |
 | **Error handling** | `except_()`, `finally_()` | Result/Maybe types | No | No | Result/Option types |
 | **Runtime dependencies** | 0 | Several | 0 | 0 | Minimal |
 | **PEP 561 typed** | Yes | Yes (+ mypy plugin) | No | No | Yes |
@@ -385,5 +385,5 @@ multiple.
 ## Further Reading
 
 - [Why Quent](../why-quent.md) -- the problem quent solves and when to use it
-- [Getting Started](../getting-started.md) -- install quent and build your first chain
+- [Getting Started](../getting-started.md) -- install quent and build your first pipeline
 - [Quent vs unasync](vs-unasync.md) -- how quent compares to the code-generation approach

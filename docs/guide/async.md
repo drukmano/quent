@@ -13,7 +13,7 @@ search:
 
 # Async Handling
 
-quent's defining feature is transparent sync/async bridging. A single chain definition works for both sync and async callables -- zero ceremony, zero code duplication. This page explains how the mechanism works, what your code needs to account for, and where the edge cases are.
+quent's defining feature is transparent sync/async bridging. A single pipeline definition works for both sync and async callables -- zero ceremony, zero code duplication. This page explains how the mechanism works, what your code needs to account for, and where the edge cases are.
 
 ---
 
@@ -31,7 +31,7 @@ This guarantee holds for all pipeline operations -- steps, side-effects, iterati
 
 ## The Two-Tier Execution Model
 
-Every chain execution follows the same two-tier process:
+Every pipeline execution follows the same two-tier process:
 
 **Tier 1 -- Sync fast path:** Execution always starts synchronously. The engine walks the pipeline's linked list, evaluating each step. After each step, the result is checked with a fast custom awaitable check (~10x faster than `inspect.isawaitable()`).
 
@@ -45,7 +45,7 @@ This means:
 4. Once async, always async. There is no transition back to sync.
 
 !!! important
-    The async transition is **one-way**. Once a chain transitions to async mode, all remaining steps execute inside the async continuation. Even if subsequent steps return plain (non-awaitable) values, the chain stays in async mode because the overall execution is already inside a coroutine.
+    The async transition is **one-way**. Once a pipeline transitions to async mode, all remaining steps execute inside the async continuation. Even if subsequent steps return plain (non-awaitable) values, the pipeline stays in async mode because the overall execution is already inside a coroutine.
 
 ---
 
@@ -67,11 +67,11 @@ The check short-circuits on the first `isinstance` check for the common sync cas
 
 ### A Concrete Walkthrough
 
-Consider a chain with three steps, where the middle step is async:
+Consider a pipeline with three steps, where the middle step is async:
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 def double(x):
   return x * 2
@@ -84,7 +84,7 @@ def to_string(x):
   return f"result: {x}"
 
 pipeline = (
-  Chain()
+  Q()
   .then(double)
   .then(fetch_factor)
   .then(to_string)
@@ -117,10 +117,10 @@ The return type of `.run()` depends entirely on what happens during execution:
     When every step returns a non-awaitable value, `.run()` returns the final value directly. No event loop is needed.
 
     ```python
-    from quent import Chain
+    from quent import Q
 
-    chain = Chain(5).then(lambda x: x + 1).then(lambda x: x * 2)
-    result = chain.run()
+    q = Q(5).then(lambda x: x + 1).then(lambda x: x * 2)
+    result = q.run()
     # result = 12  (a plain int, not a coroutine)
     ```
 
@@ -130,13 +130,13 @@ The return type of `.run()` depends entirely on what happens during execution:
 
     ```python
     import asyncio
-    from quent import Chain
+    from quent import Q
 
     async def async_double(x):
       return x * 2
 
-    chain = Chain(5).then(async_double)
-    result = await chain.run()
+    q = Q(5).then(async_double)
+    result = await q.run()
     # result = 10
     ```
 
@@ -148,7 +148,7 @@ The real power of quent shows when your pipeline mixes sync and async steps:
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 def validate(data):
   if not data:
@@ -167,7 +167,7 @@ async def save_to_db(results):
   return len(results)
 
 pipeline = (
-  Chain()
+  Q()
   .then(validate)
   .then(fetch_from_api)
   .then(extract_results)
@@ -203,9 +203,9 @@ Every iteration operation in quent (`.foreach()`, `.foreach_do()`) implements th
 Everything is synchronous. The operation runs a plain loop, collects results, and returns. Zero async overhead.
 
 ```python
-from quent import Chain
+from quent import Q
 
-result = Chain([1, 2, 3]).foreach(lambda x: x * 2).run()
+result = Q([1, 2, 3]).foreach(lambda x: x * 2).run()
 # result = [2, 4, 6]
 # No coroutines created, no event loop involved
 ```
@@ -216,13 +216,13 @@ The operation starts synchronously, but discovers an awaitable partway through. 
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 async def async_transform(x):
   await asyncio.sleep(0.001)
   return x * 10
 
-result = await Chain([1, 2, 3]).foreach(async_transform).run()
+result = await Q([1, 2, 3]).foreach(async_transform).run()
 # result = [10, 20, 30]
 ```
 
@@ -234,7 +234,7 @@ The input is an async iterable (has `__aiter__` but not `__iter__`). The entire 
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 async def async_range(n):
   for i in range(n):
@@ -242,7 +242,7 @@ async def async_range(n):
     yield i
 
 result = await (
-  Chain(async_range, 5)
+  Q(async_range, 5)
   .foreach(lambda x: x * 2)
   .run()
 )
@@ -253,9 +253,9 @@ result = await (
 
 | Tier | Input | Callback | Example |
 |------|-------|----------|---------|
-| 1 -- Sync fast path | sync iterable | sync fn | `Chain([1,2,3]).foreach(str)` |
-| 2 -- Mid-op transition | sync iterable | async fn | `Chain([1,2,3]).foreach(async_fetch)` |
-| 3 -- Full async | async iterable | sync or async fn | `Chain(aiter).foreach(process)` |
+| 1 -- Sync fast path | sync iterable | sync fn | `Q([1,2,3]).foreach(str)` |
+| 2 -- Mid-op transition | sync iterable | async fn | `Q([1,2,3]).foreach(async_fetch)` |
+| 3 -- Full async | async iterable | sync or async fn | `Q(aiter).foreach(process)` |
 
 This pattern applies to every operation:
 
@@ -276,7 +276,7 @@ async def stream_records():
   async for record in db.stream():
     yield record
 
-result = await Chain(stream_records).foreach(process).run()
+result = await Q(stream_records).foreach(process).run()
 ```
 
 When an object implements both `__iter__` and `__aiter__`, the async protocol is preferred if an async event loop is running (asyncio, trio, or curio).
@@ -287,7 +287,7 @@ When an object implements both `__iter__` and `__aiter__`, the async protocol is
 
 ```python
 result = await (
-  Chain(aiohttp.ClientSession)
+  Q(aiohttp.ClientSession)
   .with_(lambda session: session.get('https://example.com'))
   .run()
 )
@@ -297,48 +297,48 @@ Dual-protocol context managers (supporting both sync and async) use the async pr
 
 ---
 
-## Async Finally in Sync Chains
+## Async Finally in Sync Pipelines
 
-There is one edge case where the sync and async worlds collide: when a **sync chain's** `finally_()` handler returns a coroutine.
+There is one edge case where the sync and async worlds collide: when a **sync pipeline's** `finally_()` handler returns a coroutine.
 
 ### When It Happens
 
-If the chain execution is synchronous (no async transition in the main pipeline), but the finally handler is an async function:
+If the pipeline execution is synchronous (no async transition in the main pipeline), but the finally handler is an async function:
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 async def async_cleanup(root_value):
   await notify_service(root_value)
 
-chain = (
-  Chain()
+q = (
+  Q()
   .then(process)      # sync
   .then(validate)     # sync
   .finally_(async_cleanup)
 )
 
-result = await chain.run(data)
+result = await q.run(data)
 # async_cleanup returns a coroutine -- quent performs an async transition.
 # run() returns a coroutine instead of a plain value.
 ```
 
 ### What quent Does
 
-When a sync chain's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the chain's result is returned (success path) or the active exception is re-raised (failure path). The chain result flows through the async wrapper -- nothing is discarded.
+When a sync pipeline's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the pipeline's result is returned (success path) or the active exception is re-raised (failure path). The chain result flows through the async wrapper -- nothing is discarded.
 
 ### except_() Handler Edge Cases
 
 The same async transition model applies to `except_()` handlers:
 
-- **`except_()` with `reraise=True`:** When the handler returns a coroutine in a sync chain, `run()` returns a coroutine. The caller awaits it, the handler completes, and the original exception is re-raised. This ensures reliable completion of async side-effects.
+- **`except_()` with `reraise=True`:** When the handler returns a coroutine in a sync pipeline, `run()` returns a coroutine. The caller awaits it, the handler completes, and the original exception is re-raised. This ensures reliable completion of async side-effects.
 
-- **`except_()` with `reraise=False`:** When the handler returns a coroutine, this is a normal async transition -- the coroutine becomes the chain's result. The caller awaits it to get the handler's resolved value.
+- **`except_()` with `reraise=False`:** When the handler returns a coroutine, this is a normal async transition -- the coroutine becomes the pipeline's result. The caller awaits it to get the handler's resolved value.
 
 ---
 
-## Performance: Zero Async Overhead for Sync Chains
+## Performance: Zero Async Overhead for Sync Pipelines
 
 quent is designed so that fully synchronous pipelines have **zero async overhead**:
 
@@ -346,7 +346,7 @@ quent is designed so that fully synchronous pipelines have **zero async overhead
 - **No coroutine creation** -- no `async def` functions are called on the sync path.
 - **Fast awaitable check** -- ~30ns per step, O(1). Short-circuits on the first `isinstance` check for the common sync case.
 - **Sync path is a plain `while` loop** -- calling functions and checking results. No async machinery.
-- **One-way transition** -- the async transition happens at most once per chain execution. Once the async continuation takes over, it processes all remaining steps without checking whether to go back to sync.
+- **One-way transition** -- the async transition happens at most once per pipeline execution. Once the async continuation takes over, it processes all remaining steps without checking whether to go back to sync.
 
 ---
 
@@ -355,12 +355,12 @@ quent is designed so that fully synchronous pipelines have **zero async overhead
 ### Library Code That Supports Both Callers
 
 ```python
-from quent import Chain
+from quent import Q
 
 def process_order(order_service):
   """Works with both sync and async order services."""
   return (
-    Chain(order_service.fetch_order)
+    Q(order_service.fetch_order)
     .then(order_service.validate)
     .then(order_service.apply_discounts)
     .then(order_service.save)
@@ -376,17 +376,17 @@ total = await process_order(async_order_service)
 
 ### Incremental Async Migration
 
-Replace functions one at a time. The chain code stays identical:
+Replace functions one at a time. The pipeline code stays identical:
 
 ```python
-from quent import Chain
+from quent import Q
 
 pipeline = (
-  Chain()
-  .then(fetch_user)    # was sync, now async -- no chain changes
+  Q()
+  .then(fetch_user)    # was sync, now async -- no pipeline changes
   .then(validate_user) # still sync
   .then(enrich_user)   # still sync
-  .then(save_user)     # was sync, now async -- no chain changes
+  .then(save_user)     # was sync, now async -- no pipeline changes
 )
 
 # Before migration: returns value directly
@@ -400,7 +400,7 @@ result = pipeline.run(user_id)
 
 ```python
 import asyncio
-from quent import Chain
+from quent import Q
 
 async def check_inventory(product):
   await asyncio.sleep(0.1)
@@ -414,7 +414,7 @@ def get_metadata(product):
   return {"category": "electronics"}
 
 pipeline = (
-  Chain()
+  Q()
   .gather(check_inventory, get_pricing, get_metadata)
 )
 
@@ -437,7 +437,7 @@ Results are returned in the same order as the functions were passed, regardless 
 
 ```python
 import aiohttp
-from quent import Chain
+from quent import Q
 
 async def create_session():
   return aiohttp.ClientSession()
@@ -447,7 +447,7 @@ async def fetch_data(session):
     return await resp.json()
 
 pipeline = (
-  Chain(create_session)
+  Q(create_session)
   .with_(fetch_data)
 )
 
@@ -462,7 +462,7 @@ asyncio.run(main())
 
 ## Further Reading
 
-- **[Getting Started](../getting-started.md)** -- installation, first chain, calling conventions
-- **[Chains Guide](chains.md)** -- pipeline building, context managers, conditionals, control flow
+- **[Getting Started](../getting-started.md)** -- installation, first pipeline, calling conventions
+- **[Pipelines Guide](chains.md)** -- pipeline building, context managers, conditionals, control flow
 - **[Error Handling](error-handling.md)** -- `except_()`, `finally_()`, and how they interact with async
 - **[Reuse and Patterns](reuse.md)** -- cloning, decorators, and composition

@@ -51,10 +51,10 @@ When a codebase gains async support, every pipeline gets written twice.
 === "With quent"
 
     ```python
-    from quent import Chain
+    from quent import Q
 
     pipeline = (
-        Chain()
+        Q()
         .then(fetch_data)      # sync or async — doesn't matter
         .then(validate)
         .then(save)
@@ -79,7 +79,7 @@ When a codebase gains async support, every pipeline gets written twice.
 
 **Build your pipeline**
 
-Chain your functions — sync, async, or mixed. Every builder method returns `self` for fluent composition.
+Compose your functions — sync, async, or mixed. Every builder method returns `self` for fluent composition.
 
 </div>
 
@@ -112,10 +112,10 @@ The moment an awaitable appears, execution seamlessly transitions to async. The 
 === "Pipeline"
 
     ```python
-    from quent import Chain
+    from quent import Q
 
     result = (
-        Chain(5)
+        Q(5)
         .then(lambda x: x * 2)
         .then(str)
         .run()
@@ -129,7 +129,7 @@ The moment an awaitable appears, execution seamlessly transitions to async. The 
 
     ```python
     result = (
-        Chain([1, 2, 3, 4, 5])
+        Q([1, 2, 3, 4, 5])
         .then(lambda xs: [x for x in xs if x % 2 == 0])
         .foreach(lambda x: x ** 2)
         .run()
@@ -143,7 +143,7 @@ The moment an awaitable appears, execution seamlessly transitions to async. The 
 
     ```python
     result = (
-        Chain(url)
+        Q(url)
         .then(fetch)
         .then(parse)
         .except_(handle_error, exceptions=ConnectionError)
@@ -159,7 +159,7 @@ The moment an awaitable appears, execution seamlessly transitions to async. The 
 
     ```python
     results = (
-        Chain(data)
+        Q(data)
         .gather(validate, enrich, score)
         .run()
     )
@@ -189,7 +189,7 @@ pip install quent
 
     ---
 
-    Detects awaitables at runtime and transitions automatically. One chain definition works in both sync and async contexts.
+    Detects awaitables at runtime and transitions automatically. One pipeline definition works in both sync and async contexts.
 
     [Sync/Async Bridging](guide/async.md)
 
@@ -199,7 +199,7 @@ pip install quent
 
     Sequential steps with `.then()` and `.do()`. Full method set includes `foreach`, `foreach_do`, `gather`, `with_`, and `if_`/`else_`.
 
-    [Chains & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/chains.md)
 
 -   :material-shield-check: **Error Handling**
 
@@ -215,7 +215,7 @@ pip install quent
 
     `.with_()` enters the current value as a context manager and calls your function with the context value. Works with sync and async context managers.
 
-    [Chains & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/chains.md)
 
 -   :material-source-branch: **Conditional Logic**
 
@@ -223,21 +223,21 @@ pip install quent
 
     `.if_()` applies a step only when a predicate is truthy. `.else_()` registers the fallback branch. Both predicates and branches can be sync or async.
 
-    [Chains & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/chains.md)
 
 -   :material-debug-step-over: **Control Flow**
 
     ---
 
-    `Chain.return_()` exits early with an optional value. `Chain.break_()` stops iteration inside `.foreach()` or `.foreach_do()`.
+    `Q.return_()` exits early with an optional value. `Q.break_()` stops iteration inside `.foreach()` or `.foreach_do()`.
 
-    [Chains & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/chains.md)
 
 -   :material-text-search: **Enhanced Tracebacks**
 
     ---
 
-    When an exception occurs, quent injects a chain visualization into the traceback with a `<----` marker on the failing step.
+    When an exception occurs, quent injects a pipeline visualization into the traceback with a `<----` marker on the failing step.
 
     [Getting Started](getting-started.md)
 
@@ -245,9 +245,9 @@ pip install quent
 
     ---
 
-    `.iterate()` wraps chain output as a lazy generator. The same object supports both `for` and `async for` loops.
+    `.iterate()` wraps pipeline output as a lazy generator. The same object supports both `for` and `async for` loops.
 
-    [Chains & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/chains.md)
 
 -   :material-package-variant-closed-check: **Zero Dependencies**
 
@@ -285,7 +285,7 @@ pip install quent
 
     ---
 
-    Complete reference for `Chain`, `Null`, `QuentException`, and every pipeline method.
+    Complete reference for `Q`, `Null`, `QuentException`, and every pipeline method.
 
     [API Reference](reference.md){ .md-button }
 

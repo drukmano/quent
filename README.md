@@ -30,8 +30,8 @@
 
 ---
 
-- **One definition, two worlds** &mdash; a single chain works for both sync and async callers. Zero code duplication.
-- **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just chain your functions.
+- **One definition, two worlds** &mdash; a single pipeline works for both sync and async callers. Zero code duplication.
+- **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just pipeline your functions.
 - **Drop-in migration** &mdash; unify existing sync and async implementations into one pipeline. Stop maintaining two versions.
 - **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561).
 - **Works with asyncio, trio, and curio** &mdash; async pipelines run transparently under any of these event loops. Event loop detection uses `sys.modules` lookups (~50ns), adding zero overhead when those libraries are not loaded. Dual-protocol objects (context managers and iterables supporting both sync and async protocols) automatically prefer the async protocol under any running event loop.
@@ -66,13 +66,13 @@ Every function, every pipeline, every utility &mdash; duplicated. When a bug is 
 ```python
 # With quent -- write it once
 
-pipeline = Chain().then(validate).then(transform).then(save)
+pipeline = Q().then(validate).then(transform).then(save)
 
 result = pipeline.run(data)          # sync if all steps are sync
 result = await pipeline.run(data)    # async if any step is async
 ```
 
-One definition. The chain starts executing synchronously. The moment any step returns an awaitable, execution seamlessly transitions to async and stays there. The caller decides whether to `await`.
+One definition. The pipeline starts executing synchronously. The moment any step returns an awaitable, execution seamlessly transitions to async and stays there. The caller decides whether to `await`.
 
 ---
 
@@ -89,30 +89,30 @@ pip install quent
 ## Quick Start
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Basic pipeline
-result = Chain(5).then(lambda x: x * 2).then(lambda x: x + 1).run()
+result = Q(5).then(lambda x: x * 2).then(lambda x: x + 1).run()
 print(result)  # 11
 
 # Side effects -- do() runs the function but passes the value through
-result = Chain(42).then(lambda x: x * 2).do(print).then(str).run()  # prints: 84
+result = Q(42).then(lambda x: x * 2).do(print).then(str).run()  # prints: 84
 print(result)  # '84'
 
 # Works with any callable
-result = Chain('  hello  ').then(str.strip).then(str.upper).run()
+result = Q('  hello  ').then(str.strip).then(str.upper).run()
 print(result)  # HELLO
 ```
 
-The same chain works whether your functions are sync, async, or a mix:
+The same pipeline works whether your functions are sync, async, or a mix:
 
 ```python
-pipeline = Chain().then(fetch_data).then(validate).then(normalize)
+pipeline = Q().then(fetch_data).then(validate).then(normalize)
 
 # Sync context
 result = pipeline.run(id)
 
-# Async context -- same chain, no changes
+# Async context -- same pipeline, no changes
 result = await pipeline.run(id)
 ```
 
@@ -123,19 +123,19 @@ result = await pipeline.run(id)
 Build pipelines fluently. Every builder method returns `self` for chaining.
 
 ```python
-from quent import Chain
+from quent import Q
 
 result = (
-  Chain(fetch_user, user_id)       # fetch user by id
-  .then(validate)                  # transform
-  .do(log)                         # side-effect
-  .foreach(normalize_field)        # per-element
-  .gather(enrich, score)           # concurrent
-  .then(merge)                     # combine
-  .if_(has_premium).then(upgrade)  # conditional
-  .except_(handle_error)           # error handling
-  .finally_(cleanup)               # cleanup
-  .run()                           # execute
+  Q(fetch_user, user_id)             # fetch user by id
+  .then(validate)                    # transform
+  .do(log)                           # side-effect
+  .foreach(normalize_field)          # per-element
+  .gather(enrich, score)             # concurrent
+  .then(merge)                       # combine
+  .if_(has_premium).then(upgrade)    # conditional
+  .except_(handle_error)             # error handling
+  .finally_(cleanup)                 # cleanup
+  .run()                             # execute
 )
 ```
 
@@ -146,13 +146,13 @@ result = (
 
 ```python
 # foreach -- transform each element, collect results
-Chain([1, 2, 3]).foreach(lambda x: x ** 2).run()  # [1, 4, 9]
+Q([1, 2, 3]).foreach(lambda x: x ** 2).run()  # [1, 4, 9]
 
 # foreach_do -- side-effect per element, keep originals
-Chain([1, 2, 3]).foreach_do(print).run()  # prints 1, 2, 3; returns [1, 2, 3]
+Q([1, 2, 3]).foreach_do(print).run()  # prints 1, 2, 3; returns [1, 2, 3]
 
 # filter via list comprehension
-Chain([1, 2, 3, 4, 5]).then(lambda xs: [x for x in xs if x % 2 == 0]).run()  # [2, 4]
+Q([1, 2, 3, 4, 5]).then(lambda xs: [x for x in xs if x % 2 == 0]).run()  # [2, 4]
 ```
 
 </details>
@@ -165,17 +165,17 @@ Chain([1, 2, 3, 4, 5]).then(lambda xs: [x for x in xs if x % 2 == 0]).run()  # [
 Run multiple functions on the same value concurrently:
 
 ```python
-Chain('hello').gather(str.upper, len).run()  # ('HELLO', 5)
+Q('hello').gather(str.upper, len).run()  # ('HELLO', 5)
 ```
 
 Limit concurrency on collection operations with the `concurrency` parameter. Uses `ThreadPoolExecutor` for sync callables and `asyncio.Semaphore` + `TaskGroup` for async:
 
 ```python
 # Process up to 10 items at a time
-Chain(urls).foreach(fetch, concurrency=10).run()
+Q(urls).foreach(fetch, concurrency=10).run()
 
 # Limit concurrent gather branches
-Chain(data).gather(analyze, compress, upload, concurrency=5).run()
+Q(data).gather(analyze, compress, upload, concurrency=5).run()
 ```
 
 Pass a custom executor for sync concurrent operations:
@@ -184,7 +184,7 @@ Pass a custom executor for sync concurrent operations:
 from concurrent.futures import ThreadPoolExecutor
 
 with ThreadPoolExecutor(max_workers=4) as pool:
-  Chain(urls).foreach(fetch, concurrency=4, executor=pool).run()
+  Q(urls).foreach(fetch, concurrency=4, executor=pool).run()
 ```
 
 </details>
@@ -195,18 +195,18 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 <br>
 
 ```python
-Chain(5).if_(lambda x: x > 0).then(lambda x: x * 2).run()  # 10
-Chain(-5).if_(lambda x: x > 0).then(str).else_(abs).run()   # 5
+Q(5).if_(lambda x: x > 0).then(lambda x: x * 2).run()  # 10
+Q(-5).if_(lambda x: x > 0).then(str).else_(abs).run()   # 5
 
 # When predicate is omitted, uses truthiness of the current value
-Chain('hello').if_().then(str.upper).run()                     # 'HELLO'
-Chain('').if_().then(str.upper).else_(lambda _: 'empty').run() # 'empty'
+Q('hello').if_().then(str.upper).run()                     # 'HELLO'
+Q('').if_().then(str.upper).else_(lambda _: 'empty').run() # 'empty'
 
 # Literal predicate -- truthiness used directly
-Chain(value).if_(is_admin).then(grant_access).run()
+Q(value).if_(is_admin).then(grant_access).run()
 
 # Side-effect conditional branch
-Chain(user).if_(is_premium).do(log_premium_access).then(next_step).run()
+Q(user).if_(is_premium).do(log_premium_access).then(next_step).run()
 ```
 
 </details>
@@ -219,10 +219,10 @@ Chain(user).if_(is_premium).do(log_premium_access).then(next_step).run()
 Transparently handles both sync and async context managers:
 
 ```python
-Chain(open('data.txt')).with_(lambda f: f.read()).run()
+Q(open('data.txt')).with_(lambda f: f.read()).run()
 
 # Side-effect variant (result discarded, original value passes through)
-Chain(open('log.txt', 'w')).with_do(lambda f: f.write('done')).run()
+Q(open('log.txt', 'w')).with_do(lambda f: f.write('done')).run()
 ```
 
 </details>
@@ -232,14 +232,14 @@ Chain(open('log.txt', 'w')).with_do(lambda f: f.write('done')).run()
 
 <br>
 
-One exception handler and one finally handler per chain:
+One exception handler and one finally handler per pipeline:
 
 ```python
-from quent import Chain, ChainExcInfo
+from quent import Q, QuentExcInfo
 
-Chain(0).then(lambda x: 1 / x).except_(lambda ei: -1).run()  # -1
+Q(0).then(lambda x: 1 / x).except_(lambda ei: -1).run()  # -1
 
-Chain(url)
+Q(url)
   .then(fetch)
   .then(parse)
   .except_(handle_error, exceptions=ConnectionError)
@@ -247,7 +247,7 @@ Chain(url)
   .run()
 ```
 
-`except_` catches `Exception` by default. The handler receives a `ChainExcInfo(exc, root_value)` as its current value. Use `reraise=True` to re-raise after handling (handler runs for side-effects only). `finally_` always runs and receives the chain's root value.
+`except_` catches `Exception` by default. The handler receives a `QuentExcInfo(exc, root_value)` as its current value. Use `reraise=True` to re-raise after handling (handler runs for side-effects only). `finally_` always runs and receives the pipeline's root value.
 
 </details>
 
@@ -258,35 +258,35 @@ Chain(url)
 
 ```python
 # Early return -- skips all remaining steps
-Chain(5) \
-  .then(lambda x: Chain.return_(x * 10) if x > 0 else x) \
+Q(5) \
+  .then(lambda x: Q.return_(x * 10) if x > 0 else x) \
   .then(str) \
   .run()  # 50 (str step is skipped)
 
 # Break from iteration -- break value is appended to partial results
-Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_(x) if x == 3 else x * 2).run()
+Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_(x) if x == 3 else x * 2).run()
 # [2, 4, 3]
 ```
 
 </details>
 
 <details>
-<summary><strong>Composition</strong> &mdash; clone, decorator</summary>
+<summary><strong>Composition</strong> &mdash; clone, as_decorator</summary>
 
 <br>
 
 **clone** &mdash; fork-and-extend without modifying the original:
 
 ```python
-base = Chain().then(validate).then(normalize)
+base = Q().then(validate).then(normalize)
 for_api = base.clone().then(to_json)    # base is untouched
 for_db  = base.clone().then(to_record)  # independent copy
 ```
 
-**decorator** &mdash; wrap a chain as a function decorator:
+**as_decorator** &mdash; wrap a pipeline as a function decorator:
 
 ```python
-@Chain().then(lambda x: x.strip()).then(str.upper).decorator()
+@Q().then(lambda x: x.strip()).then(str.upper).as_decorator()
 def get_name():
   return '  alice  '
 
@@ -300,13 +300,13 @@ get_name()  # 'ALICE'
 
 <br>
 
-Dual sync/async generators over chain output:
+Dual sync/async generators over pipeline output:
 
 ```python
-for item in Chain(range(5)).iterate(lambda x: x ** 2):
+for item in Q(range(5)).iterate(lambda x: x ** 2):
   print(item)  # 0, 1, 4, 9, 16
 
-async for item in Chain(async_source).iterate(transform):
+async for item in Q(async_source).iterate(transform):
   print(item)  # works with async sources too
 ```
 
@@ -324,21 +324,21 @@ How arguments flow through the pipeline is determined by two rules, checked in p
 | No args (default) | Call `fn(current_value)`, `fn()` if no value, or return value as-is if non-callable |
 
 ```python
-Chain(5).then(str).run()                    # str(5) -- current value passed
-Chain(5).then(print, 'hello').run()         # print('hello') -- explicit args used
+Q(5).then(str).run()                    # str(5) -- current value passed
+Q(5).then(print, 'hello').run()         # print('hello') -- explicit args used
 ```
 
 ---
 
 ### Enhanced Tracebacks
 
-When an exception occurs inside a chain, quent injects a visualization directly into the traceback showing exactly which step failed:
+When an exception occurs inside a pipeline, quent injects a visualization directly into the traceback showing exactly which step failed:
 
 ```
 Traceback (most recent call last):
   ...
   File "<quent>", line 1, in
-    Chain(fetch_data)
+    Q(fetch_data)
     .then(validate)
     .then(transform) <----
     .do(log)
@@ -357,7 +357,7 @@ Opt out by setting `QUENT_NO_TRACEBACK=1` before importing quent.
 ### Constructor
 
 ```python
-Chain(v=<no value>, /, *args, **kwargs)
+Q(v=<no value>, /, *args, **kwargs)
 ```
 
 <br>
@@ -380,8 +380,8 @@ All methods return `self` for fluent chaining.
 | `.if_(...).do(fn, /, *args, **kwargs)` | Conditional side-effect -- runs fn if predicate is truthy, result discarded |
 | `.else_(v, /, *args, **kwargs)` | Else branch (must follow `.then()` or `.do()`) |
 | `.else_do(fn, /, *args, **kwargs)` | Side-effect else branch (result discarded) |
-| `.except_(fn, /, *args, exceptions=None, reraise=False, **kwargs)` | Exception handler (one per chain) |
-| `.finally_(fn, /, *args, **kwargs)` | Cleanup handler (one per chain) |
+| `.except_(fn, /, *args, exceptions=None, reraise=False, **kwargs)` | Exception handler (one per pipeline) |
+| `.finally_(fn, /, *args, **kwargs)` | Cleanup handler (one per pipeline) |
 | `.name(label)` | Assign a label for traceback identification |
 | `.set(key)` / `.set(key, value)` | Store a value in the execution context (current value unchanged) |
 | `.get(key)` / `.get(key, default)` | Retrieve a value from context; replaces current value |
@@ -390,20 +390,20 @@ All methods return `self` for fluent chaining.
 
 | Method | Description |
 |:-------|:------------|
-| `.run(v=Null, /, *args, **kwargs)` | Execute the chain; returns value or coroutine |
-| `chain(...)` | Alias for `.run()` |
+| `.run(v=Null, /, *args, **kwargs)` | Execute the pipeline; returns value or coroutine |
+| `q(...)` | Alias for `.run()` |
 
 ### Reuse and Iteration
 
 | Method | Description |
 |:-------|:------------|
-| `.decorator()` | Wrap chain as a function decorator |
+| `.as_decorator()` | Wrap pipeline as a function decorator |
 | `.iterate(fn=None)` | Dual sync/async generator over output |
 | `.iterate_do(fn=None)` | Like iterate, fn results discarded |
 | `.flat_iterate(fn=None, *, flush=None)` | Flatmap iterator; flattens one level or maps fn to sub-iterables |
 | `.flat_iterate_do(fn=None, *, flush=None)` | Like flat_iterate, fn results discarded; original elements yielded |
 | `.clone()` | Deep copy for fork-and-extend |
-| `Chain.from_steps(*steps)` | Construct a chain from a sequence of `.then()` steps |
+| `Q.from_steps(*steps)` | Construct a pipeline from a sequence of `.then()` steps |
 
 ### Control Flow
 
@@ -411,34 +411,34 @@ All methods return `self` for fluent chaining.
 
 | Method | Description |
 |:-------|:------------|
-| `Chain.return_(v=Null, /, *args, **kwargs)` | Signal early return from chain |
-| `Chain.break_(v=Null, /, *args, **kwargs)` | Signal break from iteration; value is appended to partial results |
+| `Q.return_(v=Null, /, *args, **kwargs)` | Signal early return from pipeline |
+| `Q.break_(v=Null, /, *args, **kwargs)` | Signal break from iteration; value is appended to partial results |
 
 ### Context API (Class-Level)
 
 | Method | Description |
 |:-------|:------------|
-| `Chain.set(key, value)` | Store a value in the execution context immediately (not a pipeline step) |
-| `Chain.get(key)` / `Chain.get(key, default)` | Retrieve a value from the execution context immediately |
+| `Q.set(key, value)` | Store a value in the execution context immediately (not a pipeline step) |
+| `Q.get(key)` / `Q.get(key, default)` | Retrieve a value from the execution context immediately |
 
 ### Exports and Instrumentation
 
 | Name | Description |
 |:-----|:------------|
-| `Chain` | Main pipeline class |
-| `ChainExcInfo` | NamedTuple `(exc, root_value)` passed to except handlers |
-| `ChainIterator` | Type alias for `.iterate()` / `.iterate_do()` return values |
+| `Q` | Main pipeline class |
+| `QuentExcInfo` | NamedTuple `(exc, root_value)` passed to except handlers |
+| `QuentIterator` | Type alias for `.iterate()` / `.iterate_do()` return values |
 | `QuentException` | Exception type for quent-specific errors |
 | `__version__` | Package version string |
-| `Chain.on_step` | Optional callback `(chain, step_name, input_value, result, elapsed_ns)` for instrumentation |
+| `Q.on_step` | Optional callback `(q, step_name, input_value, result, elapsed_ns)` for instrumentation |
 
-> **Note:** `copy.copy()` and `copy.deepcopy()` are blocked on Chain objects (`TypeError`). Use `.clone()` to produce a correct independent copy. Pickling is not blocked — most chain contents (lambdas, closures) will naturally fail to pickle, but quent does not enforce this.
+> **Note:** `copy.copy()` and `copy.deepcopy()` are blocked on Q objects (`TypeError`). Use `.clone()` to produce a correct independent copy. Pickling is not blocked — most pipeline contents (lambdas, closures) will naturally fail to pickle, but quent does not enforce this.
 
 ---
 
 ## Examples
 
-See the [examples/](examples/) directory for complete, runnable recipes covering ETL pipelines, API gateways, fan-out/fan-in patterns, retry with backoff, and testing chains.
+See the [examples/](examples/) directory for complete, runnable recipes covering ETL pipelines, API gateways, fan-out/fan-in patterns, retry with backoff, and testing pipelines.
 
 ---
 
@@ -456,8 +456,8 @@ quent's correctness rests on a single guarantee: any pipeline step can be swappe
 
 The core testing infrastructure proves the sync/async bridge contract across a 7-axis combinatorial space:
 
-1. **Operation type** &mdash; 96 "bricks" covering every chain operation &times; every calling convention
-2. **Chain length** &mdash; pipelines of 1 to N steps
+1. **Operation type** &mdash; 96 "bricks" covering every pipeline operation &times; every calling convention
+2. **Pipeline length** &mdash; pipelines of 1 to N steps
 3. **Operation order** &mdash; every permutation of operations (with repetition)
 4. **Sync/async per position** &mdash; each step independently sync or async (2<sup>N</sup> combinations per pipeline)
 5. **Error injection** &mdash; exceptions, base exceptions, and control flow signals at each position
@@ -470,7 +470,7 @@ For each configuration, all 2<sup>N</sup> sync/async permutations run and must p
 
 - **Transition matrix** &mdash; all 17,576 triplets of 26 atomic operations verify that every method adjacency produces correct results in all sync/async variants
 - **Property-based testing** &mdash; Hypothesis generates random inputs for 179 property and fuzz tests, including CWE-117 repr sanitization with adversarial ANSI escape sequences
-- **Thread safety** &mdash; 30&ndash;50 concurrent threads with barrier synchronization verify safe concurrent execution of fully constructed chains
+- **Thread safety** &mdash; 30&ndash;50 concurrent threads with barrier synchronization verify safe concurrent execution of fully constructed pipelines
 - **Oracle validation** &mdash; each of the 96 bricks has an independent oracle function; oracles are verified against quent before being used in bridge assertions
 - **Warning validation** &mdash; all warnings emitted during exhaustive runs are captured and validated against expected patterns
 

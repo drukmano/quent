@@ -13,26 +13,26 @@ search:
 
 # Reuse and Patterns
 
-## Chain Reuse
+## Pipeline Reuse
 
-A `Chain` is a mutable object. Every call to `.then()`, `.do()`, `.foreach()`, or any other pipeline method appends a node to the internal linked list. This means extending a chain after creation modifies the same instance for all code that holds a reference.
+A `Q` instance is a mutable object. Every call to `.then()`, `.do()`, `.foreach()`, or any other pipeline method appends a node to the internal linked list. This means extending a pipeline after creation modifies the same instance for all code that holds a reference.
 
-Running a chain multiple times with different inputs is always safe:
+Running a pipeline multiple times with different inputs is always safe:
 
 ```python
-from quent import Chain
+from quent import Q
 
-pipeline = Chain().then(validate).then(transform).then(save)
+pipeline = Q().then(validate).then(transform).then(save)
 
-# Safe -- .run() does not modify the chain's structure
+# Safe -- .run() does not modify the pipeline's structure
 result_a = pipeline.run(input_a)
 result_b = pipeline.run(input_b)
 ```
 
-But appending steps after the chain is shared creates a problem:
+But appending steps after the pipeline is shared creates a problem:
 
 ```python
-base = Chain().then(validate).then(normalize)
+base = Q().then(validate).then(normalize)
 
 # PROBLEM: this modifies `base` itself
 base.then(serialize_json)
@@ -47,12 +47,12 @@ This is where `clone()` comes in.
 
 ## clone() -- Independent Copies
 
-`chain.clone()` creates a new, independent Chain by copying the linked list structure. The new chain has its own nodes, so appending to one does not affect the other.
+`q.clone()` creates a new, independent Q pipeline by copying the linked list structure. The new pipeline has its own nodes, so appending to one does not affect the other.
 
 ```python
-from quent import Chain
+from quent import Q
 
-base = Chain().then(validate).then(normalize)
+base = Q().then(validate).then(normalize)
 
 for_api = base.clone().then(serialize_json)
 for_db = base.clone().then(serialize_sql)
@@ -63,19 +63,19 @@ Each variant is independent. Extending `for_api` does not affect `for_db`, `for_
 
 ### What clone Copies vs Shares
 
-`clone()` copies the chain's **structure**, not its **contents**. This is a shallow structural copy:
+`clone()` copies the pipeline's **structure**, not its **contents**. This is a shallow structural copy:
 
 **Copied (independent):**
 
 - The linked list of nodes -- each clone has its own nodes
 - Nested chains within steps are **recursively cloned** via their own `clone()` method, preventing cross-clone state sharing
 - Conditional operations (`if_`/`else_`) are deep-copied (they carry mutable state)
-- Error handlers (`except_`/`finally_`) have their nodes cloned. If the handler callable is a `Chain`, it is recursively cloned
+- Error handlers (`except_`/`finally_`) have their nodes cloned. If the handler callable is a `Q` instance, it is recursively cloned
 - Keyword argument dictionaries are shallow-copied (dicts are mutable)
 
 **Shared by reference:**
 
-- All callables (functions, lambdas, bound methods) -- except Chain instances, which are always recursively cloned
+- All callables (functions, lambdas, bound methods) -- except Q instances, which are always recursively cloned
 - Values and argument objects (individual args tuple elements, kwargs dict values)
 - Exception type tuples for `except_()`
 - Positional argument tuples (tuples are immutable)
@@ -83,7 +83,7 @@ Each variant is independent. Extending `for_api` does not affect `for_db`, `for_
 This means stateful callables are shared between original and clone:
 
 ```python
-from quent import Chain
+from quent import Q
 
 class Counter:
   def __init__(self):
@@ -93,7 +93,7 @@ class Counter:
     return v
 
 counter = Counter()
-base = Chain().do(counter)
+base = Q().do(counter)
 clone = base.clone()
 
 base.run(1)   # counter.count = 1
@@ -104,7 +104,7 @@ If you need completely isolated state, create new callables for each clone.
 
 ### State Reset
 
-Clones always behave as top-level chains, regardless of whether the original was being used as a nested chain. When a clone is subsequently used as a step in another chain, it adopts nested behavior at that point.
+Clones always behave as top-level pipelines, regardless of whether the original was being used as a nested pipeline. When a clone is subsequently used as a step in another pipeline, it adopts nested behavior at that point.
 
 ---
 
@@ -113,10 +113,10 @@ Clones always behave as top-level chains, regardless of whether the original was
 The most common use of `clone()` is building a base pipeline and forking it into specialized variants:
 
 ```python
-from quent import Chain
+from quent import Q
 
 base = (
-  Chain()
+  Q()
   .then(validate)
   .then(normalize)
   .except_(handle_error)
@@ -136,14 +136,14 @@ The `except_()` and `finally_()` configurations are cloned along with the pipeli
 
 ---
 
-## decorator() -- Wrap Chain as Function Decorator
+## as_decorator() -- Wrap Pipeline as Function Decorator
 
-`chain.decorator()` returns a decorator that wraps a function with the chain's pipeline. The decorated function's return value becomes the chain's input.
+`q.as_decorator()` returns a decorator that wraps a function with the pipeline. The decorated function's return value becomes the pipeline's input.
 
 ```python
-from quent import Chain
+from quent import Q
 
-@Chain().then(lambda x: x.strip()).then(str.upper).decorator()
+@Q().then(lambda x: x.strip()).then(str.upper).as_decorator()
 def get_name():
   return '  alice  '
 
@@ -152,32 +152,32 @@ get_name()  # 'ALICE'
 
 ### How decorator Works
 
-1. `decorator()` **clones** the chain internally. Modifying the original chain after calling `decorator()` does not affect the decorated function.
+1. `as_decorator()` **clones** the pipeline internally. Modifying the original pipeline after calling `as_decorator()` does not affect the decorated function.
 2. When the decorated function is called, its arguments are forwarded to the original function.
-3. The function's return value is used as the run value for the cloned chain.
-4. The chain's steps process the value, and the final result is returned.
+3. The function's return value is used as the run value for the cloned pipeline.
+4. The pipeline's steps process the value, and the final result is returned.
 
 ```python
-from quent import Chain
+from quent import Q
 
-chain = Chain().then(lambda x: x.upper()).then(lambda x: f"[{x}]")
+q = Q().then(lambda x: x.upper()).then(lambda x: f"[{x}]")
 
-@chain.decorator()
+@q.as_decorator()
 def greet(name, greeting="Hello"):
   return f"{greeting}, {name}"
 
 result = greet("World")
 # greet("World") returns "Hello, World"
-# chain processes: "Hello, World" -> "HELLO, WORLD" -> "[HELLO, WORLD]"
+# pipeline processes: "Hello, World" -> "HELLO, WORLD" -> "[HELLO, WORLD]"
 # result = "[HELLO, WORLD]"
 ```
 
 ### Async Transparency
 
-Async transparency works with decorators too. If any step in the chain returns an awaitable, the decorated function returns a coroutine:
+Async transparency works with decorators too. If any step in the pipeline returns an awaitable, the decorated function returns a coroutine:
 
 ```python
-@pipeline.decorator()
+@pipeline.as_decorator()
 def handle(request):
   return parse(request)
 
@@ -190,37 +190,37 @@ result = await handle(request)
 
 ### Internal Clone
 
-`decorator()` clones the chain, so modifying the original after calling `decorator()` is safe:
+`as_decorator()` clones the pipeline, so modifying the original after calling `as_decorator()` is safe:
 
 ```python
-chain = Chain().then(step_a)
+q = Q().then(step_a)
 
-@chain.decorator()
+@q.as_decorator()
 def my_func(x):
   return x
 
 # Safe -- decorator() cloned internally
-chain.then(step_b)  # does not affect my_func
+q.then(step_b)  # does not affect my_func
 ```
 
 The decorated function preserves its original signature via `functools.wraps`.
 
 ---
 
-## Nested Chains for Composition
+## Nested Pipelines for Composition
 
-A Chain can be passed to `.then()` or `.do()` of another chain. The inner chain executes as a single step:
+A Q pipeline can be passed to `.then()` or `.do()` of another chain. The inner chain executes as a single step:
 
 ```python
-from quent import Chain
+from quent import Q
 
-validate = Chain().then(check_schema).then(check_permissions)
-transform = Chain().then(normalize).then(enrich)
+validate = Q().then(check_schema).then(check_permissions)
+transform = Q().then(normalize).then(enrich)
 
 pipeline = (
-  Chain(fetch_data)
-  .then(validate)     # runs entire validate chain as one step
-  .then(transform)    # runs entire transform chain as one step
+  Q(fetch_data)
+  .then(validate)     # runs entire validate pipeline as one step
+  .then(transform)    # runs entire transform pipeline as one step
   .then(save)
   .run()
 )
@@ -228,26 +228,26 @@ pipeline = (
 
 ### How Nesting Works
 
-1. The current pipeline value is passed as input to the inner chain.
-2. The inner chain executes all its steps.
-3. For `.then()`, the inner chain's result replaces the current value. For `.do()`, the result is discarded.
+1. The current pipeline value is passed as input to the inner pipeline.
+2. The inner pipeline executes all its steps.
+3. For `.then()`, the inner pipeline's result replaces the current value. For `.do()`, the result is discarded.
 
 ### Control Flow Propagation
 
-Control flow signals propagate through nested chains:
+Control flow signals propagate through nested pipelines:
 
 ```python
-from quent import Chain
+from quent import Q
 
 validate = (
-  Chain()
-  .if_(lambda x: not x.get('valid')).then(lambda _: Chain.return_({'error': 'invalid'}))
+  Q()
+  .if_(lambda x: not x.get('valid')).then(lambda _: Q.return_({'error': 'invalid'}))
   .then(check_permissions)
 )
 
 pipeline = (
-  Chain()
-  .then(validate)    # return_() propagates to outer chain
+  Q()
+  .then(validate)    # return_() propagates to outer pipeline
   .then(transform)   # skipped if validate returned early
   .then(save)
 )
@@ -258,19 +258,19 @@ result = pipeline.run({'valid': False})
 
 ### Independent Error Handling
 
-Each nested chain's `except_()` and `finally_()` handlers apply only to that chain's execution. Unhandled exceptions propagate to the outer chain:
+Each nested pipeline's `except_()` and `finally_()` handlers apply only to that pipeline's execution. Unhandled exceptions propagate to the outer pipeline:
 
 ```python
-from quent import Chain
+from quent import Q
 
 inner = (
-  Chain()
+  Q()
   .then(risky_operation)
   .except_(lambda ei: 'inner fallback')
 )
 
 outer = (
-  Chain()
+  Q()
   .then(inner)   # inner handles its own errors
   .then(process)
   .except_(lambda ei: 'outer fallback')
@@ -281,12 +281,12 @@ outer = (
 
 ## iterate() / iterate\_do() -- Reusable Generators
 
-`.iterate()` and `.iterate_do()` return a `ChainIterator` that supports reuse through calling:
+`.iterate()` and `.iterate_do()` return a `QuentIterator` that supports reuse through calling:
 
 ```python
-from quent import Chain
+from quent import Q
 
-gen = Chain(fetch_page).iterate(transform_record)
+gen = Q(fetch_page).iterate(transform_record)
 
 # First run
 for record in gen(page=1):
@@ -301,7 +301,7 @@ Each call creates a fresh iterator with the specified run arguments. The origina
 
 ### Sync and Async Iteration
 
-The same `ChainIterator` supports both protocols:
+The same `QuentIterator` supports both protocols:
 
 ```python
 # Sync
@@ -322,25 +322,25 @@ async for item in gen(page=1):
 Build a library of nested chains:
 
 ```python
-from quent import Chain
+from quent import Q
 
 # Library of reusable sub-pipelines
-strip_whitespace = Chain().foreach(str.strip)
-remove_empty = Chain().then(lambda xs: [x for x in xs if x])
-lowercase = Chain().foreach(str.lower)
-sort_unique = Chain().then(set).then(sorted)
+strip_whitespace = Q().foreach(str.strip)
+remove_empty = Q().then(lambda xs: [x for x in xs if x])
+lowercase = Q().foreach(str.lower)
+sort_unique = Q().then(set).then(sorted)
 
 # Compose for specific use cases
 clean_tags = (
-  Chain()
+  Q()
   .then(strip_whitespace)
   .then(remove_empty)
   .then(lowercase)
   .then(sort_unique)
 )
 
-tags = clean_tags.run(["  Python ", "", "ASYNC ", "python", " Chain"])
-# tags = ['async', 'chain', 'python']
+tags = clean_tags.run(["  Python ", "", "ASYNC ", "python", " Q"])
+# tags = ['async', 'q', 'python']
 ```
 
 ---
@@ -350,10 +350,10 @@ tags = clean_tags.run(["  Python ", "", "ASYNC ", "python", " Chain"])
 ### Validation Pipeline
 
 ```python
-from quent import Chain
+from quent import Q
 
 validate = (
-  Chain()
+  Q()
   .then(check_not_empty)
   .then(check_schema)
   .then(check_permissions)
@@ -368,10 +368,10 @@ validate.run(form_data)
 ### ETL Pipeline
 
 ```python
-from quent import Chain
+from quent import Q
 
 etl = (
-  Chain()
+  Q()
   .then(extract)
   .then(transform)
   .then(load)
@@ -384,32 +384,32 @@ etl.run(api_source)
 etl.run(file_source)
 ```
 
-### Middleware Chain
+### Middleware Pipeline
 
 ```python
-from quent import Chain
+from quent import Q
 
-middleware = Chain().then(authenticate).then(authorize).then(rate_limit)
+middleware = Q().then(authenticate).then(authorize).then(rate_limit)
 
-@middleware.clone().then(handle_api).decorator()
+@middleware.clone().then(handle_api).as_decorator()
 def api_endpoint(request):
   return request
 
-@middleware.clone().then(render_page).decorator()
+@middleware.clone().then(render_page).as_decorator()
 def web_endpoint(request):
   return request
 
-@middleware.clone().then(stream_events).decorator()
+@middleware.clone().then(stream_events).as_decorator()
 def sse_endpoint(request):
   return request
 ```
 
-Each endpoint gets an independent copy of the middleware chain with a specific handler appended.
+Each endpoint gets an independent copy of the middleware pipeline with a specific handler appended.
 
 ### Sync/Async Service Wrapper
 
 ```python
-from quent import Chain
+from quent import Q
 
 class UserService:
   def __init__(self, db, cache):
@@ -418,7 +418,7 @@ class UserService:
 
   def get_user(self, user_id):
     return (
-      Chain(self.cache.get, user_id)
+      Q(self.cache.get, user_id)
       .if_(lambda cached: cached is None).then(self.db.fetch_user, user_id)
       .do(lambda user: self.cache.set(user_id, user))
       .run()
@@ -433,16 +433,16 @@ service = UserService(async_db, async_cache)
 user = await service.get_user(123)
 ```
 
-### Conditional Branching with Nested Chains
+### Conditional Branching with Nested Pipelines
 
 ```python
-from quent import Chain
+from quent import Q
 
-premium_flow = Chain().then(premium_validate).then(premium_process)
-standard_flow = Chain().then(standard_validate).then(standard_process)
+premium_flow = Q().then(premium_validate).then(premium_process)
+standard_flow = Q().then(standard_validate).then(standard_process)
 
 pipeline = (
-  Chain()
+  Q()
   .if_(is_premium).then(premium_flow)
   .else_(standard_flow)
   .then(finalize)
@@ -457,16 +457,16 @@ result = pipeline.run(user_request)
 
 | Mechanism | Purpose | When to Use |
 |-----------|---------|-------------|
-| `.run(value)` | Run the same chain with different inputs | Always safe; does not modify the chain |
-| `.clone()` | Create an independent copy | When you need to extend a shared chain differently |
+| `.run(value)` | Run the same pipeline with different inputs | Always safe; does not modify the pipeline |
+| `.clone()` | Create an independent copy | When you need to extend a shared pipeline differently |
 | Nested chains | Compose pipelines from reusable sub-pipelines | Modular, testable pipeline components |
-| `.decorator()` | Wrap a chain as a function decorator | Process a function's return value through a pipeline |
-| `.iterate()` | Create reusable iterators | Lazy, streaming consumption of chain output |
+| `.as_decorator()` | Wrap a chain as a function decorator | Process a function's return value through a pipeline |
+| `.iterate()` | Create reusable iterators | Lazy, streaming consumption of pipeline output |
 
 ---
 
 ## Next Steps
 
-- **[Chains](chains.md)** -- pipeline building, context managers, conditionals, and control flow
+- **[Pipelines](chains.md)** -- pipeline building, context managers, conditionals, and control flow
 - **[Error Handling](error-handling.md)** -- exception handling and cleanup
 - **[Async Handling](async.md)** -- sync/async bridging and concurrency
