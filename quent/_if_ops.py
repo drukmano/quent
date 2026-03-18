@@ -86,7 +86,7 @@ class _IfOp:
       except _Break as exc:
         raise QuentException('break_() cannot be used inside an if_() predicate.') from exc
       except _ControlFlowSignal:
-        # _Return propagates to the outer chain — early exit from a predicate
+        # _Return propagates to the outer pipeline — early exit from a predicate
         # is valid (SPEC §5.8).  No cleanup needed (_IfOp holds no resources).
         raise
       except BaseException as exc:

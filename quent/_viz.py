@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Chain visualization for traceback display and ``__repr__``."""
+"""Pipeline visualization for traceback display and ``__repr__``."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from ._link import Link
 from ._types import Null
 
 if TYPE_CHECKING:
-  from ._chain import Chain
-  from ._types import _ChainOp
+  from ._q import Q
+  from ._types import _PipelineOp
 
 
 _ERROR_MARKER = ' <----'
@@ -39,8 +39,8 @@ _CONTROL_CHAR_RE = re.compile(
   r'\U000e0001-\U000e007f\U000e0100-\U000e01ef]'
 )
 
-# QUENT_TRACEBACK_VALUES=0 suppresses argument values in chain visualizations
-# while keeping step names and chain structure intact. Useful in production to
+# QUENT_TRACEBACK_VALUES=0 suppresses argument values in pipeline visualizations
+# while keeping step names and pipeline structure intact. Useful in production to
 # prevent sensitive pipeline values from leaking into tracebacks and logs.
 _show_traceback_values: bool = os.environ.get('QUENT_TRACEBACK_VALUES', '').strip().lower() not in ('0', 'false', 'no')
 
@@ -50,7 +50,7 @@ def _sanitize_repr(s: str) -> str:
 
   Defense-in-depth measure (CWE-117): prevents malicious ``__repr__``
   implementations from injecting terminal-manipulating or log-confusing
-  content into chain visualizations and debug output.
+  content into pipeline visualizations and debug output.
   """
   s = s.replace('\t', '\\t').replace('\n', '\\n').replace('\r', '\\r')
   s = _ANSI_ESCAPE_RE.sub('', s)
@@ -67,7 +67,7 @@ def _sanitize_repr(s: str) -> str:
 
 
 class _VizContext:
-  """Shared context threaded through chain stringification."""
+  """Shared context threaded through pipeline stringification."""
 
   __slots__ = ('found', 'link_temp_args', 'source_link', 'total_calls')
 
@@ -104,7 +104,7 @@ def _get_link_name(link: Link) -> str:
   method name without importing or isinstance-checking against each concrete
   operation class.
 
-  Writers (operation classes conforming to ``_ChainOp``):
+  Writers (operation classes conforming to ``_PipelineOp``):
     - ``_IfOp`` / ``_if_ops.py``      → ``'if_'``
     - ``_IterOp``, ``_ConcurrentIterOp`` / ``_iter_ops.py``
                                        → ``'foreach'`` or ``'foreach_do'``
@@ -120,7 +120,7 @@ def _get_link_name(link: Link) -> str:
   callable or value added via ``.then()`` / ``.do()``), the method name is
   inferred from ``link.ignore_result``: ``'do'`` when True, ``'then'`` otherwise.
   """
-  op: _ChainOp | Any = link.v
+  op: _PipelineOp | Any = link.v
   link_name: str | None = getattr(op, '_link_name', None)
   if link_name is not None:
     return link_name
@@ -129,10 +129,10 @@ def _get_link_name(link: Link) -> str:
 
 def _get_obj_name(obj: Any, _depth: int = 0) -> str:
   """Return a human-readable display name for an arbitrary object."""
-  if getattr(obj, '_quent_is_chain', False):
+  if getattr(obj, '_quent_is_q', False):
     base = type(obj).__name__
-    chain_name = getattr(obj, '_name', None)
-    return f'{base}[{_sanitize_repr(chain_name)}]' if chain_name is not None else base
+    q_name = getattr(obj, '_name', None)
+    return f'{base}[{_sanitize_repr(q_name)}]' if q_name is not None else base
   try:
     name = getattr(obj, '__name__', None)
     if name is None:
@@ -155,7 +155,7 @@ def _get_obj_name(obj: Any, _depth: int = 0) -> str:
 
 
 def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> str:
-  """Format positional and keyword arguments for display in a chain visualization."""
+  """Format positional and keyword arguments for display in a pipeline visualization."""
   if not _show_traceback_values:  # pragma: no cover  # tested via subprocess in traceback_tests
     return ''
   parts: list[str] = []
@@ -173,23 +173,23 @@ def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | Non
 def _get_true_source_link(
   source_link: Link | None, root_link: Link | None, max_depth: int = _VIZ_MAX_NESTING_DEPTH
 ) -> Link | None:
-  """Drill through nested chains to find the actual callable that caused the exception."""
-  # Defensive: prevents infinite loops if chains reference each other (DAG invariant).
+  """Drill through nested pipelines to find the actual callable that caused the exception."""
+  # Defensive: prevents infinite loops if pipelines reference each other (DAG invariant).
   seen = set()
   depth = 0
   while source_link is not None and id(source_link) not in seen and depth < max_depth:
     seen.add(id(source_link))
     depth += 1
-    if source_link.is_chain:
-      chain = source_link.v
-    elif getattr(source_link.original_value, '_quent_is_chain', False):
-      chain = source_link.original_value
+    if source_link.is_q:
+      nested = source_link.v
+    elif getattr(source_link.original_value, '_quent_is_q', False):
+      nested = source_link.original_value
     else:
       break
-    if chain._root_link is not None:
-      source_link = chain._root_link
-    elif chain._first_link is not None:
-      source_link = chain._first_link
+    if nested._root_link is not None:
+      source_link = nested._root_link
+    elif nested._first_link is not None:
+      source_link = nested._first_link
     else:
       break
   if source_link is None:
@@ -197,7 +197,7 @@ def _get_true_source_link(
   return source_link
 
 
-# ---- Nested chain handling ----
+# ---- Nested pipeline handling ----
 
 
 def _resolve_nested_chain(
@@ -208,13 +208,13 @@ def _resolve_nested_chain(
   ctx: _VizContext,
   max_depth: int = _VIZ_MAX_NESTING_DEPTH,
 ) -> str:
-  """Resolve a nested chain link into its indented string representation.
+  """Resolve a nested pipeline link into its indented string representation.
 
   A fresh ``_VizContext`` is created rather than sharing the parent context
   because ``total_calls`` must be isolated per nesting level — each nested
-  chain gets its own budget of ``_VIZ_MAX_TOTAL_CALLS`` to prevent a single
-  deeply-nested chain from exhausting the limit and truncating sibling
-  chains.  Only the ``found`` flag (whether the error-source link has been
+  pipeline gets its own budget of ``_VIZ_MAX_TOTAL_CALLS`` to prevent a single
+  deeply-nested pipeline from exhausting the limit and truncating sibling
+  pipelines.  Only the ``found`` flag (whether the error-source link has been
   located) is synced bidirectionally, since it is a global concern that
   affects error-marker placement across all nesting levels.
   """
@@ -232,7 +232,7 @@ def _resolve_nested_chain(
       )
   nested_ctx = _VizContext(source_link=ctx.source_link, link_temp_args=ctx.link_temp_args)
   nested_ctx.found = ctx.found
-  result = _stringify_chain(
+  result = _stringify_q(
     original_value,
     nest_lvl=nest_lvl + 1,
     root_link=nested_root_link,
@@ -243,11 +243,11 @@ def _resolve_nested_chain(
   return result
 
 
-# ---- Chain stringification ----
+# ---- Pipeline stringification ----
 
 
-def _stringify_chain(
-  chain: Chain[Any],
+def _stringify_q(
+  q: Q[Any],
   nest_lvl: int = 0,
   root_link: Link | None = None,
   *,
@@ -255,22 +255,22 @@ def _stringify_chain(
   extra_links: list[tuple[Link, str]] | None = None,
   max_depth: int = _VIZ_MAX_NESTING_DEPTH,
 ) -> str:
-  """Build the full string visualization of a chain.
+  """Build the full string visualization of a pipeline.
 
   The ``<----`` marker points to the link that raised the exception.
   """
-  # Depth limit prevents infinite recursion in pathologically nested chains.
+  # Depth limit prevents infinite recursion in pathologically nested pipelines.
   if nest_lvl >= max_depth or ctx.increment_and_check():
-    return f'{_make_indent(nest_lvl)}Chain(...<truncated at depth {max_depth}>...)'
+    return f'{_make_indent(nest_lvl)}Q(...<truncated at depth {max_depth}>...)'
   output = ''
   truncated_count = 0
-  root = chain._root_link
+  root = q._root_link
   if root is None and root_link is not None:
     root = root_link
 
   if nest_lvl > 0:
     output += _make_indent(nest_lvl)
-  output += _get_obj_name(chain)
+  output += _get_obj_name(q)
 
   if root is None:
     output += '()'
@@ -279,16 +279,16 @@ def _stringify_chain(
     ctx.mark_found(root)
 
   links: list[tuple[Link, str]] = []
-  link = chain._first_link
+  link = q._first_link
   while link is not None:
     links.append((link, _get_link_name(link)))
     if getattr(link.v, '_else_link', None) is not None:
       links.append((link.v._else_link, 'else_'))
     link = link.next_link
-  if chain._on_except_link is not None:
-    links.append((chain._on_except_link, 'except_'))
-  if chain._on_finally_link is not None:
-    links.append((chain._on_finally_link, 'finally_'))
+  if q._on_except_link is not None:
+    links.append((q._on_except_link, 'except_'))
+  if q._on_finally_link is not None:
+    links.append((q._on_finally_link, 'finally_'))
 
   if len(links) > _VIZ_MAX_LINKS_PER_LEVEL:
     truncated_count = len(links) - _VIZ_MAX_LINKS_PER_LEVEL
@@ -318,20 +318,20 @@ def _stringify_chain(
 def _format_link(
   link: Link, nest_lvl: int, ctx: _VizContext, method_name: str | None = None, max_depth: int = _VIZ_MAX_NESTING_DEPTH
 ) -> str:
-  """Format a single link, including nested chains and operation-specific rendering.
+  """Format a single link, including nested pipelines and operation-specific rendering.
 
-  ``op_link`` is the operation wrapper link (the Link as it appears in the chain's
-  linked list — its ``v`` may be an operation class conforming to ``_ChainOp``
+  ``op_link`` is the operation wrapper link (the Link as it appears in the pipeline's
+  linked list — its ``v`` may be an operation class conforming to ``_PipelineOp``
   (e.g. ``_IterOp``, ``_ConcurrentGatherOp``) that exposes ``_link_name``).
   ``user_link`` is the user-provided callable's link (drilled through ``original_value``
   when an operation wraps the original user callable in a new Link).
   """
   op_link = link
-  # ``op`` may be an operation class conforming to ``_ChainOp`` (exposing
+  # ``op`` may be an operation class conforming to ``_PipelineOp`` (exposing
   # ``_link_name``), or a plain callable / value.  ``getattr`` is used to
   # read ``_link_name`` and ``_fns``/``_concurrency`` safely regardless of
   # the concrete type.
-  op: _ChainOp | Any = op_link.v
+  op: _PipelineOp | Any = op_link.v
   # Resolve the user link (drill through original_value if it's a Link).
   user_link = link
   if isinstance(user_link.original_value, Link):
@@ -341,7 +341,7 @@ def _format_link(
   args = user_link.args
   kwargs = user_link.kwargs
   output = ''
-  is_chain = False
+  is_q = False
 
   # Merge runtime temp args for visualization.
   if not ctx.found and ctx.link_temp_args is not None and id(user_link) in ctx.link_temp_args:
@@ -352,10 +352,10 @@ def _format_link(
   # Determine the display value for this link.
   if original_value is None:
     original_value = user_link.v
-  if user_link.is_chain or getattr(original_value, '_quent_is_chain', False):
+  if user_link.is_q or getattr(original_value, '_quent_is_q', False):
     link_v = _resolve_nested_chain(user_link, args, kwargs, nest_lvl, ctx, max_depth=max_depth)
     args = kwargs = None
-    is_chain = True
+    is_q = True
   else:
     _fns = getattr(op, '_fns', None)
     if _fns is not None:
@@ -367,8 +367,8 @@ def _format_link(
   if method_name is not None:
     output += f'.{method_name}'
 
-  if user_link.is_callable or user_link.args or user_link.kwargs or user_link.is_chain:
-    if is_chain:
+  if user_link.is_callable or user_link.args or user_link.kwargs or user_link.is_q:
+    if is_q:
       call_args = _format_call_args(args, kwargs)
       chain_newline = _make_indent(nest_lvl + 1) if call_args else ''
       call_prefix = f', {call_args}' if call_args else ''
@@ -386,8 +386,8 @@ def _format_link(
 
   # Append error marker if this is the failing link.
   # The `<----` marker visually points to the link that raised the exception
-  # in the chain visualization, e.g.:
-  #   Chain(fetch)
+  # in the pipeline visualization, e.g.:
+  #   Q(fetch)
   #   .then(parse) <----
   #   .do(log)
   if not ctx.found and op_link is ctx.source_link:

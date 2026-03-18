@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Traceback enhancement — inject chain visualizations into exception output.
+"""Traceback enhancement — inject pipeline visualizations into exception output.
 
 Importing this module installs two global patches:
   - ``sys.excepthook`` is replaced with ``_quent_excepthook`` to clean
@@ -39,12 +39,12 @@ from ._viz import (
   _get_true_source_link,
   _make_indent,
   _sanitize_repr,
-  _stringify_chain,
+  _stringify_q,
   _VizContext,
 )
 
 if TYPE_CHECKING:
-  from ._chain import Chain
+  from ._q import Q
 
 
 def _cleanup_outermost_meta(meta: dict[str, Any]) -> None:
@@ -77,7 +77,7 @@ def _user_stacklevel() -> int:
 
 
 # Pre-compiled code object used as a template for the traceback injection hack.
-# Its co_name is replaced with the chain visualization string at runtime, so
+# Its co_name is replaced with the pipeline visualization string at runtime, so
 # the visualization appears as the "function name" in Python's traceback output.
 _RAISE_CODE: types.CodeType = compile('raise __exc__', '<quent>', 'exec')
 
@@ -147,15 +147,15 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
 
 def _inject_visualization(
   exc: BaseException,
-  chain: Chain[Any],
+  q: Q[Any],
   root_link: Link | None,
   source_link: Link | None,
   meta: dict[str, Any],
   extra_links: list[tuple[Link, str]] | None,
 ) -> None:
-  """Build chain visualization string and inject it into the traceback via code object hack.
+  """Build pipeline visualization string and inject it into the traceback via code object hack.
 
-  Creates a synthetic <quent> frame whose co_name is the chain visualization,
+  Creates a synthetic <quent> frame whose co_name is the pipeline visualization,
   so it appears as the "function name" in Python's traceback output.
   Falls back to plain frame cleaning on visualization failure.
   """
@@ -165,15 +165,15 @@ def _inject_visualization(
       source_link=_get_true_source_link(source_link, root_link),
       link_temp_args=meta.pop(META_LINK_TEMP_ARGS, None),
     )
-    chain_source = _stringify_chain(chain, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
-    # Indent the chain visualization so it appears nested under the <quent> frame header.
-    chain_source = _make_indent(1).join(['', *chain_source.splitlines()])
+    viz_source = _stringify_q(q, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
+    # Indent the pipeline visualization so it appears nested under the <quent> frame header.
+    viz_source = _make_indent(1).join(['', *viz_source.splitlines()])
 
     # HACK — code object injection trick
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     # We exec() a ``raise`` statement using a code object whose co_name has been
-    # replaced with the chain visualization string.  Python's traceback machinery
-    # reads co_name as the "function name", so the chain structure appears inline
+    # replaced with the pipeline visualization string.  Python's traceback machinery
+    # reads co_name as the "function name", so the pipeline structure appears inline
     # in the traceback as if it were a function name.  The exec() creates a real
     # traceback frame that we then graft onto the exception.
     # SECURITY INVARIANT: The code argument to exec() MUST remain the pre-compiled
@@ -188,9 +188,9 @@ def _inject_visualization(
     if _HAS_QUALNAME:
       # Python 3.11+: newer traceback formatters prefer co_qualname over co_name,
       # so we must set both to ensure the visualization renders everywhere.
-      code = _RAISE_CODE.replace(co_name=chain_source, co_qualname=chain_source)  # type: ignore[call-arg]  # co_qualname added in Python 3.11; mypy doesn't know about it
+      code = _RAISE_CODE.replace(co_name=viz_source, co_qualname=viz_source)  # type: ignore[call-arg]  # co_qualname added in Python 3.11; mypy doesn't know about it
     else:
-      code = _RAISE_CODE.replace(co_name=chain_source)
+      code = _RAISE_CODE.replace(co_name=viz_source)
     if code.co_code != _RAISE_CODE.co_code:
       raise RuntimeError('SECURITY: exec() must only use _RAISE_CODE')
     try:
@@ -217,16 +217,16 @@ def _inject_visualization(
       globals_ = None
     # Graceful degradation: visualization failures must never break exception
     # handling.  Emit a warning and fall back to plain frame cleaning.
-    _log.debug('chain visualization failed: %r', viz_exc)
+    _log.debug('pipeline visualization failed: %r', viz_exc)
     warnings.warn(
-      f'quent: chain visualization failed: {viz_exc!r}',
+      f'quent: pipeline visualization failed: {viz_exc!r}',
       RuntimeWarning,
       stacklevel=_user_stacklevel(),
     )
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
 
-def _attach_exception_note(exc: BaseException, chain: Chain[Any], source_link: Link | None) -> None:
+def _attach_exception_note(exc: BaseException, q: Q[Any], source_link: Link | None) -> None:
   """Attach a concise one-line note identifying the failing step (Python 3.11+).
 
   Exception notes survive traceback reformatting/stripping.
@@ -242,29 +242,29 @@ def _attach_exception_note(exc: BaseException, chain: Chain[Any], source_link: L
       step_name = f'.{_get_link_name(source_link)}({obj_name})'
     else:
       step_name = '?'
-    root_name = _get_obj_name(chain._root_link.v) if chain._root_link is not None else ''
-    chain_label = f'Chain[{_sanitize_repr(chain._name)}]' if chain._name is not None else 'Chain'
-    exc.add_note(f'quent: exception at {step_name} in {chain_label}({root_name})')
+    root_name = _get_obj_name(q._root_link.v) if q._root_link is not None else ''
+    q_label = f'Q[{_sanitize_repr(q._name)}]' if q._name is not None else 'Q'
+    exc.add_note(f'quent: exception at {step_name} in {q_label}({root_name})')
   except Exception as note_exc:
     _log.debug('exception note attachment failed: %r', note_exc)  # never let note generation break exception handling
 
 
 def _modify_traceback(
   exc: BaseException,
-  chain: Chain[Any] | None = None,
+  q: Q[Any] | None = None,
   link: Link | None = None,
   root_link: Link | None = None,
   extra_links: list[tuple[Link, str]] | None = None,
   is_nested: bool = False,
 ) -> BaseException:
-  """Inject chain visualization into the traceback, or just strip internal frames.
+  """Inject pipeline visualization into the traceback, or just strip internal frames.
 
   Always returns the exception for use in ``raise`` expressions.
 
-  *is_nested* indicates whether the chain is executing as a nested step
-  inside another chain.  When True, only frame cleaning is performed
+  *is_nested* indicates whether the pipeline is executing as a nested step
+  inside another pipeline.  When True, only frame cleaning is performed
   (no visualization injection) — visualization is reserved for the
-  outermost chain.
+  outermost pipeline.
 
   Not thread-safe.  If concurrent threads process exceptions that share
   ``__cause__`` or ``__context__`` objects, traceback mutations may race.
@@ -274,9 +274,9 @@ def _modify_traceback(
   if not _traceback_enabled:
     # Clean heavy metadata even when traceback enhancement is disabled,
     # to prevent Link objects, callables, and runtime values from leaking
-    # via __quent_meta__ to user code.  Only at the outermost chain boundary
+    # via __quent_meta__ to user code.  Only at the outermost pipeline boundary
     # (same condition as the enabled path) and only if metadata is present.
-    if chain is not None and link is not None and not is_nested:
+    if q is not None and link is not None and not is_nested:
       _meta = getattr(exc, '__quent_meta__', None)
       if _meta is not None:
         _cleanup_outermost_meta(_meta)
@@ -288,23 +288,23 @@ def _modify_traceback(
   if meta.get(META_SOURCE_LINK) is None:
     meta[META_SOURCE_LINK] = link
 
-  if chain is not None and link is not None and not is_nested:
+  if q is not None and link is not None and not is_nested:
     meta[META_QUENT] = True
     source_link = meta.pop(META_SOURCE_LINK, None)
     meta.pop(META_GATHER_INDEX, None)
     meta.pop(META_GATHER_FN, None)
 
-    _inject_visualization(exc, chain, root_link, source_link, meta, extra_links)
-    _attach_exception_note(exc, chain, source_link)
+    _inject_visualization(exc, q, root_link, source_link, meta, extra_links)
+    _attach_exception_note(exc, q, source_link)
   else:
     meta[META_QUENT] = True
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
-  # Defense-in-depth cleanup for the outermost chain only: remove heavy
-  # chain-internal references from __quent_meta__ so they don't leak to
+  # Defense-in-depth cleanup for the outermost pipeline only: remove heavy
+  # pipeline-internal references from __quent_meta__ so they don't leak to
   # user code.  Intentionally redundant with _inject_visualization's
   # internal pops — covers the fallback path if visualization failed.
-  if chain is not None and link is not None and not is_nested:
+  if q is not None and link is not None and not is_nested:
     _cleanup_outermost_meta(meta)
   # Clean _quent_idx: ad-hoc attribute attached by concurrent workers
   # (see _exc_meta._clean_quent_idx docstring).

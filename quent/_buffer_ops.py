@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Backpressure-aware buffer operation for iteration pipelines.
 
-Interposes a bounded queue between a producer (the chain's iterable output)
+Interposes a bounded queue between a producer (the pipeline's iterable output)
 and a consumer (the iteration loop).  When the buffer is full the producer
 blocks (backpressure); when the buffer is empty the consumer blocks.
 

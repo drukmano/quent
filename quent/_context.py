@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Chain execution context for cross-step data sharing via contextvars."""
+"""Pipeline execution context for cross-step data sharing via contextvars."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ _ctx_store: ContextVar[dict[str, Any]] = ContextVar('quent_context')
 
 
 def _ctx_set(key: str, value: Any) -> None:
-  """Store a value in the chain execution context.
+  """Store a value in the pipeline execution context.
 
   Uses copy-on-write semantics: each set() creates a new dict rather than
   mutating in place. This ensures proper isolation when contextvars are
@@ -29,7 +29,7 @@ def _ctx_set(key: str, value: Any) -> None:
 
 
 def _ctx_get(key: str, default: Any = _MISSING) -> Any:
-  """Retrieve a value from the chain execution context."""
+  """Retrieve a value from the pipeline execution context."""
   try:
     store = _ctx_store.get()
   except LookupError:

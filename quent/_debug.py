@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Debug infrastructure -- execution tracing via chain.debug()."""
+"""Debug infrastructure -- execution tracing via Q.debug()."""
 
 from __future__ import annotations
 
@@ -12,14 +12,14 @@ from typing import Any, Generic, TypeVar
 
 _T = TypeVar('_T')
 
-# The _DebugChain subclass is created lazily on first use to avoid
-# circular imports (_debug -> _chain -> _debug).
-_DebugChain: type | None = None
+# The _DebugQ subclass is created lazily on first use to avoid
+# circular imports (_debug -> _q -> _debug).
+_DebugQ: type | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class StepRecord:
-  """A single captured step from chain execution."""
+  """A single captured step from pipeline execution."""
 
   step_name: str
   input_value: Any
@@ -130,15 +130,15 @@ def _render_trace(buf: io.StringIO, steps: list[StepRecord], total_ns: int) -> N
 
 
 def _on_step_recorder(
-  chain: Any,
+  q: Any,
   step_name: str,
   input_value: Any,
   result: Any,
   elapsed_ns: int,
   exception: BaseException | None = None,
 ) -> None:
-  """on_step callback that appends StepRecords to the chain's capture list."""
-  chain._debug_steps.append(
+  """on_step callback that appends StepRecords to the pipeline's capture list."""
+  q._debug_steps.append(
     StepRecord(
       step_name=step_name,
       input_value=input_value,
@@ -149,50 +149,50 @@ def _on_step_recorder(
   )
 
 
-def _get_debug_chain_cls() -> type:
-  """Return the _DebugChain subclass, creating it on first call."""
-  global _DebugChain
-  if _DebugChain is not None:
-    return _DebugChain
+def _get_debug_q_cls() -> type:
+  """Return the _DebugQ subclass, creating it on first call."""
+  global _DebugQ
+  if _DebugQ is not None:
+    return _DebugQ
 
-  from ._chain import Chain
+  from ._q import Q
 
-  class _DC(Chain):  # type: ignore[type-arg]
-    """Chain subclass with independent on_step for debug capture.
+  class _DC(Q):  # type: ignore[type-arg]
+    """Q subclass with independent on_step for debug capture.
 
-    The engine reads on_step via type(chain).on_step, so this subclass
-    gets its own instrumentation without affecting Chain.on_step.
+    The engine reads on_step via type(q).on_step, so this subclass
+    gets its own instrumentation without affecting Q.on_step.
     """
 
     __slots__ = ('_debug_steps',)
     on_step = staticmethod(_on_step_recorder)  # type: ignore[assignment]
 
-  _DebugChain = _DC
+  _DebugQ = _DC
   return _DC
 
 
-def _make_debug_chain(chain: Any) -> Any:
-  """Clone a chain into a _DebugChain with built-in step capture.
+def _make_debug_q(q: Any) -> Any:
+  """Clone a pipeline into a _DebugQ with built-in step capture.
 
-  The original chain is NOT modified -- clone() creates an independent copy.
-  A _DebugChain instance is constructed and all slot values from the clone
-  are transferred, so the engine reads _DebugChain.on_step instead of
-  Chain.on_step.
+  The original pipeline is NOT modified -- clone() creates an independent copy.
+  A _DebugQ instance is constructed and all slot values from the clone
+  are transferred, so the engine reads _DebugQ.on_step instead of
+  Q.on_step.
   """
-  from ._chain import Chain
+  from ._q import Q
 
-  dc_cls = _get_debug_chain_cls()
-  cloned = chain.clone()
-  # Build a _DebugChain instance and copy all Chain slots from the clone.
+  dc_cls = _get_debug_q_cls()
+  cloned = q.clone()
+  # Build a _DebugQ instance and copy all Q slots from the clone.
   dc: Any = object.__new__(dc_cls)
-  for slot in Chain.__slots__:
+  for slot in Q.__slots__:
     setattr(dc, slot, getattr(cloned, slot))
   dc._debug_steps = []
   return dc
 
 
-def _debug_run(chain: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
-  """Execute a debug chain and wrap the result in DebugResult.
+def _debug_run(q: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+  """Execute a debug pipeline and wrap the result in DebugResult.
 
   Handles both sync and async execution transparently.
   """
@@ -201,9 +201,9 @@ def _debug_run(chain: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
   t0 = time.perf_counter_ns()
 
   if v is not Null:
-    raw = chain.run(v, *args, **kwargs)
+    raw = q.run(v, *args, **kwargs)
   else:
-    raw = chain.run()
+    raw = q.run()
 
   if asyncio.iscoroutine(raw):
 
@@ -212,7 +212,7 @@ def _debug_run(chain: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
       elapsed = time.perf_counter_ns() - t0
       return DebugResult(
         value=val,
-        steps=list(chain._debug_steps),
+        steps=list(q._debug_steps),
         elapsed_ns=elapsed,
       )
 
@@ -221,6 +221,6 @@ def _debug_run(chain: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
   elapsed = time.perf_counter_ns() - t0
   return DebugResult(
     value=raw,
-    steps=list(chain._debug_steps),
+    steps=list(q._debug_steps),
     elapsed_ns=elapsed,
   )

@@ -111,18 +111,18 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
      current_value is not Null; ``v()`` if callable and Null; ``v`` as-is
      if not callable.
 
-  A ``Chain`` instance is callable and therefore follows these same 2 rules.
-  Internally, when ``link.is_chain`` is True, we call ``v._run()`` directly
+  A ``Q`` instance is callable and therefore follows these same 2 rules.
+  Internally, when ``link.is_q`` is True, we call ``v._run()`` directly
   instead of ``v.run()`` so that ``_Return``/``_Break`` signals propagate to
-  the outer chain rather than being trapped.  This is an implementation
+  the outer pipeline rather than being trapped.  This is an implementation
   detail -- the user-visible calling convention is unchanged.
   """
   v, args, kwargs = link.v, link.args, link.kwargs
 
-  # Nested chain — dispatch to _run() to keep control flow signals alive.
-  # Pass is_nested=True explicitly so the inner chain knows it's nested
-  # without requiring build-time mutation of the chain's state.
-  if link.is_chain:
+  # Nested pipeline — dispatch to _run() to keep control flow signals alive.
+  # Pass is_nested=True explicitly so the inner pipeline knows it's nested
+  # without requiring build-time mutation of the pipeline's state.
+  if link.is_q:
     if args or kwargs:
       run_value = args[0] if args else Null
       run_args = args[1:] if args else None

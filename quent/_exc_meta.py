@@ -91,7 +91,7 @@ def _set_link_temp_args(exc: BaseException, link: Link, /, **kwargs: Any) -> Non
   Records the values that were live when the exception occurred (e.g.
   ``current_value=``, ``item=``, ``index=``), keyed by the link's
   identity.  The traceback formatter reads these to show actual arguments
-  in the chain visualization.
+  in the pipeline visualization.
   """
   meta = _get_exc_meta(exc)
   link_temp_args = meta.get(META_LINK_TEMP_ARGS)
@@ -122,7 +122,7 @@ def _clean_quent_idx(exc: BaseException) -> None:
   Each worker records the 0-based index of the item/function it was
   processing when the exception occurred.  The triage functions
   (``_triage_iter_exceptions``, ``_triage_gather_exceptions``) use this
-  value as a sort key so the chain reports the exception from the
+  value as a sort key so the pipeline reports the exception from the
   *earliest* failing item/function by original input order, regardless of
   wall-clock completion order.
 
@@ -141,11 +141,11 @@ def _clean_quent_idx(exc: BaseException) -> None:
 
 
 def _pop_heavy_meta_keys(meta: dict[str, Any]) -> None:
-  """Remove heavy chain-internal reference keys from a metadata dict.
+  """Remove heavy pipeline-internal reference keys from a metadata dict.
 
   Shared by ``_clean_exc_meta`` (after-except cleanup) and
   ``_traceback._cleanup_outermost_meta`` (defense-in-depth at the
-  outermost chain boundary).  The lightweight ``quent`` flag is
+  outermost pipeline boundary).  The lightweight ``quent`` flag is
   intentionally preserved.
   """
   meta.pop(META_SOURCE_LINK, None)
@@ -155,10 +155,10 @@ def _pop_heavy_meta_keys(meta: dict[str, Any]) -> None:
 
 
 def _clean_exc_meta(exc: BaseException) -> None:
-  """Remove heavy chain-internal references from exception metadata.
+  """Remove heavy pipeline-internal references from exception metadata.
 
   Called after an exception has been consumed by an except handler
-  (``reraise=False``) to prevent holding chain internals alive via the
+  (``reraise=False``) to prevent holding pipeline internals alive via the
   exception object.  The lightweight ``quent`` flag is preserved.
   """
   meta = getattr(exc, '__quent_meta__', None)

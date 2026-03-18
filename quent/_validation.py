@@ -10,24 +10,24 @@ from typing import Any
 from ._types import QuentException
 
 
-def _chain_suffix(chain: Any) -> str:
-  """Format a chain name suffix for error messages."""
-  if chain is not None and getattr(chain, '_name', None) is not None:
-    return f' (in chain {chain._name!r})'
+def _q_suffix(q: Any) -> str:
+  """Format a pipeline name suffix for error messages."""
+  if q is not None and getattr(q, '_name', None) is not None:
+    return f' (in pipeline {q._name!r})'
   return ''
 
 
-def _require_callable(v: Any, method: str, chain: Any = None) -> None:
+def _require_callable(v: Any, method: str, q: Any = None) -> None:
   """Raise TypeError if *v* is not callable."""
   if not callable(v):
-    msg = f'{method}() requires a callable, got {type(v).__name__}{_chain_suffix(chain)}'
+    msg = f'{method}() requires a callable, got {type(v).__name__}{_q_suffix(q)}'
     raise TypeError(msg)
 
 
-def _validate_concurrency(concurrency: int | None, method: str, chain: Any = None) -> None:
+def _validate_concurrency(concurrency: int | None, method: str, q: Any = None) -> None:
   """Validate the concurrency parameter for iteration and gather operations."""
   if concurrency is not None:
-    suffix = _chain_suffix(chain)
+    suffix = _q_suffix(q)
     if isinstance(concurrency, bool) or not isinstance(concurrency, int):
       msg = (
         f'{method}() concurrency must be a positive integer or -1 (unbounded), got {type(concurrency).__name__}{suffix}'

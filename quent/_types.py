@@ -86,12 +86,12 @@ else:
   from builtins import ExceptionGroup as ExceptionGroup  # type: ignore[no-redef]
 
 
-class ChainExcInfo(NamedTuple):
+class QuentExcInfo(NamedTuple):
   """Exception context passed to except_() handlers.
 
-  Except handlers receive a single ``ChainExcInfo`` instance as their
+  Except handlers receive a single ``QuentExcInfo`` instance as their
   current value (per the standard 2-rule calling convention).  Access
-  the caught exception via ``.exc`` and the chain's evaluated root
+  the caught exception via ``.exc`` and the pipeline's evaluated root
   value via ``.root_value`` (normalized to ``None`` when absent).
   """
 
@@ -108,8 +108,8 @@ class _Null:
   """Sentinel meaning "no value was provided."
 
   Distinct from ``None``, which is a perfectly valid pipeline value.
-  ``Chain(None)`` creates a chain with root value ``None``; ``Chain()``
-  creates a chain with no root value at all.
+  ``Q(None)`` creates a pipeline with root value ``None``; ``Q()``
+  creates a pipeline with no root value at all.
 
   This class is a singleton — use ``quent.Null`` directly.  Attempting to
   instantiate ``NullType()`` after the singleton has been created raises
@@ -165,12 +165,12 @@ class QuentException(Exception):
 
   Raised for violations of quent's runtime invariants. Common causes:
 
-  - **Control flow signal escape**: ``Chain.return_()`` or ``Chain.break_()``
-    used outside a chain or in an unsupported context (e.g., inside
+  - **Control flow signal escape**: ``Q.return_()`` or ``Q.break_()``
+    used outside a pipeline or in an unsupported context (e.g., inside
     ``except_()`` or ``finally_()`` handlers).
   - **Duplicate handler registration**: calling ``except_()`` or ``finally_()``
-    more than once on the same chain.
-  - **Invalid break context**: ``Chain.break_()`` used outside of a
+    more than once on the same pipeline.
+  - **Invalid break context**: ``Q.break_()`` used outside of a
     ``foreach``/``foreach_do`` iteration.
   """
 
@@ -178,13 +178,13 @@ class QuentException(Exception):
 
 
 class _ControlFlowSignal(BaseException):
-  """Base for non-local control flow within chains.
+  """Base for non-local control flow within pipelines.
 
-  ``Chain.return_()`` raises ``_Return`` to exit a chain early.
-  ``Chain.break_()`` raises ``_Break`` to exit a foreach/foreach_do loop.
+  ``Q.return_()`` raises ``_Return`` to exit a pipeline early.
+  ``Q.break_()`` raises ``_Break`` to exit a foreach/foreach_do loop.
   Both carry an optional value (with args/kwargs) that is lazily evaluated
   when the signal is caught — this avoids unnecessary work if the signal
-  propagates through multiple nested chains before being handled.
+  propagates through multiple nested pipelines before being handled.
   """
 
   __slots__ = (
@@ -213,7 +213,7 @@ class _ControlFlowSignal(BaseException):
 
 
 class _Return(_ControlFlowSignal):
-  """Signal early return from a chain with an optional value."""
+  """Signal early return from a pipeline with an optional value."""
 
   __slots__ = ()
 
@@ -232,11 +232,11 @@ _EMPTY_TUPLE: tuple[Any, ...] = ()
 # ---- Operation protocol ----
 
 
-class _ChainOp(Protocol):
+class _PipelineOp(Protocol):
   """Structural protocol for pipeline operation callables.
 
   All operation classes (``_IfOp``, ``_IterOp``, ``_ConcurrentIterOp``,
-  ``_WithOp``, ``_ConcurrentGatherOp``) set ``_link_name`` as a slot
+  ``_WithOp``, ``_ConcurrentGatherOp``, ``_DriveGenOp``) set ``_link_name`` as a slot
   attribute identifying the user-facing method name (e.g. ``'if_'``,
   ``'foreach'``, ``'gather'``).
 
@@ -261,12 +261,12 @@ class _ChainOp(Protocol):
 class _UncopyableMixin:
   """Mixin that blocks shallow and deep copying for correctness.
 
-  Chain and Link are singly-linked lists.  A shallow copy would produce a
+  Q and Link are singly-linked lists.  A shallow copy would produce a
   broken object with shared node references; a deep copy is semantically
   undefined for objects containing arbitrary callables.  ``__copy__`` and
   ``__deepcopy__`` are therefore blocked unconditionally.
 
-  For Chain objects, use ``clone()`` to produce a correct independent copy.
+  For Q objects, use ``clone()`` to produce a correct independent copy.
   """
 
   __slots__ = ()

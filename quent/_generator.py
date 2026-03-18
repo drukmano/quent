@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Generator wrappers for chain iteration (iterate/iterate_do)."""
+"""Generator wrappers for pipeline iteration (iterate/iterate_do)."""
 
 from __future__ import annotations
 
@@ -19,27 +19,27 @@ from ._types import Null, _Break, _ControlFlowSignal, _Return, _UncopyableMixin
 _T = TypeVar('_T')
 
 if TYPE_CHECKING:
-  from ._chain import Chain
+  from ._q import Q
 
 # Sentinel returned by _resolve_signal_value when exc.value is Null (no value to yield).
 _NO_VALUE = object()
 
 
 def _handle_iterate_exc(
-  exc: BaseException, link: Link | None, chain: Chain[Any] | None, ignore_result: bool, item: Any, idx: int
+  exc: BaseException, link: Link | None, q: Q[Any] | None, ignore_result: bool, item: Any, idx: int
 ) -> None:
   """Attach source metadata to an iteration exception for traceback display."""
   __tracebackhide__ = True
   if link is not None:
     _set_link_temp_args(exc, link, item=item, index=idx)
     method = 'iterate_do' if ignore_result else 'iterate'
-    _modify_traceback(exc, chain, link, chain._root_link if chain else None, extra_links=[(link, method)])
+    _modify_traceback(exc, q, link, q._root_link if q else None, extra_links=[(link, method)])
 
 
 def _resolve_signal_value(
   exc: _ControlFlowSignal,
   link: Link | None,
-  chain: Chain[Any] | None,
+  q: Q[Any] | None,
   ignore_result: bool,
   idx: int,
 ) -> Any:
@@ -56,7 +56,7 @@ def _resolve_signal_value(
   try:
     return _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
   except BaseException as eval_exc:
-    _handle_iterate_exc(eval_exc, link, chain, ignore_result, exc.value, idx)
+    _handle_iterate_exc(eval_exc, link, q, ignore_result, exc.value, idx)
     raise eval_exc  # explicit raise for modified __traceback__ on Python <3.11
 
 
@@ -72,29 +72,30 @@ def _close_and_raise_sync(awaitable: Any, signal_name: str) -> None:
   raise TypeError(msg) from None
 
 
-def _run_deferred_finally_sync(chain: Chain[Any], deferred: list[Any]) -> None:
+def _run_deferred_finally_sync(q: Q[Any], deferred: list[Any]) -> None:
   """Run a deferred finally handler synchronously after iteration ends."""
   __tracebackhide__ = True
   root_value, root_link, exec_id = deferred[0], deferred[1], deferred[2]
   active_exc = sys.exc_info()[1]
   if isinstance(active_exc, (GeneratorExit, _ControlFlowSignal)):
     active_exc = None
-  result = _run_sync_finally(chain, root_value, root_link, active_exc, exec_id=exec_id)
+  result = _run_sync_finally(q, root_value, root_link, active_exc, exec_id=exec_id)
   if result is not None:
     # Handler returned a coroutine — can't await in sync context.
     if hasattr(result, 'close'):
       result.close()
-    raise TypeError("Sync iteration chain's finally_() handler returned a coroutine; use 'async for' instead of 'for'.")
+    msg = "Sync iteration pipeline's finally_() handler returned a coroutine; use 'async for' instead of 'for'."
+    raise TypeError(msg)
 
 
-async def _run_deferred_finally_async(chain: Chain[Any], deferred: list[Any]) -> None:
+async def _run_deferred_finally_async(q: Q[Any], deferred: list[Any]) -> None:
   """Run a deferred finally handler asynchronously after async iteration ends."""
   __tracebackhide__ = True
   root_value, root_link, exec_id = deferred[0], deferred[1], deferred[2]
   active_exc = sys.exc_info()[1]
   if isinstance(active_exc, (GeneratorExit, _ControlFlowSignal)):
     active_exc = None
-  await _run_async_finally(chain, root_value, root_link, active_exc, exec_id=exec_id)
+  await _run_async_finally(q, root_value, root_link, active_exc, exec_id=exec_id)
 
 
 def _sync_cm_exit_clean(cm: Any) -> None:
@@ -158,11 +159,11 @@ async def _cm_exc_exit_async(cm: Any, use_async: bool) -> bool:
 
 
 def _sync_generator(
-  chain_run: Callable[..., Any],
+  q_run: Callable[..., Any],
   run_args: tuple[Any, ...],
   fn: Callable[[Any], Any] | None,
   ignore_result: bool,
-  chain: Chain[Any] | None = None,
+  q: Q[Any] | None = None,
   link: Link | None = None,
   deferred_with: tuple[Link, bool] | None = None,
   flat: bool = False,
@@ -171,15 +172,15 @@ def _sync_generator(
 ) -> Iterator[Any]:
   # SYNC MIRROR of _async_generator — keep both in sync when modifying.
   # Intentional divergences: sync closes awaitables + raises TypeError; async awaits them.
-  """Synchronous generator that yields each element of the chain's output."""
+  """Synchronous generator that yields each element of the pipeline's output."""
   __tracebackhide__ = True
-  _has_deferred = chain is not None and chain._on_finally_link is not None
+  _has_deferred = q is not None and q._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   _with_cm: Any = None  # Tracks entered CM for cleanup
   _cm_exited = False
 
   try:
-    # Run the chain pipeline
+    # Run the pipeline
     _has_kw = _deferred is not None or deferred_with is not None
     if _has_kw:
       _kw: dict[str, Any] = {}
@@ -187,9 +188,9 @@ def _sync_generator(
         _kw['deferred_finally'] = _deferred
       if deferred_with is not None:
         _kw['deferred_with'] = True
-      result = chain_run(*run_args, **_kw)
+      result = q_run(*run_args, **_kw)
     else:
-      result = chain_run(*run_args)
+      result = q_run(*run_args)
 
     if _isawaitable(result):
       # Coroutines have .close(); Tasks/Futures have .cancel().
@@ -197,7 +198,7 @@ def _sync_generator(
         result.close()
       elif hasattr(result, 'cancel'):
         result.cancel()
-      msg = "Cannot use sync iteration on an async chain; use 'async for' instead"
+      msg = "Cannot use sync iteration on an async pipeline; use 'async for' instead"
       raise TypeError(msg)
 
     # Enter deferred CM if active
@@ -242,7 +243,7 @@ def _sync_generator(
           except _ControlFlowSignal:  # Must propagate — not a regular exception.
             raise
           except BaseException as exc:
-            _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
+            _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
             raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
           if flat:
             if ignore_result:
@@ -268,7 +269,7 @@ def _sync_generator(
           yield sub
 
     except (_Break, _Return) as exc:
-      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+      resolved = _resolve_signal_value(exc, link, q, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
           _close_and_raise_sync(resolved, type(exc).__name__)
@@ -291,8 +292,8 @@ def _sync_generator(
         _sync_cm_exit_clean(_with_cm)
     finally:
       if _deferred is not None:
-        assert chain is not None  # guaranteed by _has_deferred guard
-        _run_deferred_finally_sync(chain, _deferred)
+        assert q is not None  # guaranteed by _has_deferred guard
+        _run_deferred_finally_sync(q, _deferred)
 
 
 async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
@@ -303,11 +304,11 @@ async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
 
 
 async def _async_generator(
-  chain_run: Callable[..., Any],
+  q_run: Callable[..., Any],
   run_args: tuple[Any, ...],
   fn: Callable[[Any], Any] | None,
   ignore_result: bool,
-  chain: Chain[Any] | None = None,
+  q: Q[Any] | None = None,
   link: Link | None = None,
   deferred_with: tuple[Link, bool] | None = None,
   flat: bool = False,
@@ -316,16 +317,16 @@ async def _async_generator(
 ) -> AsyncIterator[Any]:
   # ASYNC MIRROR of _sync_generator — keep both in sync when modifying.
   # Intentional divergences: async awaits awaitables; sync closes them + raises TypeError.
-  """Asynchronous generator that yields each element of the chain's output."""
+  """Asynchronous generator that yields each element of the pipeline's output."""
   __tracebackhide__ = True
-  _has_deferred = chain is not None and chain._on_finally_link is not None
+  _has_deferred = q is not None and q._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   _with_cm: Any = None
   _use_async_cm = False
   _cm_exited = False
 
   try:
-    # Run the chain pipeline
+    # Run the pipeline
     _has_kw = _deferred is not None or deferred_with is not None
     if _has_kw:
       _kw: dict[str, Any] = {}
@@ -333,9 +334,9 @@ async def _async_generator(
         _kw['deferred_finally'] = _deferred
       if deferred_with is not None:
         _kw['deferred_with'] = True
-      iterator = chain_run(*run_args, **_kw)
+      iterator = q_run(*run_args, **_kw)
     else:
-      iterator = chain_run(*run_args)
+      iterator = q_run(*run_args)
     if _isawaitable(iterator):
       iterator = await iterator
 
@@ -391,7 +392,7 @@ async def _async_generator(
           except _ControlFlowSignal:  # Must propagate — not a regular exception.
             raise
           except BaseException as exc:
-            _handle_iterate_exc(exc, link, chain, ignore_result, item, idx)
+            _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
             raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
           if flat:
             if ignore_result:
@@ -426,13 +427,13 @@ async def _async_generator(
             yield sub
 
     except (_Break, _Return) as exc:
-      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
+      resolved = _resolve_signal_value(exc, link, q, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
           try:
             resolved = await resolved
           except BaseException as await_exc:
-            _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
+            _handle_iterate_exc(await_exc, link, q, ignore_result, exc.value, idx)
             raise await_exc
         yield resolved
       return
@@ -453,40 +454,40 @@ async def _async_generator(
         await _async_cm_exit_clean(_with_cm, _use_async_cm)
     finally:
       if _deferred is not None:
-        assert chain is not None  # guaranteed by _has_deferred guard
-        await _run_deferred_finally_async(chain, _deferred)
+        assert q is not None  # guaranteed by _has_deferred guard
+        await _run_deferred_finally_async(q, _deferred)
 
 
-class ChainIterator(_UncopyableMixin, Generic[_T]):
-  """Wraps chain output as a dual sync/async iterable.
+class QuentIterator(_UncopyableMixin, Generic[_T]):
+  """Wraps pipeline output as a dual sync/async iterable.
 
-  Created by ``Chain.iterate()``. Supports both ``__iter__`` and
+  Created by ``Q.iterate()``. Supports both ``__iter__`` and
   ``__aiter__``, choosing the appropriate generator at iteration time.
-  Calling the instance returns a new ``ChainIterator`` with updated run args,
+  Calling the instance returns a new ``QuentIterator`` with updated run args,
   making generators reusable with different inputs.
 
   Generic over ``_T``, the element type yielded during iteration.
   Currently ``_T`` is ``Any`` (the element type cannot be statically
-  inferred from ``Chain[T]``), but the parameter is in place for future
+  inferred from ``Q[T]``), but the parameter is in place for future
   refinement.
   """
 
   __slots__ = (
     '_buffer_size',
-    '_chain',
-    '_chain_run',
     '_deferred_with',
     '_flat',
     '_flush',
     '_fn',
     '_ignore_result',
     '_link',
+    '_q',
+    '_q_run',
     '_run_args',
   )
 
   _buffer_size: int | None
-  _chain: Chain[Any] | None
-  _chain_run: Callable[..., Any]
+  _q: Q[Any] | None
+  _q_run: Callable[..., Any]
   _deferred_with: tuple[Link, bool] | None
   _flat: bool
   _flush: Callable[[], Any] | None
@@ -497,20 +498,20 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
 
   def __init__(
     self,
-    chain_run: Callable[..., Any],
+    q_run: Callable[..., Any],
     fn: Callable[[Any], Any] | None,
     ignore_result: bool,
-    chain: Chain[Any] | None = None,
+    q: Q[Any] | None = None,
     link: Link | None = None,
     deferred_with: tuple[Link, bool] | None = None,
     flat: bool = False,
     flush: Callable[[], Any] | None = None,
     buffer_size: int | None = None,
   ) -> None:
-    self._chain_run = chain_run
+    self._q_run = q_run
     self._fn = fn
     self._ignore_result = ignore_result
-    self._chain = chain
+    self._q = q
     self._link = link
     self._deferred_with = deferred_with
     self._flat = flat
@@ -518,13 +519,13 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
     self._buffer_size = buffer_size
     self._run_args: tuple[Any, tuple[Any, ...], dict[str, Any]] = (Null, (), {})
 
-  def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> ChainIterator[_T]:
-    """Return a new ``ChainIterator`` with updated ``_run_args``, enabling reuse with different inputs."""
-    g: ChainIterator[_T] = ChainIterator(
-      self._chain_run,
+  def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> QuentIterator[_T]:
+    """Return a new ``QuentIterator`` with updated ``_run_args``, enabling reuse with different inputs."""
+    g: QuentIterator[_T] = QuentIterator(
+      self._q_run,
       self._fn,
       self._ignore_result,
-      self._chain,
+      self._q,
       self._link,
       deferred_with=self._deferred_with,
       flat=self._flat,
@@ -537,11 +538,11 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
   def __iter__(self) -> Iterator[_T]:
     """Delegate to the module-level ``_sync_generator`` function."""
     return _sync_generator(
-      self._chain_run,
+      self._q_run,
       self._run_args,
       self._fn,
       self._ignore_result,
-      self._chain,
+      self._q,
       self._link,
       deferred_with=self._deferred_with,
       flat=self._flat,
@@ -552,11 +553,11 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
   def __aiter__(self) -> AsyncIterator[_T]:
     """Delegate to the module-level ``_async_generator`` function."""
     return _async_generator(
-      self._chain_run,
+      self._q_run,
       self._run_args,
       self._fn,
       self._ignore_result,
-      self._chain,
+      self._q,
       self._link,
       deferred_with=self._deferred_with,
       flat=self._flat,
@@ -565,4 +566,4 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
     )
 
   def __repr__(self) -> str:
-    return '<quent.ChainIterator>'
+    return '<quent.QuentIterator>'

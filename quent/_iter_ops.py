@@ -26,6 +26,17 @@ from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._types import _UNPROCESSED, ExceptionGroup, Null, QuentException, _Break, _ControlFlowSignal, _Return
 
+
+def _foreach_identity(v: Any) -> Any:
+  """Identity function — used by foreach() when fn is omitted."""
+  return v
+
+
+# Hide the name from traceback visualization so foreach() without fn renders
+# as `.foreach()` rather than `.foreach(_foreach_identity)`.
+_foreach_identity.__name__ = ''
+_foreach_identity.__qualname__ = ''
+
 # ---- Exception triage helpers for concurrent iteration ----
 #
 # Concurrent foreach/foreach_do triage exceptions from multiple workers.
