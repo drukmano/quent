@@ -9,12 +9,8 @@ from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain
-from tests.tests_helper import (
-  SymmetricTestCase,
-  SyncCM,
-  async_double,
-  sync_double,
-)
+from tests.fixtures import SyncCM, async_double, sync_double
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # Tracking context managers for lifecycle verification
@@ -514,8 +510,8 @@ class DeferredWithFlatIterateTests(SymmetricTestCase):
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
-  async def test_with_flat_iterate_with_on_exhaust(self) -> None:
-    """Deferred with_ + flat_iterate with on_exhaust — CM stays open through on_exhaust."""
+  async def test_with_flat_iterate_with_flush(self) -> None:
+    """Deferred with_ + flat_iterate with flush — CM stays open through flush."""
     items = [1, 2]
     cm = TrackingCM(items)
     result = list(
@@ -523,7 +519,7 @@ class DeferredWithFlatIterateTests(SymmetricTestCase):
       .with_(lambda ctx: ctx)
       .flat_iterate(
         lambda x: [x * 2],
-        on_exhaust=lambda: [99, 100],
+        flush=lambda: [99, 100],
       )
     )
     self.assertEqual(result, [2, 4, 99, 100])
@@ -592,65 +588,48 @@ class WithLifecycleContrastTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Bare with_() tests
+# with_(identity fn) tests — explicit identity lambda as the callable
 # ---------------------------------------------------------------------------
 
 
-class BareWithTests(SymmetricTestCase):
-  """Tests for with_() with no callable (bare form)."""
+class WithIdentityFnTests(SymmetricTestCase):
+  """Tests for with_(lambda ctx: ctx) — the explicit identity-function form."""
 
-  async def test_bare_with_iterate(self) -> None:
-    """Chain(cm).with_().iterate() — ctx is the iterable, no lambda needed."""
+  async def test_with_identity_iterate(self) -> None:
+    """Chain(cm).with_(lambda ctx: ctx).iterate() — ctx is the iterable."""
     items = [1, 2, 3]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_().iterate(sync_double))
+    result = list(Chain(cm).with_(lambda ctx: ctx).iterate(sync_double))
     self.assertEqual(result, [2, 4, 6])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
-  async def test_bare_with_iterate_no_fn(self) -> None:
-    """Chain(cm).with_().iterate() — yields ctx items directly."""
+  async def test_with_identity_iterate_no_fn(self) -> None:
+    """Chain(cm).with_(lambda ctx: ctx).iterate() — yields ctx items directly."""
     items = [5, 10, 15]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_().iterate())
+    result = list(Chain(cm).with_(lambda ctx: ctx).iterate())
     self.assertEqual(result, [5, 10, 15])
 
-  async def test_bare_with_flat_iterate(self) -> None:
-    """Chain(cm).with_().flat_iterate() — ctx is flattened."""
+  async def test_with_identity_flat_iterate(self) -> None:
+    """Chain(cm).with_(lambda ctx: ctx).flat_iterate() — ctx is flattened."""
     items = [[1, 2], [3]]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_().flat_iterate())
+    result = list(Chain(cm).with_(lambda ctx: ctx).flat_iterate())
     self.assertEqual(result, [1, 2, 3])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
-  async def test_bare_with_async_iterate(self) -> None:
-    """Async: Chain(cm).with_().iterate() — async CM, bare with_."""
+  async def test_with_identity_async_iterate(self) -> None:
+    """Async: Chain(cm).with_(lambda ctx: ctx).iterate() — async CM."""
     items = [10, 20]
     cm = AsyncTrackingCM(items)
     result: list[int] = []
-    async for item in Chain(cm).with_().iterate():
+    async for item in Chain(cm).with_(lambda ctx: ctx).iterate():
       result.append(item)
     self.assertEqual(result, [10, 20])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
-
-  async def test_bare_with_then_raises(self) -> None:
-    """Chain(cm).with_().then(...) — errors at runtime (no iterate)."""
-    cm = TrackingCM([1, 2])
-    with self.assertRaises(TypeError, msg='with_() with no callable requires iterate'):
-      Chain(cm).with_().then(lambda x: x).run()
-
-  async def test_bare_with_run_raises(self) -> None:
-    """Chain(cm).with_().run() — errors at runtime."""
-    cm = TrackingCM([1, 2])
-    with self.assertRaises(TypeError):
-      Chain(cm).with_().run()
-
-  async def test_bare_with_args_raises_at_build_time(self) -> None:
-    """with_(None, arg) or with_(key=val) — raises TypeError at build time."""
-    with self.assertRaises(TypeError):
-      Chain(42).with_(None, 'extra')  # type: ignore[arg-type]
 
 
 if __name__ == '__main__':

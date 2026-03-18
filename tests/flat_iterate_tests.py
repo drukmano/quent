@@ -7,10 +7,8 @@ import unittest
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
-from quent import Chain
-from tests.tests_helper import (
-  SymmetricTestCase,
-)
+from quent import Chain, QuentException
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §9 — flat_iterate core behavior
@@ -30,17 +28,17 @@ class FlatIterateBasicTests(SymmetricTestCase):
     result = list(Chain(range(3)).flat_iterate(lambda x: [x, x * 10]))
     self.assertEqual(result, [0, 0, 1, 10, 2, 20])
 
-  async def test_flat_iterate_with_on_exhaust(self) -> None:
-    """After source exhaustion, on_exhaust() output is yielded."""
-    result = list(Chain([[1], [2]]).flat_iterate(on_exhaust=lambda: [98, 99]))
+  async def test_flat_iterate_with_flush(self) -> None:
+    """After source exhaustion, flush() output is yielded."""
+    result = list(Chain([[1], [2]]).flat_iterate(flush=lambda: [98, 99]))
     self.assertEqual(result, [1, 2, 98, 99])
 
-  async def test_flat_iterate_fn_and_on_exhaust(self) -> None:
-    """Both fn and on_exhaust — fn transforms each item, then on_exhaust appends."""
+  async def test_flat_iterate_fn_and_flush(self) -> None:
+    """Both fn and flush — fn transforms each item, then flush appends."""
     result = list(
       Chain(range(3)).flat_iterate(
         lambda x: [x, x * 10],
-        on_exhaust=lambda: [99],
+        flush=lambda: [99],
       )
     )
     self.assertEqual(result, [0, 0, 1, 10, 2, 20, 99])
@@ -50,9 +48,9 @@ class FlatIterateBasicTests(SymmetricTestCase):
     result = list(Chain([1, 2, 3]).flat_iterate(lambda x: [] if x == 2 else [x]))
     self.assertEqual(result, [1, 3])
 
-  async def test_flat_iterate_empty_on_exhaust(self) -> None:
-    """on_exhaust returns empty iterable — nothing extra yielded."""
-    result = list(Chain([[1], [2]]).flat_iterate(on_exhaust=lambda: []))
+  async def test_flat_iterate_empty_flush(self) -> None:
+    """flush returns empty iterable — nothing extra yielded."""
+    result = list(Chain([[1], [2]]).flat_iterate(flush=lambda: []))
     self.assertEqual(result, [1, 2])
 
 
@@ -79,16 +77,16 @@ class FlatIterateDoBasicTests(SymmetricTestCase):
     # Side-effect: fn was called and its iterable consumed
     self.assertEqual(consumed, [10, 100, 20, 200, 30, 300])
 
-  async def test_flat_iterate_do_with_on_exhaust(self) -> None:
-    """flat_iterate_do with on_exhaust — original items yielded, then on_exhaust output."""
+  async def test_flat_iterate_do_with_flush(self) -> None:
+    """flat_iterate_do with flush — original items yielded, then flush output."""
     side_effects: list[int] = []
     result = list(
       Chain([1, 2]).flat_iterate_do(
         lambda x: side_effects.append(x) or [x * 10],
-        on_exhaust=lambda: [88, 99],
+        flush=lambda: [88, 99],
       )
     )
-    # Original items [1, 2] then on_exhaust output [88, 99]
+    # Original items [1, 2] then flush output [88, 99]
     self.assertEqual(result, [1, 2, 88, 99])
     self.assertEqual(side_effects, [1, 2])
 
@@ -129,14 +127,14 @@ class FlatIterateAsyncTests(IsolatedAsyncioTestCase):
       result.append(item)
     self.assertEqual(result, [0, 0, 1, 10, 2, 20])
 
-  async def test_flat_iterate_async_on_exhaust(self) -> None:
-    """Async on_exhaust callable in async flat_iterate."""
+  async def test_flat_iterate_async_flush(self) -> None:
+    """Async flush callable in async flat_iterate."""
 
-    async def async_on_exhaust() -> list[int]:
+    async def async_flush() -> list[int]:
       return [98, 99]
 
     result: list[int] = []
-    async for item in Chain([[1], [2]]).flat_iterate(on_exhaust=async_on_exhaust):
+    async for item in Chain([[1], [2]]).flat_iterate(flush=async_flush):
       result.append(item)
     self.assertEqual(result, [1, 2, 98, 99])
 
@@ -165,7 +163,7 @@ class FlatIterateWithDeferredWithTests(SymmetricTestCase):
   """flat_iterate combined with deferred with_."""
 
   async def test_flat_iterate_with_deferred_with(self) -> None:
-    """Chain(cm).with_(fn).flat_iterate(transform, on_exhaust=on_exhaust_fn) — CM stays open."""
+    """Chain(cm).with_(fn).flat_iterate(transform, flush=flush_fn) — CM stays open."""
 
     class TrackingCM:
       def __init__(self, value: Any) -> None:
@@ -188,7 +186,7 @@ class FlatIterateWithDeferredWithTests(SymmetricTestCase):
       .with_(lambda ctx: ctx)
       .flat_iterate(
         lambda x: [x, x * 10],
-        on_exhaust=lambda: [99],
+        flush=lambda: [99],
       )
     )
     self.assertEqual(result, [1, 10, 2, 20, 3, 30, 99])
@@ -197,18 +195,18 @@ class FlatIterateWithDeferredWithTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# httpx pattern (simplified simulation)
+# Streaming codec pattern (simplified simulation)
 # ---------------------------------------------------------------------------
 
 
-class FlatIterateHttpxPatternTests(SymmetricTestCase):
-  """Simulate the httpx iter_bytes pattern from quent_iter.md."""
+class FlatIterateStreamingCodecPatternTests(SymmetricTestCase):
+  """Streaming codec pattern: CM wraps iteration, flat_iterate decodes chunks, flush emits remaining buffered items."""
 
-  async def test_httpx_pattern(self) -> None:
-    """Simulated httpx iter_bytes: CM wraps iteration, flat_iterate decodes, on_exhaust flushes."""
+  async def test_streaming_codec_pattern(self) -> None:
+    """Streaming codec pattern: CM wraps iteration, flat_iterate decodes, flush emits buffered remainder."""
     # Simulate: request_context CM that wraps the iteration
     # iter_raw returns raw chunks, decode_raw_bytes is the flatmap fn,
-    # flush_bytes_decoder is the on_exhaust callable.
+    # flush_decoder is the flush callable.
 
     class RequestContextCM:
       def __init__(self) -> None:
@@ -240,15 +238,15 @@ class FlatIterateHttpxPatternTests(SymmetricTestCase):
       .with_(lambda _ctx: iter_raw())
       .flat_iterate(
         decode_raw_bytes,
-        on_exhaust=flush_decoder,
+        flush=flush_decoder,
       )
     )
     self.assertEqual(result, ['hello ', 'world', '<flush>'])
     self.assertTrue(request_ctx.entered)
     self.assertTrue(request_ctx.exited)
 
-  async def test_httpx_pattern_async(self) -> None:
-    """Async variant of the httpx pattern."""
+  async def test_streaming_codec_pattern_async(self) -> None:
+    """Async variant of the streaming codec pattern."""
 
     class AsyncRequestContextCM:
       def __init__(self) -> None:
@@ -273,7 +271,7 @@ class FlatIterateHttpxPatternTests(SymmetricTestCase):
 
     request_ctx = AsyncRequestContextCM()
     result: list[str] = []
-    async for item in Chain(request_ctx).with_(lambda _ctx: raw_chunks).flat_iterate(decode_raw, on_exhaust=flush_fn):
+    async for item in Chain(request_ctx).with_(lambda _ctx: raw_chunks).flat_iterate(decode_raw, flush=flush_fn):
       result.append(item)
     self.assertEqual(result, ['async ', 'data', '<end>'])
     self.assertTrue(request_ctx.entered)
@@ -294,18 +292,18 @@ class FlatIterateEdgeCaseTests(SymmetricTestCase):
     # 'ab' -> 'a', 'b'; 'cd' -> 'c', 'd'
     self.assertEqual(result, ['a', 'b', 'c', 'd'])
 
-  async def test_flat_iterate_on_exhaust_only_no_fn(self) -> None:
-    """fn=None + on_exhaust — flatten items, then yield on_exhaust output."""
-    result = list(Chain([[1, 2], [3]]).flat_iterate(on_exhaust=lambda: [99]))
+  async def test_flat_iterate_flush_only_no_fn(self) -> None:
+    """fn=None + flush — flatten items, then yield flush output."""
+    result = list(Chain([[1, 2], [3]]).flat_iterate(flush=lambda: [99]))
     self.assertEqual(result, [1, 2, 3, 99])
 
   async def test_flat_iterate_empty_source(self) -> None:
-    """Empty source iterable — only on_exhaust output (if any)."""
-    result = list(Chain([]).flat_iterate(on_exhaust=lambda: [42]))
+    """Empty source iterable — only flush output (if any)."""
+    result = list(Chain([]).flat_iterate(flush=lambda: [42]))
     self.assertEqual(result, [42])
 
-  async def test_flat_iterate_empty_source_no_on_exhaust(self) -> None:
-    """Empty source, no on_exhaust — yields nothing."""
+  async def test_flat_iterate_empty_source_no_flush(self) -> None:
+    """Empty source, no flush — yields nothing."""
     result = list(Chain([]).flat_iterate())
     self.assertEqual(result, [])
 
@@ -321,6 +319,27 @@ class FlatIterateEdgeCaseTests(SymmetricTestCase):
     self.assertEqual(result_a, [1, 10, 2, 20])
     result_b = list(it([3]))
     self.assertEqual(result_b, [3, 30])
+
+
+# ---------------------------------------------------------------------------
+# §5.8 Pending if_() checks for flat_iterate variants
+# ---------------------------------------------------------------------------
+
+
+class FlatIteratePendingIfTest(unittest.TestCase):
+  """Pending if_() before flat_iterate/flat_iterate_do raises QuentException."""
+
+  def test_flat_iterate_with_pending_if_raises(self) -> None:
+    """flat_iterate() with a pending if_() raises QuentException."""
+    with self.assertRaises(QuentException) as ctx:
+      Chain([[1, 2], [3]]).if_(lambda x: True).flat_iterate()
+    self.assertIn('pending .if_()', str(ctx.exception))
+
+  def test_flat_iterate_do_with_pending_if_raises(self) -> None:
+    """flat_iterate_do() with a pending if_() raises QuentException."""
+    with self.assertRaises(QuentException) as ctx:
+      Chain([[1, 2], [3]]).if_(lambda x: True).flat_iterate_do()
+    self.assertIn('pending .if_()', str(ctx.exception))
 
 
 if __name__ == '__main__':
