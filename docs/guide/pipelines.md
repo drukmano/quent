@@ -114,6 +114,50 @@ q = Q().then(lambda x: x * 2)
 result = q(10)  # same as q.run(10)
 ```
 
+### `debug(v=Null, *args, **kwargs)`
+
+Execute the pipeline with step-level instrumentation and return a `DebugResult` capturing the execution trace. The original pipeline is **not modified** -- `debug()` clones the pipeline internally and runs the clone.
+
+```python
+from quent import Q
+
+result = Q(5).then(lambda x: x * 2).then(str).debug()
+# result.value    -> '10'
+# result.steps    -> list of StepRecord objects
+# result.elapsed_ns -> total nanoseconds
+
+result.print_trace()  # prints a formatted table to stderr
+```
+
+**`DebugResult` fields:**
+
+| Field / Property | Type | Description |
+|---|---|---|
+| `value` | `T` | The pipeline's final result (same as `run()` would return) |
+| `steps` | `list[StepRecord]` | Ordered list of step records |
+| `elapsed_ns` | `int` | Total wall-clock nanoseconds |
+| `succeeded` | `bool` | `True` if all steps completed without error |
+| `failed` | `bool` | `True` if any step raised an exception |
+| `print_trace(file=None)` | method | Prints a formatted trace table to `file` (default: `sys.stderr`) |
+
+Each `StepRecord` in `.steps` is a frozen dataclass with: `step_name`, `input_value`, `result`, `elapsed_ns`, `exception`, and an `ok` property.
+
+**Return type:**
+
+- Fully synchronous pipeline: returns a `DebugResult` directly.
+- Pipeline that transitions to async: returns a coroutine that resolves to a `DebugResult`.
+
+```python
+# Async pipeline
+debug_result = await Q(fetch_data).then(process).debug()
+debug_result.print_trace()
+```
+
+**Exception behavior:** If the pipeline raises during `debug()`, the exception propagates normally -- `debug()` does not suppress errors. Steps that executed before the failure are captured in the `DebugResult`'s `.steps` list (accessible if you catch the exception and inspect the debug pipeline's state).
+
+!!! note
+    `DebugResult` and `StepRecord` are not exported from `quent.__all__`. They are accessible as return types from `debug()` or from `quent._debug`.
+
 ---
 
 ## then and do
@@ -601,6 +645,192 @@ Both the predicate and the then/else callables can be sync or async. If either r
 
 ---
 
+## while\_ -- Loops
+
+`.while_()` begins a loop operation. It must be followed immediately by `.then()` or `.do()`, which becomes the loop body. The loop repeatedly evaluates the body while the predicate is truthy. When the predicate becomes falsy (or `break_()` is raised), the loop exits and the current value continues down the pipeline.
+
+### `.while_(predicate=None, /, *args, **kwargs).then(v, *args, **kwargs)`
+
+```python
+from quent import Q
+
+# Decrement until zero -- predicate tests truthiness of current value
+result = Q(10).while_().then(lambda x: x - 1).run()
+# Iteration: 10 → 9 → 8 → ... → 1 → 0 (0 is falsy, loop stops)
+# result = 0
+
+# Predicate callable -- loop while value exceeds threshold
+result = Q(100).while_(lambda x: x > 1).then(lambda x: x // 2).run()
+# Iteration: 100 → 50 → 25 → 12 → 6 → 3 → 1 (1 is not > 1, loop stops)
+# result = 1
+```
+
+### Predicate Behavior
+
+The predicate follows the same semantics as `.if_()`:
+
+- **`None` (default):** The truthiness of the current loop value is used. `None` and `0` and empty containers are falsy.
+- **Callable:** Invoked with the current loop value. Standard calling conventions apply -- pass args/kwargs to `.while_()` to forward them (Rule 1: current value not passed).
+- **Literal value:** Its truthiness is used directly (`True` means loop forever, `None` means never loop).
+
+### Body Modes: `.then()` vs `.do()`
+
+The step immediately after `while_()` is absorbed as the loop body, not added as a regular pipeline step:
+
+- **`.then(fn)`:** `fn`'s result feeds back as the loop value for the next iteration. When the loop exits, the final loop value replaces the current pipeline value.
+- **`.do(fn)`:** `fn` runs for side effects; its return value is discarded. The loop value is **not changed** each iteration.
+
+```python
+# .then() -- value transforms each iteration
+result = Q(1).while_(lambda x: x < 128).then(lambda x: x * 2).run()
+# result = 128
+
+# .do() -- value is unchanged, loop runs forever without break_()
+results = []
+Q(5).while_(lambda x: x > 0).do(results.append)
+# Infinite loop! .do() never changes 5, so the predicate always sees 5.
+# Always use break_() or use .then() to change the loop value.
+```
+
+!!! warning
+    When using `.do()` with `while_()`, the loop value never changes. If the predicate tests the loop value (including the default `None` predicate), this creates an **infinite loop**. Use `break_()` to exit, or use `.then()` to transform the loop value.
+
+### Exiting Early with `break_()`
+
+`Q.break_()` exits the loop immediately:
+
+```python
+from quent import Q
+
+# Break with a value -- the break value becomes the loop result
+result = Q(1).while_(True).then(lambda x: Q.break_(x) if x >= 100 else x * 2).run()
+# Iteration: 1 → 2 → 4 → 8 → 16 → 32 → 64 → 128 (128 >= 100, break with 128)
+# result = 128
+
+# Break without a value -- result is the current loop value at break time
+result = Q(1).while_(True).then(lambda x: Q.break_() if x >= 100 else x * 2).run()
+# result = 128 (same -- the current loop value when break_() was raised)
+```
+
+`break_()` can be raised from either the body or the predicate. This differs from `foreach` break semantics -- `while_` preserves the **current loop value** (or the break value), while `foreach` preserves **partial results** collected so far.
+
+### Nesting Conditionals in the Loop Body
+
+To use `.if_()` inside a loop body, wrap it in a nested pipeline:
+
+```python
+from quent import Q
+
+result = (
+  Q(data)
+  .while_(has_more)
+  .then(Q().if_(is_valid).then(process).else_(skip))
+  .run()
+)
+```
+
+!!! note
+    `.if_()` cannot be used as the truthy branch of a `while_()` directly -- use a nested pipeline instead. Nesting also applies to nested while loops. Calling `while_()` while another `while_()` is pending raises `QuentException`.
+
+### Async Support
+
+Both the predicate and body can be sync or async. The loop follows the standard two-tier bridge: starts sync, transitions to async on the first awaitable, stays async for remaining iterations.
+
+```python
+# Async predicate and async body -- run() returns a coroutine
+result = await Q(resource).while_(async_check_available).then(async_process).run()
+```
+
+### Error Behavior
+
+Exceptions from the predicate or body propagate immediately through the pipeline's error handling. The while loop terminates on the first exception. The pipeline's `except_()` and `finally_()` handlers apply normally.
+
+---
+
+## drive\_gen -- Generator Driving
+
+`.drive_gen(fn)` drives a sync or async generator bidirectionally using Python's generator send protocol. The step function `fn` processes each yielded value and its return is sent back into the generator. When the generator stops, the last `fn` result becomes the pipeline value.
+
+### Basic Usage
+
+```python
+from quent import Q
+
+def gen():
+  x = yield 1        # yield 1 to driver
+  x = yield x + 1    # yield (sent_value + 1) to driver
+  x = yield x + 1    # yield (sent_value + 1) to driver
+
+result = Q(gen()).drive_gen(lambda x: x * 2).run()
+# Flow: yield 1 → fn(1)=2 → send 2 → yield 3 → fn(3)=6 → send 6 → yield 7 → fn(7)=14 → StopIteration
+# result = 14
+```
+
+The current pipeline value must be a sync generator, async generator, or a callable that produces one. If it is callable (but not already a generator), it is called first to obtain the generator.
+
+### The Send Protocol
+
+Execution follows this cycle:
+
+1. **Get first value:** `next(gen)` (sync) or `await gen.__anext__()` (async).
+2. **Drive loop:** Call `result = fn(yielded_value)`. If `result` is awaitable, await it.
+3. **Send back:** `gen.send(result)` (sync) or `await gen.asend(result)` (async).
+4. **Repeat** until `StopIteration` / `StopAsyncIteration`.
+5. **Cleanup (always):** `gen.close()` / `await gen.aclose()` on all exit paths.
+
+The **return value** of the operation is the last value returned by `fn`. If the generator yields nothing at all, the pipeline value becomes `None` (fn was never called). The generator's own return value (`StopIteration.value`) is ignored.
+
+### Non-Standard Calling Convention
+
+`fn` is always called as `fn(yielded_value)` -- the standard 2-rule calling convention does **not** apply here. The yielded value is always passed directly; args/kwargs dispatch is not available.
+
+```python
+# fn always receives the yielded value directly
+Q(gen()).drive_gen(process).run()     # calls: process(yielded_value)
+Q(gen()).drive_gen(lambda x: x).run() # same: lambda receives yielded value
+```
+
+### Sync and Async Generators
+
+```python
+# Sync generator, sync step function -- fully sync
+Q(gen()).drive_gen(step_fn).run()
+
+# Async generator, sync step function -- fully async (must await)
+result = await Q(async_gen()).drive_gen(process_request).run()
+
+# Sync generator, async step function -- mid-transition
+# The generator stays sync, but fn's awaitables are awaited
+await Q(auth_flow(req)).drive_gen(async_send).run()
+
+# Callable that produces a generator
+Q(lambda: gen()).drive_gen(step_fn).run()
+```
+
+The mid-transition case (sync generator + async `fn`) is the primary motivating use case -- matching patterns like httpx's auth flow where the generator is sync but the handler may be async.
+
+### Error Semantics
+
+- **Exception from `fn`:** Propagates out of `drive_gen`. The generator is closed in cleanup. The exception is **not** injected into the generator (no `gen.throw()`).
+- **Exception from `gen.send()`:** Propagates out of `drive_gen`. The generator is closed in cleanup.
+- **Control flow signals** (`return_()`, `break_()`): Propagate unchanged to the enclosing pipeline. The generator is closed in cleanup.
+
+Cleanup via `gen.close()` / `gen.aclose()` is guaranteed on all exit paths.
+
+### Composability
+
+`.drive_gen()` is a standard pipeline step -- chain `.then()`, `.do()`, `.except_()`, and `.finally_()` after it:
+
+```python
+# Post-processing after the generator finishes
+Q(gen()).drive_gen(step_fn).then(validate).do(log).run()
+
+# Error handling and cleanup
+Q(gen()).drive_gen(step_fn).except_(handle_error).finally_(cleanup).run()
+```
+
+---
+
 ## iterate -- Lazy Iteration
 
 `.iterate()` and `.iterate_do()` return a dual sync/async iterator over the pipeline's output.
@@ -677,6 +907,42 @@ Each call returns a fresh iterator instance. The original iterator's configurati
 
 The pipeline's `except_()` and `finally_()` handlers apply to the pipeline execution that produces the iterable. Exceptions from the iteration callback `fn` during iteration are NOT covered by the pipeline's handlers -- they propagate directly to the caller.
 
+### Buffered Iteration
+
+`.buffer(n)` attaches a backpressure-aware bounded buffer between the pipeline's iterable output and the iteration consumer. The producer runs ahead by up to `n` items while the consumer processes them, decoupling the two sides.
+
+```python
+from quent import Q
+
+# Sync: producer runs in a background thread, consumer reads with backpressure
+for item in Q(produce).buffer(10).iterate():
+  process(item)
+
+# With a transformation function
+for item in Q(produce).buffer(5).iterate(transform):
+  consume(item)
+
+# Async: producer runs as a background asyncio.Task
+async for item in Q(async_produce).buffer(10).iterate():
+  await process(item)
+```
+
+`buffer()` is a **pipeline modifier, not a pipeline step** -- it does not add a link to the pipeline. It only takes effect when consumed via an iteration terminal (`iterate()`, `iterate_do()`). Using `buffer()` without an iteration terminal and calling `run()` instead raises `QuentException`.
+
+**Backpressure:** When the buffer is full, the producer blocks. When the buffer is empty, the consumer blocks. This prevents unbounded memory growth with fast producers.
+
+| Mode | Mechanism |
+|------|-----------|
+| Sync (`for`) | Background daemon thread + `queue.Queue(maxsize=n)` |
+| Async (`async for`) | Background `asyncio.Task` + `asyncio.Queue(maxsize=n)` |
+
+**FIFO ordering** is guaranteed -- items are delivered in the same order they were produced.
+
+**Error behavior:** If the producer raises an exception, it is propagated to the consumer at the next `get()`. If the consumer exits early (`break`, `GeneratorExit`), the producer is signaled to stop and cleanup is guaranteed.
+
+!!! note
+    `n` must be a positive integer. `bool` values, `0`, and negative values raise `ValueError` or `TypeError`. The buffer size is preserved across `clone()` and when calling a `QuentIterator` with new arguments.
+
 ---
 
 ## Control Flow
@@ -717,9 +983,9 @@ result = Q(None).then(process).then(further_processing).run()
     Q.return_(value)
     ```
 
-### `Q.break_(v=<no value>, *args, **kwargs)` -- Break from Iteration
+### `Q.break_(v=<no value>, *args, **kwargs)` -- Break from a Loop or Iteration
 
-Break out of a `.foreach()` or `.foreach_do()` iteration:
+Break out of a `.foreach()`, `.foreach_do()`, or `.while_()` loop:
 
 ```python
 from quent import Q
@@ -741,7 +1007,9 @@ result = Q([1, 2, 3, 4, 5]).foreach(
 ```
 
 !!! warning
-    `Q.break_()` is only valid inside `.foreach()` or `.foreach_do()`. Using it elsewhere raises `QuentException`. Using it inside `gather()` also raises `QuentException`.
+    `Q.break_()` is only valid inside `.foreach()`, `.foreach_do()`, or `.while_()`. Using it elsewhere raises `QuentException`. Using it inside `gather()` also raises `QuentException`.
+
+**`break_()` in `while_()` vs `foreach()`:** The semantics differ. In `while_()`, the break value (or current loop value if no value given) becomes the loop's result directly. In `foreach()`, the break value is **appended** to the partial results list collected so far.
 
 ### Nested Pipeline Propagation
 
@@ -843,3 +1111,8 @@ result = Q(5).then(lambda x: x * 2).then(str).run()
 | `.with_do(fn)` | Context value (`__enter__` result) | No (original CM passes through) | Yes |
 | `.if_(pred).then(fn)` | Predicate and fn get current value | Yes (if branch runs) | Predicate: Yes or None |
 | `.else_(v)` | Current value | Yes | No |
+| `.while_(pred).then(fn)` | Predicate and fn get loop value | Yes (final loop value) | Predicate: Yes or None |
+| `.while_(pred).do(fn)` | Predicate and fn get loop value | No (loop value unchanged) | Predicate: Yes or None |
+| `.drive_gen(fn)` | fn receives each yielded value | Yes (last fn result) | Yes |
+| `.buffer(n)` | N/A (pipeline modifier) | N/A | N/A |
+| `.debug(v)` | N/A (execution method) | N/A — returns `DebugResult` | N/A |
