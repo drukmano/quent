@@ -20,8 +20,12 @@
 - [7. Control Flow](#7-control-flow)
 - [8. Execution](#8-execution)
 - [9. Iteration](#9-iteration)
-  - [9.5 flat_iterate()](#95-flat_itefn--none---flush--none)
-  - [9.6 flat_iterate_do()](#96-flat_iterate_dofn--none---flush--none)
+  - [9.1 iterate()](#91-iteratefnnone)
+  - [9.2 iterate_do()](#92-iterate_dofnnone)
+  - [9.3 Iterator Reuse via Calling](#93-iterator-reuse-via-calling)
+  - [9.4 Control Flow in Iteration](#94-control-flow-in-iteration)
+  - [9.5 flat_iterate()](#95-flat_iteratefnnone--flushnone)
+  - [9.6 flat_iterate_do()](#96-flat_iterate_dofnnone--flushnone)
   - [9.7 Deferred with_ in Iteration](#97-deferred-with_-in-iteration)
   - [9.8 buffer(n)](#98-buffern)
 - [10. Reuse](#10-reuse)
@@ -90,6 +94,8 @@ This means:
 
 4. Once the engine transitions to async, it stays async for the remainder of that execution. There is no "transition back to sync."
 
+5. Async transitions can occur not only during normal step execution, but also in `except_()` and `finally_()` handlers. If a sync chain's error or cleanup handler returns an awaitable, the engine transitions to async to complete the handler (see §6.3.5, §11.6).
+
 ### What "Transparent" Means
 
 Transparency means the user performs **zero ceremony** to handle the sync/async boundary:
@@ -119,6 +125,10 @@ This holds because the engine's step evaluation and value threading are identica
 **Why not two separate classes?** A single `Chain` class that handles both modes eliminates API duplication, prevents the "colored function" problem from infecting library interfaces, and allows a single pipeline definition to be reused across sync and async contexts.
 
 **Why transition on first awaitable rather than inspecting callables upfront?** Inspecting callables at build time is unreliable (a regular function might return a coroutine; a nested chain's sync/async nature depends on its own steps). Runtime detection at evaluation time is the only correct approach.
+
+### Awaitable Detection
+
+Throughout this specification, "awaitable" refers to any value for which Python's `inspect.isawaitable()` returns `True`. This includes coroutine objects (returned by `async def` functions), objects implementing the `__await__` protocol, and legacy generator-based coroutines decorated with `@asyncio.coroutine`. The engine checks awaitability after each step evaluation to determine whether to transition to async execution.
 
 ---
 
@@ -414,6 +424,9 @@ All operations participate in the transparent sync/async bridge: if any operatio
 - Async path: uses semaphore-limited async tasks. If the first function returns an awaitable, all functions are dispatched as async tasks.
 - Mixed sync/async is not supported — if the first function determines sync execution but a later function returns an awaitable, a `TypeError` is raised.
 - The result is a `tuple` with one element per function, in the same order as the `fns` arguments.
+
+**Rationale for tuple:** `gather()` produces a fixed number of results (one per function in `fns`), making a tuple the natural choice — it signals fixed structure, similar to Python's `zip()`. By contrast, `foreach()` returns a `list` because the number of results varies with the input iterable's length.
+
 - At least one function must be provided. Passing zero functions raises `QuentException`.
 - When one function is provided: still returns a single-element tuple `(result,)`.
 
@@ -423,7 +436,7 @@ All operations participate in the transparent sync/async bridge: if any operatio
 - When a single function fails: that exception propagates directly (not wrapped in an `ExceptionGroup`).
 - When multiple functions fail: all regular exceptions (`Exception` subclasses) are wrapped in an `ExceptionGroup`. The message indicates the number of exceptions, e.g., `"gather() encountered 3 exceptions"`.
 - `BaseException` subclasses (e.g., `KeyboardInterrupt`, `SystemExit`) are not wrapped — the one from the earliest position in `fns` takes priority over regular exceptions.
-- `Chain.return_()` signals take absolute priority and propagate immediately. If a return signal is encountered alongside regular exceptions, the regular exceptions are discarded (with a WARNING-level log message). If a `break_()` signal is raised during `gather()`, it is caught and wrapped in a `QuentException` with a message indicating that break signals are not allowed in gather operations. Break signals are scoped to iteration operations (`foreach`, `foreach_do`).
+- `Chain.return_()` signals take absolute priority and propagate immediately. If a return signal is encountered alongside regular exceptions, the regular exceptions are discarded (with a WARNING-level log message). If a `break_()` signal is raised during `gather()`, it is caught and wrapped in a `QuentException` with a message indicating that break signals are not allowed in gather operations. Break signals are scoped to iteration contexts (§7.3.2).
 
 ### 5.6 `with_(fn, /, *args, **kwargs)`
 
@@ -447,6 +460,8 @@ All operations participate in the transparent sync/async bridge: if any operatio
 
 **Control flow signals:** If `fn` raises a control flow signal (`return_()` or `break_()`), `__exit__` is called with no exception info (clean exit), and the signal propagates to the outer pipeline.
 
+**Sync context managers after async transition:** If a sync context manager is entered via `__enter__()` and the pipeline subsequently transitions to async during `fn` (because `fn` returns an awaitable), `__exit__()` is still called synchronously from within the async execution tier. If `__exit__()` performs blocking I/O, it will block the event loop. For pipelines that may transition to async, prefer dual-protocol or async-only context managers.
+
 ### 5.7 `with_do(fn, /, *args, **kwargs)`
 
 **Contract:** Like `with_()`, but `fn`'s result is discarded. The original pipeline value (the context manager object itself, not the `__enter__` result) passes through unchanged.
@@ -458,6 +473,8 @@ All operations participate in the transparent sync/async bridge: if any operatio
 - `fn`'s return value is discarded. The pipeline value before this step (the context manager object) passes through to the next step.
 - If an exception is suppressed by `__exit__`, the original pipeline value passes through (not `None`).
 
+**Iteration context:** When `with_do()` is the last pipeline step before an iteration terminal (§9.7), the context manager object itself passes through as the iterable. The CM object must therefore support the iteration protocol in this context.
+
 ### 5.8 `if_(predicate=None, /, *args, **kwargs)`
 
 **Contract:** Set a pending conditional flag on the chain. The next `.then()` or `.do()` call after `if_()` becomes the truthy branch. Returns `self` for fluent chaining.
@@ -467,18 +484,12 @@ All operations participate in the transparent sync/async bridge: if any operatio
   - `None` (default): the truthiness of the current pipeline value itself is used.
   - callable: invoked following the standard 2-rule calling convention (with the current pipeline value as the "current value"). The return value is tested for truthiness.
   - nested `Chain`: the chain is executed with the current pipeline value as input, following the standard default rule (Rule 2). The result is tested for truthiness. `return_()` inside the predicate chain propagates to the outer chain (early exit is valid from a predicate). `break_()` inside a predicate chain raises `QuentException` with the message `'break_() cannot be used inside an if_() predicate.'` — predicates are not iteration contexts, so `break_()` is nonsensical there.
-  - any other literal value: its truthiness is used directly — the current pipeline value is not examined.
+  - any other literal value: its truthiness is used directly — the current pipeline value is not examined. Providing `*args` or `**kwargs` when `predicate` is a non-callable, non-`None` literal raises `TypeError` at build time — arguments require a callable target, consistent with §4 Rule 1.
 - `*args, **kwargs` — forwarded to the predicate when it is invoked, following the standard calling convention (Rule 1: explicit args suppress the current value).
 
 **Build-time constraints:**
 - Calling `if_()` while another `if_()` is already pending (its truthy branch has not yet been registered via `.then()`/`.do()`) raises `QuentException`.
-- Calling `.run()` while an `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
-- Calling `.else_()` while `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
-- Calling `.decorator()` while an `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
-- Calling `.iterate()` while an `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
-- Calling `.iterate_do()` while an `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
-- Calling `.set()` while an `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
-- Calling `.get()` while an `if_()` is still pending (no `.then()`/`.do()` followed it) raises `QuentException`.
+- Any builder or execution method other than `.then()` or `.do()` called while an `if_()` is pending raises `QuentException`. Only `.then()` and `.do()` consume the pending `if_()` by registering as its truthy branch.
 
 **Behavior:**
 - The next `.then(v, *args, **kwargs)` or `.do(fn, *args, **kwargs)` call after `if_()` is absorbed as the truthy branch rather than appended as a normal step.
@@ -582,7 +593,7 @@ Chain(fetch).name('auth_pipeline').then(validate).run()
 
 Chains support exactly one exception handler and one cleanup handler each. This constraint keeps the execution model simple and predictable: the user always knows which handler runs, in what order, and what happens to the exception. For per-step error handling, compose nested chains — each nested chain gets its own except/finally pair.
 
-Both the except handler and the finally handler follow the standard 2-rule calling convention. The only difference is what "current value" means in each context: for `except_()`, the current value is `ChainExcInfo(exc, root_value)`; for `finally_()`, it is the root value (normalized to `None` if absent).
+Both the except handler and the finally handler follow the standard 2-rule calling convention (§4). The only difference is what "current value" means in each context: for `except_()`, the current value is `ChainExcInfo(exc, root_value)`; for `finally_()`, it is the root value (normalized to `None` if absent).
 
 ### 6.2 Exception Handler — `except_(fn, /, *args, exceptions=None, reraise=False, **kwargs)`
 
@@ -617,6 +628,8 @@ Key behaviors:
 - **Default (no explicit args):** `handler(ChainExcInfo(exc, root_value))`. The `ChainExcInfo` is the current value, so it is passed as the sole argument.
 - **With explicit args:** `handler(*args, **kwargs)`. The `ChainExcInfo` is **not** passed — explicit arguments fully replace it, consistent with the standard convention.
 - **Nested chain:** The nested chain runs with `ChainExcInfo(exc, root_value)` as its input value (standard default rule, Rule 2). With explicit args, the first arg becomes the input and remaining args/kwargs flow through.
+
+**Root callable failure:** When the root callable itself raises an exception, `root_value` in the `ChainExcInfo` is `None`, since no root value was successfully produced. This is consistent with the `finally_()` handler, which also receives `None` in this case (§6.3.2).
 
 **Execution mode for nested chain handlers:** The nested chain executes via the standard internal path, following the same calling convention as any other callable. This means:
 
@@ -657,7 +670,7 @@ Registers a cleanup handler. At most one `finally_()` per chain; a second call r
 - **Always runs** — on both success and failure paths, matching Python's `try/finally` semantics.
 - **Receives the root value**, not the current pipeline value. The root value is normalized to `None` if the chain was created with no root value (i.e., `Chain()`).
 - **Return value is always discarded** — the finally handler cannot alter the chain's result.
-- **Follows the standard 2-rule calling convention** with the root value as the "current value."
+- **Follows the standard 2-rule calling convention (§4)** with the root value as the "current value."
 
 #### 6.3.3 Finally Handler Failure
 
@@ -673,7 +686,7 @@ Using `Chain.return_()` or `Chain.break_()` inside a finally handler raises `Que
 
 When a sync chain's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the chain's result is returned (success path) or the active exception is re-raised (failure path). The chain result flows through the async wrapper — nothing is discarded.
 
-For `iterate()` / `iterate_do()`, the behavior differs: when a sync chain's finally handler returns a coroutine during sync iteration (`for` loop), the coroutine is closed and a `RuntimeWarning` is issued. The handler is **not** awaited. Use `async for` to ensure async finally handlers are properly awaited.
+For `iterate()` / `iterate_do()`, the behavior differs: when a sync chain's finally handler returns a coroutine during sync iteration (`for` loop), the coroutine is closed and a `TypeError` is raised. The async cleanup cannot be performed within a synchronous generator. Use `async for` to ensure async finally handlers are properly awaited.
 
 ### 6.4 Execution Order
 
@@ -716,7 +729,7 @@ The signals carry optional values with lazy evaluation: the signal's value (if c
 
 ### 7.2 Early Return — `Chain.return_(v=<no value>, /, *args, **kwargs)`
 
-Class method. Signals early termination of chain execution. Must be called as `return Chain.return_(value)` to ensure the signal propagates through the call stack.
+Class method. Signals early termination of chain execution by raising an internal `BaseException` subclass. Idiomatically written as `return Chain.return_(value)` to satisfy type checkers and avoid unreachable-code warnings, though the exception-based mechanism does not require the `return` keyword for propagation.
 
 #### 7.2.1 Value Semantics
 
@@ -745,7 +758,7 @@ result = (
 
 ### 7.3 Iteration Break — `Chain.break_(v=<no value>, /, *args, **kwargs)`
 
-Class method. Signals early termination of a `foreach()` or `foreach_do()` iteration. Must be called as `return Chain.break_(value)`.
+Class method. Signals early termination of an iteration operation by raising an internal `BaseException` subclass. Idiomatically written as `return Chain.break_(value)` (see §7.2 for rationale).
 
 #### 7.3.1 Value Semantics
 
@@ -771,7 +784,7 @@ result = Chain([1, 2, 3, 4, 5]).foreach(
 
 #### 7.3.2 Outside Iteration
 
-Using `break_()` outside of a `foreach()`/`foreach_do()` operation raises `QuentException` with the message: `Chain.break_() cannot be used outside of a foreach/foreach_do iteration.`
+Using `break_()` outside of an iteration context raises `QuentException`. Valid iteration contexts are: `foreach`, `foreach_do`, `iterate`, `iterate_do`, `flat_iterate`, and `flat_iterate_do`.
 
 #### 7.3.3 In Except/Finally Handlers
 
@@ -824,7 +837,7 @@ If `v` is not provided (defaulting to no value) and `args` or `kwargs` are provi
 - When only a run value exists: `v` is evaluated first, its result becomes the initial current value.
 - When neither exists: the pipeline starts with no current value. The first step receives no argument if it is callable.
 
-**Root value capture:** The result of evaluating the root value (or run value, which replaces it) is captured as the "root value" for the `finally_()` handler. The `finally_()` handler receives the root value as its current value — not the current pipeline value at the point of completion or failure. The `except_()` handler receives `ChainExcInfo(exc, root_value)` as its current value.
+**Root value capture:** The result of evaluating the root value (or run value, which replaces it) is captured as the "root value" for the `finally_()` handler. The `finally_()` handler receives the root value as its current value — not the current pipeline value at the point of completion or failure. The `except_()` handler receives `ChainExcInfo(exc, root_value)` as its current value (see §4 for the complete calling convention).
 
 **Root callable failure:** If the root value callable raises an exception during evaluation, the same error handling flow applies as for any other step failure:
 
@@ -848,16 +861,7 @@ If `v` is not provided (defaulting to no value) and `args` or `kwargs` are provi
 
 ### 8.4 Sync/Async Execution Model
 
-The execution engine implements a two-tier model:
-
-1. **Sync tier:** Execution always starts synchronously. Each step is evaluated, and the result is checked for awaitability.
-2. **Async transition:** On the first awaitable result, the engine immediately hands off to the async tier. The async tier receives all accumulated state (current value, root value, position in the pipeline) and continues execution, awaiting all subsequent awaitables inline.
-
-This means:
-- A fully synchronous pipeline has zero async overhead — no event loop is touched.
-- The transition is seamless and one-way: once the pipeline goes async, it stays async. There is no "back to sync" transition.
-- The caller sees a coroutine return from `run()` only if an async transition occurred. Otherwise, they get a plain value.
-- Async transitions can occur not only during normal step execution, but also in `except_()` and `finally_()` handlers. If a sync chain's error or cleanup handler returns an awaitable, the engine transitions to async to complete the handler.
+The execution engine implements the two-tier sync/async model described in §2. The caller observes a coroutine return from `run()` only if an async transition occurred; otherwise, they get a plain value. Async transitions can occur during normal step execution, in `except_()` handlers, and in `finally_()` handlers — any awaitable result triggers the transition.
 
 ---
 
@@ -961,7 +965,7 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 
 **Motivation:** Without deferral, `with_()` would enter the CM during the chain's `run()` phase and exit it before iteration begins — the resource would be closed before any items are consumed. Deferral keeps the CM open throughout iteration, matching the natural lifetime of `with` blocks in Python.
 
-**Detection:** The iterate method inspects the chain's last link. If it holds a `_WithOp`, the inner link and `ignore_result` flag are extracted. The `_WithOp` is executed in the generator rather than during the chain's run phase.
+**Detection:** The iterate method inspects the chain's last step. If it is a `with_()` or `with_do()` operation, the context manager handling is extracted and deferred to the generator rather than executing during the chain's run phase.
 
 **Lifecycle:**
 1. The chain runs normally, producing a value that must be a context manager.
@@ -1092,7 +1096,7 @@ get_name()  # 'ALICE'
 
 ### 10.3 `from_steps()`
 
-**Contract:** Construct a chain from a sequence of steps, each appended via `.then()`.
+**Contract:** Class method. Construct a chain from a sequence of steps, each appended via `.then()`.
 
 **Arguments:**
 - `*steps` — variadic positional arguments. Each becomes a `.then()` step.
@@ -1143,6 +1147,8 @@ Available on `foreach()`, `foreach_do()`, and `gather()`.
 
 - **Minimum:** `1` for bounded concurrency, or `-1` for unbounded. Values of `0` or less than `-1` (i.e., `-2`, `-3`, etc.) raise `ValueError` with the message `"{method}() concurrency must be -1 (unbounded) or a positive integer, got {value}"`, where `{method}` is the calling method name (e.g., `foreach`, `gather`).
 - **Type:** Must be an integer (`-1` or positive). Booleans and non-integer types raise `TypeError`.
+
+When the chain has a name (via `.name()`), validation error messages include a suffix identifying the chain: `' (in chain \'{name}\')'`. For example: `"foreach() concurrency must be -1 (unbounded) or a positive integer, got 0 (in chain 'my_pipeline')"`. The `TypeError` for non-integer concurrency values follows the same suffixing convention.
 
 #### 11.2.2 The `executor` Parameter
 
@@ -1517,6 +1523,40 @@ Debug logging is gated by `_log.isEnabledFor(DEBUG)` — when the logger is not 
 
 When `QUENT_TRACEBACK_VALUES=0` is set, `repr()` output in debug logs is replaced with type-name placeholders (e.g., `<str>`) to prevent sensitive data leakage.
 
+### 14.6 Debug Execution (`debug()`)
+
+**Signature:** `chain.debug(v=<no value>, /, *args, **kwargs)` — matches `run()`.
+
+**Contract:** Execute the chain with step-level instrumentation and return a `DebugResult` capturing the execution trace. The original chain is **not** modified — `debug()` clones the chain internally (via `clone()`) and runs the clone.
+
+**Mechanism:** A `Chain` subclass with its own `on_step` callback is created lazily on first use. The cloned chain is converted to this subclass, inheriting independent instrumentation without affecting the global `Chain.on_step`. Each step's execution is recorded via the subclass's `on_step` callback, which appends a `StepRecord` to an internal list.
+
+**Return value:**
+- If the pipeline is fully synchronous: returns a `DebugResult` directly.
+- If the pipeline transitions to async: returns a coroutine that resolves to a `DebugResult`.
+
+**`DebugResult` fields and properties:**
+- `value: T` — the chain's final result (same value `run()` would return).
+- `steps: list[StepRecord]` — ordered list of step records captured during execution.
+- `elapsed_ns: int` — total wall-clock nanoseconds for the entire execution.
+- `succeeded: bool` (property) — `True` if all steps completed without error.
+- `failed: bool` (property) — `True` if any step raised an exception.
+- `print_trace(file=None)` — prints a formatted execution trace table to `file` (defaults to `sys.stderr`). The table includes columns for step index, step name, input value, result, elapsed time, and status (OK/FAIL). Values are truncated to 60 characters in the display.
+
+**`StepRecord` fields (frozen dataclass):**
+- `step_name: str` — name of the step (same values as `on_step`'s `step_name`).
+- `input_value: Any` — the current value passed to the step.
+- `result: Any` — the value produced by the step.
+- `elapsed_ns: int` — wall-clock nanoseconds for this step.
+- `exception: BaseException | None` — the exception raised by the step, or `None` on success.
+- `ok: bool` (property) — `True` if the step completed without error.
+
+**Exception behavior:** If the chain raises an exception during `debug()`, the exception propagates normally — `debug()` does not suppress chain errors. Steps that executed before the failure are captured in the `DebugResult`'s `steps` list (accessible if the caller catches the exception and inspects the debug chain). However, since the exception propagates, the `DebugResult` is not returned in the failure case.
+
+**Build-time constraint:** Calling `debug()` while an `if_()` is pending raises `QuentException`, consistent with §5.8.
+
+**Note:** `DebugResult` and `StepRecord` are not exported in `__all__`. They are returned types accessible from the `quent._debug` module or via the return value of `debug()`.
+
 ---
 
 ## 15. Context API
@@ -1659,7 +1699,7 @@ Each chain permits at most one `except_()` handler and one `finally_()` handler.
 
 ### 16.2 Unified Calling Convention
 
-All contexts — standard steps, `except_()` handlers, `finally_()` handlers, and `if_()` predicates — use the same 2-rule calling convention. The only difference per context is what "current value" means:
+All contexts — standard steps, `except_()` handlers, `finally_()` handlers, and `if_()` predicates — use the same 2-rule calling convention. The only difference per context is what "current value" means. See §4 for the full specification.
 
 | Context | Current value |
 |---------|--------------|
@@ -1770,7 +1810,7 @@ Specifically, quent does **not**:
 
 ## 17. Known Asymmetries
 
-The following sections document known behavioral asymmetries in quent. Sections 17.1–17.2 cover sync/async asymmetries caused by fundamental language constraints. Section 17.3 covers an operational asymmetry between different pipeline operations.
+The following sections document known behavioral asymmetries — sync/async differences caused by fundamental language constraints and operational asymmetries between pipeline operations.
 
 ### 17.1 Sync `iterate()` Raises `TypeError` on Coroutine Return
 
@@ -1783,6 +1823,8 @@ Similarly, if the iteration callback `fn` returns a coroutine during sync iterat
 > iterate() callback returned a coroutine. Use "async for" with `__aiter__` instead of "for" with `__iter__`.
 
 **Why:** A synchronous generator cannot `await` a coroutine. There is no language mechanism to bridge this gap within a `__iter__`/`__next__` protocol. The user must switch to `async for` with `__aiter__`.
+
+When the chain's `finally_()` handler returns a coroutine during sync iteration (`for` loop), a `TypeError` is raised. The async cleanup cannot be performed within a synchronous generator. Use `async for` to ensure async finally handlers are properly awaited.
 
 ### 17.2 Concurrent Sync Workers Detecting Awaitable Results
 
@@ -1799,6 +1841,26 @@ When a concurrent operation (gather, concurrent foreach/foreach_do) runs in sync
 - **In `iterate()`:** `return_(value)` yields the value as one final item before stopping iteration. Previously yielded items are preserved — they have already been emitted to the caller.
 
 **Why:** Same streaming constraint as `break_()` — the iterator cannot retract items already consumed by the caller. The return value is added as a final yield rather than replacing prior output.
+
+### 17.4 Concurrent Operations Require Uniform Sync/Async Callables
+
+When using concurrent operations (`foreach`/`foreach_do` with `concurrency`, or `gather()`), all callables within a single operation must be consistently sync or async. The first callable is probed to determine the execution mode (§11.5); if a later callable returns a result of the opposite kind, a `TypeError` is raised.
+
+The bridge contract (§2) does not hold for individual callable replacement within a concurrent operation — replacing one callable among several with its async equivalent causes a `TypeError` if the rest are sync. To preserve the bridge guarantee, replace all callables uniformly.
+
+**Why:** The sync path uses `ThreadPoolExecutor` (no event loop in worker threads) while the async path uses `asyncio.Task`. These are mutually exclusive execution models that cannot be mixed within a single operation.
+
+### 17.5 `StopIteration` Wrapped as `RuntimeError` in Async Callbacks
+
+When a sync callback raises `StopIteration`, it propagates as-is through quent's error handling. When an async callback raises `StopIteration`, Python's PEP 479 automatically wraps it as `RuntimeError` before quent sees it. The observable exception type differs for the same logical error depending on whether the callback is sync or async.
+
+**Why:** This is a Python language constraint (PEP 479), not a quent design choice. quent cannot intercept or normalize this behavior because the wrapping occurs inside the Python coroutine machinery before the exception reaches quent's evaluation layer.
+
+### 17.6 Dual-Protocol Object Behavior Depends on Runtime State
+
+When a pipeline value implements both sync and async protocols (e.g., both `__iter__`/`__aiter__`, or both `__enter__`/`__exit__` and `__aenter__`/`__aexit__`), quent selects the async protocol when an async event loop is running and the sync protocol otherwise (§16.10). The same pipeline with the same dual-protocol objects may therefore take different code paths depending on the ambient runtime state.
+
+**Why:** Objects like `aiohttp.ClientSession` implement both protocols but their sync protocol is often a compatibility stub. Preferring async when an event loop is running ensures correct behavior for the common case. The heuristic and its detection mechanism are documented in §16.10.
 
 ---
 
@@ -1934,6 +1996,6 @@ All public symbols are exported from the `quent` package via `__all__`. These ar
 |--------|-------------|
 | `Chain` | Fluent pipeline builder — the core primitive for constructing and executing sequential pipelines with transparent sync/async bridging. |
 | `ChainExcInfo` | NamedTuple passed to `except_()` handlers as the current value. Fields: `exc` (the caught exception) and `root_value` (the chain's evaluated root value, normalized to `None` if absent). |
-| `ChainIterator` | Dual sync/async iterator returned by `iterate()` and `iterate_do()`. Supports both `__iter__` (for `for` loops) and `__aiter__` (for `async for` loops). Callable to create new iterators with different run arguments. |
+| `ChainIterator` | Dual sync/async iterator returned by `iterate()`, `iterate_do()`, `flat_iterate()`, and `flat_iterate_do()`. Supports both `__iter__` (for `for` loops) and `__aiter__` (for `async for` loops). Callable to create new iterators with different run arguments. |
 | `QuentException` | Base exception type for quent-specific runtime errors (escaped control flow signals, duplicate handler registration, invalid break context). |
 | `__version__` | Package version string (PEP 440). Resolved from installed package metadata; falls back to `'0.0.0-dev'` when not installed. |

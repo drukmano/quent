@@ -377,7 +377,7 @@ These errors are raised during chain execution when control flow signals are use
 
 ---
 
-### `Chain.break_() cannot be used outside of a foreach/foreach_do iteration.`
+### `Chain.break_() cannot be used outside of an iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).`
 
 **Exception type:** `QuentException`
 **Source:** `quent/_engine.py` (lines 1018–1019, 1185–1186)

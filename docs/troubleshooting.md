@@ -55,7 +55,7 @@ def process(x):
 ### Error
 
 ```
-quent.QuentException: Chain.break_() cannot be used outside of a foreach/foreach_do iteration.
+quent.QuentException: Chain.break_() cannot be used outside of an iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).
 ```
 
 ### Cause
