@@ -53,7 +53,7 @@ Every `.then()` call appends a step to the pipeline. The result of each step bec
 
 ### The Pipeline Model
 
-A pipeline is a sequential pipeline modeled as a singly-linked list. Steps are appended in O(1) time. Execution walks head-to-tail, threading a **current value** through each step.
+A Q pipeline is a sequential series of steps modeled as a singly-linked list. Steps are appended in O(1) time. Execution walks head-to-tail, threading a **current value** through each step.
 
 - **Build time:** You construct the pipeline by calling `.then()`, `.do()`, `.foreach()`, etc. Each call appends a step.
 - **Run time:** `.run()` walks the pipeline, evaluating each step in order.
@@ -454,7 +454,7 @@ For more on reuse patterns, see [Reuse and Patterns](guide/reuse.md).
 Now that you understand the basics, explore the rest of the documentation:
 
 - **[Why Quent](why-quent.md)** -- understand the problem quent solves and when to use it
-- **[Pipelines](guide/chains.md)** -- comprehensive guide to pipeline building, context managers, conditionals, and control flow
+- **[Pipelines](guide/pipelines.md)** -- comprehensive guide to pipeline building, context managers, conditionals, and control flow
 - **[Async Handling](guide/async.md)** -- deep dive into sync/async bridging, the two-tier execution model, and async transitions
 - **[Error Handling](guide/error-handling.md)** -- exception handlers, cleanup, and enhanced tracebacks
 - **[Reuse and Patterns](guide/reuse.md)** -- cloning, nesting, decorators, and composition patterns

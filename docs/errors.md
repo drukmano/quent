@@ -208,7 +208,7 @@ q.except_(handler, exceptions=(ValueError, RuntimeError))
 
 **Trigger:** `.except_()` was called more than once on the same pipeline.
 
-**Fix:** Each pipeline supports exactly one exception handler. Consolidate handlers into one, or use nested chains for per-step error handling. See [Error Handling](guide/error-handling.md) for the nested-chain pattern.
+**Fix:** Each pipeline supports exactly one exception handler. Consolidate handlers into one, or use nested pipelines for per-step error handling. See [Error Handling](guide/error-handling.md) for the nested-pipeline pattern.
 
 ---
 
@@ -219,7 +219,7 @@ q.except_(handler, exceptions=(ValueError, RuntimeError))
 
 **Trigger:** `.finally_()` was called more than once on the same pipeline.
 
-**Fix:** Consolidate into a single cleanup function, or restructure with nested chains.
+**Fix:** Consolidate into a single cleanup function, or restructure with nested pipelines.
 
 ---
 
@@ -528,7 +528,7 @@ async for item in q.iterate():
 **Exception type:** `TypeError`
 **Source:** `quent/_generator.py` (line 68)
 
-**Trigger:** During synchronous iteration, a step value (such as the initial chain result, the per-item callback result, or the flush result) resolved to a coroutine. This means the pipeline is async but the caller used sync iteration.
+**Trigger:** During synchronous iteration, a step value (such as the initial pipeline result, the per-item callback result, or the flush result) resolved to a coroutine. This means the pipeline is async but the caller used sync iteration.
 
 **Fix:** Switch to `async for` over `q.iterate()`.
 

@@ -190,7 +190,7 @@ async def main():
 asyncio.run(main())
 ```
 
-The same chain definition would also work if you swapped in sync versions of `fetch_from_api` and `save_to_db` -- in that case, `pipeline.run("search term")` would return `3` directly without needing `await`.
+The same pipeline definition would also work if you swapped in sync versions of `fetch_from_api` and `save_to_db` -- in that case, `pipeline.run("search term")` would return `3` directly without needing `await`.
 
 ---
 
@@ -326,7 +326,7 @@ result = await q.run(data)
 
 ### What quent Does
 
-When a sync pipeline's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the pipeline's result is returned (success path) or the active exception is re-raised (failure path). The chain result flows through the async wrapper -- nothing is discarded.
+When a sync pipeline's finally handler returns a coroutine, the engine performs an **async transition**: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the pipeline's result is returned (success path) or the active exception is re-raised (failure path). The pipeline result flows through the async wrapper -- nothing is discarded.
 
 ### except_() Handler Edge Cases
 
@@ -342,7 +342,7 @@ The same async transition model applies to `except_()` handlers:
 
 quent is designed so that fully synchronous pipelines have **zero async overhead**:
 
-- **No event loop interaction** -- no `asyncio` import at evaluation time for sync chains.
+- **No event loop interaction** -- no `asyncio` import at evaluation time for sync pipelines.
 - **No coroutine creation** -- no `async def` functions are called on the sync path.
 - **Fast awaitable check** -- ~30ns per step, O(1). Short-circuits on the first `isinstance` check for the common sync case.
 - **Sync path is a plain `while` loop** -- calling functions and checking results. No async machinery.
@@ -463,6 +463,6 @@ asyncio.run(main())
 ## Further Reading
 
 - **[Getting Started](../getting-started.md)** -- installation, first pipeline, calling conventions
-- **[Pipelines Guide](chains.md)** -- pipeline building, context managers, conditionals, control flow
+- **[Pipelines Guide](pipelines.md)** -- pipeline building, context managers, conditionals, control flow
 - **[Error Handling](error-handling.md)** -- `except_()`, `finally_()`, and how they interact with async
 - **[Reuse and Patterns](reuse.md)** -- cloning, decorators, and composition

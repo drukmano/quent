@@ -1,11 +1,11 @@
 ---
 title: "Reuse and Patterns -- Decorators, Nesting, Cloning"
-description: "Reuse quent chains with clone, nested chains, and decorators. Common patterns for validation pipelines, ETL, request processing, and middleware."
+description: "Reuse quent pipelines with clone, nested pipelines, and decorators. Common patterns for validation pipelines, ETL, request processing, and middleware."
 tags:
   - patterns
   - decorator
   - clone
-  - nested chains
+  - nested pipelines
   - reuse
 search:
   boost: 4
@@ -68,7 +68,7 @@ Each variant is independent. Extending `for_api` does not affect `for_db`, `for_
 **Copied (independent):**
 
 - The linked list of nodes -- each clone has its own nodes
-- Nested chains within steps are **recursively cloned** via their own `clone()` method, preventing cross-clone state sharing
+- Nested pipelines within steps are **recursively cloned** via their own `clone()` method, preventing cross-clone state sharing
 - Conditional operations (`if_`/`else_`) are deep-copied (they carry mutable state)
 - Error handlers (`except_`/`finally_`) have their nodes cloned. If the handler callable is a `Q` instance, it is recursively cloned
 - Keyword argument dictionaries are shallow-copied (dicts are mutable)
@@ -209,7 +209,7 @@ The decorated function preserves its original signature via `functools.wraps`.
 
 ## Nested Pipelines for Composition
 
-A Q pipeline can be passed to `.then()` or `.do()` of another chain. The inner chain executes as a single step:
+A Q pipeline can be passed to `.then()` or `.do()` of another pipeline. The inner pipeline executes as a single step:
 
 ```python
 from quent import Q
@@ -319,7 +319,7 @@ async for item in gen(page=1):
 
 ### Reusable Sub-Pipeline Library
 
-Build a library of nested chains:
+Build a library of nested pipelines:
 
 ```python
 from quent import Q
@@ -459,14 +459,14 @@ result = pipeline.run(user_request)
 |-----------|---------|-------------|
 | `.run(value)` | Run the same pipeline with different inputs | Always safe; does not modify the pipeline |
 | `.clone()` | Create an independent copy | When you need to extend a shared pipeline differently |
-| Nested chains | Compose pipelines from reusable sub-pipelines | Modular, testable pipeline components |
-| `.as_decorator()` | Wrap a chain as a function decorator | Process a function's return value through a pipeline |
+| Nested pipelines | Compose pipelines from reusable sub-pipelines | Modular, testable pipeline components |
+| `.as_decorator()` | Wrap a pipeline as a function decorator | Process a function's return value through a pipeline |
 | `.iterate()` | Create reusable iterators | Lazy, streaming consumption of pipeline output |
 
 ---
 
 ## Next Steps
 
-- **[Pipelines](chains.md)** -- pipeline building, context managers, conditionals, and control flow
+- **[Pipelines](pipelines.md)** -- pipeline building, context managers, conditionals, and control flow
 - **[Error Handling](error-handling.md)** -- exception handling and cleanup
 - **[Async Handling](async.md)** -- sync/async bridging and concurrency

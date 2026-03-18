@@ -121,7 +121,7 @@ result = Q(42).then(lambda x: x * 2).run()
 returns and quent are not competitors in the usual sense. returns is a
 functional programming framework for type-safe composition. quent is a pipeline
 engine for sync/async bridging. If you need both -- monadic error handling AND
-sync/async bridging -- you could use returns containers inside quent chains, or
+sync/async bridging -- you could use returns containers inside quent pipelines, or
 use quent pipelines inside returns flows. They are not mutually exclusive.
 
 ## quent vs toolz
@@ -378,7 +378,7 @@ not competing with returns, toolz, pipe, or Expression on their home turf.
   use quent.
 
 These tools are largely complementary. You can use toolz's `curry` to prepare
-functions for quent chains. You can use returns' `Result` type inside quent
+functions for quent pipelines. You can use returns' `Result` type inside quent
 pipelines. There is no reason to choose only one if your project benefits from
 multiple.
 

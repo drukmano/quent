@@ -29,7 +29,7 @@ from quent import (
 class Q(v=<no value>, /, *args, **kwargs)
 ```
 
-A sequential pipeline that transparently bridges synchronous and asynchronous operations. Steps are appended with fluent methods (`.then()`, `.do()`, etc.) and the chain is executed with `.run()`.
+A sequential pipeline that transparently bridges synchronous and asynchronous operations. Steps are appended with fluent methods (`.then()`, `.do()`, etc.) and the pipeline is executed with `.run()`.
 
 ### Constructor
 
@@ -507,7 +507,7 @@ Register a cleanup handler. Only **one** `finally_` per pipeline. Always runs re
 Q(acquire_resource).then(process).finally_(release_resource).run()
 ```
 
-**Async finally in sync chains:** When a sync pipeline's finally handler returns a coroutine, the engine performs an async transition: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the pipeline's result is returned (or the active exception is re-raised).
+**Async finally in sync pipelines:** When a sync pipeline's finally handler returns a coroutine, the engine performs an async transition: `run()` returns a coroutine instead of a plain value. When the caller awaits this coroutine, the finally handler's coroutine is awaited first, and then the pipeline's result is returned (or the active exception is re-raised).
 
 ---
 
@@ -787,7 +787,7 @@ Construct a pipeline from a sequence of steps, each appended via `.then()`.
 
 **Equivalence:** `Q.from_steps(a, b, c)` is equivalent to `Q().then(a).then(b).then(c)`.
 
-Steps can be callables, literal values, or nested Q pipelines -- anything `.then()` accepts. `Q.from_steps()` with no arguments returns an empty chain (equivalent to `Q()`).
+Steps can be callables, literal values, or nested Q pipelines -- anything `.then()` accepts. `Q.from_steps()` with no arguments returns an empty pipeline (equivalent to `Q()`).
 
 ```python
 # Variadic form
@@ -821,7 +821,7 @@ Create an independent copy of this pipeline.
 **What is copied:**
 
 - Pipeline structure (all step nodes) -- deep-copied. The clone has its own independent linked list.
-- Nested chains within steps are **recursively cloned**.
+- Nested pipelines within steps are **recursively cloned**.
 - Conditional operations (`if_`/`else_`) are deep-copied.
 - Error handler step nodes are cloned. Handler callables that are `Q` instances are recursively cloned; non-pipeline callables are shared by reference.
 - Keyword argument dictionaries are shallow-copied (mutable). Positional argument tuples are shared (immutable).
@@ -838,7 +838,7 @@ branch_a = base.clone().then(transform_a)
 branch_b = base.clone().then(transform_b)
 ```
 
-Clones always behave as top-level chains, regardless of whether the original was nested.
+Clones always behave as top-level pipelines, regardless of whether the original was nested.
 
 ---
 
@@ -1177,7 +1177,7 @@ Applied in priority order. First match wins.
 | 1 | **Explicit Args** | Args/kwargs provided at registration | `fn(*args, **kwargs)` -- current value NOT passed |
 | 2 | **Default** | None of the above | Callable + value: `fn(cv)`. Callable + no value: `fn()`. Non-callable: returned as-is |
 
-Nested chains are detected via duck-typing (`_quent_is_chain`) and execute with the current value as input.
+Nested pipelines are detected via duck-typing (`_quent_is_chain`) and execute with the current value as input.
 
 **Constraints:**
 
@@ -1217,7 +1217,7 @@ Traceback (most recent call last):
 ValueError: invalid data
 ```
 
-The `<----` marker points to the step that raised the exception. Nested chains are rendered with increasing indentation.
+The `<----` marker points to the step that raised the exception. Nested pipelines are rendered with increasing indentation.
 
 ### Internal Frame Cleaning
 

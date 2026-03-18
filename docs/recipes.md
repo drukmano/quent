@@ -1,6 +1,6 @@
 ---
 title: "Recipes — Practical Pipeline Patterns"
-description: "Real-world quent recipes: API clients with error handling, data processing pipelines, file handling, validation chains, concurrent enrichment, and more."
+description: "Real-world quent recipes: API clients with error handling, data processing pipelines, file handling, validation pipelines, concurrent enrichment, and more."
 tags:
   - recipes
   - examples
@@ -105,7 +105,7 @@ Key points:
 
 - **`.do()` is for side-effects.** The logging steps observe the current value without modifying it.
 - **`.then()` with a list comprehension** filters records before passing them to `.foreach()` for transformation.
-- **`pipeline = ... .run`** (no parentheses) captures the bound method, making the chain callable like a regular function.
+- **`pipeline = ... .run`** (no parentheses) captures the bound method, making the pipeline callable like a regular function.
 
 ---
 
@@ -329,7 +329,7 @@ Key points:
 
 ## Retry with Exponential Backoff
 
-A reusable retry wrapper using nested chains and `except_()`.
+A reusable retry wrapper using nested pipelines and `except_()`.
 
 ```python
 import time

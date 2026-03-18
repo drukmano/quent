@@ -201,7 +201,7 @@ pip install quent
 
     Sequential steps with `.then()` and `.do()`. Full method set includes `foreach`, `foreach_do`, `gather`, `with_`, and `if_`/`else_`.
 
-    [Pipelines & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/pipelines.md)
 
 -   :material-shield-check: **Error Handling**
 
@@ -217,7 +217,7 @@ pip install quent
 
     `.with_()` enters the current value as a context manager and calls your function with the context value. Works with sync and async context managers.
 
-    [Pipelines & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/pipelines.md)
 
 -   :material-source-branch: **Conditional Logic**
 
@@ -225,7 +225,7 @@ pip install quent
 
     `.if_()` applies a step only when a predicate is truthy. `.else_()` registers the fallback branch. Both predicates and branches can be sync or async.
 
-    [Pipelines & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/pipelines.md)
 
 -   :material-debug-step-over: **Control Flow**
 
@@ -233,7 +233,7 @@ pip install quent
 
     `Q.return_()` exits early with an optional value. `Q.break_()` stops iteration inside `.foreach()` or `.foreach_do()`.
 
-    [Pipelines & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/pipelines.md)
 
 -   :material-text-search: **Enhanced Tracebacks**
 
@@ -249,7 +249,7 @@ pip install quent
 
     `.iterate()` wraps pipeline output as a lazy generator. The same object supports both `for` and `async for` loops.
 
-    [Pipelines & Methods](guide/chains.md)
+    [Pipelines & Methods](guide/pipelines.md)
 
 -   :material-package-variant-closed-check: **Zero Dependencies**
 
@@ -279,9 +279,9 @@ pip install quent
 
     ---
 
-    Learn chains, async handling, error handling, and reuse patterns in depth.
+    Learn pipelines, async handling, error handling, and reuse patterns in depth.
 
-    [Read the Guide](guide/chains.md){ .md-button }
+    [Read the Guide](guide/pipelines.md){ .md-button }
 
 -   **API Reference**
 

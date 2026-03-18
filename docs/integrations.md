@@ -114,7 +114,7 @@ def process_order_task(order_id: str):
 ```
 
 !!! tip "How it works"
-    The `process_order` function builds a single Q pipeline. When called with async callables (from the FastAPI endpoint), the chain returns a coroutine. When called with sync callables (from the Celery task), it returns a value directly. The validation and total calculation steps are plain sync functions that work in both paths.
+    The `process_order` function builds a single Q pipeline. When called with async callables (from the FastAPI endpoint), the pipeline returns a coroutine. When called with sync callables (from the Celery task), it returns a value directly. The validation and total calculation steps are plain sync functions that work in both paths.
 
 !!! warning "Q pipelines are not picklable in practice"
     Most pipeline contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a `Q` instance for Celery task arguments. Build the pipeline inside the task function, as shown above.
@@ -656,7 +656,7 @@ class TestPipeline(unittest.IsolatedAsyncioTestCase):
 ```
 
 !!! tip "How it works"
-    `build_pipeline` defines the chain once. With `MagicMock` (sync), `.run()` returns a plain value. With `AsyncMock`, it returns a coroutine. The assertions are identical -- only the mock factory changes.
+    `build_pipeline` defines the pipeline once. With `MagicMock` (sync), `.run()` returns a plain value. With `AsyncMock`, it returns a coroutine. The assertions are identical -- only the mock factory changes.
 
 ### Observing intermediate values
 

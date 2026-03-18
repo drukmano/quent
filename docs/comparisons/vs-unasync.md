@@ -249,7 +249,7 @@ unasync is the better choice when:
 
 quent is the better choice when:
 
-- **You need mixed sync/async in the same pipeline.** A chain can have some steps
+- **You need mixed sync/async in the same pipeline.** A pipeline can have some steps
   that are sync and others that are async. unasync generates code that is entirely
   sync or entirely async -- it cannot mix.
 

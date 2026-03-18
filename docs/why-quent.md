@@ -223,7 +223,7 @@ quent lets you write that logic once.
 migrating to async one module at a time. quent lets existing sync code coexist with
 new async code in the same pipelines, without rewriting everything at once.
 
-**Multi-step processing pipelines.** ETL jobs, request handlers, validation chains,
+**Multi-step processing pipelines.** ETL jobs, request handlers, validation pipelines,
 data transformation pipelines -- anywhere you have a sequence of operations that
 flows a value from step to step.
 
@@ -231,7 +231,7 @@ flows a value from step to step.
 drivers, HTTP clients, message queues, and cache layers increasingly offer both sync
 and async interfaces. quent lets you write wrapper code once.
 
-**Decorator factories.** Wrap functions in reusable processing chains that work
+**Decorator factories.** Wrap functions in reusable processing pipelines that work
 regardless of whether the decorated function is sync or async.
 
 ---
@@ -319,6 +319,6 @@ protocol implementations required.
 ## Next Steps
 
 - **[Getting Started](getting-started.md)** -- install quent and build your first pipeline
-- **[Pipelines](guide/chains.md)** -- comprehensive guide to all pipeline operations
+- **[Pipelines](guide/pipelines.md)** -- comprehensive guide to all pipeline operations
 - **[Async Handling](guide/async.md)** -- deep dive into the sync/async bridging mechanism
 - **[Error Handling](guide/error-handling.md)** -- exception handlers, cleanup, and enhanced tracebacks

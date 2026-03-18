@@ -259,7 +259,7 @@ Each pipeline supports at most one `except_()` and one `finally_()`. This is enf
 
 ### Fix
 
-Consolidate into a single handler, or use nested chains for per-section error handling:
+Consolidate into a single handler, or use nested pipelines for per-section error handling:
 
 ```python
 from quent import Q
@@ -274,14 +274,14 @@ def combined_handler(exc):
 
 q = Q(data).then(process).except_(combined_handler)
 
-# Or use nested chains
+# Or use nested pipelines
 fetch_q = Q().then(fetch_data).except_(handle_fetch_error)
 process_q = Q().then(validate).then(transform).except_(handle_process_error)
 
 pipeline = (
   Q(url)
-  .then(fetch_chain)
-  .then(process_chain)
+  .then(fetch_q)
+  .then(process_q)
   .finally_(lambda _: cleanup())
   .run()
 )
@@ -491,7 +491,7 @@ quent.QuentException: Q.break_() cannot be used inside finally_() handler.
 
 ### Fix
 
-Move the control flow logic into the main pipeline using nested chains:
+Move the control flow logic into the main pipeline using nested pipelines:
 
 ```python
 from quent import Q

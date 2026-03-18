@@ -137,7 +137,7 @@ The `reraise` parameter controls what happens after the handler runs:
 
 ### `reraise=False` (default) -- Consume the Exception
 
-The handler's return value **replaces** the pipeline's result. The exception is consumed -- it does not propagate. The chain is considered to have succeeded.
+The handler's return value **replaces** the pipeline's result. The exception is consumed -- it does not propagate. The pipeline is considered to have succeeded.
 
 ```python
 from quent import Q
@@ -352,7 +352,7 @@ ValueError: Value too large
 
 ### Nested Pipeline Visualization
 
-Nested chains are rendered with indentation:
+Nested pipelines are rendered with indentation:
 
 ```
 Q(fetch)
@@ -365,7 +365,7 @@ Q(fetch)
 
 ### First-Write-Wins Error Marker
 
-The `<----` marker always points to the **innermost** (deepest) failing step. When an exception propagates through nested chains, only the original failure point is recorded.
+The `<----` marker always points to the **innermost** (deepest) failing step. When an exception propagates through nested pipelines, only the original failure point is recorded.
 
 ### Controlling Tracebacks
 
@@ -475,13 +475,13 @@ pipeline = (
 
 | Feature | Limit | Default catches | Handler receives | Return value |
 |---------|-------|-----------------|------------------|--------------|
-| `.except_()` | 1 per pipeline | `Exception` | `QuentExcInfo(exc, root_value)` as current value, standard 2-rule calling convention | Replaces chain result (or re-raises with `reraise=True`) |
+| `.except_()` | 1 per pipeline | `Exception` | `QuentExcInfo(exc, root_value)` as current value, standard 2-rule calling convention | Replaces pipeline result (or re-raises with `reraise=True`) |
 | `.finally_()` | 1 per pipeline | N/A (always runs) | Root value (standard calling convention) | Always discarded |
 
 ---
 
 ## Next Steps
 
-- **[Pipelines](chains.md)** -- pipeline building, context managers, conditionals, and control flow
+- **[Pipelines](pipelines.md)** -- pipeline building, context managers, conditionals, and control flow
 - **[Async Handling](async.md)** -- sync/async bridging, async transition patterns
 - **[Reuse and Patterns](reuse.md)** -- cloning, nesting, decorators, and composition

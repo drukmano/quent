@@ -4,7 +4,6 @@ description: "Complete guide to building pipelines with quent's Q class. Covers 
 tags:
   - guide
   - pipeline
-  - pipeline
   - tutorial
 search:
   boost: 5
@@ -22,7 +21,7 @@ This page covers every pipeline-building method. For async-specific behavior, se
 
 A pipeline is a singly-linked list of steps. Building appends nodes to the tail in O(1) time. Execution walks head-to-tail, threading a **current value** through each step.
 
-- **Build-time mutation:** Every call to `.then()`, `.do()`, `.foreach()`, etc. appends a new node. Building is not thread-safe -- chains must be fully constructed before being shared across threads.
+- **Build-time mutation:** Every call to `.then()`, `.do()`, `.foreach()`, etc. appends a new node. Building is not thread-safe -- pipelines must be fully constructed before being shared across threads.
 - **Run-time immutability:** Execution walks the list from head to tail, never mutating the list structure. A fully constructed pipeline is safe to execute concurrently from multiple threads.
 
 This separation is the foundation of the thread-safety model.
@@ -79,7 +78,7 @@ q.run()           # 'BUILD_TIME' -- root value used
 q.run('run_time') # 'RUN_TIME'   -- run value replaces root
 ```
 
-The root value (once evaluated) is also captured as the **root value for error handlers**: `except_()` and `finally_()` handlers receive the root value, not the current pipeline value at the point of failure. This is by design -- the root value represents "what this chain was invoked with."
+The root value (once evaluated) is also captured as the **root value for error handlers**: `except_()` and `finally_()` handlers receive the root value, not the current pipeline value at the point of failure. This is by design -- the root value represents "what this pipeline was invoked with."
 
 ---
 
@@ -108,7 +107,7 @@ If `v` is callable, it is called with `(*args, **kwargs)` and the result becomes
 
 ### `__call__(v=Null, *args, **kwargs)`
 
-Alias for `run()`. Enables chains as first-class callables:
+Alias for `run()`. Enables pipelines as first-class callables:
 
 ```python
 q = Q().then(lambda x: x * 2)
@@ -801,7 +800,7 @@ When a pipeline is nested:
 - Control flow signals propagate through.
 - The inner pipeline's `except_()` and `finally_()` handlers apply only to that pipeline's execution.
 
-See [Reuse and Patterns](reuse.md) for more on composition with nested chains.
+See [Reuse and Patterns](reuse.md) for more on composition with nested pipelines.
 
 ---
 
@@ -812,7 +811,7 @@ Every builder method returns `self`, enabling fluent pipelines:
 ```python
 from quent import Q
 
-# Vertical style (recommended for complex chains)
+# Vertical style (recommended for complex pipelines)
 result = (
   Q(request)
   .then(authenticate)
@@ -825,7 +824,7 @@ result = (
   .run()
 )
 
-# Inline style (for simple chains)
+# Inline style (for simple pipelines)
 result = Q(5).then(lambda x: x * 2).then(str).run()
 ```
 

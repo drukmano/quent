@@ -31,7 +31,7 @@
 ---
 
 - **One definition, two worlds** &mdash; a single pipeline works for both sync and async callers. Zero code duplication.
-- **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just pipeline your functions.
+- **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just compose your functions.
 - **Drop-in migration** &mdash; unify existing sync and async implementations into one pipeline. Stop maintaining two versions.
 - **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561).
 - **Works with asyncio, trio, and curio** &mdash; async pipelines run transparently under any of these event loops. Event loop detection uses `sys.modules` lookups (~50ns), adding zero overhead when those libraries are not loaded. Dual-protocol objects (context managers and iterables supporting both sync and async protocols) automatically prefer the async protocol under any running event loop.

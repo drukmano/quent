@@ -47,7 +47,7 @@ python -m unittest tests.null_tests
 Run a single test method:
 
 ```bash
-python -m unittest tests.null_tests.NullVsNoneTest.test_chain_no_arg_has_no_root_value
+python -m unittest tests.null_tests.NullVsNoneTest.test_q_no_arg_has_no_root_value
 ```
 
 ## Code Style
