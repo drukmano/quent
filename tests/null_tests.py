@@ -13,10 +13,8 @@ from unittest import TestCase
 from quent import Chain
 from quent._types import Null
 from quent._types import _Null as NullType
-from tests.tests_helper import (
-  SymmetricTestCase,
-  sync_fn,
-)
+from tests.fixtures import sync_fn
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §12.1: Null vs None distinction

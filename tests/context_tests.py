@@ -22,7 +22,7 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain, QuentException
 from quent._context import _ctx_store
-from tests.tests_helper import SymmetricTestCase
+from tests.symmetric import SymmetricTestCase
 
 
 def _reset_context() -> None:

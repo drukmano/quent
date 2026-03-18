@@ -6,12 +6,8 @@ from __future__ import annotations
 import unittest
 
 from quent import Chain, QuentException
-from tests.tests_helper import (
-  V_DOUBLE,
-  SymmetricTestCase,
-  async_double,
-  sync_double,
-)
+from tests.fixtures import V_DOUBLE, async_double, sync_double
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §9.1 iterate(fn=None)

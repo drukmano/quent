@@ -9,7 +9,7 @@ from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain, QuentException
-from tests.tests_helper import (
+from tests.fixtures import (
   V_CM,
   V_CM_SUPPRESSES,
   V_DOUBLE,
@@ -19,13 +19,13 @@ from tests.tests_helper import (
   AsyncCM,
   AsyncCMSuppresses,
   AsyncRange,
-  SymmetricTestCase,
   SyncCM,
   async_double,
   capture,
   sync_double,
   sync_fn,
 )
+from tests.symmetric import SymmetricTestCase
 
 if sys.version_info < (3, 11):
   from quent._types import ExceptionGroup

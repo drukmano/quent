@@ -20,9 +20,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from quent import Chain, QuentException
-from tests.tests_helper import (
-  async_double,
-)
+from tests.fixtures import async_double
 
 # --- Shared strategies ---
 

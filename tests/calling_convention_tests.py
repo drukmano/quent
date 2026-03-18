@@ -10,15 +10,15 @@ and do() calling convention.
 from __future__ import annotations
 
 from quent import Chain, QuentException
-from tests.tests_helper import (
+from tests.fixtures import (
   V_GT0,
   V_KW,
-  SymmetricTestCase,
   capture,
   sync_add,
   sync_double,
   sync_fn,
 )
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §4: Nested Chain (standard rules apply)

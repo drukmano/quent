@@ -22,7 +22,7 @@ from typing import Any
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain, QuentException
-from tests.tests_helper import SymmetricTestCase
+from tests.symmetric import SymmetricTestCase
 
 if sys.version_info < (3, 11):
   from quent._types import ExceptionGroup

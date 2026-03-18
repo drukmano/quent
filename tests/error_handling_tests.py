@@ -17,14 +17,14 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain, ChainExcInfo, QuentException
 from quent._types import _ControlFlowSignal
-from tests.tests_helper import (
+from tests.fixtures import (
   V_BAD_CLEANUP,
   V_FN,
   V_RAISE,
-  SymmetricTestCase,
   async_fn,
   async_identity,
 )
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §6.2.1 Handler Registration
@@ -356,7 +356,7 @@ class FinallyFailureTest(SymmetricTestCase):
     """Finally failure on success path propagates as chain error.
     Sync cleanup with sync/async step. Async cleanup only with async step
     (sync chain + async finally = async transition per §6.3.5)."""
-    from tests.tests_helper import sync_bad_cleanup
+    from tests.fixtures import sync_bad_cleanup
 
     await self.variant(
       lambda fn: Chain(1).then(fn).finally_(sync_bad_cleanup).run(),

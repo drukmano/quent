@@ -10,7 +10,7 @@ from unittest import IsolatedAsyncioTestCase
 
 from quent import Chain
 from quent._context import _ctx_store
-from tests.tests_helper import SyncCM
+from tests.fixtures import SyncCM
 
 
 def _reset_context() -> None:

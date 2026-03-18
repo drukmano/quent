@@ -12,13 +12,13 @@ import asyncio
 from unittest import TestCase
 
 from quent import Chain, ChainExcInfo, QuentException, __version__
-from tests.tests_helper import (
-  SymmetricTestCase,
+from tests.fixtures import (
   async_double,
   async_fn,
   sync_double,
   sync_fn,
 )
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §3: Chain construction
