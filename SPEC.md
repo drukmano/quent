@@ -167,7 +167,7 @@ The pipeline is modeled internally as a singly-linked list. Steps are appended t
 
 `Q(v=<no value>, /, *args, **kwargs)`
 
-- **`v` is callable:** When the pipelineruns, `v` is called with `(*args, **kwargs)`. If no `args`/`kwargs` are provided, `v` is called with no arguments. The return value becomes the root value.
+- **`v` is callable:** When the pipeline runs, `v` is called with `(*args, **kwargs)`. If no `args`/`kwargs` are provided, `v` is called with no arguments. The return value becomes the root value.
 - **`v` is not callable:** `v` is used as-is as the root value. `args`/`kwargs` must not be provided (enforced at build time; raises `TypeError`).
 - **`Q()`** — creates a pipeline with no root value. The first step evaluates with no current value (standard calling conventions apply — a callable is called with no arguments).
 - **`Q(None)`** — creates a pipeline with root value `None`.
@@ -177,7 +177,7 @@ The pipeline is modeled internally as a singly-linked list. Steps are appended t
 
 The root value seeds the pipeline. There are two ways to provide it:
 
-- **At build time:** `Q(v)` sets a root value that is evaluated when the pipelineruns. If `v` is callable, it is called (with optional args/kwargs); if not, it is used as-is.
+- **At build time:** `Q(v)` sets a root value that is evaluated when the pipeline runs. If `v` is callable, it is called (with optional args/kwargs); if not, it is used as-is.
 
 - **At run time:** `q.run(v)` injects a value that replaces the build-time root. When both exist, the run-time value wins and the build-time root is ignored entirely. `Q(A).then(B).run(C)` is equivalent to `Q(C).then(B).run()`.
 
@@ -878,7 +878,7 @@ Registers a cleanup handler. At most one `finally_()` per pipeline; a second cal
 #### 6.3.2 Execution Semantics
 
 - **Always runs** — on both success and failure paths, matching Python's `try/finally` semantics.
-- **Receives the root value**, not the current pipeline value. The root value is normalized to `None` if the pipelinewas created with no root value (i.e., `Q()`).
+- **Receives the root value**, not the current pipeline value. The root value is normalized to `None` if the pipeline was created with no root value (i.e., `Q()`).
 - **Return value is always discarded** — the finally handler cannot alter the pipeline's result.
 - **Follows the standard 2-rule calling convention (§4)** with the root value as the "current value."
 
@@ -943,8 +943,8 @@ Class method. Signals early termination of pipeline execution by raising an inte
 
 #### 7.2.1 Value Semantics
 
-- **With no value:** `Q.return_()` — the pipelinereturns `None`.
-- **With a non-callable value:** `Q.return_(42)` — the pipelinereturns the value as-is.
+- **With no value:** `Q.return_()` — the pipeline returns `None`.
+- **With a non-callable value:** `Q.return_(42)` — the pipeline returns the value as-is.
 - **With a callable:** `Q.return_(fn, *args, **kwargs)` — the callable is invoked when the signal is caught, and its return value becomes the pipeline's result. Dispatch: explicit args → `fn(*args, **kwargs)`, callable with no args → `fn()`, non-callable → value as-is.
 
 #### 7.2.2 Nested Pipeline Propagation
@@ -1093,7 +1093,7 @@ The execution engine implements the two-tier sync/async model described in §2. 
 - The pipeline is executed when iteration begins (not when `iterate()` is called).
 - The pipeline's result must be iterable. Each element is passed through `fn` (if provided), and the transformed result is yielded.
 - Supports both sync and async iteration:
-  - `for item in q.iterate(fn):` — synchronous iteration. If the pipelineor `fn` returns an awaitable, a `TypeError` is raised directing the user to use `async for`.
+  - `for item in q.iterate(fn):` — synchronous iteration. If the pipeline or `fn` returns an awaitable, a `TypeError` is raised directing the user to use `async for`.
   - `async for item in q.iterate(fn):` — asynchronous iteration. Awaitables from the pipeline and `fn` are automatically awaited.
 - If the pipeline's result is a sync iterable but `async for` is used, the iterator automatically wraps it as an async iterable.
 
@@ -1282,7 +1282,7 @@ async for item in Q(async_produce).buffer(10).iterate():
 
 ### 10.2 `as_decorator()`
 
-**Contract:** Wrap the pipelineas a function decorator. The decorated function's return value becomes the pipeline's input.
+**Contract:** Wrap the pipeline as a function decorator. The decorated function's return value becomes the pipeline's input.
 
 **Return value:** A decorator function that can be applied to other functions via `@`.
 
@@ -1310,7 +1310,7 @@ get_name()  # 'ALICE'
 
 ### 10.3 `from_steps()`
 
-**Contract:** Class method. Construct a pipelinefrom a sequence of steps, each appended via `.then()`.
+**Contract:** Class method. Construct a pipeline from a sequence of steps, each appended via `.then()`.
 
 **Arguments:**
 - `*steps` — variadic positional arguments. Each becomes a `.then()` step.
@@ -1517,7 +1517,7 @@ Q(fetch)
 - When an exception propagates from a pipeline, the traceback includes a `<quent>` frame containing the pipeline visualization.
 - The `<----` marker appears on exactly one step — the step that raised the exception.
 - If the pipeline has `except_()` or `finally_()` handlers, they appear in the visualization.
-- If the pipelinecontains `if_()` with `else_()`, both branches appear.
+- If the pipeline contains `if_()` with `else_()`, both branches appear.
 - Nested pipelines are recursively rendered with increasing indentation (4 spaces per level).
 
 ### 13.3 Error Marker (`<----`)
@@ -1537,7 +1537,7 @@ Quent strips its own internal frames from exception tracebacks, leaving only:
 
 **Observable behavior:**
 
-- When viewing a traceback from a pipelineexception, no frames from quent's internal modules appear.
+- When viewing a traceback from a pipeline exception, no frames from quent's internal modules appear.
 - Only the user's code and the synthetic `<quent>` visualization frame are visible.
 - The frame cleaning applies to the exception itself and to all chained exceptions (`__cause__` and `__context__` chains).
 
@@ -1553,7 +1553,7 @@ A depth limit (1000 exceptions) prevents unbounded traversal in pathological exc
 
 ### 13.6 Exception Notes (Python 3.11+)
 
-On Python 3.11 and later, quent attaches a concise one-line note to exceptions via `exc.add_note()`. The note identifies the failing step and the pipelineit belongs to:
+On Python 3.11 and later, quent attaches a concise one-line note to exceptions via `exc.add_note()`. The note identifies the failing step and the pipeline it belongs to:
 
 ```
 quent: exception at .then(validate) in Q(fetch_data)
@@ -1642,7 +1642,7 @@ Visualization is best-effort. If visualization construction fails for any reason
 `repr(q)` uses the same visualization format as traceback injection:
 
 - **Format:** identical to the traceback pipeline visualization (multiline, indented), but without the `<----` error marker.
-- **Name support:** when `.name(label)` has been called, the pipelinerenders as `Q[label](root)`.
+- **Name support:** when `.name(label)` has been called, the pipeline renders as `Q[label](root)`.
 - **`QUENT_TRACEBACK_VALUES=0`:** respected — argument values are replaced with type-name placeholders.
 - **Visualization limits:** the same depth limit (50), links-per-level limit (100), total-length limit (10,000 characters), and total-calls limit (500) apply.
 - **Example** (unnamed pipeline):
@@ -1936,7 +1936,7 @@ All contexts — standard steps, `except_()` handlers, `finally_()` handlers, an
 
 `Null` is a singleton sentinel distinct from `None`. It represents "no value was provided."
 
-**Rationale:** `None` is a perfectly valid pipeline value. A user may legitimately write `Q(None)` to create a pipelinewhose root value is `None`. Without a distinct sentinel, the engine could not distinguish "the user provided `None` as a value" from "no value was provided." `Null` resolves this ambiguity:
+**Rationale:** `None` is a perfectly valid pipeline value. A user may legitimately write `Q(None)` to create a pipeline whose root value is `None`. Without a distinct sentinel, the engine could not distinguish "the user provided `None` as a value" from "no value was provided." `Null` resolves this ambiguity:
 
 - `Q()` — no root value; the root value is `Null` (internal).
 - `Q(None)` — root value is `None`.
@@ -1981,7 +1981,7 @@ Sync concurrent operations (gather, concurrent foreach/foreach_do) create a new 
 
 **Rationale:**
 
-- **Deterministic cleanup:** The executor's threads are joined before the operation returns. No background threads linger after the pipelinecompletes.
+- **Deterministic cleanup:** The executor's threads are joined before the operation returns. No background threads linger after the pipeline completes.
 - **No shared state:** A shared executor would introduce thread pool exhaustion risks, lifecycle management complexity, and subtle bugs from interactions between unrelated pipeline executions.
 - **Simplicity:** The `with ThreadPoolExecutor(...) as executor:` pattern handles creation, submission, waiting, and shutdown in a single scope.
 
@@ -2030,9 +2030,9 @@ The following sections document known behavioral asymmetries — sync/async diff
 
 ### 17.1 Sync `iterate()` Raises `TypeError` on Coroutine Return
 
-When using sync iteration (`for item in q.iterate()`), if the pipelineitself returns a coroutine (because it contains async steps), a `TypeError` is raised:
+When using sync iteration (`for item in q.iterate()`), if the pipeline itself returns a coroutine (because it contains async steps), a `TypeError` is raised:
 
-> Cannot use sync iteration on an async chain; use 'async for' instead
+> Cannot use sync iteration on an async pipeline; use 'async for' instead
 
 Similarly, if the iteration callback `fn` returns a coroutine during sync iteration, a `TypeError` is raised:
 
