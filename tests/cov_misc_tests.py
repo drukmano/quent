@@ -14,9 +14,7 @@ import unittest
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain
-from tests.tests_helper import (
-  async_fn,
-)
+from tests.fixtures import async_fn
 
 # ---------------------------------------------------------------------------
 # _chain.py — Coverage: builder internal paths
@@ -243,39 +241,29 @@ class ComplexExceptionChainTest(TestCase):
       viz_warnings = [x for x in w if 'visualization failed' in str(x.message)]
       self.assertTrue(len(viz_warnings) > 0, f'Expected viz warning, got: {w}')
 
-  def test_exception_note_pre_311_no_add_note(self):
-    """Line 203: _attach_exception_note with missing add_note is a no-op.
+  def test_exception_note_attachment(self):
+    """§13.6: exception notes are attached to chain exceptions (Python 3.11+).
 
-    Pre-Python 3.11 exceptions have no add_note method.
+    Black-box: on Python 3.11+, exceptions from chain execution carry
+    a 'quent: exception at' note identifying the failing step.
+    On pre-3.11 (no add_note), exceptions propagate without notes.
     """
-    from quent._traceback import _attach_exception_note
+    import sys
 
-    class NoAddNoteExc(Exception):
-      """Exception without add_note (simulating pre-3.11)."""
+    def boom(x: int) -> int:
+      raise ValueError('test')
 
-      pass
+    c = Chain(1).then(boom)
+    with self.assertRaises(ValueError) as ctx:
+      c.run()
 
-    exc = NoAddNoteExc('test')
-
-    # On 3.11+, we need to delete add_note to test the early return path
-    has_add_note = hasattr(exc, 'add_note')
-
-    c = Chain(1)
-    from quent._link import Link
-
-    source = Link(lambda x: x)
-
-    if has_add_note:
-      # We cannot easily remove add_note from builtin types,
-      # so just verify the normal path works.
-      _attach_exception_note(exc, c, source)
-      notes = getattr(exc, '__notes__', [])
+    if sys.version_info >= (3, 11):
+      notes = getattr(ctx.exception, '__notes__', [])
       quent_notes = [n for n in notes if n.startswith('quent: exception at')]
       self.assertTrue(len(quent_notes) >= 1)
     else:
-      # On pre-3.11, verify it is a no-op
-      _attach_exception_note(exc, c, source)
-      self.assertFalse(hasattr(exc, '__notes__'))
+      # Pre-3.11: exception still propagates, no notes expected
+      self.assertFalse(hasattr(ctx.exception, '__notes__'))
 
   def test_modify_traceback_disabled(self):
     """Line 237: _modify_traceback with _traceback_enabled=False returns unmodified exception.

@@ -11,13 +11,13 @@ import unittest
 from typing import Any
 
 from quent import Chain, QuentException
-from tests.tests_helper import (
-  SymmetricTestCase,
+from tests.fixtures import (
   async_double,
   async_fn,
   sync_double,
   sync_fn,
 )
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §10.1 clone()
@@ -79,8 +79,8 @@ class CloneTests(SymmetricTestCase):
     self.assertEqual(cloned.run(), 'value')
 
     # The kwargs dicts in the cloned link must be different objects (shallow copy)
-    orig_link = original.first_link
-    clone_link = cloned.first_link
+    orig_link = original._first_link
+    clone_link = cloned._first_link
     self.assertIsNotNone(orig_link.kwargs)
     self.assertIsNotNone(clone_link.kwargs)
     self.assertIsNot(orig_link.kwargs, clone_link.kwargs)
@@ -230,8 +230,8 @@ class CloneTests(SymmetricTestCase):
     self.assertEqual(cloned.run(), -1)
 
     # The handler chain in the clone is a separate clone — a different object.
-    orig_handler_v = original.on_except_link.v
-    clone_handler_v = cloned.on_except_link.v
+    orig_handler_v = original._on_except_link.v
+    clone_handler_v = cloned._on_except_link.v
     self.assertIsNot(orig_handler_v, clone_handler_v)
 
   async def test_clone_finally_handler_chain_is_recursively_cloned(self) -> None:
@@ -604,10 +604,10 @@ class CloneExceptionTypesSharedTest(SymmetricTestCase):
     original = Chain(0).then(raise_value_error).except_(handler, exceptions=exc_types)
     cloned = original.clone()
 
-    # The on_except_exceptions attribute on the Chain stores the exception types
+    # The _on_except_exceptions attribute on the Chain stores the exception types
     self.assertIs(
-      original.on_except_exceptions,
-      cloned.on_except_exceptions,
+      original._on_except_exceptions,
+      cloned._on_except_exceptions,
       'Exception types tuple should be the same object (shared by reference)',
     )
 
@@ -629,12 +629,12 @@ class CloneArgsSharedTest(SymmetricTestCase):
     original = Chain(1).then(fn, arg_obj)
     cloned = original.clone()
 
-    # Access the args tuple via first_link.args
-    self.assertIsNotNone(original.first_link)
-    self.assertIsNotNone(cloned.first_link)
+    # Access the args tuple via _first_link.args
+    self.assertIsNotNone(original._first_link)
+    self.assertIsNotNone(cloned._first_link)
     self.assertIs(
-      original.first_link.args,
-      cloned.first_link.args,
+      original._first_link.args,
+      cloned._first_link.args,
       'Args tuple should be the same object (shared by reference, tuples are immutable)',
     )
 
@@ -874,6 +874,44 @@ class TestFromSteps(SymmetricTestCase):
     manual = Chain().then(steps[0]).then(steps[1]).then(steps[2]).run(3)
     via_list = Chain.from_steps(steps).run(3)
     self.assertEqual(via_list, manual)
+
+
+# ---------------------------------------------------------------------------
+# §16.6 Copy blocking
+# ---------------------------------------------------------------------------
+
+
+class CopyBlockingTest(unittest.TestCase):
+  """SPEC §16.6: copy.copy/deepcopy of Chain raise TypeError."""
+
+  def test_copy_copy_raises_type_error(self) -> None:
+    """copy.copy(chain) raises TypeError (SPEC §16.6)."""
+    import copy
+
+    c = Chain(1).then(lambda x: x + 1)
+    with self.assertRaises(TypeError) as ctx:
+      copy.copy(c)
+    self.assertIn('copy.copy()', str(ctx.exception))
+    self.assertIn('clone()', str(ctx.exception))
+
+  def test_copy_deepcopy_raises_type_error(self) -> None:
+    """copy.deepcopy(chain) raises TypeError (SPEC §16.6)."""
+    import copy
+
+    c = Chain(1).then(lambda x: x + 1)
+    with self.assertRaises(TypeError) as ctx:
+      copy.deepcopy(c)
+    self.assertIn('deepcopy()', str(ctx.exception))
+    self.assertIn('clone()', str(ctx.exception))
+
+  def test_copy_empty_chain_raises(self) -> None:
+    """Even an empty chain cannot be copied."""
+    import copy
+
+    with self.assertRaises(TypeError):
+      copy.copy(Chain())
+    with self.assertRaises(TypeError):
+      copy.deepcopy(Chain())
 
 
 if __name__ == '__main__':

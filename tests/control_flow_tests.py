@@ -11,9 +11,7 @@ from __future__ import annotations
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain, QuentException
-from tests.tests_helper import (
-  SymmetricTestCase,
-)
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # §7.2 Early Return — Chain.return_()
@@ -408,15 +406,14 @@ class BreakInGatherTest(SymmetricTestCase):
   """SPEC §5.6: break_() signals are not allowed in gather operations."""
 
   async def test_break_in_gather_raises_quent_exception(self) -> None:
-    """break_() in gather raises QuentException."""
+    """break_() in gather raises QuentException with exact message (§5.5)."""
     c = Chain(5).gather(lambda x: Chain.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
-    self.assertIn('break', str(ctx.exception).lower())
-    self.assertIn('gather', str(ctx.exception).lower())
+    self.assertIn('break_() signals are not allowed in gather operations', str(ctx.exception))
 
   async def test_break_in_gather_async(self) -> None:
-    """Async break_() in gather raises QuentException."""
+    """Async break_() in gather raises QuentException with exact message (§5.5)."""
 
     async def fn(x):
       return Chain.break_()
@@ -424,15 +421,14 @@ class BreakInGatherTest(SymmetricTestCase):
     c = Chain(5).gather(fn)
     with self.assertRaises(QuentException) as ctx:
       await c.run()
-    self.assertIn('break', str(ctx.exception).lower())
-    self.assertIn('gather', str(ctx.exception).lower())
+    self.assertIn('break_() signals are not allowed in gather operations', str(ctx.exception))
 
   async def test_break_in_gather_multiple_fns(self) -> None:
     """break_() in one of multiple gather fns raises QuentException."""
     c = Chain(5).gather(lambda x: x * 2, lambda x: Chain.break_(), lambda x: x + 1)
     with self.assertRaises(QuentException) as ctx:
       c.run()
-    self.assertIn('break', str(ctx.exception).lower())
+    self.assertIn('break_() signals are not allowed in gather operations', str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------

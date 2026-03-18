@@ -12,10 +12,8 @@ import concurrent.futures
 import unittest
 
 from quent import Chain
-from tests.tests_helper import (
-  SymmetricTestCase,
-  async_double,
-)
+from tests.fixtures import async_double
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # #1 — _to_async error metadata (lines 199->201, 215-216)

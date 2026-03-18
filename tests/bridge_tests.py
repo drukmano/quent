@@ -16,24 +16,25 @@ import asyncio
 from unittest import TestCase
 
 from quent import Chain
-from tests.tests_helper import (
-  ALL_BRICKS,
-  ERROR_INJECTION_TYPES,
-  HANDLER_CONFIGS,
+from tests.bricks import ALL_BRICKS
+from tests.bridge_runner import run_bridge, verify_all_brick_oracles
+from tests.fixtures import (
   V_DOUBLE,
   V_FN,
-  SymmetricTestCase,
   async_fn,
   async_raise,
-  async_raise_base,
-  run_bridge,
   sync_double,
   sync_fn,
   sync_identity,
   sync_raise,
-  sync_raise_base,
-  verify_all_brick_oracles,
 )
+from tests.handler_configs import (
+  ERROR_INJECTION_TYPES,
+  HANDLER_CONFIGS,
+  async_raise_base,
+  sync_raise_base,
+)
+from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
 # Reduced brick sets for bridge testing

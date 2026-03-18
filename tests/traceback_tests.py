@@ -1325,6 +1325,52 @@ print('IMPORT_OK')
     self.assertIn('RuntimeWarning', result.stderr)
 
 
+# --- §13.8: TracebackException signature compatibility (SPEC-449) ---
+
+
+class TracebackExceptionSignatureCompatibilityTest(TestCase):
+  """§13.8 (SPEC-449): TracebackException.__init__ has the expected signature on supported Python versions.
+
+  The patch guard in quent._traceback checks that the first four positional
+  parameters are ['self', 'exc_type', 'exc_value', 'exc_traceback'].  If a
+  future Python version changes this signature the patch is silently skipped,
+  disabling traceback enhancement without any signal.  This test asserts the
+  guard condition passes on all supported Python versions (3.10-3.13+), so a
+  signature change is caught before users encounter silent degradation.
+  """
+
+  def test_expected_parameters_present(self):
+    """TracebackException.__init__ has the four expected positional parameters."""
+    import inspect
+
+    params = list(inspect.signature(traceback.TracebackException.__init__).parameters.keys())
+    self.assertGreaterEqual(
+      len(params),
+      4,
+      f'TracebackException.__init__ has fewer than 4 parameters: {params}',
+    )
+    self.assertEqual(
+      params[:4],
+      ['self', 'exc_type', 'exc_value', 'exc_traceback'],
+      f'TracebackException.__init__ parameter order changed: {params[:4]}',
+    )
+
+  def test_guard_condition_passes(self):
+    """The guard condition used by quent._traceback to decide whether to apply the patch passes."""
+    import inspect
+
+    # Mirror exactly the guard condition from quent/_traceback.py:
+    #   _te_params[:4] != ['self', 'exc_type', 'exc_value', 'exc_traceback']
+    te_params = list(inspect.signature(traceback.TracebackException.__init__).parameters.keys())
+    guard_passes = te_params[:4] == ['self', 'exc_type', 'exc_value', 'exc_traceback']
+    self.assertTrue(
+      guard_passes,
+      f'TracebackException.__init__ signature guard fails on Python {sys.version}: '
+      f'expected first 4 params [self, exc_type, exc_value, exc_traceback], got {te_params[:4]}. '
+      f'The quent._traceback patch will be skipped, disabling traceback enhancement.',
+    )
+
+
 # --- §13.12: Viz failure → DEBUG log (SPEC-460/461) ---
 
 
