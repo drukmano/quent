@@ -1500,13 +1500,13 @@ class IteratePendingIfTest(unittest.TestCase):
     """iterate() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
       Chain([1, 2, 3]).if_(lambda x: len(x) > 0).iterate()
-    self.assertIn('pending .if_()', str(ctx.exception))
+    self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
   def test_iterate_do_with_pending_if_raises(self) -> None:
     """iterate_do() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
       Chain([1, 2, 3]).if_(lambda x: len(x) > 0).iterate_do()
-    self.assertIn('pending .if_()', str(ctx.exception))
+    self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
@@ -1674,17 +1674,17 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     self.assertEqual(result, [0, 1, 2])
     self.assertEqual(cleanup_calls, ['async_cleanup'])
 
-  async def test_async_finally_handler_warns_in_sync_for(self) -> None:
-    """Async finally handler in sync for should issue RuntimeWarning (§6.3.5)."""
+  async def test_async_finally_handler_raises_in_sync_for(self) -> None:
+    """Async finally handler in sync for should raise TypeError (§6.3.5)."""
     cleanup_calls: list[str] = []
 
     async def async_cleanup(rv: object) -> None:
       cleanup_calls.append('async_cleanup')
 
     it = Chain(range(3)).finally_(async_cleanup).iterate()
-    with self.assertWarns(RuntimeWarning):
-      result = list(it)
-    self.assertEqual(result, [0, 1, 2])
+    with self.assertRaises(TypeError) as ctx:
+      list(it)
+    self.assertIn("use 'async for' instead of 'for'", str(ctx.exception))
     # Handler was NOT awaited (coroutine was closed)
     self.assertEqual(cleanup_calls, [])
 

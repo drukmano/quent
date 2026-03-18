@@ -216,10 +216,11 @@ class BreakOutsideIterationTest(TestCase):
     c = Chain(1).then(lambda x: Chain.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
-    self.assertEqual(
-      str(ctx.exception),
-      'Chain.break_() cannot be used outside of a foreach/foreach_do iteration.',
+    expected = (
+      'Chain.break_() cannot be used outside of an iteration context'
+      ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
     )
+    self.assertEqual(str(ctx.exception), expected)
 
 
 # ---------------------------------------------------------------------------

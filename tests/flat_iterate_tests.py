@@ -333,13 +333,13 @@ class FlatIteratePendingIfTest(unittest.TestCase):
     """flat_iterate() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
       Chain([[1, 2], [3]]).if_(lambda x: True).flat_iterate()
-    self.assertIn('pending .if_()', str(ctx.exception))
+    self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
   def test_flat_iterate_do_with_pending_if_raises(self) -> None:
     """flat_iterate_do() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
       Chain([[1, 2], [3]]).if_(lambda x: True).flat_iterate_do()
-    self.assertIn('pending .if_()', str(ctx.exception))
+    self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
 
 if __name__ == '__main__':

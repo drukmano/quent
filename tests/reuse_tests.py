@@ -650,7 +650,7 @@ class DecoratorPendingIfTest(unittest.TestCase):
     """decorator() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
       Chain(5).if_(lambda x: x > 0).decorator()
-    self.assertIn('pending .if_()', str(ctx.exception))
+    self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
   def test_decorator_pending_if_raises(self) -> None:
     """SPEC SS10.2: pending if_() before decorator() raises QuentException."""
