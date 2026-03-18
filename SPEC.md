@@ -1,6 +1,6 @@
 # quent — Behavioral Specification
 
-**Version:** 5.3.0 | **Date:** 2026-03-17
+**Version:** 6.0.0 | **Date:** 2026-03-18
 
 > This document defines quent's behavioral contracts. It describes what quent does in terms
 > of observable behavior — not how it is implemented. The source code is the implementation;
