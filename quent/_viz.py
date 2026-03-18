@@ -12,6 +12,7 @@ from ._types import Null
 
 if TYPE_CHECKING:
   from ._chain import Chain
+  from ._types import _ChainOp
 
 
 _ERROR_MARKER = ' <----'
@@ -35,7 +36,7 @@ _ANSI_ESCAPE_RE = re.compile(
 # Unicode control characters to strip (C0/C1 controls except tab, newline, carriage return).
 _CONTROL_CHAR_RE = re.compile(
   r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb'
-  r'\U000e0001-\U000e007f]'
+  r'\U000e0001-\U000e007f\U000e0100-\U000e01ef]'
 )
 
 # QUENT_TRACEBACK_VALUES=0 suppresses argument values in chain visualizations
@@ -103,7 +104,7 @@ def _get_link_name(link: Link) -> str:
   method name without importing or isinstance-checking against each concrete
   operation class.
 
-  Writers (operation classes that set ``_link_name``):
+  Writers (operation classes conforming to ``_ChainOp``):
     - ``_IfOp`` / ``_if_ops.py``      → ``'if_'``
     - ``_IterOp``, ``_ConcurrentIterOp`` / ``_iter_ops.py``
                                        → ``'foreach'`` or ``'foreach_do'``
@@ -119,7 +120,7 @@ def _get_link_name(link: Link) -> str:
   callable or value added via ``.then()`` / ``.do()``), the method name is
   inferred from ``link.ignore_result``: ``'do'`` when True, ``'then'`` otherwise.
   """
-  op: Any = link.v
+  op: _ChainOp | Any = link.v
   link_name: str | None = getattr(op, '_link_name', None)
   if link_name is not None:
     return link_name
@@ -185,10 +186,10 @@ def _get_true_source_link(
       chain = source_link.original_value
     else:
       break
-    if chain.root_link is not None:
-      source_link = chain.root_link
-    elif chain.first_link is not None:
-      source_link = chain.first_link
+    if chain._root_link is not None:
+      source_link = chain._root_link
+    elif chain._first_link is not None:
+      source_link = chain._first_link
     else:
       break
   if source_link is None:
@@ -263,7 +264,7 @@ def _stringify_chain(
     return f'{_make_indent(nest_lvl)}Chain(...<truncated at depth {max_depth}>...)'
   output = ''
   truncated_count = 0
-  root = chain.root_link
+  root = chain._root_link
   if root is None and root_link is not None:
     root = root_link
 
@@ -278,16 +279,16 @@ def _stringify_chain(
     ctx.mark_found(root)
 
   links: list[tuple[Link, str]] = []
-  link = chain.first_link
+  link = chain._first_link
   while link is not None:
     links.append((link, _get_link_name(link)))
     if getattr(link.v, '_else_link', None) is not None:
       links.append((link.v._else_link, 'else_'))
     link = link.next_link
-  if chain.on_except_link is not None:
-    links.append((chain.on_except_link, 'except_'))
-  if chain.on_finally_link is not None:
-    links.append((chain.on_finally_link, 'finally_'))
+  if chain._on_except_link is not None:
+    links.append((chain._on_except_link, 'except_'))
+  if chain._on_finally_link is not None:
+    links.append((chain._on_finally_link, 'finally_'))
 
   if len(links) > _VIZ_MAX_LINKS_PER_LEVEL:
     truncated_count = len(links) - _VIZ_MAX_LINKS_PER_LEVEL
@@ -320,16 +321,17 @@ def _format_link(
   """Format a single link, including nested chains and operation-specific rendering.
 
   ``op_link`` is the operation wrapper link (the Link as it appears in the chain's
-  linked list — its ``v`` may be an operation class like ``_IterOp`` or
-  ``_ConcurrentGatherOp`` that exposes ``_link_name``).
+  linked list — its ``v`` may be an operation class conforming to ``_ChainOp``
+  (e.g. ``_IterOp``, ``_ConcurrentGatherOp``) that exposes ``_link_name``).
   ``user_link`` is the user-provided callable's link (drilled through ``original_value``
   when an operation wraps the original user callable in a new Link).
   """
   op_link = link
-  # ``op`` may be an operation class (like ``_IterOp``) exposing ``_link_name``,
-  # or a plain callable / value.  ``getattr`` is used to read ``_link_name``
-  # and ``_fns``/``_concurrency`` safely regardless of the concrete type.
-  op: Any = op_link.v
+  # ``op`` may be an operation class conforming to ``_ChainOp`` (exposing
+  # ``_link_name``), or a plain callable / value.  ``getattr`` is used to
+  # read ``_link_name`` and ``_fns``/``_concurrency`` safely regardless of
+  # the concrete type.
+  op: _ChainOp | Any = op_link.v
   # Resolve the user link (drill through original_value if it's a Link).
   user_link = link
   if isinstance(user_link.original_value, Link):

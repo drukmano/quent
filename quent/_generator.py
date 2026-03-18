@@ -8,6 +8,7 @@ import warnings
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from ._buffer_ops import _async_buffer_iter, _sync_buffer_iter
 from ._engine import _run_async_finally, _run_sync_finally
 from ._eval import _eval_signal_value, _evaluate_value, _isawaitable, _should_use_async_protocol
 from ._exc_meta import _set_link_temp_args
@@ -32,7 +33,7 @@ def _handle_iterate_exc(
   if link is not None:
     _set_link_temp_args(exc, link, item=item, index=idx)
     method = 'iterate_do' if ignore_result else 'iterate'
-    _modify_traceback(exc, chain, link, chain.root_link if chain else None, extra_links=[(link, method)])
+    _modify_traceback(exc, chain, link, chain._root_link if chain else None, extra_links=[(link, method)])
 
 
 def _resolve_signal_value(
@@ -85,7 +86,9 @@ def _run_deferred_finally_sync(chain: Chain[Any], deferred: list[Any]) -> None:
       result.close()
     warnings.warn(
       'iterate(): finally handler returned a coroutine during sync iteration; '
-      "the handler was not awaited. Use 'async for' to await async finally handlers.",
+      'the handler was NOT awaited and its cleanup code was skipped. '
+      'Resources held by the handler (connections, file handles, etc.) may leak. '
+      "Use 'async for' to properly await async finally handlers.",
       RuntimeWarning,
       stacklevel=2,
     )
@@ -137,15 +140,16 @@ def _sync_generator(
   ignore_result: bool,
   chain: Chain[Any] | None = None,
   link: Link | None = None,
-  deferred_with: tuple[Link | None, bool] | None = None,
+  deferred_with: tuple[Link, bool] | None = None,
   flat: bool = False,
-  on_exhaust: Callable[[], Any] | None = None,
+  flush: Callable[[], Any] | None = None,
+  buffer_size: int | None = None,
 ) -> Iterator[Any]:
   # SYNC MIRROR of _async_generator — keep both in sync when modifying.
   # Intentional divergences: sync closes awaitables + raises TypeError; async awaits them.
   """Synchronous generator that yields each element of the chain's output."""
   __tracebackhide__ = True
-  _has_deferred = chain is not None and chain.on_finally_link is not None
+  _has_deferred = chain is not None and chain._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   _with_cm: Any = None  # Tracks entered CM for cleanup
 
@@ -177,17 +181,17 @@ def _sync_generator(
       cm = result
       ctx = cm.__enter__()
       _with_cm = cm
-      if _dw_inner_link is not None:
-        inner_result = _evaluate_value(_dw_inner_link, ctx)
-        if _isawaitable(inner_result):
-          if hasattr(inner_result, 'close'):
-            inner_result.close()
-          msg = "iterate(): deferred with_ inner function returned a coroutine. Use 'async for' with __aiter__ instead."
-          raise TypeError(msg)
-        result = cm if _dw_ignore_result else inner_result
-      else:
-        # Bare with_(): context value IS the iterable
-        result = ctx
+      inner_result = _evaluate_value(_dw_inner_link, ctx)
+      if _isawaitable(inner_result):
+        if hasattr(inner_result, 'close'):
+          inner_result.close()
+        msg = "iterate(): deferred with_ inner function returned a coroutine. Use 'async for' with __aiter__ instead."
+        raise TypeError(msg)
+      result = cm if _dw_ignore_result else inner_result
+
+    # Wrap with buffer if requested
+    if buffer_size is not None:
+      result = _sync_buffer_iter(result, buffer_size)
 
     # Iteration loop
     idx = 0
@@ -227,15 +231,15 @@ def _sync_generator(
             yield item if ignore_result else fn_result
         idx += 1
 
-      # on_exhaust after source exhaustion (flat mode only)
-      if on_exhaust is not None:
-        exhaust_result = on_exhaust()
-        if _isawaitable(exhaust_result):
-          if hasattr(exhaust_result, 'close'):
-            exhaust_result.close()
-          msg = "iterate(): on_exhaust callable returned a coroutine. Use 'async for' with __aiter__ instead."
+      # flush after source exhaustion (flat mode only)
+      if flush is not None:
+        flush_result = flush()
+        if _isawaitable(flush_result):
+          if hasattr(flush_result, 'close'):
+            flush_result.close()
+          msg = "iterate(): flush callable returned a coroutine. Use 'async for' with __aiter__ instead."
           raise TypeError(msg)
-        for sub in exhaust_result:
+        for sub in flush_result:
           yield sub
 
     except _Break as exc:
@@ -293,15 +297,16 @@ async def _async_generator(
   ignore_result: bool,
   chain: Chain[Any] | None = None,
   link: Link | None = None,
-  deferred_with: tuple[Link | None, bool] | None = None,
+  deferred_with: tuple[Link, bool] | None = None,
   flat: bool = False,
-  on_exhaust: Callable[[], Any] | None = None,
+  flush: Callable[[], Any] | None = None,
+  buffer_size: int | None = None,
 ) -> AsyncIterator[Any]:
   # ASYNC MIRROR of _sync_generator — keep both in sync when modifying.
   # Intentional divergences: async awaits awaitables; sync closes them + raises TypeError.
   """Asynchronous generator that yields each element of the chain's output."""
   __tracebackhide__ = True
-  _has_deferred = chain is not None and chain.on_finally_link is not None
+  _has_deferred = chain is not None and chain._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   _with_cm: Any = None
   _use_async_cm = False
@@ -339,14 +344,14 @@ async def _async_generator(
         )
         raise TypeError(msg)
       _with_cm = cm
-      if _dw_inner_link is not None:
-        inner_result = _evaluate_value(_dw_inner_link, ctx)
-        if _isawaitable(inner_result):
-          inner_result = await inner_result
-        iterator = cm if _dw_ignore_result else inner_result
-      else:
-        # Bare with_(): context value IS the iterable
-        iterator = ctx
+      inner_result = _evaluate_value(_dw_inner_link, ctx)
+      if _isawaitable(inner_result):
+        inner_result = await inner_result
+      iterator = cm if _dw_ignore_result else inner_result
+
+    # Wrap with buffer if requested
+    if buffer_size is not None:
+      iterator = _async_buffer_iter(iterator, buffer_size)
 
     if not hasattr(iterator, '__aiter__'):
       iterator = _aiter_wrap(iterator)
@@ -357,8 +362,12 @@ async def _async_generator(
       async for item in iterator:
         if fn is None:
           if flat:
-            for sub in item:
-              yield sub
+            if hasattr(item, '__aiter__'):
+              async for sub in item:
+                yield sub
+            else:
+              for sub in item:
+                yield sub
           else:
             yield item
         else:
@@ -373,23 +382,35 @@ async def _async_generator(
             raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
           if flat:
             if ignore_result:
-              for _unused in result:
-                pass
+              if hasattr(result, '__aiter__'):
+                async for _unused in result:
+                  pass
+              else:
+                for _unused in result:
+                  pass
               yield item
             else:
-              for sub in result:
-                yield sub
+              if hasattr(result, '__aiter__'):
+                async for sub in result:
+                  yield sub
+              else:
+                for sub in result:
+                  yield sub
           else:
             yield item if ignore_result else result
         idx += 1
 
-      # on_exhaust after source exhaustion
-      if on_exhaust is not None:
-        exhaust_result = on_exhaust()
-        if _isawaitable(exhaust_result):
-          exhaust_result = await exhaust_result
-        for sub in exhaust_result:
-          yield sub
+      # flush after source exhaustion
+      if flush is not None:
+        flush_result = flush()
+        if _isawaitable(flush_result):
+          flush_result = await flush_result
+        if hasattr(flush_result, '__aiter__'):
+          async for sub in flush_result:
+            yield sub
+        else:
+          for sub in flush_result:
+            yield sub
 
     except _Break as exc:
       resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
@@ -453,25 +474,27 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
   """
 
   __slots__ = (
+    '_buffer_size',
     '_chain',
     '_chain_run',
     '_deferred_with',
     '_flat',
+    '_flush',
     '_fn',
     '_ignore_result',
     '_link',
-    '_on_exhaust',
     '_run_args',
   )
 
+  _buffer_size: int | None
   _chain: Chain[Any] | None
   _chain_run: Callable[..., Any]
-  _deferred_with: tuple[Link | None, bool] | None
+  _deferred_with: tuple[Link, bool] | None
   _flat: bool
+  _flush: Callable[[], Any] | None
   _fn: Callable[[Any], Any] | None
   _ignore_result: bool
   _link: Link | None
-  _on_exhaust: Callable[[], Any] | None
   _run_args: tuple[Any, tuple[Any, ...], dict[str, Any]]
 
   def __init__(
@@ -481,9 +504,10 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
     ignore_result: bool,
     chain: Chain[Any] | None = None,
     link: Link | None = None,
-    deferred_with: tuple[Link | None, bool] | None = None,
+    deferred_with: tuple[Link, bool] | None = None,
     flat: bool = False,
-    on_exhaust: Callable[[], Any] | None = None,
+    flush: Callable[[], Any] | None = None,
+    buffer_size: int | None = None,
   ) -> None:
     self._chain_run = chain_run
     self._fn = fn
@@ -492,7 +516,8 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
     self._link = link
     self._deferred_with = deferred_with
     self._flat = flat
-    self._on_exhaust = on_exhaust
+    self._flush = flush
+    self._buffer_size = buffer_size
     self._run_args: tuple[Any, tuple[Any, ...], dict[str, Any]] = (Null, (), {})
 
   def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> ChainIterator[_T]:
@@ -505,7 +530,8 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
       self._link,
       deferred_with=self._deferred_with,
       flat=self._flat,
-      on_exhaust=self._on_exhaust,
+      flush=self._flush,
+      buffer_size=self._buffer_size,
     )
     g._run_args = (v, args, kwargs)
     return g
@@ -521,7 +547,8 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
       self._link,
       deferred_with=self._deferred_with,
       flat=self._flat,
-      on_exhaust=self._on_exhaust,
+      flush=self._flush,
+      buffer_size=self._buffer_size,
     )
 
   def __aiter__(self) -> AsyncIterator[_T]:
@@ -535,7 +562,8 @@ class ChainIterator(_UncopyableMixin, Generic[_T]):
       self._link,
       deferred_with=self._deferred_with,
       flat=self._flat,
-      on_exhaust=self._on_exhaust,
+      flush=self._flush,
+      buffer_size=self._buffer_size,
     )
 
   def __repr__(self) -> str:

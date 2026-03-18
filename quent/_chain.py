@@ -167,7 +167,12 @@ class Chain(Generic[_T], _UncopyableMixin):
   _quent_is_chain = True
 
   # Optional class-level callback for chain execution instrumentation.
-  # When set, called after each step with (chain, step_name, input_value, result, elapsed_ns).
+  # When set, called after each step with
+  # (chain, step_name, input_value, result, elapsed_ns, exception).
+  # The 6th `exception` parameter is optional for backward compatibility:
+  # callbacks with 5 positional parameters are auto-detected via
+  # inspect.signature and called without the exception argument.
+  # On success: exception=None.  On failure: exception=<the exception>, result=None.
   # Zero overhead when None.
   # Class-level only (intentional): use the chain argument to dispatch per-instance.
   #
@@ -180,34 +185,40 @@ class Chain(Generic[_T], _UncopyableMixin):
   # Thread safety: ``on_step`` must be set *before* any chain execution begins
   # (i.e., at initialization time).  Mutating ``on_step`` while chains are
   # running concurrently is a data race under free-threaded Python (PEP 703).
-  on_step: ClassVar[Callable[[Chain[Any], str, Any, Any, int], None] | None] = None
+  on_step: ClassVar[
+    Callable[[Chain[Any], str, Any, Any, int, BaseException | None], None]
+    | Callable[[Chain[Any], str, Any, Any, int], None]
+    | None
+  ] = None
 
   set = _SetDescriptor()
   get = _GetDescriptor()
 
   __slots__ = (
+    '_buffer_size',
+    '_current_link',
+    '_first_link',
     '_if_predicate_link',
     '_name',
+    '_on_except_exceptions',
+    '_on_except_link',
+    '_on_except_reraise',
+    '_on_finally_link',
     '_pending_if',
-    'current_link',
-    'first_link',
-    'on_except_exceptions',
-    'on_except_link',
-    'on_except_reraise',
-    'on_finally_link',
-    'root_link',
+    '_root_link',
   )
 
+  _buffer_size: int | None
   _if_predicate_link: Link | None
   _name: str | None
   _pending_if: bool
-  current_link: Link | None
-  first_link: Link | None
-  on_except_exceptions: tuple[type[BaseException], ...] | None
-  on_except_link: Link | None
-  on_except_reraise: bool
-  on_finally_link: Link | None
-  root_link: Link | None
+  _current_link: Link | None
+  _first_link: Link | None
+  _on_except_exceptions: tuple[type[BaseException], ...] | None
+  _on_except_link: Link | None
+  _on_except_reraise: bool
+  _on_finally_link: Link | None
+  _root_link: Link | None
 
   # ---- Construction ----
 
@@ -238,15 +249,16 @@ class Chain(Generic[_T], _UncopyableMixin):
     self._name = None
     if v is Null and (args or kwargs):
       raise TypeError('Chain() keyword arguments require a root value as the first positional argument')
-    self.root_link = Link(v, args, kwargs) if v is not Null else None
-    self.first_link = None
-    self.current_link = None
-    self.on_finally_link = None
-    self.on_except_link = None
-    self.on_except_exceptions = None
-    self.on_except_reraise = False
+    self._root_link = Link(v, args, kwargs) if v is not Null else None
+    self._first_link = None
+    self._current_link = None
+    self._on_finally_link = None
+    self._on_except_link = None
+    self._on_except_exceptions = None
+    self._on_except_reraise = False
     self._pending_if = False
     self._if_predicate_link = None
+    self._buffer_size = None
 
   # ---- Dunder methods ----
 
@@ -328,7 +340,7 @@ class Chain(Generic[_T], _UncopyableMixin):
 
   # ---- Pipeline building: core ----
 
-  # Linked list structure: root_link -> first_link -> ... -> current_link (tail)
+  # Linked list structure: _root_link -> _first_link -> ... -> _current_link (tail)
   def _then(
     self,
     v: Any,
@@ -340,18 +352,20 @@ class Chain(Generic[_T], _UncopyableMixin):
   ) -> Self:
     """Construct a Link from the given arguments and append it to the pipeline. O(1) via tail pointer."""
     link = Link(v, args, kwargs, ignore_result=ignore_result, original_value=original_value)
-    if self.current_link is not None:  # 3+ links: append to tail
-      self.current_link.next_link = link
-      self.current_link = link
-    elif self.first_link is not None:  # 2nd link: first_link exists, establish tail pointer
-      self.first_link.next_link = link
-      self.current_link = link
-    else:  # 1st link: set first_link (and wire from root if present)
-      self.first_link = link
-      if self.root_link is not None:
-        self.root_link.next_link = link
+    if self._current_link is not None:  # 3+ links: append to tail
+      self._current_link.next_link = link
+      self._current_link = link
+    elif self._first_link is not None:  # 2nd link: _first_link exists, establish tail pointer
+      self._first_link.next_link = link
+      self._current_link = link
+    else:  # 1st link: set _first_link (and wire from root if present)
+      self._first_link = link
+      if self._root_link is not None:
+        self._root_link.next_link = link
     return self  # fluent
 
+  @overload
+  def then(self, v: Chain[_U], /) -> Chain[_U]: ...
   @overload
   def then(self, v: Callable[..., Awaitable[_U]], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
   @overload
@@ -559,30 +573,67 @@ class Chain(Generic[_T], _UncopyableMixin):
     _validate_executor(executor, 'gather')
     return self._then(_make_gather(fns, concurrency, executor))  # type: ignore[return-value]
 
+  def buffer(self, n: int, /) -> Self:
+    """Attach a backpressure-aware buffer of size *n* for iteration.
+
+    When a subsequent iteration terminal (``iterate()``, ``iterate_do()``,
+    ``flat_iterate()``, ``flat_iterate_do()``) consumes the chain's output,
+    a bounded queue of size *n* is interposed between the producer (the
+    chain's iterable result) and the consumer (the iteration loop).
+
+    When the buffer is full, the producer blocks (backpressure).  When
+    the buffer is empty, the consumer blocks.  For sync iteration a
+    background thread drives the producer; for async iteration a
+    background task is used.
+
+    ``buffer()`` is a chain-level modifier — it does not add a pipeline
+    step.  It only takes effect when the chain is consumed via an
+    iteration terminal.  If ``run()`` is used instead, the buffer
+    setting is silently ignored.
+
+    Args:
+      n: Maximum number of items the buffer can hold.  Must be a
+        positive integer.
+
+    Returns:
+      This chain, for fluent method chaining.
+
+    Raises:
+      TypeError: If *n* is not an integer.
+      ValueError: If *n* is less than 1.
+
+    Example::
+
+        Chain(produce).buffer(10).iterate()
+        # Producer feeds items into a buffer of size 10.
+        # Consumer reads from the buffer with backpressure.
+    """
+    self._require_no_pending_if('buffer')
+    if isinstance(n, bool) or not isinstance(n, int):
+      msg = f'buffer() requires a positive integer, got {type(n).__name__}'
+      raise TypeError(msg)
+    if n < 1:
+      msg = f'buffer() requires a positive integer, got {n}'
+      raise ValueError(msg)
+    self._buffer_size = n
+    return self
+
   # ---- Pipeline building: context managers ----
 
-  @overload
-  def with_(self) -> Self: ...
   @overload
   def with_(self, fn: Callable[..., Awaitable[_U]], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
   @overload
   def with_(self, fn: Callable[..., _U], /, *args: Any, **kwargs: Any) -> Chain[_U]: ...
 
-  def with_(self, fn: Any = None, /, *args: Any, **kwargs: Any) -> Chain[Any]:  # type: ignore[misc]  # overload: bare with_() returns Self
+  def with_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Chain[Any]:
     """Enter the current value as a context manager and run *fn* with it.
 
     The current pipeline value is used as the context manager. *fn* is called
     with the context value (the ``__enter__`` / ``__aenter__`` result), and
     its return value replaces the current pipeline value.
 
-    When *fn* is omitted (bare ``with_()``), the context value itself becomes
-    the pipeline value. This form is only valid before ``iterate()`` or
-    ``flat_iterate()`` — a bare ``with_()`` not followed by an iterate variant
-    raises ``TypeError`` at run time.
-
     Args:
-      fn: Callable to invoke with the context value. Optional — omit to use
-        the context value directly (requires ``iterate()`` after).
+      fn: Callable to invoke with the context value.
       *args: Positional arguments forwarded to *fn*.
       **kwargs: Keyword arguments forwarded to *fn*.
 
@@ -593,18 +644,9 @@ class Chain(Generic[_T], _UncopyableMixin):
 
         Chain(open('data.txt')).with_(lambda f: f.read()).run()
         # Returns file contents; file is properly closed
-
-        # Bare with_() — context value is the iterable:
-        Chain(open('data.csv')).with_().iterate(process_line)
     """
-    if fn is not None:
-      _require_callable(fn, 'with_', self)
-      inner: Link | None = Link(fn, args, kwargs)
-    else:
-      if args or kwargs:
-        msg = 'with_() does not accept positional or keyword arguments when fn is omitted'
-        raise TypeError(msg)
-      inner = None
+    _require_callable(fn, 'with_', self)
+    inner = Link(fn, args, kwargs)
     return self._then(_WithOp(inner, False), original_value=inner)
 
   def with_do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
@@ -700,7 +742,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         f'Usage: chain.if_(pred).then(v).{method}(alt)'
       )
       raise QuentException(msg)
-    last = self.current_link if self.current_link is not None else self.first_link
+    last = self._current_link if self._current_link is not None else self._first_link
     if last is None:
       msg = (
         f'{method}() requires a preceding if_().then() — the chain has no steps yet. '
@@ -836,11 +878,11 @@ class Chain(Generic[_T], _UncopyableMixin):
         Chain(0).then(lambda x: 1 / x).except_(lambda e: -1).run()  # -1
     """
     _require_callable(fn, 'except_', self)
-    if self.on_except_link is not None:
+    if self._on_except_link is not None:
       msg = "You can only register one 'except' callback."
       raise QuentException(msg)
-    self.on_except_exceptions = _normalize_exception_types(exceptions, 'except_', default=(Exception,))
-    for exc_type in self.on_except_exceptions:
+    self._on_except_exceptions = _normalize_exception_types(exceptions, 'except_', default=(Exception,))
+    for exc_type in self._on_except_exceptions:
       if issubclass(exc_type, BaseException) and not issubclass(exc_type, Exception):
         warnings.warn(
           f'quent: except_() is configured to catch {exc_type.__name__}. '
@@ -850,8 +892,8 @@ class Chain(Generic[_T], _UncopyableMixin):
           stacklevel=_user_stacklevel(),
         )
         break
-    self.on_except_link = Link(fn, args, kwargs)
-    self.on_except_reraise = reraise
+    self._on_except_link = Link(fn, args, kwargs)
+    self._on_except_reraise = reraise
     return self  # fluent
 
   def finally_(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
@@ -888,10 +930,10 @@ class Chain(Generic[_T], _UncopyableMixin):
         # cleanup(resource) always runs, even if process raises
     """
     _require_callable(fn, 'finally_', self)
-    if self.on_finally_link is not None:
+    if self._on_finally_link is not None:
       msg = "You can only register one 'finally' callback."
       raise QuentException(msg)
-    self.on_finally_link = Link(fn, args, kwargs)
+    self._on_finally_link = Link(fn, args, kwargs)
     return self  # fluent
 
   @staticmethod
@@ -968,6 +1010,12 @@ class Chain(Generic[_T], _UncopyableMixin):
         Chain(5).then(lambda x: x * 2).run()  # 10
     """
     self._require_no_pending_if('run')
+    if self._buffer_size is not None:
+      raise QuentException(
+        'buffer() requires an iteration terminal'
+        ' (iterate, iterate_do, flat_iterate, flat_iterate_do);'
+        ' run() is not supported with buffer()'
+      )
     if v is Null and (args or kwargs):
       raise TypeError('run() keyword arguments require a root value as the first positional argument')
     if v is not Null and (args or kwargs) and not callable(v):
@@ -977,6 +1025,36 @@ class Chain(Generic[_T], _UncopyableMixin):
       return self._run(v, args, kwargs, is_nested=False)  # type: ignore[no-any-return]
     except _ControlFlowSignal as signal:
       raise self._wrap_escaped_signal(signal, 'run') from None
+
+  def debug(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> Any:
+    """Execute the chain with debug tracing and return a DebugResult.
+
+    Clones the chain (the original is not modified) and runs the clone
+    with step-level instrumentation.  The return value is a
+    ``DebugResult`` with ``.value``, ``.steps``, ``.elapsed_ns``,
+    ``.succeeded``, ``.failed``, and ``.print_trace()``.
+
+    For async pipelines the returned coroutine resolves to a DebugResult.
+
+    Args:
+      v: Optional initial value (same semantics as ``run()``).
+      *args: Positional arguments for the initial value's callable.
+      **kwargs: Keyword arguments for the initial value's callable.
+
+    Returns:
+      A DebugResult (or coroutine resolving to one for async pipelines).
+
+    Example::
+
+        dr = Chain(5).then(lambda x: x * 2).debug()
+        print(dr.value)   # 10
+        dr.print_trace()  # formatted table to stderr
+    """
+    from ._debug import _debug_run, _make_debug_chain
+
+    self._require_no_pending_if('debug')
+    debug_chain = _make_debug_chain(self)
+    return _debug_run(debug_chain, v, args, kwargs)
 
   # ---- Utilities and iteration ----
 
@@ -1015,6 +1093,35 @@ class Chain(Generic[_T], _UncopyableMixin):
 
     return _decorator
 
+  def _build_iterator(
+    self,
+    method: str,
+    fn: Callable[[Any], Any] | None,
+    ignore_result: bool,
+    flat: bool = False,
+    flush: Callable[[], Any] | None = None,
+  ) -> ChainIterator[Any]:
+    """Shared implementation for iterate/iterate_do/flat_iterate/flat_iterate_do."""
+    self._require_no_pending_if(method)
+    link = Link(fn) if fn is not None else None
+    chain_run = functools.partial(_run, self)
+    last_link = self._current_link or self._first_link
+    deferred_with = None
+    if last_link is not None and isinstance(last_link.v, _WithOp):
+      deferred_with = (last_link.v._link, last_link.v._ignore_result)
+    has_deferred_with = deferred_with is not None
+    return ChainIterator(
+      chain_run,
+      fn,
+      ignore_result=ignore_result,
+      chain=self if fn is not None or self._on_finally_link is not None or has_deferred_with else None,
+      link=link,
+      deferred_with=deferred_with,
+      flat=flat,
+      flush=flush,
+      buffer_size=self._buffer_size,
+    )
+
   def iterate(self, fn: Callable[[Any], Any] | None = None) -> ChainIterator[Any]:
     """Return a sync/async iterator over the chain's output.
 
@@ -1032,22 +1139,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         for item in Chain(range(5)).iterate(lambda x: x ** 2):
             print(item)  # 0, 1, 4, 9, 16
     """
-    self._require_no_pending_if('iterate')
-    link = Link(fn) if fn is not None else None
-    chain_run = functools.partial(_run, self)
-    last_link = self.current_link or self.first_link
-    deferred_with = None
-    if last_link is not None and isinstance(last_link.v, _WithOp):
-      deferred_with = (last_link.v._link, last_link.v._ignore_result)
-    has_deferred_with = deferred_with is not None
-    return ChainIterator(
-      chain_run,
-      fn,
-      ignore_result=False,
-      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
-      link=link,
-      deferred_with=deferred_with,
-    )
+    return self._build_iterator('iterate', fn, ignore_result=False)
 
   def iterate_do(self, fn: Callable[[Any], Any] | None = None) -> ChainIterator[Any]:
     """Return a sync/async iterator, discarding *fn*'s return values.
@@ -1066,99 +1158,50 @@ class Chain(Generic[_T], _UncopyableMixin):
         for item in Chain(range(3)).iterate_do(print):
             pass  # prints 0, 1, 2; yields 0, 1, 2
     """
-    self._require_no_pending_if('iterate_do')
-    link = Link(fn) if fn is not None else None
-    chain_run = functools.partial(_run, self)
-    last_link = self.current_link or self.first_link
-    deferred_with = None
-    if last_link is not None and isinstance(last_link.v, _WithOp):
-      deferred_with = (last_link.v._link, last_link.v._ignore_result)
-    has_deferred_with = deferred_with is not None
-    return ChainIterator(
-      chain_run,
-      fn,
-      ignore_result=True,
-      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
-      link=link,
-      deferred_with=deferred_with,
-    )
+    return self._build_iterator('iterate_do', fn, ignore_result=True)
 
   def flat_iterate(
     self,
     fn: Callable[[Any], Any] | None = None,
     *,
-    on_exhaust: Callable[[], Any] | None = None,
+    flush: Callable[[], Any] | None = None,
   ) -> ChainIterator[Any]:
     """Return a sync/async flatmap iterator over the chain's output.
 
     Each element of the chain's iterable result is passed to *fn*, and
     each element from *fn*'s returned iterable is yielded individually.
-    After source exhaustion, *on_exhaust* (if provided) is called and its
+    After source exhaustion, *flush* (if provided) is called and its
     output yielded similarly.
 
     Args:
       fn: Optional callable that returns an iterable for each element.
-      on_exhaust: Optional callable returning a final iterable after source exhaustion.
+      flush: Optional callable returning a final iterable after source exhaustion.
 
     Returns:
       A ChainIterator supporting both ``for`` and ``async for``.
     """
-    self._require_no_pending_if('flat_iterate')
-    link = Link(fn) if fn is not None else None
-    chain_run = functools.partial(_run, self)
-    last_link = self.current_link or self.first_link
-    deferred_with = None
-    if last_link is not None and isinstance(last_link.v, _WithOp):
-      deferred_with = (last_link.v._link, last_link.v._ignore_result)
-    has_deferred_with = deferred_with is not None
-    return ChainIterator(
-      chain_run,
-      fn,
-      ignore_result=False,
-      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
-      link=link,
-      deferred_with=deferred_with,
-      flat=True,
-      on_exhaust=on_exhaust,
-    )
+    return self._build_iterator('flat_iterate', fn, ignore_result=False, flat=True, flush=flush)
 
   def flat_iterate_do(
     self,
     fn: Callable[[Any], Any] | None = None,
     *,
-    on_exhaust: Callable[[], Any] | None = None,
+    flush: Callable[[], Any] | None = None,
   ) -> ChainIterator[Any]:
     """Return a sync/async flatmap iterator, discarding *fn*'s return values.
 
     Like .flat_iterate(), but *fn* runs as a side-effect — its returned
     iterable is consumed but not yielded. The original elements are
-    yielded instead. *on_exhaust* output is still yielded.
+    yielded instead. *flush* output is still yielded.
 
     Args:
       fn: Optional callable for side-effects on each element.
-      on_exhaust: Optional callable returning a final iterable after source exhaustion.
+      flush: Optional callable returning a final iterable after source exhaustion.
 
     Returns:
       A ChainIterator supporting both ``for`` and ``async for``.
     """
-    self._require_no_pending_if('flat_iterate_do')
-    link = Link(fn) if fn is not None else None
-    chain_run = functools.partial(_run, self)
-    last_link = self.current_link or self.first_link
-    deferred_with = None
-    if last_link is not None and isinstance(last_link.v, _WithOp):
-      deferred_with = (last_link.v._link, last_link.v._ignore_result)
-    has_deferred_with = deferred_with is not None
-    return ChainIterator(
-      chain_run,
-      fn,
-      ignore_result=True,
-      chain=self if fn is not None or self.on_finally_link is not None or has_deferred_with else None,
-      link=link,
-      deferred_with=deferred_with,
-      flat=True,
-      on_exhaust=on_exhaust,
-    )
+    return self._build_iterator('flat_iterate_do', fn, ignore_result=True, flat=True, flush=flush)
 
   def clone(self) -> Self:
     """Create an independent copy of this chain for fork-and-extend patterns.
@@ -1181,32 +1224,33 @@ class Chain(Generic[_T], _UncopyableMixin):
     cls = type(self)
     new = cls.__new__(cls)
     new._name = self._name
+    new._buffer_size = self._buffer_size
     new._pending_if = self._pending_if
     new._if_predicate_link = _clone_link(self._if_predicate_link) if self._if_predicate_link is not None else None
-    new.on_except_reraise = self.on_except_reraise
-    new.on_except_exceptions = self.on_except_exceptions
-    new.on_except_link = _clone_link(self.on_except_link) if self.on_except_link is not None else None
-    new.on_finally_link = _clone_link(self.on_finally_link) if self.on_finally_link is not None else None
+    new._on_except_reraise = self._on_except_reraise
+    new._on_except_exceptions = self._on_except_exceptions
+    new._on_except_link = _clone_link(self._on_except_link) if self._on_except_link is not None else None
+    new._on_finally_link = _clone_link(self._on_finally_link) if self._on_finally_link is not None else None
 
-    new.root_link = _clone_link(self.root_link) if self.root_link is not None else None
+    new._root_link = _clone_link(self._root_link) if self._root_link is not None else None
 
-    if self.first_link is None:
-      new.first_link = None
-      new.current_link = None
+    if self._first_link is None:
+      new._first_link = None
+      new._current_link = None
     else:
-      new.first_link = _clone_link(self.first_link)
-      prev = new.first_link
-      old_link = self.first_link.next_link
+      new._first_link = _clone_link(self._first_link)
+      prev = new._first_link
+      old_link = self._first_link.next_link
       while old_link is not None:
         cloned = _clone_link(old_link)
         prev.next_link = cloned
         prev = cloned
         old_link = old_link.next_link
-      # current_link is the tail pointer; only needed when there are 2+ non-root links.
-      new.current_link = prev if self.current_link is not None else None
+      # _current_link is the tail pointer; only needed when there are 2+ non-root links.
+      new._current_link = prev if self._current_link is not None else None
 
-    if new.root_link is not None and new.first_link is not None:
-      new.root_link.next_link = new.first_link
+    if new._root_link is not None and new._first_link is not None:
+      new._root_link.next_link = new._first_link
 
     if __debug__:
       _missing = [s for s in self.__slots__ if getattr(new, s, _CLONE_SENTINEL) is _CLONE_SENTINEL]

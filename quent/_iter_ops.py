@@ -24,12 +24,7 @@ from ._concurrency import (
 from ._eval import _handle_break_exc, _isawaitable, _should_use_async_protocol
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
-from ._types import ExceptionGroup, Null, _Break, _ControlFlowSignal, _Return
-
-# Dedicated sentinel for unprocessed results in concurrent arrays.
-# Using Null would cause a double-invocation bug if user code ever
-# returned the Null sentinel (even though it is not part of the public API).
-_UNPROCESSED: object = object()
+from ._types import _UNPROCESSED, ExceptionGroup, Null, QuentException, _Break, _ControlFlowSignal, _Return
 
 # ---- Exception triage helpers for concurrent iteration ----
 #
@@ -96,7 +91,7 @@ def _triage_iter_exceptions(exceptions: list[BaseException], n: int, op: str) ->
         first_break = exc
         first_break_idx = idx
     elif isinstance(exc, _ControlFlowSignal):
-      raise exc from None
+      raise QuentException(f'Unknown control flow signal: {type(exc).__name__}') from exc
     else:
       if not isinstance(exc, Exception):
         if first_base_exc is None or getattr(exc, '_quent_idx', n) < first_base_idx:

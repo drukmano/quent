@@ -140,6 +140,20 @@ def _clean_quent_idx(exc: BaseException) -> None:
     pass
 
 
+def _pop_heavy_meta_keys(meta: dict[str, Any]) -> None:
+  """Remove heavy chain-internal reference keys from a metadata dict.
+
+  Shared by ``_clean_exc_meta`` (after-except cleanup) and
+  ``_traceback._cleanup_outermost_meta`` (defense-in-depth at the
+  outermost chain boundary).  The lightweight ``quent`` flag is
+  intentionally preserved.
+  """
+  meta.pop(META_SOURCE_LINK, None)
+  meta.pop(META_LINK_TEMP_ARGS, None)
+  meta.pop(META_GATHER_INDEX, None)
+  meta.pop(META_GATHER_FN, None)
+
+
 def _clean_exc_meta(exc: BaseException) -> None:
   """Remove heavy chain-internal references from exception metadata.
 
@@ -150,9 +164,5 @@ def _clean_exc_meta(exc: BaseException) -> None:
   meta = getattr(exc, '__quent_meta__', None)
   if meta is None:
     return
-  # Removes chain-internal metadata keys; the 'quent' flag is intentionally preserved.
-  meta.pop(META_SOURCE_LINK, None)
-  meta.pop(META_LINK_TEMP_ARGS, None)
-  meta.pop(META_GATHER_INDEX, None)
-  meta.pop(META_GATHER_FN, None)
+  _pop_heavy_meta_keys(meta)
   _clean_quent_idx(exc)

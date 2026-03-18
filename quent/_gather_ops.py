@@ -23,12 +23,7 @@ from ._concurrency import (
 )
 from ._eval import _isawaitable
 from ._exc_meta import _set_gather_meta
-from ._types import ExceptionGroup, QuentException, _Break, _ControlFlowSignal
-
-# Dedicated sentinel for unprocessed results in concurrent arrays.
-# Using Null would cause a double-invocation bug if user code ever
-# returned the Null sentinel (even though it is not part of the public API).
-_UNPROCESSED: object = object()
+from ._types import _UNPROCESSED, ExceptionGroup, QuentException, _Break, _ControlFlowSignal
 
 _log = logging.getLogger('quent')
 

@@ -30,6 +30,7 @@ from ._exc_meta import (
   META_SOURCE_LINK,
   _clean_quent_idx,
   _get_exc_meta,
+  _pop_heavy_meta_keys,
 )
 from ._link import Link
 from ._viz import (
@@ -48,10 +49,7 @@ if TYPE_CHECKING:
 
 def _cleanup_outermost_meta(meta: dict[str, Any]) -> None:
   """Defense-in-depth: ensure heavy refs are removed even if visualization failed."""
-  meta.pop(META_SOURCE_LINK, None)
-  meta.pop(META_LINK_TEMP_ARGS, None)
-  meta.pop(META_GATHER_INDEX, None)
-  meta.pop(META_GATHER_FN, None)
+  _pop_heavy_meta_keys(meta)
 
 
 # ---- Module-level constants ----
@@ -244,7 +242,7 @@ def _attach_exception_note(exc: BaseException, chain: Chain[Any], source_link: L
       step_name = f'.{_get_link_name(source_link)}({obj_name})'
     else:
       step_name = '?'
-    root_name = _get_obj_name(chain.root_link.v) if chain.root_link is not None else ''
+    root_name = _get_obj_name(chain._root_link.v) if chain._root_link is not None else ''
     chain_label = f'Chain[{_sanitize_repr(chain._name)}]' if chain._name is not None else 'Chain'
     exc.add_note(f'quent: exception at {step_name} in {chain_label}({root_name})')
   except Exception as note_exc:

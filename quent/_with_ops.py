@@ -38,10 +38,10 @@ class _WithOp:
   __slots__ = ('_ignore_result', '_link', '_link_name')
 
   _ignore_result: bool
-  _link: Link | None
+  _link: Link
   _link_name: str
 
-  def __init__(self, link: Link | None, ignore_result: bool) -> None:
+  def __init__(self, link: Link, ignore_result: bool) -> None:
     self._link = link
     self._ignore_result = ignore_result
     self._link_name = 'with_do' if ignore_result else 'with_'
@@ -53,7 +53,6 @@ class _WithOp:
   async def _to_async(self, current_value: Any, body_result: Any, outer_value: Any, ctx: Any) -> Any:
     """Await the body result and handle sync __exit__ that may return awaitables."""
     __tracebackhide__ = True
-    assert self._link is not None  # guaranteed by __call__ guard
     try:
       body_result = await body_result
     except _ControlFlowSignal as signal:
@@ -86,7 +85,6 @@ class _WithOp:
   async def _full_async(self, current_value: Any) -> Any:
     """Handle a native async context manager (has __aenter__/__aexit__)."""
     __tracebackhide__ = True
-    assert self._link is not None  # guaranteed by __call__ guard
     outer_value = current_value
     result = _WITH_UNSET
     try:
@@ -161,7 +159,6 @@ class _WithOp:
       f. Success + async __exit__
     """
     __tracebackhide__ = True
-    assert self._link is not None  # guaranteed by __call__ guard
     try:
       ctx = cm.__enter__()
     except BaseException as exc:
@@ -207,9 +204,6 @@ class _WithOp:
     - Neither protocol -> TypeError
     """
     __tracebackhide__ = True
-    if self._link is None:
-      msg = 'with_() with no callable requires iterate() or flat_iterate() after it'
-      raise TypeError(msg)
     _use_async = _should_use_async_protocol(current_value, '__enter__', '__aenter__')
     if _use_async is True:
       return self._full_async(current_value)

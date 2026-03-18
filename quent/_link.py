@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ._types import _UncopyableMixin
+from ._types import QuentException, _UncopyableMixin
 
 if TYPE_CHECKING:
   from ._if_ops import _IfOp
@@ -140,11 +140,9 @@ def _clone_link(link: Link) -> Link:
   # Other operation classes are immutable and don't need cloning.
   elif isinstance(link.v, _IfOp_cls):
     new.v = link.v._clone()
-  if __debug__:
-    # Verify all slots are initialized — catches new slots added to Link
-    # without corresponding updates to _clone_link.
-    for _s in Link.__slots__:
-      assert getattr(new, _s, _CLONE_SENTINEL) is not _CLONE_SENTINEL, (
-        f'_clone_link: slot {_s!r} not initialized in cloned Link'
-      )
+  # Verify all slots are initialized — catches new slots added to Link
+  # without corresponding updates to _clone_link.
+  for _s in Link.__slots__:
+    if getattr(new, _s, _CLONE_SENTINEL) is _CLONE_SENTINEL:
+      raise QuentException(f'_clone_link: slot {_s!r} not initialized in cloned Link')
   return new

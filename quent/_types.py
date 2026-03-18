@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
-from typing import Any, NamedTuple, NoReturn
+from typing import Any, NamedTuple, NoReturn, Protocol
 
 # ---- ExceptionGroup polyfill ----
 
@@ -149,6 +149,14 @@ def _get_null() -> _Null:
   return Null
 
 
+# ---- Concurrent operation sentinel ----
+
+# Sentinel for unprocessed slots in concurrent result arrays (_iter_ops, _gather_ops).
+# Using Null would cause a double-invocation bug if user code ever
+# returned the Null sentinel (even though it is not part of the public API).
+_UNPROCESSED: object = object()
+
+
 # ---- Exceptions ----
 
 
@@ -195,7 +203,7 @@ class _ControlFlowSignal(BaseException):
     # self.args to an empty tuple, which is fine.
     self.value = v
     self.signal_args = args
-    self.signal_kwargs = kwargs
+    self.signal_kwargs = kwargs or None
 
   def __repr__(self) -> str:
     return f'{type(self).__name__}(value={self.value!r})'
@@ -220,6 +228,32 @@ class _Break(_ControlFlowSignal):
 
 # Pre-allocated empty tuple to avoid per-call allocations in hot paths.
 _EMPTY_TUPLE: tuple[Any, ...] = ()
+
+# ---- Operation protocol ----
+
+
+class _ChainOp(Protocol):
+  """Structural protocol for pipeline operation callables.
+
+  All operation classes (``_IfOp``, ``_IterOp``, ``_ConcurrentIterOp``,
+  ``_WithOp``, ``_ConcurrentGatherOp``) set ``_link_name`` as a slot
+  attribute identifying the user-facing method name (e.g. ``'if_'``,
+  ``'foreach'``, ``'gather'``).
+
+  This protocol formalizes the duck-typed contract read by:
+    - ``_viz._get_link_name()``
+    - ``_viz._format_link()``
+    - ``_engine._record_exception_source()``
+    - ``_engine._should_defer_with()``
+
+  Optional attributes (``_fns``, ``_concurrency``, ``_else_link``) are
+  present only on specific operation classes and are read defensively
+  via ``getattr`` with fallback defaults — they are intentionally not
+  part of this protocol.
+  """
+
+  _link_name: str
+
 
 # ---- Copy prevention ----
 
