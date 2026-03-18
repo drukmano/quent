@@ -15,9 +15,9 @@ from __future__ import annotations
 import asyncio
 from unittest import TestCase
 
-from quent import Chain
-from tests.bricks import ALL_BRICKS
-from tests.bridge_runner import run_bridge, verify_all_brick_oracles
+from quent import Q
+from tests.bricks import ALL_BRICKS, TERMINAL_BRICKS
+from tests.bridge_runner import run_bridge, run_terminal_bridge, verify_all_brick_oracles
 from tests.fixtures import (
   V_DOUBLE,
   V_FN,
@@ -39,20 +39,24 @@ from tests.symmetric import SymmetricTestCase
 # ---------------------------------------------------------------------------
 # Reduced brick sets for bridge testing
 # ---------------------------------------------------------------------------
-# 24 bricks covering every distinct engine code path for sync↔async bridge
-# testing. The remaining 72 bricks in ALL_BRICKS exercise the same engine
+# 28 bricks covering every distinct engine code path for sync↔async bridge
+# testing. The remaining 82 bricks in ALL_BRICKS exercise the same engine
 # paths with different calling conventions or constructor variants.
 #
 # Redundancy analysis (why each removed brick is covered):
 #   kwargs variants  → same Rule 1 dispatch as args variants
 #   nested_chain_args → combination of nested_chain + args (no new branch)
-#   from_steps/clone/named/decorator → same as nested_chain (Chain callable)
+#   from_steps/clone/named/as_decorator → same as nested_chain (Q callable)
 #   *_conc/*_unbounded_conc → bridge runner's concurrency axis covers this
 #   gather_single/bounded/multi → same gather path, different arity
 #   with_do_* CM variants → orthogonal to with_do flag (covered separately)
 #   if_ calling convention variants → calling convention covered by then_*
 #   set_get variants → same _ctx_get/_ctx_set engine path
 #   error handler variants → happy path, handler not invoked; same bridge test
+#   while_ variants → calling convention covered by then_*; loop engine path
+#     is the same for all while_ bricks; predicate dispatch covered by while_then_pred
+#   drive_gen variants → async gen + factory + empty exercise the same engine
+#     path; sync gen + async gen cover both generator protocol paths
 
 _BRIDGE_BRICK_NAMES = frozenset(
   {
@@ -90,6 +94,12 @@ _BRIDGE_BRICK_NAMES = frozenset(
     # error handlers (happy path)
     'except_nested',
     'finally_nested',
+    # while_ — loop engine path (truthiness + callable predicate)
+    'while_then_default',
+    'while_then_pred',
+    # drive_gen — generator driving (sync gen + async gen)
+    'drive_gen_single',
+    'drive_gen_async_gen',
   }
 )
 
@@ -100,7 +110,7 @@ _BRIDGE_REPR_NAMES = frozenset(
   {
     'then_default',  # standard step
     'then_args',  # Rule 1 dispatch
-    'then_nested_chain',  # nested chain propagation
+    'then_nested_chain',  # nested pipeline propagation
     'do_default',  # side-effect step
     'map_default',  # iteration error (supports_concurrency)
     'foreach_do_default',  # iteration do error (supports_concurrency)
@@ -114,6 +124,16 @@ _BRIDGE_REPR_NAMES = frozenset(
 _BRIDGE_BRICKS = [b for b in ALL_BRICKS if b.name in _BRIDGE_BRICK_NAMES]
 _BRIDGE_REPR = [b for b in ALL_BRICKS if b.name in _BRIDGE_REPR_NAMES]
 
+# Terminal bricks for iteration terminal bridge testing
+_TERMINAL_BRIDGE_BRICK_NAMES = frozenset(
+  {
+    'iterate_default',
+    'iterate_do_default',
+    'flat_iterate_default',
+    'flat_iterate_do_default',
+  }
+)
+
 # ===========================================================================
 # Exhaustive bridge testing
 # ===========================================================================
@@ -123,7 +143,7 @@ class BridgeExhaustiveTest(SymmetricTestCase):
   """Exhaustive bridge testing — all axes, all permutations."""
 
   async def test_exhaustive_bridge(self) -> None:
-    """24 bridge bricks, lengths 1-2, error paths, concurrency. No handler configs."""
+    """28 bridge bricks, lengths 1-2, error paths, concurrency. No handler configs."""
     stats = await run_bridge(
       self,
       bricks=_BRIDGE_BRICKS,
@@ -184,8 +204,20 @@ class BridgeExhaustiveTest(SymmetricTestCase):
     )
     self.assertEqual(stats.failures, [])
 
+  async def test_terminal_bridge(self) -> None:
+    """4 terminal bricks with prefix lengths 0-2, sync/async permutations."""
+    terminal = [b for b in TERMINAL_BRICKS if b.name in _TERMINAL_BRIDGE_BRICK_NAMES]
+    stats = await run_terminal_bridge(
+      self,
+      prefix_bricks=_BRIDGE_BRICKS,
+      terminal_bricks=terminal,
+      max_prefix_length=2,
+      min_prefix_length=0,
+    )
+    self.assertEqual(stats.failures, [])
+
   async def test_brick_oracles_correctness(self) -> None:
-    """Verify every brick's oracle matches actual chain execution."""
+    """Verify every brick's oracle matches actual pipeline execution."""
     await verify_all_brick_oracles(self)
 
 
@@ -200,7 +232,7 @@ class BridgeTwoTierModelTest(SymmetricTestCase):
   async def test_fully_sync_pipeline_returns_plain_value(self) -> None:
     """A pipeline where every step is synchronous returns a plain value,
     not a coroutine. No event loop is created."""
-    result = Chain(5).then(sync_fn).then(sync_double).run()
+    result = Q(5).then(sync_fn).then(sync_double).run()
     # sync_fn(5)=6, sync_double(6)=12
     self.assertEqual(result, 12)
     # Must NOT be a coroutine
@@ -208,7 +240,7 @@ class BridgeTwoTierModelTest(SymmetricTestCase):
 
   async def test_pipeline_with_async_step_returns_coroutine(self) -> None:
     """A pipeline with any async step returns a coroutine from .run()."""
-    result = Chain(5).then(async_fn).run()
+    result = Q(5).then(async_fn).run()
     self.assertTrue(asyncio.iscoroutine(result))
     value = await result
     self.assertEqual(value, 6)
@@ -216,7 +248,7 @@ class BridgeTwoTierModelTest(SymmetricTestCase):
   async def test_transition_at_first_step(self) -> None:
     """Async transition at the first step."""
     await self.variant(
-      lambda fn: Chain(5).then(fn).then(sync_double).run(),
+      lambda fn: Q(5).then(fn).then(sync_double).run(),
       fn=V_FN,
       expected=12,  # fn(5)=6, sync_double(6)=12
     )
@@ -224,7 +256,7 @@ class BridgeTwoTierModelTest(SymmetricTestCase):
   async def test_transition_at_middle_step(self) -> None:
     """Async transition at a middle step."""
     await self.variant(
-      lambda fn: Chain(5).then(sync_fn).then(fn).then(sync_fn).run(),
+      lambda fn: Q(5).then(sync_fn).then(fn).then(sync_fn).run(),
       fn=V_DOUBLE,
       expected=13,  # sync_fn(5)=6, double(6)=12, sync_fn(12)=13
     )
@@ -232,7 +264,7 @@ class BridgeTwoTierModelTest(SymmetricTestCase):
   async def test_transition_at_last_step(self) -> None:
     """Async transition at the last step."""
     await self.variant(
-      lambda fn: Chain(5).then(sync_fn).then(fn).run(),
+      lambda fn: Q(5).then(sync_fn).then(fn).run(),
       fn=V_DOUBLE,
       expected=12,  # sync_fn(5)=6, double(6)=12
     )
@@ -241,7 +273,7 @@ class BridgeTwoTierModelTest(SymmetricTestCase):
     """Once the engine transitions to async, it stays async.
     There is no 'transition back to sync'."""
     # After async_fn, sync_fn and sync_double still execute correctly
-    result = await Chain(5).then(async_fn).then(sync_fn).then(sync_double).run()
+    result = await Q(5).then(async_fn).then(sync_fn).then(sync_double).run()
     # async_fn(5)=6, sync_fn(6)=7, sync_double(7)=14
     self.assertEqual(result, 14)
 
@@ -251,7 +283,7 @@ class BridgeZeroAsyncOverheadTest(TestCase):
 
   def test_sync_pipeline_no_coroutine(self) -> None:
     """A fully sync pipeline returns a plain value, not a coroutine."""
-    result = Chain(5).then(sync_fn).then(sync_double).then(sync_identity).run()
+    result = Q(5).then(sync_fn).then(sync_double).then(sync_identity).run()
     self.assertNotIsInstance(
       result, asyncio.coroutines._CoroutineMeta if hasattr(asyncio.coroutines, '_CoroutineMeta') else type(None)
     )
@@ -261,6 +293,6 @@ class BridgeZeroAsyncOverheadTest(TestCase):
 
   def test_sync_pipeline_does_not_require_event_loop(self) -> None:
     """A fully sync pipeline can be executed without any event loop."""
-    result = Chain(10).then(sync_fn).then(sync_double).run()
+    result = Q(10).then(sync_fn).then(sync_double).run()
     # sync_fn(10)=11, sync_double(11)=22
     self.assertEqual(result, 22)

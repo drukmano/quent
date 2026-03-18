@@ -20,7 +20,7 @@ _UNSET = object()
 
 @dataclass(frozen=True, slots=True)
 class Result:
-  """Captured chain execution result."""
+  """Captured pipeline execution result."""
 
   success: bool
   value: Any = None

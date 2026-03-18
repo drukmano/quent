@@ -2,7 +2,7 @@
 """Tests for SPEC §13 — Traceback Enhancement.
 
 Tests cover:
-- §13.2: Chain visualization injection (<quent> frame)
+- §13.2: Pipeline visualization injection (<quent> frame)
 - §13.3: Error marker (<----) on failing step
 - §13.4: Frame cleaning (no quent-internal frames visible)
 - §13.5: Chained exception cleaning (__cause__, __context__, ExceptionGroup)
@@ -23,7 +23,7 @@ import sys
 import traceback
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 from quent._viz import (
   _MAX_REPR_LEN,
   _sanitize_repr,
@@ -32,16 +32,16 @@ from quent._viz import (
 if sys.version_info < (3, 11):
   from quent._types import ExceptionGroup
 
-# --- §13.2: Chain visualization injection ---
+# --- §13.2: Pipeline visualization injection ---
 
 
 class VisualizationInjectionTest(TestCase):
-  """§13.2: <quent> frame appears in traceback with chain visualization."""
+  """§13.2: <quent> frame appears in traceback with pipeline visualization."""
 
   def test_quent_frame_present(self):
     """Traceback includes a <quent> frame."""
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -49,28 +49,28 @@ class VisualizationInjectionTest(TestCase):
     else:
       self.fail('Expected ZeroDivisionError')
 
-  def test_chain_structure_visible(self):
-    """Chain visualization shows Chain(...).then(...)."""
+  def test_pipeline_structure_visible(self):
+    """Pipeline visualization shows Q(...).then(...)."""
     try:
-      Chain(1).then(lambda x: x + 1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: x + 1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
-      self.assertIn('Chain', tb_text)
+      self.assertIn('Q', tb_text)
       self.assertIn('.then', tb_text)
     else:
       self.fail('Expected ZeroDivisionError')
 
-  def test_nested_chain_indented(self):
-    """Nested chains are rendered with indentation."""
-    inner = Chain().then(lambda x: 1 / 0)
+  def test_nested_pipeline_indented(self):
+    """Nested pipelines are rendered with indentation."""
+    inner = Q().then(lambda x: 1 / 0)
     try:
-      Chain(1).then(inner).run()
+      Q(1).then(inner).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
       self.assertIn('<quent>', tb_text)
-      self.assertIn('Chain', tb_text)
+      self.assertIn('Q', tb_text)
     else:
       self.fail('Expected ZeroDivisionError')
 
@@ -84,7 +84,7 @@ class ErrorMarkerTest(TestCase):
   def test_error_marker_present(self):
     """<---- marker appears in traceback."""
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -102,7 +102,7 @@ class ErrorMarkerTest(TestCase):
       raise ValueError('boom')
 
     try:
-      Chain(1).then(ok).then(fail).then(ok).run()
+      Q(1).then(ok).then(fail).then(ok).run()
     except ValueError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -123,9 +123,9 @@ class ErrorMarkerTest(TestCase):
     def fail(x):
       raise ValueError('inner')
 
-    inner = Chain().then(fail)
+    inner = Q().then(fail)
     try:
-      Chain(1).then(inner).run()
+      Q(1).then(inner).run()
     except ValueError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -145,7 +145,7 @@ class ErrorMarkerTest(TestCase):
       raise info.exc
 
     try:
-      Chain(1).then(lambda x: 1 / 0).except_(reraise_handler).run()
+      Q(1).then(lambda x: 1 / 0).except_(reraise_handler).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -156,7 +156,7 @@ class ErrorMarkerTest(TestCase):
   def test_finally_handler_shown_in_viz(self):
     """finally_() handler appears in visualization."""
     try:
-      Chain(1).then(lambda x: 1 / 0).finally_(lambda rv: None).run()
+      Q(1).then(lambda x: 1 / 0).finally_(lambda rv: None).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -180,7 +180,7 @@ class FrameCleaningTest(TestCase):
     """No quent-internal frames appear in the formatted traceback."""
     quent_dir = self._get_quent_dir()
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       for line in tb_lines:
@@ -201,7 +201,7 @@ class FrameCleaningTest(TestCase):
   def test_user_frames_preserved(self):
     """User code frames are preserved in the traceback."""
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -225,7 +225,7 @@ class ChainedExceptionCleaningTest(TestCase):
       raise RuntimeError('wrap') from info.exc
 
     try:
-      Chain(1).then(lambda x: 1 / 0).except_(wrap_error).run()
+      Q(1).then(lambda x: 1 / 0).except_(wrap_error).run()
     except RuntimeError as exc:
       cause = exc.__cause__
       self.assertIsNotNone(cause)
@@ -265,14 +265,14 @@ class ExceptionNoteTest(TestCase):
       raise ValueError('boom')
 
     try:
-      Chain(1).then(fail).run()
+      Q(1).then(fail).run()
     except ValueError as exc:
       notes = getattr(exc, '__notes__', [])
       quent_notes = [n for n in notes if n.startswith('quent: exception at')]
       self.assertTrue(len(quent_notes) >= 1, f'Expected quent note, got: {notes}')
       note = quent_notes[0]
       self.assertIn('.then(', note)
-      self.assertIn('Chain(', note)
+      self.assertIn('Q(', note)
     else:
       self.fail('Expected ValueError')
 
@@ -281,9 +281,9 @@ class ExceptionNoteTest(TestCase):
     if sys.version_info < (3, 11):
       self.skipTest('Exception notes require Python 3.11+')
 
-    inner = Chain().then(lambda x: 1 / 0)
+    inner = Q().then(lambda x: 1 / 0)
     try:
-      Chain(1).then(inner).run()
+      Q(1).then(inner).run()
     except ZeroDivisionError as exc:
       notes = getattr(exc, '__notes__', [])
       quent_notes = [n for n in notes if n.startswith('quent: exception at')]
@@ -316,10 +316,10 @@ class EnvVarTest(TestCase):
     """QUENT_NO_TRACEBACK=1 disables visualization injection."""
     code = """
 import traceback
-from quent import Chain
+from quent import Q
 
 try:
-  Chain(1).then(lambda x: 1 / 0).run()
+  Q(1).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   if '<quent>' in tb:
@@ -335,10 +335,10 @@ except ZeroDivisionError as exc:
     """Without QUENT_NO_TRACEBACK, visualization is present."""
     code = """
 import traceback
-from quent import Chain
+from quent import Q
 
 try:
-  Chain(1).then(lambda x: 1 / 0).run()
+  Q(1).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   if '<quent>' in tb:
@@ -362,11 +362,11 @@ except ZeroDivisionError as exc:
     """QUENT_TRACEBACK_VALUES=0 suppresses argument values."""
     code = """
 import traceback
-from quent import Chain
+from quent import Q
 
 secret = 'super_secret_value_12345'
 try:
-  Chain(secret).then(lambda x: 1 / 0).run()
+  Q(secret).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   if 'super_secret_value_12345' in tb:
@@ -446,8 +446,8 @@ class VisualizationLimitsTest(TestCase):
   """§13.11: Visualization is bounded by limits."""
 
   def test_max_links_per_level(self):
-    """Chains with > 100 links are truncated."""
-    c = Chain(1)
+    """Pipelines with > 100 links are truncated."""
+    c = Q(1)
     for _ in range(150):
       c.then(lambda x: x)
     try:
@@ -462,8 +462,8 @@ class VisualizationLimitsTest(TestCase):
 
   def test_total_length_capped(self):
     """Total visualization length is capped."""
-    # Build a chain with many steps that have long names
-    c = Chain(1)
+    # Build a pipeline with many steps that have long names
+    c = Q(1)
     for i in range(100):
       c.then(lambda x, _i=i: x, 'a' * 50)
     try:
@@ -480,12 +480,12 @@ class VisualizationLimitsTest(TestCase):
 
   def test_nesting_depth_truncated(self):
     """Deeply nested chains are truncated at depth 50."""
-    # Build a chain nested 55 levels
-    inner = Chain().then(lambda x: 1 / 0)
+    # Build a pipeline nested 55 levels
+    inner = Q().then(lambda x: 1 / 0)
     for _ in range(54):
-      inner = Chain().then(inner)
+      inner = Q().then(inner)
     try:
-      Chain(1).then(inner).run()
+      Q(1).then(inner).run()
     except QuentException:
       pass  # Nesting depth exceeded — this is the expected behavior
     except ZeroDivisionError as exc:
@@ -506,7 +506,7 @@ class GracefulDegradationTest(TestCase):
     # This tests the fundamental guarantee: visualization failure
     # never suppresses the actual exception
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError:
       pass  # This is the expected behavior
     else:
@@ -519,14 +519,14 @@ class GracefulDegradationTest(TestCase):
 class AsyncTracebackTest(IsolatedAsyncioTestCase):
   """Traceback enhancement works with async chains."""
 
-  async def test_async_chain_traceback(self):
-    """Async chain has <quent> frame in traceback."""
+  async def test_async_pipeline_traceback(self):
+    """Async pipeline has <quent> frame in traceback."""
 
     async def async_fail(x):
       raise ValueError('async boom')
 
     try:
-      await Chain(1).then(async_fail).run()
+      await Q(1).then(async_fail).run()
     except ValueError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -536,13 +536,13 @@ class AsyncTracebackTest(IsolatedAsyncioTestCase):
       self.fail('Expected ValueError')
 
   async def test_mixed_sync_async_traceback(self):
-    """Mixed sync/async chain has correct traceback."""
+    """Mixed sync/async pipeline has correct traceback."""
 
     async def async_fail(x):
       raise ValueError('mixed boom')
 
     try:
-      await Chain(1).then(lambda x: x + 1).then(async_fail).run()
+      await Q(1).then(lambda x: x + 1).then(async_fail).run()
     except ValueError as exc:
       tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
       tb_text = ''.join(tb_lines)
@@ -562,7 +562,7 @@ class TracebackExceptionPatchTest(TestCase):
     """TracebackException.__init__ receives cleaned frames."""
     quent_dir = self._get_quent_dir()
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       te = traceback.TracebackException(type(exc), exc, exc.__traceback__)
       formatted = ''.join(te.format())
@@ -607,7 +607,7 @@ class ChainedExceptionCleaningExtendedTest(TestCase):
       raise RuntimeError('context chain')
 
     try:
-      Chain(1).then(lambda x: 1 / 0).except_(raise_in_handler).run()
+      Q(1).then(lambda x: 1 / 0).except_(raise_in_handler).run()
     except RuntimeError as exc:
       context = exc.__context__
       self.assertIsNotNone(context)
@@ -637,7 +637,7 @@ class ChainedExceptionCleaningExtendedTest(TestCase):
       raise RuntimeError('fail2')
 
     try:
-      Chain(1).gather(fail1, fail2, concurrency=2).run()
+      Q(1).gather(fail1, fail2, concurrency=2).run()
     except ExceptionGroup as eg:
       for sub_exc in eg.exceptions:
         if sub_exc.__traceback__:
@@ -663,7 +663,7 @@ class ChainedExceptionCleaningExtendedTest(TestCase):
       raise RuntimeError('wrapper') from info.exc
 
     try:
-      Chain(1).then(lambda x: 1 / 0).except_(wrap_error).run()
+      Q(1).then(lambda x: 1 / 0).except_(wrap_error).run()
     except RuntimeError as exc:
       # Check __cause__ chain
       cause = exc.__cause__
@@ -703,8 +703,8 @@ class ExceptHookTest(TestCase):
     """Uncaught quent exceptions show cleaned tracebacks in subprocess."""
     code = """
 import sys
-from quent import Chain
-Chain(1).then(lambda x: 1 / 0).run()
+from quent import Q
+Q(1).then(lambda x: 1 / 0).run()
 """
     result = subprocess.run(
       [sys.executable, '-c', code],
@@ -728,17 +728,17 @@ class GracefulDegradationExtendedTest(TestCase):
     # We test the fundamental guarantee: even if visualization fails internally,
     # the exception must propagate.
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError:
       pass  # Expected
     else:
       self.fail('Exception should propagate regardless of visualization')
 
-  def test_multiple_chains_traceback(self):
-    """Multiple sequential chain errors all get tracebacks."""
+  def test_multiple_pipelines_traceback(self):
+    """Multiple sequential pipeline errors all get tracebacks."""
     for i in range(3):
       try:
-        Chain(i).then(lambda x: 1 / 0).run()
+        Q(i).then(lambda x: 1 / 0).run()
       except ZeroDivisionError as exc:
         tb_text = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         self.assertIn('<quent>', tb_text)
@@ -761,13 +761,13 @@ class ExceptionNoteIdempotencyPropertyTest(TestCase):
       def fail(x):
         raise ValueError(f'depth-{depth}')
 
-      # Build chain nested to the given depth
-      inner = Chain().then(fail)
+      # Build pipeline nested to the given depth
+      inner = Q().then(fail)
       for _ in range(depth - 1):
-        inner = Chain().then(inner)
+        inner = Q().then(inner)
 
       try:
-        Chain(1).then(inner).run()
+        Q(1).then(inner).run()
       except (ValueError, QuentException) as exc:
         if isinstance(exc, QuentException):
           continue  # Nesting depth exceeded — skip
@@ -795,13 +795,13 @@ class FirstWriteWinsPropertyTest(TestCase):
       def fail_step(x):
         raise ValueError(f'inner-{depth}')
 
-      # Build nested chain: outermost wraps innermost
-      inner = Chain().then(fail_step)
+      # Build nested pipeline: outermost wraps innermost
+      inner = Q().then(fail_step)
       for _ in range(depth - 1):
-        inner = Chain().then(lambda x: x).then(inner)
+        inner = Q().then(lambda x: x).then(inner)
 
       try:
-        Chain(1).then(inner).run()
+        Q(1).then(inner).run()
       except (ValueError, QuentException) as exc:
         if isinstance(exc, QuentException):
           continue  # Nesting depth exceeded
@@ -827,12 +827,12 @@ class FirstWriteWinsPropertyTest(TestCase):
 
 
 class IfElseVisualizationTest(TestCase):
-  """§13.2: if_ and else_ branches appear in chain visualization."""
+  """§13.2: if_ and else_ branches appear in pipeline visualization."""
 
   def test_if_branch_in_visualization(self):
-    """§13.2: if_() appears in the chain visualization."""
+    """§13.2: if_() appears in the pipeline visualization."""
     try:
-      Chain(5).if_(lambda x: x > 0).then(lambda x: 1 / 0).run()
+      Q(5).if_(lambda x: x > 0).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_text = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
       self.assertIn('.if_', tb_text)
@@ -840,9 +840,9 @@ class IfElseVisualizationTest(TestCase):
       self.fail('Expected ZeroDivisionError')
 
   def test_else_branch_in_visualization(self):
-    """§13.2: else_() branch appears in the chain visualization."""
+    """§13.2: else_() branch appears in the pipeline visualization."""
     try:
-      Chain(0).if_(lambda x: x > 0).then(lambda x: x).else_(lambda x: 1 / 0).run()
+      Q(0).if_(lambda x: x > 0).then(lambda x: x).else_(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_text = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
       self.assertIn('.else_', tb_text)
@@ -850,9 +850,9 @@ class IfElseVisualizationTest(TestCase):
       self.fail('Expected ZeroDivisionError')
 
   def test_both_if_and_else_in_visualization(self):
-    """§13.2: Both if_ and else_ appear in visualization for a chain that has both."""
+    """§13.2: Both if_ and else_ appear in visualization for a pipeline that has both."""
     try:
-      Chain(-1).if_(lambda x: x > 0).then(lambda x: x).else_(lambda x: 1 / 0).run()
+      Q(-1).if_(lambda x: x > 0).then(lambda x: x).else_(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       tb_text = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
       self.assertIn('.if_', tb_text)
@@ -865,26 +865,26 @@ class IfElseVisualizationTest(TestCase):
 
 
 class VizFailureGracefulDegradationTest(TestCase):
-  """§13.12: When visualization fails, RuntimeWarning emitted and chain still executes."""
+  """§13.12: When visualization fails, RuntimeWarning emitted and pipeline still executes."""
 
   def test_viz_failure_emits_runtime_warning(self):
     """§13.12: Visualization failure emits RuntimeWarning and exception propagates."""
-    # We test this via subprocess to monkey-patch _stringify_chain to raise
+    # We test this via subprocess to monkey-patch _stringify_q to raise
     code = """
 import warnings
 import traceback
 warnings.simplefilter('always')
 
-# Monkey-patch _stringify_chain to force a visualization failure
+# Monkey-patch _stringify_q to force a visualization failure
 import quent._traceback as tb_mod
-original = tb_mod._stringify_chain
+original = tb_mod._stringify_q
 def failing_stringify(*args, **kwargs):
   raise RuntimeError('viz failed on purpose')
-tb_mod._stringify_chain = failing_stringify
+tb_mod._stringify_q = failing_stringify
 
-from quent import Chain
+from quent import Q
 try:
-  Chain(1).then(lambda x: 1 / 0).run()
+  Q(1).then(lambda x: 1 / 0).run()
 except ZeroDivisionError:
   print('EXCEPTION_PROPAGATED')
 """
@@ -907,16 +907,16 @@ class RecursiveCallLimitTest(TestCase):
   """§13.11: Visualization handles chains exceeding the 500 recursive call limit."""
 
   def test_500_recursive_call_limit_truncation(self):
-    """§13.11: Chains exceeding 500 recursive calls are truncated without crash."""
-    # Build a chain with many nested chains to trigger the call limit
-    inner = Chain().then(lambda x: 1 / 0)
+    """§13.11: Pipelines exceeding 500 recursive calls are truncated without crash."""
+    # Build a pipeline with many nested pipelines to trigger the call limit
+    inner = Q().then(lambda x: 1 / 0)
     # Wrap in enough nesting to approach the 500 call limit
-    # Each nested chain uses several calls, so 45 levels should be enough
+    # Each nested pipeline uses several calls, so 45 levels should be enough
     for _ in range(45):
-      inner = Chain().then(inner)
+      inner = Q().then(inner)
 
     try:
-      Chain(1).then(inner).run()
+      Q(1).then(inner).run()
     except (ZeroDivisionError, QuentException) as exc:
       if isinstance(exc, QuentException):
         # Nesting depth exceeded — that's fine, the limit worked
@@ -925,7 +925,7 @@ class RecursiveCallLimitTest(TestCase):
       # Should either show truncation message or complete successfully
       # The key assertion is no crash
       self.assertIn('<quent>', tb_text)
-    # If no exception at all, the chain completed — also acceptable
+    # If no exception at all, the pipeline completed — also acceptable
 
 
 # --- §13.5: Circular exception reference handling ---
@@ -936,9 +936,9 @@ class CircularExceptionReferenceTest(TestCase):
 
   def test_circular_cause_no_infinite_recursion(self):
     """§13.5: Circular __cause__ reference terminates via seen-set."""
-    # Create a chain that raises, then manually create a circular reference
+    # Create a pipeline that raises, then manually create a circular reference
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       # Create a circular __cause__ chain: exc -> cause -> exc
       cause = RuntimeError('cause')
@@ -953,7 +953,7 @@ class CircularExceptionReferenceTest(TestCase):
   def test_circular_context_no_infinite_recursion(self):
     """§13.5: Circular __context__ reference terminates via seen-set."""
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       # Create a circular __context__ chain
       ctx_exc = RuntimeError('context')
@@ -965,63 +965,63 @@ class CircularExceptionReferenceTest(TestCase):
       self.assertIsInstance(tb_text, str)
 
 
-# --- §5.10: Named chain traceback tests ---
+# --- §5.10: Named pipeline traceback tests ---
 
 
-class NamedChainTracebackTest(TestCase):
+class NamedPipelineTracebackTest(TestCase):
   """§5.10: name() label appears in traceback visualization and exception notes."""
 
-  def test_named_chain_in_visualization(self):
-    """Traceback <quent> frame contains Chain[label] when name is set."""
+  def test_named_pipeline_in_visualization(self):
+    """Traceback <quent> frame contains Q[label] when name is set."""
 
     def fail(x):
-      raise ValueError('named chain fail')
+      raise ValueError('named pipeline fail')
 
     try:
-      Chain(1).name('my_label').then(fail).run()
+      Q(1).name('my_label').then(fail).run()
     except ValueError as exc:
       tb_text = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-      self.assertIn('Chain[my_label]', tb_text)
+      self.assertIn('Q[my_label]', tb_text)
     else:
       self.fail('Expected ValueError')
 
-  def test_named_chain_exception_note(self):
-    """Exception note contains Chain[label](...) when name is set (Python 3.11+)."""
+  def test_named_pipeline_exception_note(self):
+    """Exception note contains Q[label](...) when name is set (Python 3.11+)."""
     if sys.version_info < (3, 11):
       self.skipTest('Exception notes require Python 3.11+')
 
     def fail(x):
-      raise ValueError('named chain note fail')
+      raise ValueError('named pipeline note fail')
 
     try:
-      Chain(1).name('auth_pipeline').then(fail).run()
+      Q(1).name('auth_pipeline').then(fail).run()
     except ValueError as exc:
       notes = getattr(exc, '__notes__', [])
       quent_notes = [n for n in notes if n.startswith('quent: exception at')]
       self.assertTrue(len(quent_notes) >= 1, f'Expected quent note, got: {notes}')
       note = quent_notes[0]
-      self.assertIn('Chain[auth_pipeline]', note)
+      self.assertIn('Q[auth_pipeline]', note)
     else:
       self.fail('Expected ValueError')
 
-  def test_unnamed_chain_no_brackets_in_note(self):
-    """Unnamed chain exception note uses plain Chain(...) without brackets."""
+  def test_unnamed_pipeline_no_brackets_in_note(self):
+    """Unnamed pipeline exception note uses plain Q(...) without brackets."""
     if sys.version_info < (3, 11):
       self.skipTest('Exception notes require Python 3.11+')
 
     def fail(x):
-      raise ValueError('unnamed chain note fail')
+      raise ValueError('unnamed pipeline note fail')
 
     try:
-      Chain(1).then(fail).run()
+      Q(1).then(fail).run()
     except ValueError as exc:
       notes = getattr(exc, '__notes__', [])
       quent_notes = [n for n in notes if n.startswith('quent: exception at')]
       self.assertTrue(len(quent_notes) >= 1, f'Expected quent note, got: {notes}')
       note = quent_notes[0]
-      # Should contain 'Chain(' but not 'Chain['
-      self.assertIn('Chain(', note)
-      self.assertNotIn('Chain[', note)
+      # Should contain 'Q(' but not 'Chain['
+      self.assertIn('Q(', note)
+      self.assertNotIn('Q[', note)
     else:
       self.fail('Expected ValueError')
 
@@ -1048,10 +1048,10 @@ class EnvVarNoTracebackExtendedTest(TestCase):
 
   _DETECTION_CODE = """
 import traceback
-from quent import Chain
+from quent import Q
 
 try:
-  Chain(1).then(lambda x: 1 / 0).run()
+  Q(1).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   if '<quent>' in tb:
@@ -1119,11 +1119,11 @@ class EnvVarTracebackValuesExtendedTest(TestCase):
 
   _VALUES_CODE = """
 import traceback
-from quent import Chain
+from quent import Q
 
 secret = 'super_secret_value_12345'
 try:
-  Chain(secret).then(lambda x: 1 / 0).run()
+  Q(secret).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   if 'super_secret_value_12345' in tb:
@@ -1193,11 +1193,11 @@ class ValuesPlaceholderFormatTest(TestCase):
     """String root value is replaced with <str> placeholder in traceback."""
     code = """
 import traceback
-from quent import Chain
+from quent import Q
 
 secret = 'secret_api_key'
 try:
-  Chain(secret).then(lambda x: 1 / 0).run()
+  Q(secret).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   has_placeholder = '<str>' in tb
@@ -1260,10 +1260,10 @@ if traceback.TracebackException.__init__ is _patched_te_init:
 else:
   print('TE_INIT_WRONG')
 
-# Verify chain visualization still works after reload
-from quent import Chain
+# Verify pipeline visualization still works after reload
+from quent import Q
 try:
-  Chain(1).then(lambda x: 1 / 0).run()
+  Q(1).then(lambda x: 1 / 0).run()
 except ZeroDivisionError as exc:
   tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
   if '<quent>' in tb:
@@ -1392,7 +1392,7 @@ class VizFailureDebugLogTest(TestCase):
     return result
 
   def test_viz_failure_emits_debug_log(self):
-    """Visualization failure logs 'chain visualization failed' at DEBUG level."""
+    """Visualization failure logs 'pipeline visualization failed' at DEBUG level."""
     code = """
 import logging
 import warnings
@@ -1407,24 +1407,24 @@ formatter = logging.Formatter('%(name)s:%(levelname)s:%(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-from quent import Chain
+from quent import Q
 import quent._traceback as tb_mod
 
-# Monkey-patch _stringify_chain to force a visualization failure
-original = tb_mod._stringify_chain
+# Monkey-patch _stringify_q to force a visualization failure
+original = tb_mod._stringify_q
 def failing_stringify(*args, **kwargs):
   raise RuntimeError('viz failed on purpose')
-tb_mod._stringify_chain = failing_stringify
+tb_mod._stringify_q = failing_stringify
 
 try:
-  Chain(1).then(lambda x: 1 / 0).run()
+  Q(1).then(lambda x: 1 / 0).run()
 except ZeroDivisionError:
   print('EXCEPTION_PROPAGATED')
 """
     result = self._run_subprocess(code)
     self.assertEqual(result.returncode, 0, f'Subprocess failed: {result.stderr}')
     self.assertIn('EXCEPTION_PROPAGATED', result.stdout)
-    self.assertIn('chain visualization failed', result.stderr)
+    self.assertIn('pipeline visualization failed', result.stderr)
 
 
 # --- §13.5: 1000 exception depth limit (SPEC-431) ---
@@ -1509,18 +1509,18 @@ formatter = logging.Formatter('%(name)s:%(levelname)s:%(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-from quent import Chain
+from quent import Q
 
 class CustomObj:
   def __repr__(self):
     return 'CustomObj(sensitive_data)'
 
 # Run chains with various root value types
-Chain('hello_secret').then(lambda x: x + '_suffix').run()
-Chain(42).then(lambda x: x + 1).run()
-Chain([1, 2, 3]).then(lambda x: len(x)).run()
-Chain({'key': 'value'}).then(lambda x: len(x)).run()
-Chain(CustomObj()).then(lambda x: str(x)).run()
+Q('hello_secret').then(lambda x: x + '_suffix').run()
+Q(42).then(lambda x: x + 1).run()
+Q([1, 2, 3]).then(lambda x: len(x)).run()
+Q({'key': 'value'}).then(lambda x: len(x)).run()
+Q(CustomObj()).then(lambda x: str(x)).run()
 
 print('ALL_CHAINS_COMPLETE')
 """

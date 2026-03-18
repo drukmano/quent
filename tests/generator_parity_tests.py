@@ -3,7 +3,7 @@
 
 These two functions in quent/_generator.py are explicit mirrors that must
 produce identical result sequences for the same inputs.  Each test builds
-ONE chain, collects results via both sync iteration (list()) and async
+ONE q, collects results via both sync iteration (list()) and async
 iteration (async for), and asserts the output sequences are identical.
 """
 
@@ -13,7 +13,7 @@ import unittest
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
-from quent import Chain
+from quent import Q
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -21,7 +21,7 @@ from quent import Chain
 
 
 async def _async_collect(chain_iter: Any) -> list[Any]:
-  """Collect all items from a ChainIterator via async for."""
+  """Collect all items from a QuentIterator via async for."""
   result: list[Any] = []
   async for item in chain_iter:
     result.append(item)
@@ -29,7 +29,7 @@ async def _async_collect(chain_iter: Any) -> list[Any]:
 
 
 def _sync_collect(chain_iter: Any) -> list[Any]:
-  """Collect all items from a ChainIterator via sync for."""
+  """Collect all items from a QuentIterator via sync for."""
   return list(chain_iter)
 
 
@@ -43,7 +43,7 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
 
   async def test_iterate_no_fn(self) -> None:
     """iterate() with no fn — sync and async yield identical elements."""
-    it = Chain(range(6)).iterate()
+    it = Q(range(6)).iterate()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -52,7 +52,7 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
   async def test_iterate_with_sync_fn(self) -> None:
     """iterate(fn) with sync fn — sync and async yield identical transformed elements."""
     fn = lambda x: x * 3
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -60,7 +60,7 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
 
   async def test_iterate_empty_source(self) -> None:
     """iterate() with empty source — both paths yield nothing."""
-    it = Chain([]).iterate()
+    it = Q([]).iterate()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -68,7 +68,7 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
 
   async def test_iterate_single_element(self) -> None:
     """iterate() with single element source."""
-    it = Chain([42]).iterate()
+    it = Q([42]).iterate()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -82,7 +82,7 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
       calls.append(x)
       return x * 2
 
-    it = Chain([]).iterate(tracking_fn)
+    it = Q([]).iterate(tracking_fn)
     sync_result = _sync_collect(it)
     calls_after_sync = len(calls)
     async_result = await _async_collect(it)
@@ -95,7 +95,7 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
 
   async def test_iterate_do_no_fn(self) -> None:
     """iterate_do() with no fn — identical to iterate() without fn."""
-    it = Chain(range(4)).iterate_do()
+    it = Q(range(4)).iterate_do()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -114,8 +114,8 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
       async_side.append(x)
       return 'discarded'
 
-    it_sync = Chain(range(4)).iterate_do(sync_track)
-    it_async = Chain(range(4)).iterate_do(async_track)
+    it_sync = Q(range(4)).iterate_do(sync_track)
+    it_async = Q(range(4)).iterate_do(async_track)
     sync_result = _sync_collect(it_sync)
     async_result = await _async_collect(it_async)
     self.assertEqual(sync_result, async_result)
@@ -127,15 +127,15 @@ class BasicIterationParityTests(IsolatedAsyncioTestCase):
   async def test_iterate_string_elements(self) -> None:
     """iterate() with non-numeric elements — parity holds for any element type."""
     data = ['alpha', 'beta', 'gamma']
-    it = Chain(data).iterate()
+    it = Q(data).iterate()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
     self.assertEqual(sync_result, data)
 
   async def test_iterate_with_chain_steps_before(self) -> None:
-    """iterate() on a chain with .then() steps — run phase is identical."""
-    it = Chain(5).then(lambda x: list(range(x))).iterate(lambda x: x + 10)
+    """iterate() on a pipeline with .then() steps — run phase is identical."""
+    it = Q(5).then(lambda x: list(range(x))).iterate(lambda x: x + 10)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -152,7 +152,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
 
   async def test_flat_iterate_no_fn(self) -> None:
     """flat_iterate() with no fn — flattens one level identically."""
-    it = Chain([[1, 2], [3], [], [4, 5]]).flat_iterate()
+    it = Q([[1, 2], [3], [], [4, 5]]).flat_iterate()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -161,7 +161,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
   async def test_flat_iterate_with_fn(self) -> None:
     """flat_iterate(fn) — fn returns sub-iterable, items yielded identically."""
     fn = lambda x: [x, x * 10]
-    it = Chain(range(3)).flat_iterate(fn)
+    it = Q(range(3)).flat_iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -169,7 +169,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
 
   async def test_flat_iterate_empty_source(self) -> None:
     """flat_iterate() with empty source — both yield nothing."""
-    it = Chain([]).flat_iterate()
+    it = Q([]).flat_iterate()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -178,7 +178,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
   async def test_flat_iterate_fn_returns_empty(self) -> None:
     """flat_iterate(fn) where fn returns empty for some items."""
     fn = lambda x: [] if x == 2 else [x]
-    it = Chain([1, 2, 3]).flat_iterate(fn)
+    it = Q([1, 2, 3]).flat_iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -199,8 +199,8 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
       async_consumed.extend(items)
       return items
 
-    it_sync = Chain([1, 2, 3]).flat_iterate_do(sync_capture)
-    it_async = Chain([1, 2, 3]).flat_iterate_do(async_capture)
+    it_sync = Q([1, 2, 3]).flat_iterate_do(sync_capture)
+    it_async = Q([1, 2, 3]).flat_iterate_do(async_capture)
     sync_result = _sync_collect(it_sync)
     async_result = await _async_collect(it_async)
     self.assertEqual(sync_result, async_result)
@@ -210,7 +210,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
 
   async def test_flat_iterate_do_no_fn(self) -> None:
     """flat_iterate_do() with no fn — flattens one level identically."""
-    it = Chain([[1, 2], [3]]).flat_iterate_do()
+    it = Q([[1, 2], [3]]).flat_iterate_do()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -219,7 +219,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
   async def test_flat_iterate_string_flattening(self) -> None:
     """flat_iterate(fn) where fn returns strings — chars yielded identically."""
     fn = lambda x: x  # identity — strings are iterable
-    it = Chain(['ab', 'cd']).flat_iterate(fn)
+    it = Q(['ab', 'cd']).flat_iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -227,7 +227,7 @@ class FlatIterateParityTests(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §3: _Break / _Return signals (Chain.break_() / Chain.return_())
+# §3: _Break / _Return signals (Q.break_() / Q.return_())
 # ---------------------------------------------------------------------------
 
 
@@ -239,10 +239,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x
 
-    it = Chain(range(10)).iterate(fn)
+    it = Q(range(10)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -253,10 +253,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(x * 100)
+        return Q.break_(x * 100)
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -267,10 +267,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_()
+        return Q.return_()
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -281,10 +281,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -295,10 +295,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(lambda: 999)
+        return Q.break_(lambda: 999)
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -309,10 +309,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(lambda: 888)
+        return Q.return_(lambda: 888)
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -323,10 +323,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x
 
-    it = Chain(range(10)).iterate_do(fn)
+    it = Q(range(10)).iterate_do(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -337,10 +337,10 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
-    it = Chain(range(5)).iterate_do(fn)
+    it = Q(range(5)).iterate_do(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -350,9 +350,9 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
     """break_() at the very first element — nothing yielded before break."""
 
     def fn(x: int) -> int:
-      return Chain.break_()
+      return Q.break_()
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -362,9 +362,9 @@ class ControlFlowSignalParityTests(IsolatedAsyncioTestCase):
     """break_(v) at the very first element — only break value yielded."""
 
     def fn(x: int) -> int:
-      return Chain.break_(77)
+      return Q.break_(77)
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -398,12 +398,12 @@ class DeferredWithParityTests(IsolatedAsyncioTestCase):
 
     # Sync path
     cm_sync = TrackingCM([10, 20, 30])
-    it_sync = Chain(cm_sync).with_(lambda ctx: ctx).iterate()
+    it_sync = Q(cm_sync).with_(lambda ctx: ctx).iterate()
     sync_result = _sync_collect(it_sync)
 
     # Async path — fresh CM since the previous one was already used
     cm_async = TrackingCM([10, 20, 30])
-    it_async = Chain(cm_async).with_(lambda ctx: ctx).iterate()
+    it_async = Q(cm_async).with_(lambda ctx: ctx).iterate()
     async_result = await _async_collect(it_async)
 
     self.assertEqual(sync_result, async_result)
@@ -434,11 +434,11 @@ class DeferredWithParityTests(IsolatedAsyncioTestCase):
     transform = lambda x: x * 2
 
     cm_sync = TrackingCM([1, 2, 3])
-    it_sync = Chain(cm_sync).with_(lambda ctx: ctx).iterate(transform)
+    it_sync = Q(cm_sync).with_(lambda ctx: ctx).iterate(transform)
     sync_result = _sync_collect(it_sync)
 
     cm_async = TrackingCM([1, 2, 3])
-    it_async = Chain(cm_async).with_(lambda ctx: ctx).iterate(transform)
+    it_async = Q(cm_async).with_(lambda ctx: ctx).iterate(transform)
     async_result = await _async_collect(it_async)
 
     self.assertEqual(sync_result, async_result)
@@ -466,11 +466,11 @@ class DeferredWithParityTests(IsolatedAsyncioTestCase):
     flush_fn = lambda: [99]
 
     cm_sync = TrackingCM(items)
-    it_sync = Chain(cm_sync).with_(lambda ctx: ctx).flat_iterate(transform, flush=flush_fn)
+    it_sync = Q(cm_sync).with_(lambda ctx: ctx).flat_iterate(transform, flush=flush_fn)
     sync_result = _sync_collect(it_sync)
 
     cm_async = TrackingCM(items)
-    it_async = Chain(cm_async).with_(lambda ctx: ctx).flat_iterate(transform, flush=flush_fn)
+    it_async = Q(cm_async).with_(lambda ctx: ctx).flat_iterate(transform, flush=flush_fn)
     async_result = await _async_collect(it_async)
 
     self.assertEqual(sync_result, async_result)
@@ -501,11 +501,11 @@ class DeferredWithParityTests(IsolatedAsyncioTestCase):
         return iter(self.items)
 
     cm_sync = IterableCM()
-    it_sync = Chain(cm_sync).with_do(lambda ctx: 'ignored').iterate()
+    it_sync = Q(cm_sync).with_do(lambda ctx: 'ignored').iterate()
     sync_result = _sync_collect(it_sync)
 
     cm_async = IterableCM()
-    it_async = Chain(cm_async).with_do(lambda ctx: 'ignored').iterate()
+    it_async = Q(cm_async).with_do(lambda ctx: 'ignored').iterate()
     async_result = await _async_collect(it_async)
 
     self.assertEqual(sync_result, async_result)
@@ -525,7 +525,7 @@ class FlushParityTests(IsolatedAsyncioTestCase):
   async def test_flat_iterate_with_flush(self) -> None:
     """flat_iterate(flush=fn) — flush output appended identically."""
     flush_fn = lambda: [98, 99]
-    it = Chain([[1], [2]]).flat_iterate(flush=flush_fn)
+    it = Q([[1], [2]]).flat_iterate(flush=flush_fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -535,7 +535,7 @@ class FlushParityTests(IsolatedAsyncioTestCase):
     """flat_iterate(fn, flush=fn) — both fn and flush, identical results."""
     transform = lambda x: [x, x * 10]
     flush_fn = lambda: [99]
-    it = Chain(range(3)).flat_iterate(transform, flush=flush_fn)
+    it = Q(range(3)).flat_iterate(transform, flush=flush_fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -543,7 +543,7 @@ class FlushParityTests(IsolatedAsyncioTestCase):
 
   async def test_flat_iterate_empty_flush(self) -> None:
     """flush returns empty iterable — nothing extra yielded in either path."""
-    it = Chain([[1], [2]]).flat_iterate(flush=lambda: [])
+    it = Q([[1], [2]]).flat_iterate(flush=lambda: [])
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -551,7 +551,7 @@ class FlushParityTests(IsolatedAsyncioTestCase):
 
   async def test_flat_iterate_empty_source_with_flush(self) -> None:
     """Empty source + flush — only flush output in both paths."""
-    it = Chain([]).flat_iterate(flush=lambda: [42])
+    it = Q([]).flat_iterate(flush=lambda: [42])
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -572,8 +572,8 @@ class FlushParityTests(IsolatedAsyncioTestCase):
 
     flush_fn = lambda: [88, 99]
 
-    it_sync = Chain([1, 2]).flat_iterate_do(sync_capture, flush=flush_fn)
-    it_async = Chain([1, 2]).flat_iterate_do(async_capture, flush=flush_fn)
+    it_sync = Q([1, 2]).flat_iterate_do(sync_capture, flush=flush_fn)
+    it_async = Q([1, 2]).flat_iterate_do(async_capture, flush=flush_fn)
     sync_result = _sync_collect(it_sync)
     async_result = await _async_collect(it_async)
     self.assertEqual(sync_result, async_result)
@@ -584,7 +584,7 @@ class FlushParityTests(IsolatedAsyncioTestCase):
   async def test_flush_multiple_items(self) -> None:
     """flush returns many items — all yielded identically."""
     flush_fn = lambda: list(range(10, 20))
-    it = Chain([[1]]).flat_iterate(flush=flush_fn)
+    it = Q([[1]]).flat_iterate(flush=flush_fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -603,7 +603,7 @@ class IgnoreResultParityTests(IsolatedAsyncioTestCase):
     """iterate_do(fn) — fn result discarded, originals yielded identically."""
     fn = lambda x: x * 1000  # result should be discarded
 
-    it = Chain(range(5)).iterate_do(fn)
+    it = Q(range(5)).iterate_do(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -622,8 +622,8 @@ class IgnoreResultParityTests(IsolatedAsyncioTestCase):
       async_effects.append(x * 2)
       return 'discarded'
 
-    it_sync = Chain([10, 20, 30]).iterate_do(sync_effect)
-    it_async = Chain([10, 20, 30]).iterate_do(async_effect)
+    it_sync = Q([10, 20, 30]).iterate_do(sync_effect)
+    it_async = Q([10, 20, 30]).iterate_do(async_effect)
     sync_result = _sync_collect(it_sync)
     async_result = await _async_collect(it_async)
     self.assertEqual(sync_result, async_result)
@@ -635,8 +635,8 @@ class IgnoreResultParityTests(IsolatedAsyncioTestCase):
     """flat_iterate_do(fn) — fn's sub-items consumed but not yielded."""
     fn = lambda x: [x * 10, x * 100]
 
-    it_sync = Chain([1, 2, 3]).flat_iterate_do(fn)
-    it_async = Chain([1, 2, 3]).flat_iterate_do(fn)
+    it_sync = Q([1, 2, 3]).flat_iterate_do(fn)
+    it_async = Q([1, 2, 3]).flat_iterate_do(fn)
     sync_result = _sync_collect(it_sync)
     async_result = await _async_collect(it_async)
     self.assertEqual(sync_result, async_result)
@@ -647,10 +647,10 @@ class IgnoreResultParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(x * 100)
+        return Q.break_(x * 100)
       return x
 
-    it = Chain(range(5)).iterate_do(fn)
+    it = Q(range(5)).iterate_do(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -659,7 +659,7 @@ class IgnoreResultParityTests(IsolatedAsyncioTestCase):
 
   async def test_iterate_do_with_none_fn(self) -> None:
     """iterate_do(fn=None) — no fn, elements yielded as-is in both paths."""
-    it = Chain([7, 8, 9]).iterate_do()
+    it = Q([7, 8, 9]).iterate_do()
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -670,10 +670,10 @@ class IgnoreResultParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> list[int]:
       if x == 2:
-        return Chain.break_()
+        return Q.break_()
       return [x * 10]
 
-    it = Chain([1, 2, 3]).flat_iterate_do(fn)
+    it = Q([1, 2, 3]).flat_iterate_do(fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -707,15 +707,15 @@ class CombinedParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_(x * 100)
+        return Q.break_(x * 100)
       return x
 
     cm_sync = TrackingCM(range(10))
-    it_sync = Chain(cm_sync).with_(lambda ctx: ctx).iterate(fn)
+    it_sync = Q(cm_sync).with_(lambda ctx: ctx).iterate(fn)
     sync_result = _sync_collect(it_sync)
 
     cm_async = TrackingCM(range(10))
-    it_async = Chain(cm_async).with_(lambda ctx: ctx).iterate(fn)
+    it_async = Q(cm_async).with_(lambda ctx: ctx).iterate(fn)
     async_result = await _async_collect(it_async)
 
     self.assertEqual(sync_result, async_result)
@@ -744,11 +744,11 @@ class CombinedParityTests(IsolatedAsyncioTestCase):
         return False
 
     cm_sync = TrackingCM([1, 2, 3])
-    it_sync = Chain(cm_sync).with_(lambda ctx: ctx).finally_(lambda rv: sync_cleanup.append('done')).iterate()
+    it_sync = Q(cm_sync).with_(lambda ctx: ctx).finally_(lambda rv: sync_cleanup.append('done')).iterate()
     sync_result = _sync_collect(it_sync)
 
     cm_async = TrackingCM([1, 2, 3])
-    it_async = Chain(cm_async).with_(lambda ctx: ctx).finally_(lambda rv: async_cleanup.append('done')).iterate()
+    it_async = Q(cm_async).with_(lambda ctx: ctx).finally_(lambda rv: async_cleanup.append('done')).iterate()
     async_result = await _async_collect(it_async)
 
     self.assertEqual(sync_result, async_result)
@@ -763,11 +763,11 @@ class CombinedParityTests(IsolatedAsyncioTestCase):
 
     def fn(x: int) -> list[int]:
       if x == 2:
-        return Chain.break_(999)
+        return Q.break_(999)
       return [x, x * 10]
 
     flush_fn = lambda: [77, 88]  # Should NOT be reached due to break
-    it = Chain(range(5)).flat_iterate(fn, flush=flush_fn)
+    it = Q(range(5)).flat_iterate(fn, flush=flush_fn)
     sync_result = _sync_collect(it)
     async_result = await _async_collect(it)
     self.assertEqual(sync_result, async_result)
@@ -777,7 +777,7 @@ class CombinedParityTests(IsolatedAsyncioTestCase):
 
   async def test_reuse_parity(self) -> None:
     """Iterator reuse via __call__ — both paths produce identical sequences."""
-    it = Chain().then(lambda x: x).iterate(lambda x: x * 2)
+    it = Q().then(lambda x: x).iterate(lambda x: x * 2)
     # Use it with different root values
     sync_a = _sync_collect(it([1, 2, 3]))
     async_a = await _async_collect(it([1, 2, 3]))

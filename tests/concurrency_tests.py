@@ -6,7 +6,7 @@ Tests cover:
 - §11.3: Sync concurrent execution (ThreadPoolExecutor)
 - §11.4: Async concurrent execution (Semaphore-limited tasks)
 - §11.5: Sync/async detection (probe-based)
-- §11.6: Async transition for sync chain handlers
+- §11.6: Async transition for sync q handlers
 - §11.7: Context variable propagation
 """
 
@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 from tests.symmetric import SymmetricTestCase
 
 if sys.version_info < (3, 11):
@@ -35,23 +35,23 @@ class ConcurrencyParamValidationTest(TestCase):
 
   def test_concurrency_none_allowed(self):
     """concurrency=None is the default (sequential)."""
-    result = Chain([1, 2, 3]).foreach(lambda x: x + 1, concurrency=None).run()
+    result = Q([1, 2, 3]).foreach(lambda x: x + 1, concurrency=None).run()
     self.assertEqual(result, [2, 3, 4])
 
   def test_concurrency_positive_int(self):
     """concurrency=2 is valid."""
-    result = Chain([1, 2, 3]).foreach(lambda x: x + 1, concurrency=2).run()
+    result = Q([1, 2, 3]).foreach(lambda x: x + 1, concurrency=2).run()
     self.assertEqual(result, [2, 3, 4])
 
   def test_concurrency_one(self):
     """concurrency=1 is the minimum valid value."""
-    result = Chain([1, 2, 3]).foreach(lambda x: x + 1, concurrency=1).run()
+    result = Q([1, 2, 3]).foreach(lambda x: x + 1, concurrency=1).run()
     self.assertEqual(result, [2, 3, 4])
 
   def test_concurrency_zero_raises(self):
     """concurrency=0 raises ValueError with exact message format."""
     with self.assertRaises(ValueError) as ctx:
-      Chain([1]).foreach(lambda x: x, concurrency=0)
+      Q([1]).foreach(lambda x: x, concurrency=0)
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
@@ -60,14 +60,14 @@ class ConcurrencyParamValidationTest(TestCase):
 
   def test_concurrency_minus_one_unbounded(self):
     """concurrency=-1 is valid (unbounded) and processes all items."""
-    result = Chain([1, 2, 3]).foreach(lambda x: x + 1, concurrency=-1).run()
+    result = Q([1, 2, 3]).foreach(lambda x: x + 1, concurrency=-1).run()
     self.assertEqual(result, [2, 3, 4])
 
   def test_concurrency_negative_other_raises(self):
     """concurrency=-2 and other negatives (not -1) raise ValueError with exact message."""
     for bad in [-2, -3, -100]:
       with self.assertRaises(ValueError) as ctx:
-        Chain([1]).foreach(lambda x: x, concurrency=bad)
+        Q([1]).foreach(lambda x: x, concurrency=bad)
       self.assertIn('concurrency', str(ctx.exception))
       self.assertEqual(
         str(ctx.exception),
@@ -77,7 +77,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_concurrency_bool_raises(self):
     """concurrency=True raises TypeError with exact message format."""
     with self.assertRaises(TypeError) as ctx:
-      Chain([1]).foreach(lambda x: x, concurrency=True)
+      Q([1]).foreach(lambda x: x, concurrency=True)
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
@@ -87,7 +87,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_concurrency_false_raises(self):
     """concurrency=False raises TypeError with exact message format."""
     with self.assertRaises(TypeError) as ctx:
-      Chain([1]).foreach(lambda x: x, concurrency=False)
+      Q([1]).foreach(lambda x: x, concurrency=False)
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
@@ -97,7 +97,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_concurrency_float_raises(self):
     """concurrency=2.0 raises TypeError with exact message format."""
     with self.assertRaises(TypeError) as ctx:
-      Chain([1]).foreach(lambda x: x, concurrency=2.0)
+      Q([1]).foreach(lambda x: x, concurrency=2.0)
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
@@ -107,7 +107,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_concurrency_string_raises(self):
     """concurrency='2' raises TypeError with exact message format."""
     with self.assertRaises(TypeError) as ctx:
-      Chain([1]).foreach(lambda x: x, concurrency='2')
+      Q([1]).foreach(lambda x: x, concurrency='2')
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
@@ -116,25 +116,25 @@ class ConcurrencyParamValidationTest(TestCase):
 
   def test_concurrency_minus_one_on_foreach_do(self):
     """concurrency=-1 is valid on foreach_do (unbounded)."""
-    result = Chain([1, 2, 3]).foreach_do(lambda x: x * 100, concurrency=-1).run()
+    result = Q([1, 2, 3]).foreach_do(lambda x: x * 100, concurrency=-1).run()
     self.assertEqual(result, [1, 2, 3])
 
   def test_concurrency_minus_one_on_gather(self):
     """concurrency=-1 is the default for gather (unbounded)."""
-    result = Chain(5).gather(lambda x: x + 1, lambda x: x + 2, concurrency=-1).run()
+    result = Q(5).gather(lambda x: x + 1, lambda x: x + 2, concurrency=-1).run()
     self.assertEqual(result, (6, 7))
 
   def test_gather_default_concurrency_is_minus_one(self):
     """gather() default concurrency is -1 (unbounded), same as explicitly passing -1."""
-    result_default = Chain(5).gather(lambda x: x + 1, lambda x: x + 2).run()
-    result_explicit = Chain(5).gather(lambda x: x + 1, lambda x: x + 2, concurrency=-1).run()
+    result_default = Q(5).gather(lambda x: x + 1, lambda x: x + 2).run()
+    result_explicit = Q(5).gather(lambda x: x + 1, lambda x: x + 2, concurrency=-1).run()
     self.assertEqual(result_default, (6, 7))
     self.assertEqual(result_explicit, (6, 7))
 
   def test_concurrency_validation_on_foreach_do(self):
     """concurrency validation also applies to foreach_do with exact message."""
     with self.assertRaises(TypeError) as ctx:
-      Chain([1]).foreach_do(lambda x: x, concurrency=True)
+      Q([1]).foreach_do(lambda x: x, concurrency=True)
     self.assertEqual(
       str(ctx.exception),
       'foreach_do() concurrency must be a positive integer or -1 (unbounded), got bool',
@@ -143,7 +143,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_concurrency_validation_on_gather(self):
     """concurrency validation also applies to gather with exact message."""
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).gather(lambda x: x, concurrency=2.5)
+      Q(1).gather(lambda x: x, concurrency=2.5)
     self.assertEqual(
       str(ctx.exception),
       'gather() concurrency must be a positive integer or -1 (unbounded), got float',
@@ -152,7 +152,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_concurrency_minus_two_on_gather_raises(self):
     """concurrency=-2 on gather raises ValueError with exact message."""
     with self.assertRaises(ValueError) as ctx:
-      Chain(1).gather(lambda x: x, concurrency=-2)
+      Q(1).gather(lambda x: x, concurrency=-2)
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
@@ -162,7 +162,7 @@ class ConcurrencyParamValidationTest(TestCase):
   def test_gather_rejects_concurrency_none(self):
     """gather() does not accept concurrency=None — gather is always concurrent (§5.5)."""
     with self.assertRaises(TypeError):
-      Chain(5).gather(lambda x: x, concurrency=None)
+      Q(5).gather(lambda x: x, concurrency=None)
 
 
 # --- §11.3: Sync concurrent execution ---
@@ -173,18 +173,18 @@ class SyncConcurrentTest(TestCase):
 
   def test_map_concurrent_results_in_order(self):
     """Concurrent map preserves input order."""
-    result = Chain(list(range(10))).foreach(lambda x: x * 2, concurrency=4).run()
+    result = Q(list(range(10))).foreach(lambda x: x * 2, concurrency=4).run()
     self.assertEqual(result, [x * 2 for x in range(10)])
 
   def test_foreach_do_concurrent_preserves_originals(self):
     """Concurrent foreach_do preserves original elements."""
-    result = Chain(list(range(5))).foreach_do(lambda x: x * 100, concurrency=2).run()
+    result = Q(list(range(5))).foreach_do(lambda x: x * 100, concurrency=2).run()
     self.assertEqual(result, list(range(5)))
 
   def test_gather_concurrent_results_in_order(self):
     """Concurrent gather returns results in fn order."""
     result = (
-      Chain(5)
+      Q(5)
       .gather(
         lambda x: x + 1,
         lambda x: x + 2,
@@ -198,11 +198,11 @@ class SyncConcurrentTest(TestCase):
   def test_gather_zero_fns_raises(self):
     """gather() with zero fns raises QuentException at build time."""
     with self.assertRaises(QuentException):
-      Chain(5).gather()
+      Q(5).gather()
 
   def test_gather_one_fn(self):
     """gather() with one fn returns single-element tuple."""
-    result = Chain(5).gather(lambda x: x + 1).run()
+    result = Q(5).gather(lambda x: x + 1).run()
     self.assertEqual(result, (6,))
 
   def test_concurrent_uses_threads(self):
@@ -215,7 +215,7 @@ class SyncConcurrentTest(TestCase):
         thread_ids.append(threading.current_thread().ident)
       return x
 
-    Chain(list(range(5))).foreach(record_thread, concurrency=3).run()
+    Q(list(range(5))).foreach(record_thread, concurrency=3).run()
     # At least the main thread + some workers should differ
     self.assertTrue(len(set(thread_ids)) >= 1)
 
@@ -224,7 +224,7 @@ class SyncConcurrentTest(TestCase):
   def test_single_worker_error_not_wrapped(self):
     """Single worker error is raised directly, not in ExceptionGroup."""
     with self.assertRaises(ValueError):
-      Chain([1]).foreach(lambda x: (_ for _ in ()).throw(ValueError('single')), concurrency=2).run()
+      Q([1]).foreach(lambda x: (_ for _ in ()).throw(ValueError('single')), concurrency=2).run()
 
 
 # --- §11.4: Async concurrent execution ---
@@ -240,7 +240,7 @@ class AsyncConcurrentTest(IsolatedAsyncioTestCase):
       await asyncio.sleep(0.001)
       return x * 2
 
-    result = await Chain(list(range(5))).foreach(async_double, concurrency=3).run()
+    result = await Q(list(range(5))).foreach(async_double, concurrency=3).run()
     self.assertEqual(result, [x * 2 for x in range(5)])
 
   async def test_async_foreach_do_concurrent(self):
@@ -249,7 +249,7 @@ class AsyncConcurrentTest(IsolatedAsyncioTestCase):
     async def async_noop(x):
       await asyncio.sleep(0.001)
 
-    result = await Chain(list(range(5))).foreach_do(async_noop, concurrency=2).run()
+    result = await Q(list(range(5))).foreach_do(async_noop, concurrency=2).run()
     self.assertEqual(result, list(range(5)))
 
   async def test_async_gather_concurrent(self):
@@ -260,7 +260,7 @@ class AsyncConcurrentTest(IsolatedAsyncioTestCase):
       return x + n
 
     result = (
-      await Chain(10)
+      await Q(10)
       .gather(
         lambda x: async_add(x, 1),
         lambda x: async_add(x, 2),
@@ -289,7 +289,7 @@ class AsyncConcurrentTest(IsolatedAsyncioTestCase):
       return x
 
     concurrency_limit = 3
-    await Chain(list(range(10))).foreach(track_concurrency, concurrency=concurrency_limit).run()
+    await Q(list(range(10))).foreach(track_concurrency, concurrency=concurrency_limit).run()
     # The semaphore limits concurrent tasks to `concurrency`. The first item is probed
     # outside the semaphore, so max observed concurrency is at most concurrency + 1.
     self.assertLessEqual(
@@ -313,7 +313,7 @@ class SyncAsyncDetectionTest(SymmetricTestCase):
 
   async def test_all_sync_workers(self):
     """All sync workers → sync path (ThreadPoolExecutor)."""
-    result = Chain(list(range(5))).foreach(lambda x: x + 1, concurrency=2).run()
+    result = Q(list(range(5))).foreach(lambda x: x + 1, concurrency=2).run()
     self.assertEqual(result, [1, 2, 3, 4, 5])
 
   async def test_all_async_workers(self):
@@ -322,16 +322,16 @@ class SyncAsyncDetectionTest(SymmetricTestCase):
     async def async_inc(x):
       return x + 1
 
-    result = await Chain(list(range(5))).foreach(async_inc, concurrency=2).run()
+    result = await Q(list(range(5))).foreach(async_inc, concurrency=2).run()
     self.assertEqual(result, [1, 2, 3, 4, 5])
 
   async def test_first_sync_rest_sync(self):
     """First item sync, rest sync → sync path works."""
-    result = Chain([10, 20, 30]).foreach(lambda x: x * 2, concurrency=2).run()
+    result = Q([10, 20, 30]).foreach(lambda x: x * 2, concurrency=2).run()
     self.assertEqual(result, [20, 40, 60])
 
 
-# --- §11.6: Async transition for sync chain handlers ---
+# --- §11.6: Async transition for sync q handlers ---
 # (Canonical async transition tests are in asymmetry_tests.py)
 
 
@@ -354,7 +354,7 @@ class ContextVarPropagationTest(TestCase):
         results.append(my_var.get())
       return x
 
-    Chain(list(range(3))).foreach(read_var, concurrency=2).run()
+    Q(list(range(3))).foreach(read_var, concurrency=2).run()
     for val in results:
       self.assertEqual(val, 'hello')
 
@@ -375,7 +375,7 @@ class ConcurrentErrorHandlingTest(SymmetricTestCase):
       return x
 
     await self.variant(
-      lambda fn=None: Chain(items).foreach(fail_on_3, concurrency=2).run(),
+      lambda fn=None: Q(items).foreach(fail_on_3, concurrency=2).run(),
       expected_exc=ValueError,
       expected_msg='fail on 3',
     )
@@ -390,32 +390,32 @@ class ConcurrentErrorHandlingTest(SymmetricTestCase):
       raise ValueError('gather fail')
 
     with self.assertRaises(ValueError) as ctx:
-      Chain(1).gather(ok, fail).run()
+      Q(1).gather(ok, fail).run()
     self.assertIn('gather fail', str(ctx.exception))
 
   async def test_return_signal_priority_in_gather(self):
-    """Chain.return_() takes priority in gather."""
+    """Q.return_() takes priority in gather."""
 
     def do_return(x):
-      return Chain.return_('returned')
+      return Q.return_('returned')
 
     def ok(x):
       return x
 
-    result = Chain(1).gather(ok, do_return).run()
+    result = Q(1).gather(ok, do_return).run()
     self.assertEqual(result, 'returned')
 
   async def test_break_in_concurrent_map(self):
-    """Chain.break_() in concurrent map appends break value to partial results."""
+    """Q.break_() in concurrent map appends break value to partial results."""
     import time
 
     def maybe_break(x):
       if x == 3:
-        return Chain.break_('stopped')
+        return Q.break_('stopped')
       time.sleep(0.01)  # Ensure ordering
       return x * 2
 
-    result = Chain(list(range(6))).foreach(maybe_break, concurrency=1).run()
+    result = Q(list(range(6))).foreach(maybe_break, concurrency=1).run()
     self.assertEqual(result, [0, 2, 4, 'stopped'])
 
 
@@ -434,7 +434,7 @@ class AsyncConcurrentErrorHandlingTest(IsolatedAsyncioTestCase):
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(list(range(5))).foreach(fail_on_3, concurrency=2).run()
+      await Q(list(range(5))).foreach(fail_on_3, concurrency=2).run()
     self.assertIn('async fail on 3', str(ctx.exception))
 
   async def test_async_gather_single_error(self):
@@ -447,7 +447,7 @@ class AsyncConcurrentErrorHandlingTest(IsolatedAsyncioTestCase):
       raise ValueError('async gather fail')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(1).gather(ok, fail, concurrency=2).run()
+      await Q(1).gather(ok, fail, concurrency=2).run()
     self.assertIn('async gather fail', str(ctx.exception))
 
   async def test_async_gather_multiple_errors(self):
@@ -460,7 +460,7 @@ class AsyncConcurrentErrorHandlingTest(IsolatedAsyncioTestCase):
       raise RuntimeError('fail2')
 
     with self.assertRaises(ExceptionGroup) as ctx:
-      await Chain(1).gather(fail1, fail2, concurrency=2).run()
+      await Q(1).gather(fail1, fail2, concurrency=2).run()
     eg = ctx.exception
     self.assertGreaterEqual(len(eg.exceptions), 2)
 
@@ -493,7 +493,7 @@ class ProbeConsistencyTest(TestCase):
     for conc in [1, 2, 5]:
       call_count = 0
       with self.assertRaises(TypeError, msg=f'concurrency={conc} should raise TypeError'):
-        Chain([1, 2, 3]).foreach(mixed, concurrency=conc).run()
+        Q([1, 2, 3]).foreach(mixed, concurrency=conc).run()
 
   def test_sync_probe_async_later_in_gather(self):
     """Sync first fn + awaitable from later fn in gather raises TypeError."""
@@ -509,7 +509,7 @@ class ProbeConsistencyTest(TestCase):
       return _coro()
 
     with self.assertRaises(TypeError):
-      Chain(1).gather(sync_fn, async_fn, concurrency=2).run()
+      Q(1).gather(sync_fn, async_fn, concurrency=2).run()
 
 
 # --- §11.2.2: executor parameter ---
@@ -521,20 +521,20 @@ class ExecutorParameterTest(TestCase):
   def test_foreach_with_user_executor(self):
     """foreach(fn, concurrency=2, executor=pool) uses provided executor and preserves order."""
     with ThreadPoolExecutor(max_workers=4) as pool:
-      result = Chain([1, 2, 3, 4]).foreach(lambda x: x * 2, concurrency=2, executor=pool).run()
+      result = Q([1, 2, 3, 4]).foreach(lambda x: x * 2, concurrency=2, executor=pool).run()
     self.assertEqual(result, [2, 4, 6, 8])
 
   def test_foreach_do_with_user_executor(self):
     """foreach_do(fn, concurrency=2, executor=pool) uses provided executor and preserves original items."""
     with ThreadPoolExecutor(max_workers=4) as pool:
-      result = Chain([1, 2, 3, 4]).foreach_do(lambda x: x * 100, concurrency=2, executor=pool).run()
+      result = Q([1, 2, 3, 4]).foreach_do(lambda x: x * 100, concurrency=2, executor=pool).run()
     self.assertEqual(result, [1, 2, 3, 4])
 
   def test_gather_with_user_executor(self):
     """gather(*fns, executor=pool) uses provided executor and returns results in fn order."""
     with ThreadPoolExecutor(max_workers=4) as pool:
       result = (
-        Chain(10)
+        Q(10)
         .gather(
           lambda x: x + 1,
           lambda x: x + 2,
@@ -546,10 +546,10 @@ class ExecutorParameterTest(TestCase):
     self.assertEqual(result, (11, 12, 13))
 
   def test_executor_not_shut_down(self):
-    """After a chain with executor=pool completes, the pool is still alive (quent does NOT shut it down)."""
+    """After a pipeline with executor=pool completes, the pool is still alive (quent does NOT shut it down)."""
     pool = ThreadPoolExecutor(max_workers=2)
     try:
-      Chain([1, 2, 3]).foreach(lambda x: x + 1, concurrency=2, executor=pool).run()
+      Q([1, 2, 3]).foreach(lambda x: x + 1, concurrency=2, executor=pool).run()
       # Pool must still be usable — submit work after quent has finished
       future = pool.submit(lambda: 42)
       self.assertEqual(future.result(timeout=5), 42)
@@ -558,30 +558,30 @@ class ExecutorParameterTest(TestCase):
 
   def test_executor_none_default_creates_new(self):
     """executor=None (default) works identically to omitting the parameter."""
-    result_default = Chain([1, 2, 3]).foreach(lambda x: x * 2, concurrency=2).run()
-    result_explicit_none = Chain([1, 2, 3]).foreach(lambda x: x * 2, concurrency=2, executor=None).run()
+    result_default = Q([1, 2, 3]).foreach(lambda x: x * 2, concurrency=2).run()
+    result_explicit_none = Q([1, 2, 3]).foreach(lambda x: x * 2, concurrency=2, executor=None).run()
     self.assertEqual(result_default, [2, 4, 6])
     self.assertEqual(result_explicit_none, [2, 4, 6])
 
   def test_executor_validation_rejects_non_executor(self):
     """Passing a non-Executor value raises TypeError at build time."""
     with self.assertRaises(TypeError) as ctx:
-      Chain([1, 2]).foreach(lambda x: x, concurrency=2, executor='not-an-executor')
+      Q([1, 2]).foreach(lambda x: x, concurrency=2, executor='not-an-executor')
     self.assertIn('executor', str(ctx.exception))
 
     with self.assertRaises(TypeError) as ctx:
-      Chain([1, 2]).foreach_do(lambda x: x, concurrency=2, executor=42)
+      Q([1, 2]).foreach_do(lambda x: x, concurrency=2, executor=42)
     self.assertIn('executor', str(ctx.exception))
 
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).gather(lambda x: x, executor='bad')
+      Q(1).gather(lambda x: x, executor='bad')
     self.assertIn('executor', str(ctx.exception))
 
   def test_gather_with_user_executor_and_concurrency(self):
     """gather(*fns, concurrency=2, executor=pool) works correctly with both params."""
     with ThreadPoolExecutor(max_workers=4) as pool:
       result = (
-        Chain(5)
+        Q(5)
         .gather(
           lambda x: x + 10,
           lambda x: x + 20,
@@ -597,7 +597,7 @@ class ExecutorParameterTest(TestCase):
     """When concurrency=None (sequential), executor is ignored and chain runs sequentially with correct results."""
     # Provide an executor even though concurrency is not set — it must be silently ignored.
     with ThreadPoolExecutor(max_workers=4) as pool:
-      result = Chain([1, 2, 3, 4]).foreach(lambda x: x * 3, concurrency=None, executor=pool).run()
+      result = Q([1, 2, 3, 4]).foreach(lambda x: x * 3, concurrency=None, executor=pool).run()
     self.assertEqual(result, [3, 6, 9, 12])
 
 
@@ -620,7 +620,7 @@ class GatherBaseExceptionTest(IsolatedAsyncioTestCase):
       raise AsyncCustomBaseExc('async base exc')
 
     with self.assertRaises(AsyncCustomBaseExc):
-      await Chain(1).gather(ok_fn, base_exc_fn).run()
+      await Q(1).gather(ok_fn, base_exc_fn).run()
 
   async def test_base_exc_with_regular_exceptions(self) -> None:
     """§5.5: BaseException takes priority over regular exceptions in gather triage."""
@@ -640,7 +640,7 @@ class GatherBaseExceptionTest(IsolatedAsyncioTestCase):
       raise CustomBaseExc('base priority')
 
     with self.assertRaises(CustomBaseExc):
-      Chain(1).gather(ok_fn, raise_regular, raise_base).run()
+      Q(1).gather(ok_fn, raise_regular, raise_base).run()
 
 
 # --- §17.4: Awaitable without close() in sync concurrent worker ---
@@ -665,7 +665,7 @@ class AwaitableNoCloseTest(TestCase):
       return AwaitableNoClose()
 
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).gather(sync_fn, returns_awaitable_no_close).run()
+      Q(1).gather(sync_fn, returns_awaitable_no_close).run()
     self.assertIn('awaitable', str(ctx.exception).lower())
 
 
@@ -742,7 +742,7 @@ class IterTriageBaseExceptionTest(IsolatedAsyncioTestCase):
       raise ValueError('simulated value error')
 
     with self.assertRaises(KeyboardInterrupt):
-      Chain([0, 1]).foreach(worker, concurrency=2).run()
+      Q([0, 1]).foreach(worker, concurrency=2).run()
 
   def test_sync_concurrent_foreach_do_keyboard_interrupt_and_value_error(self) -> None:
     """Concurrent foreach_do (sync) with KeyboardInterrupt + ValueError must not TypeError."""
@@ -753,7 +753,7 @@ class IterTriageBaseExceptionTest(IsolatedAsyncioTestCase):
       raise ValueError('simulated value error')
 
     with self.assertRaises(KeyboardInterrupt):
-      Chain([0, 1]).foreach_do(worker, concurrency=2).run()
+      Q([0, 1]).foreach_do(worker, concurrency=2).run()
 
   def test_triage_base_exception_not_in_exception_group(self) -> None:
     """_triage_iter_exceptions must not add BaseException to the regular list.
@@ -796,7 +796,7 @@ class ContextVarUserExecutorTest(TestCase):
       return x
 
     with ThreadPoolExecutor(max_workers=4) as user_pool:
-      Chain(list(range(5))).foreach(read_var, concurrency=2, executor=user_pool).run()
+      Q(list(range(5))).foreach(read_var, concurrency=2, executor=user_pool).run()
 
     # All workers should see the context variable value
     for val in results:
@@ -813,13 +813,14 @@ class ExceptReraseFalseAsyncTransitionTest(IsolatedAsyncioTestCase):
   triggers async transition — the coroutine becomes the chain's result."""
 
   async def test_except_reraise_false_async_handler_returns_coroutine(self):
-    """Sync chain raises, async except handler (reraise=False): run() returns coroutine, await gets handler result."""
+    """Sync pipeline raises, async except handler (reraise=False):
+    run() returns coroutine, await gets handler result."""
 
     async def async_handler(info):
       return 'recovered_async'
 
-    # Sync chain that raises, with async except handler and reraise=False (default)
-    coro = Chain(1).then(lambda x: 1 / 0).except_(async_handler).run()
+    # Sync q that raises, with async except handler and reraise=False (default)
+    coro = Q(1).then(lambda x: 1 / 0).except_(async_handler).run()
 
     # run() should return a coroutine (async transition)
     self.assertTrue(asyncio.iscoroutine(coro), 'run() should return a coroutine for async transition')
@@ -834,7 +835,7 @@ class ExceptReraseFalseAsyncTransitionTest(IsolatedAsyncioTestCase):
     async def async_handler(a, b):
       return a + b
 
-    coro = Chain(1).then(lambda x: 1 / 0).except_(async_handler, 10, 20).run()
+    coro = Q(1).then(lambda x: 1 / 0).except_(async_handler, 10, 20).run()
     self.assertTrue(asyncio.iscoroutine(coro), 'run() should return a coroutine for async transition')
 
     result = await coro
@@ -860,7 +861,7 @@ class UserExecutorIdentityTest(TestCase):
         return super().submit(*args, **kwargs)
 
     with SpyExecutor(max_workers=4) as spy_pool:
-      result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: x * 2, concurrency=3, executor=spy_pool).run()
+      result = Q([1, 2, 3, 4, 5]).foreach(lambda x: x * 2, concurrency=3, executor=spy_pool).run()
 
     self.assertEqual(result, [2, 4, 6, 8, 10])
     # submit() must have been called at least once on the spy executor
@@ -883,7 +884,7 @@ class UserExecutorIdentityTest(TestCase):
 
     with SpyExecutor(max_workers=4) as spy_pool:
       result = (
-        Chain(5)
+        Q(5)
         .gather(
           lambda x: x + 1,
           lambda x: x + 2,

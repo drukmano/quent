@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 """Tests for SPEC §7 — Control Flow.
 
-Covers: Chain.return_() value semantics, nested chain propagation,
-restrictions; Chain.break_() value semantics, outside iteration,
+Covers: Q.return_() value semantics, nested q propagation,
+restrictions; Q.break_() value semantics, outside iteration,
 concurrent iteration break, priority.
 """
 
@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
-# §7.2 Early Return — Chain.return_()
+# §7.2 Early Return — Q.return_()
 # ---------------------------------------------------------------------------
 
 
@@ -23,16 +23,16 @@ class ReturnNoValueTest(SymmetricTestCase):
 
   async def test_return_no_value(self) -> None:
     """return_() with no value produces None."""
-    result = Chain(5).then(lambda x: Chain.return_()).then(lambda x: x * 100).run()
+    result = Q(5).then(lambda x: Q.return_()).then(lambda x: x * 100).run()
     self.assertIsNone(result)
 
   async def test_return_no_value_async(self) -> None:
     """Async: return_() with no value produces None."""
 
     async def step(x):
-      return Chain.return_()
+      return Q.return_()
 
-    result = await Chain(5).then(step).then(lambda x: x * 100).run()
+    result = await Q(5).then(step).then(lambda x: x * 100).run()
     self.assertIsNone(result)
 
 
@@ -41,30 +41,30 @@ class ReturnWithValueTest(SymmetricTestCase):
 
   async def test_return_non_callable(self) -> None:
     """return_() with non-callable value returns as-is."""
-    result = Chain(5).then(lambda x: Chain.return_(42)).then(lambda x: 'never').run()
+    result = Q(5).then(lambda x: Q.return_(42)).then(lambda x: 'never').run()
     self.assertEqual(result, 42)
 
   async def test_return_callable(self) -> None:
     """return_() with callable: called when signal caught, return value becomes result."""
-    result = Chain(5).then(lambda x: Chain.return_(lambda: 'from_fn')).then(lambda x: 'never').run()
+    result = Q(5).then(lambda x: Q.return_(lambda: 'from_fn')).then(lambda x: 'never').run()
     self.assertEqual(result, 'from_fn')
 
   async def test_return_callable_with_args(self) -> None:
     """return_() with callable + args follows calling conventions."""
-    result = Chain(5).then(lambda x: Chain.return_(lambda a, b: a + b, 10, 20)).then(lambda x: 'never').run()
+    result = Q(5).then(lambda x: Q.return_(lambda a, b: a + b, 10, 20)).then(lambda x: 'never').run()
     self.assertEqual(result, 30)
 
   async def test_return_callable_with_ellipsis_as_arg(self) -> None:
     """return_() with callable + Ellipsis: Ellipsis passed as explicit arg."""
-    result = Chain(5).then(lambda x: Chain.return_(lambda a: f'got {a}', ...)).then(lambda x: 'never').run()
+    result = Q(5).then(lambda x: Q.return_(lambda a: f'got {a}', ...)).then(lambda x: 'never').run()
     self.assertEqual(result, f'got {Ellipsis}')
 
   async def test_return_skips_remaining_steps(self) -> None:
     """Steps after return_() are skipped."""
     visited = []
     result = (
-      Chain(5)
-      .then(lambda x: (visited.append(1), Chain.return_(x * 2))[-1])
+      Q(5)
+      .then(lambda x: (visited.append(1), Q.return_(x * 2))[-1])
       .then(lambda x: (visited.append(2), x * 3)[-1])
       .then(lambda x: (visited.append(3), x * 4)[-1])
       .run()
@@ -74,7 +74,7 @@ class ReturnWithValueTest(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §7.2.2 Nested Chain Propagation
+# §7.2.2 Nested Q Pipeline Propagation
 # ---------------------------------------------------------------------------
 
 
@@ -83,21 +83,21 @@ class ReturnNestedPropagationTest(SymmetricTestCase):
 
   async def test_return_exits_outermost_chain(self) -> None:
     """return_() in nested chain exits the outermost chain."""
-    inner = Chain().then(lambda x: Chain.return_('early') if x > 3 else x)
-    result = Chain(5).then(inner).then(lambda x: 'should not reach').run()
+    inner = Q().then(lambda x: Q.return_('early') if x > 3 else x)
+    result = Q(5).then(inner).then(lambda x: 'should not reach').run()
     self.assertEqual(result, 'early')
 
   async def test_return_in_deep_nesting(self) -> None:
     """return_() propagates through multiple nesting levels."""
-    inner2 = Chain().then(lambda x: Chain.return_('deep'))
-    inner1 = Chain().then(inner2)
-    result = Chain(1).then(inner1).then(lambda x: 'unreachable').run()
+    inner2 = Q().then(lambda x: Q.return_('deep'))
+    inner1 = Q().then(inner2)
+    result = Q(1).then(inner1).then(lambda x: 'unreachable').run()
     self.assertEqual(result, 'deep')
 
   async def test_return_in_nested_no_match_passes_through(self) -> None:
     """When return_() condition not met, value passes through normally."""
-    inner = Chain().then(lambda x: Chain.return_('early') if x > 10 else x * 2)
-    result = Chain(3).then(inner).then(lambda x: x + 1).run()
+    inner = Q().then(lambda x: Q.return_('early') if x > 10 else x * 2)
+    result = Q(3).then(inner).then(lambda x: x + 1).run()
     self.assertEqual(result, 7)  # 3*2=6, 6+1=7
 
 
@@ -113,9 +113,9 @@ class ReturnRestrictionsTest(TestCase):
     """return_() in except handler raises QuentException."""
 
     def handler(info):
-      return Chain.return_('bad')
+      return Q.return_('bad')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -123,22 +123,22 @@ class ReturnRestrictionsTest(TestCase):
     """return_() in finally handler raises QuentException."""
 
     def cleanup(rv):
-      return Chain.return_('bad')
+      return Q.return_('bad')
 
-    c = Chain(1).finally_(cleanup)
+    c = Q(1).finally_(cleanup)
     with self.assertRaises(QuentException):
       c.run()
 
   def test_return_in_top_level_chain_extracts_value(self) -> None:
     """return_() in top-level chain: run() catches signal and extracts value."""
-    c = Chain(1).then(lambda x: Chain.return_(x))
+    c = Q(1).then(lambda x: Q.return_(x))
     result = c.run()
     # run() catches _Return and returns the carried value.
     self.assertEqual(result, 1)
 
 
 # ---------------------------------------------------------------------------
-# §7.3 Break — Chain.break_()
+# §7.3 Break — Q.break_()
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ class BreakNoValueTest(SymmetricTestCase):
 
   async def test_break_no_value_preserves_partial(self) -> None:
     """break_() with no value: results collected so far are preserved."""
-    result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_() if x == 3 else x * 2).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_() if x == 3 else x * 2).run()
     self.assertEqual(result, [2, 4])  # items before break
 
   async def test_break_no_value_async(self) -> None:
@@ -155,10 +155,10 @@ class BreakNoValueTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper).run()
     self.assertEqual(result, [2, 4])
 
 
@@ -167,7 +167,7 @@ class BreakWithValueTest(SymmetricTestCase):
 
   async def test_break_with_value_appends_to_results(self) -> None:
     """break_() with value: appends to partial results."""
-    result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_(x * 10) if x == 3 else x * 2).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_(x * 10) if x == 3 else x * 2).run()
     self.assertEqual(result, [2, 4, 30])
 
   async def test_break_with_value_appends_async(self) -> None:
@@ -175,10 +175,10 @@ class BreakWithValueTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.break_(x * 10)
+        return Q.break_(x * 10)
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper).run()
     self.assertEqual(result, [2, 4, 30])
 
 
@@ -187,12 +187,12 @@ class BreakCallableValueTest(SymmetricTestCase):
 
   async def test_break_callable_called_when_caught(self) -> None:
     """break_() with callable: called when signal is caught, appended to partial."""
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_(lambda: 'stop') if x == 2 else x).run()
+    result = Q([1, 2, 3]).foreach(lambda x: Q.break_(lambda: 'stop') if x == 2 else x).run()
     self.assertEqual(result, [1, 'stop'])
 
   async def test_break_callable_with_args(self) -> None:
     """break_() with callable + args follows calling conventions."""
-    result = Chain([1, 2, 3]).foreach(lambda x: Chain.break_(lambda a, b: a + b, 10, 20) if x == 2 else x).run()
+    result = Q([1, 2, 3]).foreach(lambda x: Q.break_(lambda a, b: a + b, 10, 20) if x == 2 else x).run()
     self.assertEqual(result, [1, 30])
 
 
@@ -206,18 +206,18 @@ class BreakOutsideIterationTest(TestCase):
 
   def test_break_outside_iteration_raises(self) -> None:
     """break_() outside foreach/foreach_do raises QuentException."""
-    c = Chain(1).then(lambda x: Chain.break_())
+    c = Q(1).then(lambda x: Q.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
     self.assertIn('cannot be used outside', str(ctx.exception))
 
   def test_break_outside_iteration_specific_message(self) -> None:
     """break_() outside iteration produces the exact specified error message."""
-    c = Chain(1).then(lambda x: Chain.break_())
+    c = Q(1).then(lambda x: Q.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
     expected = (
-      'Chain.break_() cannot be used outside of an iteration context'
+      'Q.break_() cannot be used outside of an iteration context'
       ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
     )
     self.assertEqual(str(ctx.exception), expected)
@@ -235,9 +235,9 @@ class BreakInHandlersTest(TestCase):
     """break_() in except handler raises QuentException."""
 
     def handler(info):
-      return Chain.break_()
+      return Q.break_()
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -245,9 +245,9 @@ class BreakInHandlersTest(TestCase):
     """break_() in finally handler raises QuentException."""
 
     def cleanup(rv):
-      return Chain.break_()
+      return Q.break_()
 
-    c = Chain(1).finally_(cleanup)
+    c = Q(1).finally_(cleanup)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -263,18 +263,18 @@ class ConcurrentBreakTest(SymmetricTestCase):
   async def test_concurrent_break_truncates_results(self) -> None:
     """Concurrent break: results truncated to elements before break index."""
     # With concurrency, break at index 2 (x==3) should truncate to indices 0,1
-    result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_() if x == 3 else x * 2, concurrency=2).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_() if x == 3 else x * 2, concurrency=2).run()
     self.assertEqual(result, [2, 4])
 
   async def test_concurrent_break_with_value(self) -> None:
     """Concurrent break with value: appends to truncated results."""
-    result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_('stopped') if x == 3 else x * 2, concurrency=2).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_('stopped') if x == 3 else x * 2, concurrency=2).run()
     self.assertEqual(result, [2, 4, 'stopped'])
 
   async def test_concurrent_break_earliest_index_wins(self) -> None:
     """When multiple workers break, earliest index wins."""
     # All elements >= 2 break. Element at index 1 (value 2) is earliest.
-    result = Chain([1, 2, 3, 4, 5]).foreach(lambda x: Chain.break_() if x >= 2 else x * 2, concurrency=5).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_() if x >= 2 else x * 2, concurrency=5).run()
     self.assertEqual(result, [2])  # only index 0 before earliest break
 
 
@@ -291,14 +291,14 @@ class ConcurrentPriorityTest(SymmetricTestCase):
 
     def mixed(x):
       if x == 1:
-        return Chain.return_('return wins')
+        return Q.return_('return wins')
       if x == 2:
-        return Chain.break_('break')
+        return Q.break_('break')
       if x == 3:
         raise ValueError('error')
       return x
 
-    result = Chain([1, 2, 3, 4]).foreach(mixed, concurrency=4).run()
+    result = Q([1, 2, 3, 4]).foreach(mixed, concurrency=4).run()
     self.assertEqual(result, 'return wins')
 
   async def test_break_over_regular_exception(self) -> None:
@@ -306,12 +306,12 @@ class ConcurrentPriorityTest(SymmetricTestCase):
 
     def mixed(x):
       if x == 1:
-        return Chain.break_('break wins')
+        return Q.break_('break wins')
       if x == 3:
         raise ValueError('error')
       return x
 
-    result = Chain([0, 1, 2, 3]).foreach(mixed, concurrency=4).run()
+    result = Q([0, 1, 2, 3]).foreach(mixed, concurrency=4).run()
     self.assertEqual(result, [0, 'break wins'])
 
   async def test_break_over_exception_even_when_exception_index_earlier(self) -> None:
@@ -326,10 +326,10 @@ class ConcurrentPriorityTest(SymmetricTestCase):
       if x == 1:
         raise ValueError('error at index 1')
       if x == 3:
-        return Chain.break_('break wins')
+        return Q.break_('break wins')
       return x
 
-    result = Chain([0, 1, 2, 3, 4]).foreach(mixed, concurrency=5).run()
+    result = Q([0, 1, 2, 3, 4]).foreach(mixed, concurrency=5).run()
     self.assertEqual(result, [0, 2, 'break wins'])
 
 
@@ -347,16 +347,16 @@ class BreakInForeachTest(SymmetricTestCase):
 
     def effect(x):
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       side_effects.append(x)
 
-    result = Chain([1, 2, 3, 4, 5]).foreach_do(effect).run()
+    result = Q([1, 2, 3, 4, 5]).foreach_do(effect).run()
     self.assertEqual(result, [1, 2])
     self.assertEqual(side_effects, [1, 2])
 
   async def test_break_in_foreach_do_with_value(self) -> None:
     """break_() in foreach_do with value: appends to partial items."""
-    result = Chain([1, 2, 3, 4, 5]).foreach_do(lambda x: Chain.break_('done') if x == 3 else None).run()
+    result = Q([1, 2, 3, 4, 5]).foreach_do(lambda x: Q.break_('done') if x == 3 else None).run()
     self.assertEqual(result, [1, 2, 'done'])
 
 
@@ -372,28 +372,28 @@ class AsyncReturnTest(SymmetricTestCase):
     """Async step with return_() exits chain."""
 
     async def step(x):
-      return Chain.return_(x * 10)
+      return Q.return_(x * 10)
 
-    result = await Chain(5).then(step).then(lambda x: 'never').run()
+    result = await Q(5).then(step).then(lambda x: 'never').run()
     self.assertEqual(result, 50)
 
   async def test_async_return_propagates_through_nesting(self) -> None:
     """Async return_() propagates through nested chains."""
 
     async def inner_step(x):
-      return Chain.return_('async early')
+      return Q.return_('async early')
 
-    inner = Chain().then(inner_step)
-    result = await Chain(1).then(inner).then(lambda x: 'unreachable').run()
+    inner = Q().then(inner_step)
+    result = await Q(1).then(inner).then(lambda x: 'unreachable').run()
     self.assertEqual(result, 'async early')
 
   async def test_async_break_outside_iteration(self) -> None:
     """Async break_() outside iteration raises QuentException."""
 
     async def step(x):
-      return Chain.break_()
+      return Q.break_()
 
-    c = Chain(1).then(step)
+    c = Q(1).then(step)
     with self.assertRaises(QuentException):
       await c.run()
 
@@ -408,7 +408,7 @@ class BreakInGatherTest(SymmetricTestCase):
 
   async def test_break_in_gather_raises_quent_exception(self) -> None:
     """break_() in gather raises QuentException with exact message (§5.5)."""
-    c = Chain(5).gather(lambda x: Chain.break_())
+    c = Q(5).gather(lambda x: Q.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
     self.assertIn('break_() signals are not allowed in gather operations', str(ctx.exception))
@@ -417,16 +417,16 @@ class BreakInGatherTest(SymmetricTestCase):
     """Async break_() in gather raises QuentException with exact message (§5.5)."""
 
     async def fn(x):
-      return Chain.break_()
+      return Q.break_()
 
-    c = Chain(5).gather(fn)
+    c = Q(5).gather(fn)
     with self.assertRaises(QuentException) as ctx:
       await c.run()
     self.assertIn('break_() signals are not allowed in gather operations', str(ctx.exception))
 
   async def test_break_in_gather_multiple_fns(self) -> None:
     """break_() in one of multiple gather fns raises QuentException."""
-    c = Chain(5).gather(lambda x: x * 2, lambda x: Chain.break_(), lambda x: x + 1)
+    c = Q(5).gather(lambda x: x * 2, lambda x: Q.break_(), lambda x: x + 1)
     with self.assertRaises(QuentException) as ctx:
       c.run()
     self.assertIn('break_() signals are not allowed in gather operations', str(ctx.exception))
@@ -444,11 +444,11 @@ class AsyncReturnFromNestedChainTest(SymmetricTestCase):
     """Async return_() propagates through deeply nested chains."""
 
     async def deep_step(x):
-      return Chain.return_('deep_async')
+      return Q.return_('deep_async')
 
-    inner2 = Chain().then(deep_step)
-    inner1 = Chain().then(inner2)
-    result = await Chain(1).then(inner1).then(lambda x: 'unreachable').run()
+    inner2 = Q().then(deep_step)
+    inner1 = Q().then(inner2)
+    result = await Q(1).then(inner1).then(lambda x: 'unreachable').run()
     self.assertEqual(result, 'deep_async')
 
 
@@ -460,10 +460,10 @@ class AsyncBreakInMapTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper).run()
     self.assertEqual(result, [2, 4])
 
   async def test_async_break_in_map_with_value(self) -> None:
@@ -471,10 +471,10 @@ class AsyncBreakInMapTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.break_('stopped')
+        return Q.break_('stopped')
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper).run()
     self.assertEqual(result, [2, 4, 'stopped'])
 
   async def test_async_break_in_foreach_do(self) -> None:
@@ -483,10 +483,10 @@ class AsyncBreakInMapTest(SymmetricTestCase):
 
     async def effect(x):
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       side_effects.append(x)
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach_do(effect).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach_do(effect).run()
     self.assertEqual(result, [1, 2])
     self.assertEqual(side_effects, [1, 2])
 
@@ -504,10 +504,10 @@ class ReturnInForeachTest(SymmetricTestCase):
 
     def mapper(x):
       if x == 3:
-        return Chain.return_('early_exit')
+        return Q.return_('early_exit')
       return x * 2
 
-    result = Chain([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'should not reach').run()
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'should not reach').run()
     self.assertEqual(result, 'early_exit')
 
   async def test_return_in_foreach_exits_chain_async(self) -> None:
@@ -515,10 +515,10 @@ class ReturnInForeachTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.return_('async_early_exit')
+        return Q.return_('async_early_exit')
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'nope').run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'nope').run()
     self.assertEqual(result, 'async_early_exit')
 
   async def test_return_in_foreach_do_exits_chain_sync(self) -> None:
@@ -526,9 +526,9 @@ class ReturnInForeachTest(SymmetricTestCase):
 
     def effect(x):
       if x == 3:
-        return Chain.return_('early from foreach_do')
+        return Q.return_('early from foreach_do')
 
-    result = Chain([1, 2, 3, 4, 5]).foreach_do(effect).then(lambda x: 'nope').run()
+    result = Q([1, 2, 3, 4, 5]).foreach_do(effect).then(lambda x: 'nope').run()
     self.assertEqual(result, 'early from foreach_do')
 
   async def test_return_in_foreach_do_exits_chain_async(self) -> None:
@@ -536,26 +536,26 @@ class ReturnInForeachTest(SymmetricTestCase):
 
     async def effect(x):
       if x == 3:
-        return Chain.return_('async_early_foreach_do')
+        return Q.return_('async_early_foreach_do')
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach_do(effect).then(lambda x: 'nope').run()
+    result = await Q([1, 2, 3, 4, 5]).foreach_do(effect).then(lambda x: 'nope').run()
     self.assertEqual(result, 'async_early_foreach_do')
 
 
 class ReturnInNestedChainWithinForeachTest(SymmetricTestCase):
   """return_() in nested chain used as foreach callback.
 
-  When a chain is used as a foreach callback, _IterOp calls chain(item)
-  which goes through chain.run(). The nested chain's own _run() catches
+  When a pipeline is used as a foreach callback, _IterOp calls q(item)
+  which goes through q.run(). The nested q's own _run() catches
   _Return and extracts the value, so return_() does NOT propagate to the
-  outer chain. Instead, the return value becomes the result for that
+  outer q. Instead, the return value becomes the result for that
   element in the foreach.
   """
 
   async def test_return_in_nested_chain_within_foreach_sync(self) -> None:
     """Sync: return_() in nested chain becomes element result, does not exit outer chain."""
-    inner = Chain().then(lambda x: Chain.return_('nested_return') if x == 3 else x * 2)
-    result = Chain([1, 2, 3, 4, 5]).foreach(inner).run()
+    inner = Q().then(lambda x: Q.return_('nested_return') if x == 3 else x * 2)
+    result = Q([1, 2, 3, 4, 5]).foreach(inner).run()
     self.assertEqual(result, [2, 4, 'nested_return', 8, 10])
 
   async def test_return_in_nested_chain_within_foreach_async(self) -> None:
@@ -563,11 +563,11 @@ class ReturnInNestedChainWithinForeachTest(SymmetricTestCase):
 
     async def inner_step(x):
       if x == 3:
-        return Chain.return_('async_nested_return')
+        return Q.return_('async_nested_return')
       return x * 2
 
-    inner = Chain().then(inner_step)
-    result = await Chain([1, 2, 3, 4, 5]).foreach(inner).run()
+    inner = Q().then(inner_step)
+    result = await Q([1, 2, 3, 4, 5]).foreach(inner).run()
     self.assertEqual(result, [2, 4, 'async_nested_return', 8, 10])
 
 
@@ -579,10 +579,10 @@ class ControlFlowInConcurrentForeachTest(SymmetricTestCase):
 
     def mapper(x):
       if x == 3:
-        return Chain.return_('concurrent_return')
+        return Q.return_('concurrent_return')
       return x * 2
 
-    result = Chain([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
     self.assertEqual(result, 'concurrent_return')
 
   async def test_concurrent_break_truncates(self) -> None:
@@ -590,10 +590,10 @@ class ControlFlowInConcurrentForeachTest(SymmetricTestCase):
 
     def mapper(x):
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x * 2
 
-    result = Chain([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
     self.assertEqual(result, [2, 4])
 
   async def test_concurrent_break_with_value(self) -> None:
@@ -601,10 +601,10 @@ class ControlFlowInConcurrentForeachTest(SymmetricTestCase):
 
     def mapper(x):
       if x == 3:
-        return Chain.break_('stopped')
+        return Q.break_('stopped')
       return x * 2
 
-    result = Chain([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
     self.assertEqual(result, [2, 4, 'stopped'])
 
   async def test_concurrent_async_return_exits_chain(self) -> None:
@@ -612,10 +612,10 @@ class ControlFlowInConcurrentForeachTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.return_('async_concurrent_return')
+        return Q.return_('async_concurrent_return')
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
     self.assertEqual(result, 'async_concurrent_return')
 
   async def test_concurrent_async_break_truncates(self) -> None:
@@ -623,20 +623,20 @@ class ControlFlowInConcurrentForeachTest(SymmetricTestCase):
 
     async def mapper(x):
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x * 2
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(mapper, concurrency=3).run()
     self.assertEqual(result, [2, 4])
 
 
 # ---------------------------------------------------------------------------
-# §7.3: break_() in deeply nested async chain
+# §7.3: break_() in deeply nested async q
 # ---------------------------------------------------------------------------
 
 
 class AsyncNestedBreakPropagationTest(IsolatedAsyncioTestCase):
-  """§7.3: break_() in deeply nested async chain propagates through _run_async."""
+  """§7.3: break_() in deeply nested async pipeline propagates through _run_async."""
 
   async def test_async_break_in_nested_chain_propagates_through_run_async(self) -> None:
     """Deeply nested async break propagation."""
@@ -644,13 +644,13 @@ class AsyncNestedBreakPropagationTest(IsolatedAsyncioTestCase):
     async def async_step(x):
       return x
 
-    chain_b = Chain().then(async_step).then(lambda x: Chain.break_() if x >= 2 else x)
-    chain_a = Chain().then(chain_b)
-    chain_wrapper = Chain().then(chain_a)
+    chain_b = Q().then(async_step).then(lambda x: Q.break_() if x >= 2 else x)
+    chain_a = Q().then(chain_b)
+    chain_wrapper = Q().then(chain_a)
 
-    # foreach_do catches the QuentException from the outermost chain
+    # foreach_do catches the QuentException from the outermost q
     with self.assertRaises(QuentException) as ctx:
-      await Chain([1, 2, 3]).foreach_do(chain_wrapper).run()
+      await Q([1, 2, 3]).foreach_do(chain_wrapper).run()
     self.assertIn('cannot be used outside', str(ctx.exception))
 
 
@@ -669,9 +669,9 @@ class AsyncReturnAwaitableValueTest(IsolatedAsyncioTestCase):
       return 99
 
     async def step(x):
-      return Chain.return_(compute)
+      return Q.return_(compute)
 
-    result = await Chain(5).then(step).then(lambda x: 'never').run()
+    result = await Q(5).then(step).then(lambda x: 'never').run()
     self.assertEqual(result, 99)
 
 
@@ -692,17 +692,17 @@ class ReturnLazyEvaluationTest(SymmetricTestCase):
       return 'lazy_result'
 
     # Build 3-level nesting: inner2 raises return_, inner1 wraps it, outer catches it.
-    inner2 = Chain().then(lambda x: Chain.return_(tracked_callable))
-    inner1 = Chain().then(inner2)
+    inner2 = Q().then(lambda x: Q.return_(tracked_callable))
+    inner1 = Q().then(inner2)
 
     # Before running, callable not called
     self.assertEqual(call_log, [])
 
-    result = Chain(1).then(inner1).then(lambda x: 'unreachable').run()
+    result = Q(1).then(inner1).then(lambda x: 'unreachable').run()
 
-    # The callable should have been called exactly once — when the outermost chain caught the signal
+    # The callable should have been called exactly once — when the outermost q caught the signal
     self.assertEqual(call_log, ['evaluated'])
-    # The callable's return value should be the chain's result
+    # The callable's return value should be the pipeline's result
     self.assertEqual(result, 'lazy_result')
 
   async def test_break_callable_not_called_during_propagation(self) -> None:
@@ -715,12 +715,12 @@ class ReturnLazyEvaluationTest(SymmetricTestCase):
 
     def mapper(x):
       if x == 2:
-        return Chain.break_(tracked_callable)
+        return Q.break_(tracked_callable)
       return x * 10
 
     self.assertEqual(call_log, [])
 
-    result = Chain([1, 2, 3]).foreach(mapper).run()
+    result = Q([1, 2, 3]).foreach(mapper).run()
 
     # Callable called exactly once when foreach caught the break signal
     self.assertEqual(call_log, ['evaluated'])
@@ -734,11 +734,11 @@ class ReturnLazyEvaluationTest(SymmetricTestCase):
 
 
 class UnawaitedCoroutineFinallySkippedTest(TestCase):
-  """SPEC-261: When a sync chain produces a coroutine but it is never awaited,
+  """SPEC-261: When a sync pipeline produces a coroutine but it is never awaited,
   the finally handler is NOT executed because the async continuation never runs."""
 
   def test_unawaited_coroutine_finally_not_called(self) -> None:
-    """Sync chain with async step + finally: not awaiting skips finally."""
+    """Sync pipeline with async step + finally: not awaiting skips finally."""
     finally_called: list[bool] = []
 
     async def async_step(x):
@@ -747,8 +747,8 @@ class UnawaitedCoroutineFinallySkippedTest(TestCase):
     def cleanup(rv):
       finally_called.append(True)
 
-    chain = Chain(5).then(async_step).finally_(cleanup)
-    result = chain.run()
+    q = Q(5).then(async_step).finally_(cleanup)
+    result = q.run()
 
     # run() returns a coroutine (async transition occurred)
     import asyncio

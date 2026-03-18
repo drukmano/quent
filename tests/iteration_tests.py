@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import unittest
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 from tests.fixtures import V_DOUBLE, async_double, sync_double
 from tests.symmetric import SymmetricTestCase
 
@@ -19,49 +19,49 @@ class IterateTests(SymmetricTestCase):
 
   async def test_iterate_no_fn(self) -> None:
     """iterate() with no fn yields elements as-is."""
-    result = list(Chain(range(5)).iterate())
+    result = list(Q(range(5)).iterate())
     self.assertEqual(result, [0, 1, 2, 3, 4])
 
   async def test_iterate_with_fn(self) -> None:
     """iterate(fn) transforms each element — sync fn uses sync for, async fn uses async for."""
     # Sync fn path
-    result_sync = list(Chain(range(5)).iterate(sync_double))
+    result_sync = list(Q(range(5)).iterate(sync_double))
     self.assertEqual(result_sync, [0, 2, 4, 6, 8])
 
     # Async fn path — must use async for
     result_async: list[int] = []
-    async for item in Chain(range(5)).iterate(async_double):
+    async for item in Q(range(5)).iterate(async_double):
       result_async.append(item)
     self.assertEqual(result_async, [0, 2, 4, 6, 8])
 
-  async def test_iterate_chain_executes_at_iteration_start(self) -> None:
-    """Chain executes when iteration begins, not when iterate() is called."""
+  async def test_iterate_pipeline_executes_at_iteration_start(self) -> None:
+    """Pipeline executes when iteration begins, not when iterate() is called."""
     calls: list[str] = []
 
     def track() -> list[int]:
       calls.append('executed')
       return [1, 2, 3]
 
-    it = Chain(track).iterate()
+    it = Q(track).iterate()
     self.assertEqual(calls, [])  # Not yet executed
     result = list(it)
     self.assertEqual(calls, ['executed'])
     self.assertEqual(result, [1, 2, 3])
 
-  async def test_iterate_sync_with_async_chain_raises_typeerror(self) -> None:
-    """Sync 'for' with async chain raises TypeError."""
+  async def test_iterate_sync_with_async_pipeline_raises_typeerror(self) -> None:
+    """Sync 'for' with async pipeline raises TypeError."""
 
     async def async_range() -> list[int]:
       return [1, 2, 3]
 
-    it = Chain(async_range).iterate()
+    it = Q(async_range).iterate()
     with self.assertRaises(TypeError):
       list(it)
 
   async def test_iterate_async_with_sync_iterable(self) -> None:
-    """async for works with sync iterable chain."""
+    """async for works with sync iterable pipeline."""
     result: list[int] = []
-    async for item in Chain(range(5)).iterate():
+    async for item in Q(range(5)).iterate():
       result.append(item)
     self.assertEqual(result, [0, 1, 2, 3, 4])
 
@@ -70,7 +70,7 @@ class IterateTests(SymmetricTestCase):
     for fn_label, fn in V_DOUBLE:
       with self.subTest(fn=fn_label):
         result: list[int] = []
-        async for item in Chain(range(5)).iterate(fn):
+        async for item in Q(range(5)).iterate(fn):
           result.append(item)
         self.assertEqual(result, [0, 2, 4, 6, 8])
 
@@ -80,46 +80,46 @@ class IterateTests(SymmetricTestCase):
     async def async_fn_inner(x: int) -> int:
       return x * 2
 
-    it = Chain(range(3)).iterate(async_fn_inner)
+    it = Q(range(3)).iterate(async_fn_inner)
     with self.assertRaises(TypeError):
       list(it)
 
-  async def test_iterate_async_chain_with_async_for(self) -> None:
-    """async for handles async chain result."""
+  async def test_iterate_async_pipeline_with_async_for(self) -> None:
+    """async for handles async pipeline result."""
 
     async def async_range() -> list[int]:
       return [10, 20, 30]
 
     result: list[int] = []
-    async for item in Chain(async_range).iterate():
+    async for item in Q(async_range).iterate():
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
 
 
 # ---------------------------------------------------------------------------
-# §9.1 Error handling — chain handlers vs fn errors
+# §9.1 Error handling — pipeline handlers vs fn errors
 # ---------------------------------------------------------------------------
 
 
 class IterateErrorHandlingTests(SymmetricTestCase):
-  """§9.1 — except_/finally_ apply to chain run(), not fn iteration errors."""
+  """§9.1 — except_/finally_ apply to pipeline run(), not fn iteration errors."""
 
   async def test_chain_except_catches_chain_error(self) -> None:
-    """Chain's except_() catches errors during chain execution (run phase)."""
+    """Pipeline's except_() catches errors during pipeline execution (run phase)."""
     handler_calls: list[str] = []
 
     def error_handler(info) -> list[int]:
       handler_calls.append('handled')
       return [99]
 
-    # Chain itself raises during run phase (before iteration)
-    it = Chain(0).then(lambda x: 1 / x).except_(error_handler).iterate()
+    # Pipeline itself raises during run phase (before iteration)
+    it = Q(0).then(lambda x: 1 / x).except_(error_handler).iterate()
     result = list(it)
     self.assertEqual(handler_calls, ['handled'])
     self.assertEqual(result, [99])
 
   async def test_fn_error_bypasses_chain_except(self) -> None:
-    """Errors from fn during iteration bypass chain's except_() handler."""
+    """Errors from fn during iteration bypass pipeline's except_() handler."""
     handler_calls: list[str] = []
 
     def error_handler(info) -> list[int]:
@@ -131,15 +131,15 @@ class IterateErrorHandlingTests(SymmetricTestCase):
         raise ValueError('fn error')
       return x
 
-    it = Chain(range(5)).except_(error_handler).iterate(failing_fn)
+    it = Q(range(5)).except_(error_handler).iterate(failing_fn)
     with self.assertRaises(ValueError) as ctx:
       list(it)
     self.assertIn('fn error', str(ctx.exception))
-    # The chain's handler was NOT called — fn errors bypass it
+    # The pipeline's handler was NOT called — fn errors bypass it
     self.assertEqual(handler_calls, [])
 
-  async def test_chain_finally_runs_on_chain_error(self) -> None:
-    """Chain's finally_() runs when chain execution fails (run phase).
+  async def test_pipeline_finally_runs_on_pipeline_error(self) -> None:
+    """Pipeline's finally_() runs when pipeline execution fails (run phase).
 
     With deferred finally, the cleanup runs AFTER iteration completes
     (in the generator's finally block), not during the run phase.  The
@@ -153,15 +153,15 @@ class IterateErrorHandlingTests(SymmetricTestCase):
 
     # except_ catches the ZeroDivisionError and returns []; finally_ is
     # deferred and runs in the generator's finally block after iteration ends.
-    it = Chain(0).then(lambda x: 1 / x).except_(lambda _: []).finally_(cleanup).iterate()
+    it = Q(0).then(lambda x: 1 / x).except_(lambda _: []).finally_(cleanup).iterate()
     result = list(it)
     self.assertEqual(cleanup_calls, ['cleanup'])
     self.assertEqual(result, [])
 
-  async def test_fn_error_triggers_deferred_chain_finally(self) -> None:
-    """fn errors during iteration trigger the chain's deferred finally_() handler.
+  async def test_fn_error_triggers_deferred_pipeline_finally(self) -> None:
+    """fn errors during iteration trigger the pipeline's deferred finally_() handler.
 
-    With deferred finally, the chain runs successfully (producing range(3)),
+    With deferred finally, the pipeline runs successfully (producing range(3)),
     finally is deferred to the generator's finally block.  When fn raises on
     x==1, the generator exits and the finally block runs the deferred cleanup.
     """
@@ -175,33 +175,33 @@ class IterateErrorHandlingTests(SymmetricTestCase):
         raise ValueError('fn error')
       return x
 
-    # Chain runs successfully; finally_ is deferred.  fn raises during
+    # Pipeline runs successfully; finally_ is deferred.  fn raises during
     # iteration, triggering the generator's finally block which runs cleanup.
-    it = Chain(range(3)).finally_(cleanup).iterate(failing_fn)
+    it = Q(range(3)).finally_(cleanup).iterate(failing_fn)
     with self.assertRaises(ValueError):
       list(it)
     # Deferred finally ran via the generator's finally block.
     self.assertEqual(cleanup_calls, ['cleanup'])
 
-  async def test_chain_except_catches_chain_error_async(self) -> None:
-    """Chain's except_() catches errors during async chain execution."""
+  async def test_pipeline_except_catches_pipeline_error_async(self) -> None:
+    """Pipeline's except_() catches errors during async pipeline execution."""
     handler_calls: list[str] = []
 
     async def async_fail() -> list[int]:
-      raise ValueError('chain error')
+      raise ValueError('pipeline error')
 
     def error_handler(info) -> list[int]:
       handler_calls.append('handled')
       return [42]
 
     result: list[int] = []
-    async for item in Chain(async_fail).except_(error_handler).iterate():
+    async for item in Q(async_fail).except_(error_handler).iterate():
       result.append(item)
     self.assertEqual(handler_calls, ['handled'])
     self.assertEqual(result, [42])
 
-  async def test_fn_error_bypasses_chain_except_async(self) -> None:
-    """Async: fn errors during iteration bypass chain's except_()."""
+  async def test_fn_error_bypasses_pipeline_except_async(self) -> None:
+    """Async: fn errors during iteration bypass pipeline's except_()."""
     handler_calls: list[str] = []
 
     def error_handler(info) -> int:
@@ -214,7 +214,7 @@ class IterateErrorHandlingTests(SymmetricTestCase):
       return x
 
     with self.assertRaises(ValueError):
-      async for _item in Chain(range(5)).except_(error_handler).iterate(failing_fn):
+      async for _item in Q(range(5)).except_(error_handler).iterate(failing_fn):
         pass
     self.assertEqual(handler_calls, [])
 
@@ -229,18 +229,18 @@ class IterateDoTests(SymmetricTestCase):
 
   async def test_iterate_do_no_fn(self) -> None:
     """iterate_do() with no fn yields elements as-is."""
-    result = list(Chain(range(4)).iterate_do())
+    result = list(Q(range(4)).iterate_do())
     self.assertEqual(result, [0, 1, 2, 3])
 
   async def test_iterate_do_yields_originals(self) -> None:
     """iterate_do(fn) yields original elements, not fn results."""
     # Sync fn path
-    result_sync = list(Chain(range(4)).iterate_do(sync_double))
+    result_sync = list(Q(range(4)).iterate_do(sync_double))
     self.assertEqual(result_sync, [0, 1, 2, 3])
 
     # Async fn path — must use async for
     result_async: list[int] = []
-    async for item in Chain(range(4)).iterate_do(async_double):
+    async for item in Q(range(4)).iterate_do(async_double):
       result_async.append(item)
     self.assertEqual(result_async, [0, 1, 2, 3])
 
@@ -252,7 +252,7 @@ class IterateDoTests(SymmetricTestCase):
       calls.append(x)
       return 'discarded'
 
-    result = list(Chain(range(3)).iterate_do(track))
+    result = list(Q(range(3)).iterate_do(track))
     self.assertEqual(result, [0, 1, 2])
     self.assertEqual(calls, [0, 1, 2])
 
@@ -261,7 +261,7 @@ class IterateDoTests(SymmetricTestCase):
     for fn_label, fn in V_DOUBLE:
       with self.subTest(fn=fn_label):
         result: list[int] = []
-        async for item in Chain(range(4)).iterate_do(fn):
+        async for item in Q(range(4)).iterate_do(fn):
           result.append(item)
         self.assertEqual(result, [0, 1, 2, 3])
 
@@ -274,25 +274,25 @@ class IterateDoTests(SymmetricTestCase):
       return 'discarded'
 
     result: list[int] = []
-    async for item in Chain(range(3)).iterate_do(async_track):
+    async for item in Q(range(3)).iterate_do(async_track):
       result.append(item)
     self.assertEqual(result, [0, 1, 2])
     self.assertEqual(calls, [0, 1, 2])
 
   async def test_iterate_do_fn_return_discarded_not_mapped(self) -> None:
     """§9.2: iterate_do yields original elements, NOT fn's return values."""
-    result = list(Chain([1, 2, 3]).iterate_do(lambda x: x * 100))
+    result = list(Q([1, 2, 3]).iterate_do(lambda x: x * 100))
     self.assertEqual(result, [1, 2, 3])
 
   async def test_iterate_do_sync_no_fn(self) -> None:
     """iterate_do() sync path with no fn — exercises _sync_generator no-fn path."""
-    result = list(Chain([10, 20, 30]).iterate_do())
+    result = list(Q([10, 20, 30]).iterate_do())
     self.assertEqual(result, [10, 20, 30])
 
   async def test_iterate_do_async_no_fn(self) -> None:
     """iterate_do() async path with no fn — exercises _async_generator no-fn path."""
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do():
+    async for item in Q([10, 20, 30]).iterate_do():
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
 
@@ -307,7 +307,7 @@ class IteratorReuseTests(SymmetricTestCase):
 
   async def test_reuse_with_different_value(self) -> None:
     """Calling iterator with value creates new iterator."""
-    it = Chain().then(lambda x: [x, x + 1, x + 2]).iterate()
+    it = Q().then(lambda x: [x, x + 1, x + 2]).iterate()
     result1 = list(it(1))
     result2 = list(it(10))
     self.assertEqual(result1, [1, 2, 3])
@@ -315,7 +315,7 @@ class IteratorReuseTests(SymmetricTestCase):
 
   async def test_reuse_preserves_fn(self) -> None:
     """Reused iterator keeps original fn configuration."""
-    it = Chain().then(lambda x: [x, x + 1]).iterate(sync_double)
+    it = Q().then(lambda x: [x, x + 1]).iterate(sync_double)
     result1 = list(it(1))
     result2 = list(it(5))
     self.assertEqual(result1, [2, 4])
@@ -323,7 +323,7 @@ class IteratorReuseTests(SymmetricTestCase):
 
   async def test_reuse_original_still_works(self) -> None:
     """Original iterator is not affected by creating new ones."""
-    it = Chain(range(3)).iterate()
+    it = Q(range(3)).iterate()
     _new_it = it(99)
     # Original still works with its own args
     result = list(it)
@@ -331,7 +331,7 @@ class IteratorReuseTests(SymmetricTestCase):
 
   async def test_reuse_async(self) -> None:
     """Reused iterator works with async for."""
-    it = Chain().then(lambda x: [x * 10, x * 20]).iterate()
+    it = Q().then(lambda x: [x * 10, x * 20]).iterate()
     result: list[int] = []
     async for item in it(3):
       result.append(item)
@@ -339,7 +339,7 @@ class IteratorReuseTests(SymmetricTestCase):
 
   async def test_reuse_returns_fresh_instance(self) -> None:
     """Each call returns a new iterator instance."""
-    it = Chain(range(3)).iterate()
+    it = Q(range(3)).iterate()
     it2 = it(1)
     it3 = it(2)
     self.assertIsNot(it, it2)
@@ -359,10 +359,10 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
-    result = list(Chain(range(5)).iterate(fn))
+    result = list(Q(range(5)).iterate(fn))
     # Elements before return are yielded, then return value, then stop
     self.assertEqual(result, [0, 1, 20])
 
@@ -371,10 +371,10 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_()
+        return Q.return_()
       return x
 
-    result = list(Chain(range(5)).iterate(fn))
+    result = list(Q(range(5)).iterate(fn))
     self.assertEqual(result, [0, 1])
 
   async def test_break_stops_iteration(self) -> None:
@@ -382,10 +382,10 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x
 
-    result = list(Chain(range(10)).iterate(fn))
+    result = list(Q(range(10)).iterate(fn))
     self.assertEqual(result, [0, 1, 2])
 
   async def test_break_with_value_yields_then_stops(self) -> None:
@@ -393,10 +393,10 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(x * 100)
+        return Q.break_(x * 100)
       return x
 
-    result = list(Chain(range(5)).iterate(fn))
+    result = list(Q(range(5)).iterate(fn))
     self.assertEqual(result, [0, 1, 200])
 
   async def test_return_async(self) -> None:
@@ -404,11 +404,11 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 20])
 
@@ -417,11 +417,11 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x
 
     result: list[int] = []
-    async for item in Chain(range(10)).iterate(fn):
+    async for item in Q(range(10)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 2])
 
@@ -430,11 +430,11 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(x * 100)
+        return Q.break_(x * 100)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 200])
 
@@ -443,11 +443,11 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
     # iterate_do yields originals, but return_ value is special
-    result = list(Chain(range(5)).iterate_do(fn))
+    result = list(Q(range(5)).iterate_do(fn))
     # Items 0, 1 are yielded as originals, then return value 20 is yielded
     self.assertEqual(result, [0, 1, 20])
 
@@ -456,10 +456,10 @@ class IterationControlFlowTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x
 
-    result = list(Chain(range(10)).iterate_do(fn))
+    result = list(Q(range(10)).iterate_do(fn))
     self.assertEqual(result, [0, 1, 2])
 
 
@@ -476,10 +476,10 @@ class BreakSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(42)
+        return Q.break_(42)
       return x * 10
 
-    result = Chain([0, 1, 2, 3, 4]).foreach(fn).run()
+    result = Q([0, 1, 2, 3, 4]).foreach(fn).run()
     # break_(42) appends to partial [0, 10]
     self.assertEqual(result, [0, 10, 42])
 
@@ -488,10 +488,10 @@ class BreakSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(42)
+        return Q.break_(42)
       return x * 10
 
-    result = list(Chain([0, 1, 2, 3, 4]).iterate(fn))
+    result = list(Q([0, 1, 2, 3, 4]).iterate(fn))
     # Items 0*10=0, 1*10=10 already yielded, then 42 yielded before stop
     self.assertEqual(result, [0, 10, 42])
 
@@ -500,10 +500,10 @@ class BreakSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x * 10
 
-    result = Chain([0, 1, 2, 3, 4]).foreach(fn).run()
+    result = Q([0, 1, 2, 3, 4]).foreach(fn).run()
     self.assertEqual(result, [0, 10, 20])
 
   async def test_iterate_break_no_value_stops_immediately(self) -> None:
@@ -511,10 +511,10 @@ class BreakSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x * 10
 
-    result = list(Chain([0, 1, 2, 3, 4]).iterate(fn))
+    result = list(Q([0, 1, 2, 3, 4]).iterate(fn))
     self.assertEqual(result, [0, 10, 20])
 
   async def test_map_break_with_value_appends_async(self) -> None:
@@ -522,10 +522,10 @@ class BreakSemanticsTests(SymmetricTestCase):
 
     async def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(42)
+        return Q.break_(42)
       return x * 10
 
-    result = await Chain([0, 1, 2, 3, 4]).foreach(fn).run()
+    result = await Q([0, 1, 2, 3, 4]).foreach(fn).run()
     self.assertEqual(result, [0, 10, 42])
 
   async def test_iterate_break_with_value_appends_async(self) -> None:
@@ -533,26 +533,26 @@ class BreakSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(42)
+        return Q.break_(42)
       return x * 10
 
     result: list[int] = []
-    async for item in Chain([0, 1, 2, 3, 4]).iterate(fn):
+    async for item in Q([0, 1, 2, 3, 4]).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 10, 42])
 
 
 # ---------------------------------------------------------------------------
-# §17.8 — return_ semantics differ between chain and iterate
+# §17.8 — return_ semantics differ between pipeline and iterate
 # ---------------------------------------------------------------------------
 
 
 class ReturnSemanticsTests(SymmetricTestCase):
-  """§17.8 — return_(value) replaces in chain, appends in iterate."""
+  """§17.8 — return_(value) replaces in pipeline, appends in iterate."""
 
-  async def test_chain_return_replaces_result(self) -> None:
-    """In normal chain execution, return_(value) replaces entire result."""
-    result = Chain(5).then(lambda x: x + 1).then(lambda x: Chain.return_(99)).then(lambda x: x * 100).run()
+  async def test_pipeline_return_replaces_result(self) -> None:
+    """In normal pipeline execution, return_(value) replaces entire result."""
+    result = Q(5).then(lambda x: x + 1).then(lambda x: Q.return_(99)).then(lambda x: x * 100).run()
     self.assertEqual(result, 99)
 
   async def test_iterate_return_yields_value_then_stops(self) -> None:
@@ -560,16 +560,16 @@ class ReturnSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(99)
+        return Q.return_(99)
       return x * 10
 
-    result = list(Chain([0, 1, 2, 3, 4]).iterate(fn))
+    result = list(Q([0, 1, 2, 3, 4]).iterate(fn))
     # Items 0, 10 already yielded, then 99 yielded as final item
     self.assertEqual(result, [0, 10, 99])
 
-  async def test_chain_return_no_value(self) -> None:
-    """In normal chain, return_() with no value returns None."""
-    result = Chain(5).then(lambda x: Chain.return_()).then(lambda x: x * 100).run()
+  async def test_pipeline_return_no_value(self) -> None:
+    """In normal pipeline, return_() with no value returns None."""
+    result = Q(5).then(lambda x: Q.return_()).then(lambda x: x * 100).run()
     self.assertIsNone(result)
 
   async def test_iterate_return_no_value_stops(self) -> None:
@@ -577,10 +577,10 @@ class ReturnSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_()
+        return Q.return_()
       return x * 10
 
-    result = list(Chain([0, 1, 2, 3, 4]).iterate(fn))
+    result = list(Q([0, 1, 2, 3, 4]).iterate(fn))
     self.assertEqual(result, [0, 10])
 
   async def test_iterate_return_with_value_async(self) -> None:
@@ -588,11 +588,11 @@ class ReturnSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(99)
+        return Q.return_(99)
       return x * 10
 
     result: list[int] = []
-    async for item in Chain([0, 1, 2, 3, 4]).iterate(fn):
+    async for item in Q([0, 1, 2, 3, 4]).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 10, 99])
 
@@ -601,10 +601,10 @@ class ReturnSemanticsTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(lambda: 999)
+        return Q.return_(lambda: 999)
       return x
 
-    result = list(Chain(range(5)).iterate(fn))
+    result = list(Q(range(5)).iterate(fn))
     # The lambda is evaluated (called) by _eval_signal_value
     self.assertEqual(result, [0, 1, 999])
 
@@ -617,14 +617,14 @@ class ReturnSemanticsTests(SymmetricTestCase):
 class AsyncIteratorPathTests(SymmetricTestCase):
   """Coverage tests for _async_generator paths in _generator.py."""
 
-  async def test_async_iterate_with_async_chain_and_fn(self) -> None:
-    """async for with async chain and sync fn — exercises await + fn path."""
+  async def test_async_iterate_with_async_pipeline_and_fn(self) -> None:
+    """async for with async pipeline and sync fn — exercises await + fn path."""
 
     async def async_range() -> list[int]:
       return [1, 2, 3, 4]
 
     result: list[int] = []
-    async for item in Chain(async_range).iterate(sync_double):
+    async for item in Q(async_range).iterate(sync_double):
       result.append(item)
     self.assertEqual(result, [2, 4, 6, 8])
 
@@ -637,7 +637,7 @@ class AsyncIteratorPathTests(SymmetricTestCase):
       return 'discarded'
 
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do(track):
+    async for item in Q([10, 20, 30]).iterate_do(track):
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
     self.assertEqual(calls, [10, 20, 30])
@@ -651,7 +651,7 @@ class AsyncIteratorPathTests(SymmetricTestCase):
       return 'discarded'
 
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do(async_track):
+    async for item in Q([10, 20, 30]).iterate_do(async_track):
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
     self.assertEqual(calls, [10, 20, 30])
@@ -661,11 +661,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(x * 100)
+        return Q.return_(x * 100)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 100])
 
@@ -674,11 +674,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_()
+        return Q.return_()
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0])
 
@@ -687,11 +687,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(x * 100)
+        return Q.break_(x * 100)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 100])
 
@@ -700,11 +700,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_()
+        return Q.break_()
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0])
 
@@ -716,11 +716,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(resolve)
+        return Q.return_(resolve)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 777])
 
@@ -732,11 +732,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(resolve)
+        return Q.break_(resolve)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate(fn):
+    async for item in Q(range(5)).iterate(fn):
       result.append(item)
     self.assertEqual(result, [0, 888])
 
@@ -745,11 +745,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate_do(fn):
+    async for item in Q(range(5)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 20])
 
@@ -758,11 +758,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 3:
-        return Chain.break_()
+        return Q.break_()
       return x
 
     result: list[int] = []
-    async for item in Chain(range(10)).iterate_do(fn):
+    async for item in Q(range(10)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 2])
 
@@ -771,11 +771,11 @@ class AsyncIteratorPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(42)
+        return Q.break_(42)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate_do(fn):
+    async for item in Q(range(5)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 42])
 
@@ -802,7 +802,7 @@ class MidOperationAsyncTransitionTests(SymmetricTestCase):
         return _inner()
       return x * 10
 
-    result = await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
+    result = await Q([1, 2, 3, 4]).foreach(mixed_fn).run()
     self.assertEqual(result, [10, 20, 30, 40])
 
   async def test_foreach_do_mid_transition(self) -> None:
@@ -821,7 +821,7 @@ class MidOperationAsyncTransitionTests(SymmetricTestCase):
         return _inner()
       return None
 
-    result = await Chain([1, 2, 3, 4]).foreach_do(mixed_fn).run()
+    result = await Q([1, 2, 3, 4]).foreach_do(mixed_fn).run()
     self.assertEqual(result, [1, 2, 3, 4])
     self.assertEqual(calls, [1, 2, 3, 4])
 
@@ -836,44 +836,44 @@ class IterateEdgeCaseTests(SymmetricTestCase):
 
   async def test_iterate_empty(self) -> None:
     """iterate over empty iterable yields nothing."""
-    result = list(Chain([]).iterate())
+    result = list(Q([]).iterate())
     self.assertEqual(result, [])
 
   async def test_iterate_single_element(self) -> None:
     """iterate over single element."""
-    result = list(Chain([42]).iterate())
+    result = list(Q([42]).iterate())
     self.assertEqual(result, [42])
 
   async def test_iterate_with_none_fn(self) -> None:
     """iterate(None) is the same as iterate() — yields as-is."""
-    result = list(Chain(range(3)).iterate(None))
+    result = list(Q(range(3)).iterate(None))
     self.assertEqual(result, [0, 1, 2])
 
   async def test_iterate_do_with_none_fn(self) -> None:
     """iterate_do(None) yields elements as-is."""
-    result = list(Chain(range(3)).iterate_do(None))
+    result = list(Q(range(3)).iterate_do(None))
     self.assertEqual(result, [0, 1, 2])
 
   async def test_iterate_repr(self) -> None:
-    """ChainIterator has a useful repr."""
-    it = Chain(range(3)).iterate()
-    self.assertEqual(repr(it), '<quent.ChainIterator>')
+    """QuentIterator has a useful repr."""
+    it = Q(range(3)).iterate()
+    self.assertEqual(repr(it), '<quent.QuentIterator>')
 
-  async def test_iterate_chain_with_steps(self) -> None:
-    """iterate works on chains with preceding steps."""
+  async def test_iterate_pipeline_with_steps(self) -> None:
+    """iterate works on pipelines with preceding steps."""
     # Sync fn path
-    result = list(Chain(5).then(lambda x: range(x)).iterate(sync_double))
+    result = list(Q(5).then(lambda x: range(x)).iterate(sync_double))
     self.assertEqual(result, [0, 2, 4, 6, 8])
 
     # Async fn path — must use async for
     result_async: list[int] = []
-    async for item in Chain(5).then(lambda x: range(x)).iterate(async_double):
+    async for item in Q(5).then(lambda x: range(x)).iterate(async_double):
       result_async.append(item)
     self.assertEqual(result_async, [0, 2, 4, 6, 8])
 
   async def test_iterate_with_run_value(self) -> None:
     """Iterator can be called with run value to override root."""
-    it = Chain().then(lambda x: [x, x * 2]).iterate()
+    it = Q().then(lambda x: [x, x * 2]).iterate()
     result = list(it(3))
     self.assertEqual(result, [3, 6])
 
@@ -882,10 +882,10 @@ class IterateEdgeCaseTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(lambda: 42)
+        return Q.break_(lambda: 42)
       return x
 
-    result = list(Chain(range(5)).iterate(fn))
+    result = list(Q(range(5)).iterate(fn))
     self.assertEqual(result, [0, 1, 42])
 
   async def test_iterate_sync_return_with_callable_value(self) -> None:
@@ -893,16 +893,16 @@ class IterateEdgeCaseTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(lambda: 42)
+        return Q.return_(lambda: 42)
       return x
 
-    result = list(Chain(range(5)).iterate(fn))
+    result = list(Q(range(5)).iterate(fn))
     self.assertEqual(result, [0, 1, 42])
 
   async def test_iterate_async_empty(self) -> None:
     """async for over empty iterable yields nothing."""
     result: list[int] = []
-    async for item in Chain([]).iterate():
+    async for item in Q([]).iterate():
       result.append(item)
     self.assertEqual(result, [])
 
@@ -920,10 +920,10 @@ class IterateDoControlFlowCallableTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(lambda: 42)
+        return Q.break_(lambda: 42)
       return x
 
-    result = list(Chain(range(5)).iterate_do(fn))
+    result = list(Q(range(5)).iterate_do(fn))
     # iterate_do yields originals 0, 1, then break_(lambda: 42) yields 42
     self.assertEqual(result, [0, 1, 42])
 
@@ -932,10 +932,10 @@ class IterateDoControlFlowCallableTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(lambda: 99)
+        return Q.return_(lambda: 99)
       return x
 
-    result = list(Chain(range(5)).iterate_do(fn))
+    result = list(Q(range(5)).iterate_do(fn))
     # iterate_do yields originals 0, 1, then return_(lambda: 99) yields 99
     self.assertEqual(result, [0, 1, 99])
 
@@ -944,11 +944,11 @@ class IterateDoControlFlowCallableTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_(lambda: 42)
+        return Q.break_(lambda: 42)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate_do(fn):
+    async for item in Q(range(5)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 42])
 
@@ -957,11 +957,11 @@ class IterateDoControlFlowCallableTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(lambda: 99)
+        return Q.return_(lambda: 99)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate_do(fn):
+    async for item in Q(range(5)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 1, 99])
 
@@ -973,11 +973,11 @@ class IterateDoControlFlowCallableTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(resolve)
+        return Q.break_(resolve)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate_do(fn):
+    async for item in Q(range(5)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 777])
 
@@ -989,11 +989,11 @@ class IterateDoControlFlowCallableTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(resolve)
+        return Q.return_(resolve)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(5)).iterate_do(fn):
+    async for item in Q(range(5)).iterate_do(fn):
       result.append(item)
     self.assertEqual(result, [0, 888])
 
@@ -1007,8 +1007,8 @@ class IteratorReuseArgsKwargsTests(SymmetricTestCase):
   """§9.3 — iterator reuse with different args/kwargs."""
 
   async def test_reuse_with_kwargs(self) -> None:
-    """Calling iterator with kwargs passes them to chain.run()."""
-    it = Chain().then(lambda x: [x, x + 1]).iterate()
+    """Calling iterator with kwargs passes them to pipeline.run()."""
+    it = Q().then(lambda x: [x, x + 1]).iterate()
     result1 = list(it(10))
     result2 = list(it(20))
     self.assertEqual(result1, [10, 11])
@@ -1016,7 +1016,7 @@ class IteratorReuseArgsKwargsTests(SymmetricTestCase):
 
   async def test_reuse_with_args_and_kwargs(self) -> None:
     """Calling iterator with positional args works correctly."""
-    it = Chain().then(lambda x: [x, x * 2]).iterate()
+    it = Q().then(lambda x: [x, x * 2]).iterate()
     result1 = list(it(3))
     result2 = list(it(7))
     self.assertEqual(result1, [3, 6])
@@ -1024,7 +1024,7 @@ class IteratorReuseArgsKwargsTests(SymmetricTestCase):
 
   async def test_reuse_iterate_do_with_different_values(self) -> None:
     """iterate_do reuse with different run values."""
-    it = Chain().then(lambda x: [x, x + 1, x + 2]).iterate_do(sync_double)
+    it = Q().then(lambda x: [x, x + 1, x + 2]).iterate_do(sync_double)
     result1 = list(it(10))
     result2 = list(it(20))
     # iterate_do yields originals, not fn results
@@ -1033,7 +1033,7 @@ class IteratorReuseArgsKwargsTests(SymmetricTestCase):
 
   async def test_reuse_async_with_different_values(self) -> None:
     """Async iterator reuse with different run values."""
-    it = Chain().then(lambda x: [x * 10, x * 20]).iterate()
+    it = Q().then(lambda x: [x * 10, x * 20]).iterate()
     result1: list[int] = []
     async for item in it(2):
       result1.append(item)
@@ -1044,13 +1044,13 @@ class IteratorReuseArgsKwargsTests(SymmetricTestCase):
     self.assertEqual(result2, [50, 100])
 
   async def test_reuse_callable_with_args_and_kwargs(self) -> None:
-    """§9.3: it(callable, *args, **kwargs) forwards run-time parameters to chain.run()."""
+    """§9.3: it(callable, *args, **kwargs) forwards run-time parameters to pipeline.run()."""
 
     def make_list(x, y, *, scale=1):
       return [x * scale, y * scale]
 
-    # Chain with no root — run() receives a callable v plus args/kwargs.
-    it = Chain().iterate()
+    # Pipeline with no root — run() receives a callable v plus args/kwargs.
+    it = Q().iterate()
     result1 = list(it(make_list, 10, 20, scale=2))
     self.assertEqual(result1, [20, 40])
     result2 = list(it(make_list, 3, 5, scale=10))
@@ -1058,23 +1058,23 @@ class IteratorReuseArgsKwargsTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# Non-iterable chain result
+# Non-iterable pipeline result
 # ---------------------------------------------------------------------------
 
 
 class NonIterableChainResultTests(SymmetricTestCase):
-  """Test behavior when chain result is not iterable."""
+  """Test behavior when pipeline result is not iterable."""
 
   async def test_sync_non_iterable_raises_typeerror(self) -> None:
-    """Sync iteration on non-iterable chain result raises TypeError."""
-    it = Chain(42).iterate()
+    """Sync iteration on non-iterable pipeline result raises TypeError."""
+    it = Q(42).iterate()
     with self.assertRaises(TypeError):
       list(it)
 
   async def test_async_non_iterable_raises_typeerror(self) -> None:
-    """Async iteration on non-iterable chain result raises TypeError."""
+    """Async iteration on non-iterable pipeline result raises TypeError."""
     with self.assertRaises(TypeError):
-      async for _item in Chain(42).iterate():
+      async for _item in Q(42).iterate():
         pass
 
 
@@ -1084,11 +1084,11 @@ class NonIterableChainResultTests(SymmetricTestCase):
 
 
 class IterateDoReuseTests(SymmetricTestCase):
-  """§9.3 — iterate_do() can be iterated multiple times on the same chain."""
+  """§9.3 — iterate_do() can be iterated multiple times on the same pipeline."""
 
   async def test_iterate_do_reuse_sync(self) -> None:
     """iterate_do can be iterated multiple times (sync)."""
-    it = Chain(range(3)).iterate_do()
+    it = Q(range(3)).iterate_do()
     result1 = list(it)
     result2 = list(it)
     self.assertEqual(result1, [0, 1, 2])
@@ -1096,7 +1096,7 @@ class IterateDoReuseTests(SymmetricTestCase):
 
   async def test_iterate_do_reuse_async(self) -> None:
     """iterate_do can be iterated multiple times (async)."""
-    it = Chain(range(3)).iterate_do()
+    it = Q(range(3)).iterate_do()
     result1: list[int] = []
     async for item in it:
       result1.append(item)
@@ -1114,7 +1114,7 @@ class IterateDoReuseTests(SymmetricTestCase):
       calls.append(x)
       return 'discarded'
 
-    it = Chain(range(3)).iterate_do(track)
+    it = Q(range(3)).iterate_do(track)
     result1 = list(it)
     result2 = list(it)
     self.assertEqual(result1, [0, 1, 2])
@@ -1139,10 +1139,10 @@ class SyncSignalCoroutineDefenseTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(async_resolve)
+        return Q.break_(async_resolve)
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     with self.assertRaises(TypeError) as ctx:
       list(it)
     self.assertIn('async for', str(ctx.exception))
@@ -1155,10 +1155,10 @@ class SyncSignalCoroutineDefenseTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(async_resolve)
+        return Q.return_(async_resolve)
       return x
 
-    it = Chain(range(5)).iterate(fn)
+    it = Q(range(5)).iterate(fn)
     with self.assertRaises(TypeError) as ctx:
       list(it)
     self.assertIn('async for', str(ctx.exception))
@@ -1178,7 +1178,7 @@ class IterateErrorMessageTests(SymmetricTestCase):
     async def bad_fn(x: int) -> int:
       return x * 2
 
-    it = Chain(range(3)).iterate(bad_fn)
+    it = Q(range(3)).iterate(bad_fn)
     with self.assertRaises(TypeError) as ctx:
       list(it)
     # Per _generator.py:72: f'iterate() callback {fn!r} returned a coroutine.'
@@ -1188,30 +1188,30 @@ class IterateErrorMessageTests(SymmetricTestCase):
 
 # ---------------------------------------------------------------------------
 # #7 — Sync iterator send error (lines 56-57)
-#   ChainIterator.__next__ error path — internal _run_one_sync raises.
-#   Actually: _sync_generator lines 52-59 — sync iter on async chain.
+#   QuentIterator.__next__ error path — internal _run_one_sync raises.
+#   Actually: _sync_generator lines 52-59 — sync iter on async pipeline.
 # ---------------------------------------------------------------------------
 
 
 class SyncIteratorErrorTests(SymmetricTestCase):
   """Coverage: sync iterator error paths in _generator.py."""
 
-  async def test_sync_iter_chain_raises_during_run(self) -> None:
-    """Sync iteration where chain run itself raises propagates the error."""
+  async def test_sync_iter_pipeline_raises_during_run(self) -> None:
+    """Sync iteration where pipeline run itself raises propagates the error."""
 
     def boom() -> list[int]:
-      raise RuntimeError('chain run failed')
+      raise RuntimeError('pipeline run failed')
 
-    it = Chain(boom).iterate()
+    it = Q(boom).iterate()
     with self.assertRaises(RuntimeError) as ctx:
       list(it)
-    self.assertIn('chain run failed', str(ctx.exception))
+    self.assertIn('pipeline run failed', str(ctx.exception))
 
-  async def test_sync_iter_chain_raises_with_fn(self) -> None:
-    """Sync iteration with fn where chain run raises — fn is never called."""
+  async def test_sync_iter_pipeline_raises_with_fn(self) -> None:
+    """Sync iteration with fn where pipeline run raises — fn is never called."""
 
     def boom() -> list[int]:
-      raise RuntimeError('chain exploded')
+      raise RuntimeError('pipeline exploded')
 
     calls: list[int] = []
 
@@ -1219,22 +1219,22 @@ class SyncIteratorErrorTests(SymmetricTestCase):
       calls.append(x)
       return x
 
-    it = Chain(boom).iterate(fn)
+    it = Q(boom).iterate(fn)
     with self.assertRaises(RuntimeError):
       list(it)
-    # fn was never called because chain.run() failed
+    # fn was never called because pipeline.run() failed
     self.assertEqual(calls, [])
 
-  async def test_sync_iter_async_chain_cancel_task(self) -> None:
-    """Sync iteration with async chain — coroutine is closed/cancelled."""
+  async def test_sync_iter_async_pipeline_cancel_task(self) -> None:
+    """Sync iteration with async pipeline — coroutine is closed/cancelled."""
 
     async def async_list() -> list[int]:
       return [1, 2, 3]
 
-    it = Chain(async_list).iterate()
+    it = Q(async_list).iterate()
     with self.assertRaises(TypeError) as ctx:
       list(it)
-    self.assertIn('async chain', str(ctx.exception))
+    self.assertIn('async pipeline', str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
@@ -1263,7 +1263,7 @@ class AsyncIteratorErrorTests(SymmetricTestCase):
       return x * 10
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(5)).iterate(failing_fn):
+      async for _item in Q(range(5)).iterate(failing_fn):
         pass
     self.assertIn('fn failed at 2', str(ctx.exception))
 
@@ -1276,7 +1276,7 @@ class AsyncIteratorErrorTests(SymmetricTestCase):
       return x * 10
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(5)).iterate(async_failing_fn):
+      async for _item in Q(range(5)).iterate(async_failing_fn):
         pass
     self.assertIn('async fn failed at 1', str(ctx.exception))
 
@@ -1289,7 +1289,7 @@ class AsyncIteratorErrorTests(SymmetricTestCase):
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate_do(failing_fn):
+      async for _item in Q(range(3)).iterate_do(failing_fn):
         pass
     self.assertIn('iterate_do fn failed', str(ctx.exception))
 
@@ -1306,18 +1306,18 @@ class AsyncIterateDoPathTests(SymmetricTestCase):
   async def test_async_iterate_do_no_fn_yields_originals(self) -> None:
     """async iterate_do() with no fn yields originals."""
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do():
+    async for item in Q([10, 20, 30]).iterate_do():
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
 
-  async def test_async_iterate_do_no_fn_async_chain(self) -> None:
-    """async iterate_do() with no fn on async chain."""
+  async def test_async_iterate_do_no_fn_async_pipeline(self) -> None:
+    """async iterate_do() with no fn on async pipeline."""
 
     async def async_list() -> list[int]:
       return [5, 10, 15]
 
     result: list[int] = []
-    async for item in Chain(async_list).iterate_do():
+    async for item in Q(async_list).iterate_do():
       result.append(item)
     self.assertEqual(result, [5, 10, 15])
 
@@ -1330,7 +1330,7 @@ class AsyncIterateDoPathTests(SymmetricTestCase):
       return 'discarded'
 
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do(track):
+    async for item in Q([10, 20, 30]).iterate_do(track):
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
     self.assertEqual(calls, [10, 20, 30])
@@ -1344,7 +1344,7 @@ class AsyncIterateDoPathTests(SymmetricTestCase):
       return 'discarded'
 
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do(async_track):
+    async for item in Q([10, 20, 30]).iterate_do(async_track):
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
     self.assertEqual(calls, [10, 20, 30])
@@ -1354,11 +1354,11 @@ class AsyncIterateDoPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 20:
-        return Chain.return_(x * 10)
+        return Q.return_(x * 10)
       return x
 
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do(fn):
+    async for item in Q([10, 20, 30]).iterate_do(fn):
       result.append(item)
     # iterate_do yields originals: 10, then return_(200) yields 200
     self.assertEqual(result, [10, 200])
@@ -1368,11 +1368,11 @@ class AsyncIterateDoPathTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 20:
-        return Chain.break_(x * 10)
+        return Q.break_(x * 10)
       return x
 
     result: list[int] = []
-    async for item in Chain([10, 20, 30]).iterate_do(fn):
+    async for item in Q([10, 20, 30]).iterate_do(fn):
       result.append(item)
     # iterate_do yields original 10, then break_(200) yields 200
     self.assertEqual(result, [10, 200])
@@ -1395,7 +1395,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
       return x * 2
 
     with self.assertRaises(StopIteration) as ctx:
-      Chain([1, 2, 3, 4]).foreach(raise_stop).run()
+      Q([1, 2, 3, 4]).foreach(raise_stop).run()
     self.assertEqual(str(ctx.exception), 'stopped at 3')
 
   async def test_stop_iteration_in_foreach_do_sync(self) -> None:
@@ -1406,7 +1406,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
         raise StopIteration('stopped_do')
 
     with self.assertRaises(StopIteration) as ctx:
-      Chain([1, 2, 3, 4]).foreach_do(raise_stop).run()
+      Q([1, 2, 3, 4]).foreach_do(raise_stop).run()
     self.assertEqual(str(ctx.exception), 'stopped_do')
 
   async def test_stop_iteration_in_foreach_async(self) -> None:
@@ -1423,7 +1423,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
       return x * 2
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain([1, 2, 3, 4]).foreach(raise_stop).run()
+      await Q([1, 2, 3, 4]).foreach(raise_stop).run()
     self.assertIn('StopIteration', str(ctx.exception))
 
   async def test_stop_iteration_in_foreach_do_async(self) -> None:
@@ -1437,7 +1437,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
         raise StopIteration('async_stopped_do')
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain([1, 2, 3, 4]).foreach_do(raise_stop).run()
+      await Q([1, 2, 3, 4]).foreach_do(raise_stop).run()
     self.assertIn('StopIteration', str(ctx.exception))
 
   async def test_stop_iteration_does_not_terminate_loop(self) -> None:
@@ -1452,7 +1452,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
       raise StopIteration('always stop')
 
     with self.assertRaises(StopIteration):
-      Chain([1]).foreach(raise_stop).run()
+      Q([1]).foreach(raise_stop).run()
 
   async def test_stop_iteration_with_except_handler(self) -> None:
     """StopIteration from fn() is caught by except_() handler."""
@@ -1462,7 +1462,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
         raise StopIteration('handled')
       return x
 
-    result = Chain([1, 2, 3]).foreach(raise_stop).except_(lambda info: 'caught').run()
+    result = Q([1, 2, 3]).foreach(raise_stop).except_(lambda info: 'caught').run()
     self.assertEqual(result, 'caught')
 
   async def test_stop_iteration_mid_transition_async(self) -> None:
@@ -1489,7 +1489,7 @@ class ForeachStopIterationTest(SymmetricTestCase):
       return x * 2
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain([1, 2, 3]).foreach(mixed_fn).run()
+      await Q([1, 2, 3]).foreach(mixed_fn).run()
     self.assertIn('StopIteration', str(ctx.exception))
 
 
@@ -1499,13 +1499,13 @@ class IteratePendingIfTest(unittest.TestCase):
   def test_iterate_with_pending_if_raises(self) -> None:
     """iterate() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
-      Chain([1, 2, 3]).if_(lambda x: len(x) > 0).iterate()
+      Q([1, 2, 3]).if_(lambda x: len(x) > 0).iterate()
     self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
   def test_iterate_do_with_pending_if_raises(self) -> None:
     """iterate_do() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
-      Chain([1, 2, 3]).if_(lambda x: len(x) > 0).iterate_do()
+      Q([1, 2, 3]).if_(lambda x: len(x) > 0).iterate_do()
     self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
 
@@ -1519,13 +1519,13 @@ class IteratorReuseWithArgsTest(SymmetricTestCase):
 
   async def test_reuse_with_callable_and_args(self) -> None:
     """Calling iterator with callable + args creates new iterator."""
-    it = Chain().then(lambda x: [x, x + 1]).iterate()
+    it = Q().then(lambda x: [x, x + 1]).iterate()
     result = list(it(lambda a, b: a + b, 3, 7))
     self.assertEqual(result, [10, 11])  # (3+7)=10, [10, 11]
 
   async def test_reuse_with_callable_and_kwargs(self) -> None:
     """Calling iterator with callable + kwargs creates new iterator."""
-    it = Chain().then(lambda x: [x, x * 2]).iterate()
+    it = Q().then(lambda x: [x, x * 2]).iterate()
     result = list(it(lambda key=0: key * 3, key=5))
     self.assertEqual(result, [15, 30])  # (5*3)=15, [15, 30]
 
@@ -1538,9 +1538,9 @@ class IteratorReuseWithArgsTest(SymmetricTestCase):
 class IterationDeferredFinallyTests(SymmetricTestCase):
   """§9.1 + §6.3 — finally_() is deferred to the generator's finally block.
 
-  With deferred finally, the chain's finally_() handler runs AFTER iteration
+  With deferred finally, the pipeline's finally_() handler runs AFTER iteration
   ends (in the generator's finally: block), not during the run phase.  This
-  ensures resources acquired during the chain's run phase remain alive
+  ensures resources acquired during the pipeline's run phase remain alive
   throughout the entire iteration.
   """
 
@@ -1551,20 +1551,20 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     def cleanup(rv: object) -> None:
       order.append('cleanup')
 
-    it = Chain(range(3)).finally_(cleanup).iterate()
+    it = Q(range(3)).finally_(cleanup).iterate()
     for _item in it:
       order.append('item')
     # cleanup must appear AFTER all item entries
     self.assertEqual(order, ['item', 'item', 'item', 'cleanup'])
 
   async def test_finally_runs_on_normal_exhaustion(self) -> None:
-    """Chain with finally, iterate through all items normally."""
+    """Pipeline with finally, iterate through all items normally."""
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
       cleanup_calls.append('cleanup')
 
-    it = Chain(range(3)).finally_(cleanup).iterate()
+    it = Q(range(3)).finally_(cleanup).iterate()
     result = list(it)
     self.assertEqual(result, [0, 1, 2])
     self.assertEqual(cleanup_calls, ['cleanup'])
@@ -1576,14 +1576,14 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     def cleanup(rv: object) -> None:
       cleanup_calls.append('cleanup')
 
-    gen = iter(Chain(range(10)).finally_(cleanup).iterate())
+    gen = iter(Q(range(10)).finally_(cleanup).iterate())
     first = next(gen)
     gen.close()
     self.assertEqual(first, 0)
     self.assertEqual(cleanup_calls, ['cleanup'])
 
   async def test_finally_runs_on_fn_error(self) -> None:
-    """Chain with finally + iterate(fn) where fn raises mid-iteration."""
+    """Pipeline with finally + iterate(fn) where fn raises mid-iteration."""
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
@@ -1594,28 +1594,28 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
         raise ValueError('fn error')
       return x
 
-    it = Chain(range(5)).finally_(cleanup).iterate(failing_fn)
+    it = Q(range(5)).finally_(cleanup).iterate(failing_fn)
     with self.assertRaises(ValueError):
       list(it)
     self.assertEqual(cleanup_calls, ['cleanup'])
 
-  async def test_finally_runs_on_chain_error_no_except(self) -> None:
-    """Chain execution fails, no except handler, finally should still run."""
+  async def test_finally_runs_on_pipeline_error_no_except(self) -> None:
+    """Pipeline execution fails, no except handler, finally should still run."""
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
       cleanup_calls.append('cleanup')
 
     def fail() -> list[int]:
-      raise RuntimeError('chain error')
+      raise RuntimeError('pipeline error')
 
-    it = Chain(fail).finally_(cleanup).iterate()
+    it = Q(fail).finally_(cleanup).iterate()
     with self.assertRaises(RuntimeError):
       list(it)
     self.assertEqual(cleanup_calls, ['cleanup'])
 
   async def test_finally_runs_on_break_signal(self) -> None:
-    """fn calls Chain.break_() mid-iteration. Finally should still run."""
+    """fn calls Q.break_() mid-iteration. Finally should still run."""
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
@@ -1623,16 +1623,16 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.break_()
+        return Q.break_()
       return x
 
-    it = Chain(range(5)).finally_(cleanup).iterate(fn)
+    it = Q(range(5)).finally_(cleanup).iterate(fn)
     result = list(it)
     self.assertEqual(result, [0, 1])
     self.assertEqual(cleanup_calls, ['cleanup'])
 
   async def test_finally_runs_on_return_signal(self) -> None:
-    """fn calls Chain.return_() mid-iteration. Finally should still run."""
+    """fn calls Q.return_() mid-iteration. Finally should still run."""
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
@@ -1640,23 +1640,23 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(99)
+        return Q.return_(99)
       return x
 
-    it = Chain(range(5)).finally_(cleanup).iterate(fn)
+    it = Q(range(5)).finally_(cleanup).iterate(fn)
     result = list(it)
     self.assertEqual(result, [0, 1, 99])
     self.assertEqual(cleanup_calls, ['cleanup'])
 
   async def test_finally_receives_correct_root_value(self) -> None:
-    """The root value passed to the finally handler matches the chain's root value."""
+    """The root value passed to the finally handler matches the pipeline's root value."""
     received_root: list[object] = []
 
     def track_root(rv: object) -> None:
       received_root.append(rv)
 
     src = [10, 20, 30]
-    it = Chain(src).finally_(track_root).iterate()
+    it = Q(src).finally_(track_root).iterate()
     list(it)
     self.assertEqual(received_root, [src])
 
@@ -1667,7 +1667,7 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     async def async_cleanup(rv: object) -> None:
       cleanup_calls.append('async_cleanup')
 
-    it = Chain(range(3)).finally_(async_cleanup).iterate()
+    it = Q(range(3)).finally_(async_cleanup).iterate()
     result: list[int] = []
     async for item in it:
       result.append(item)
@@ -1681,7 +1681,7 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     async def async_cleanup(rv: object) -> None:
       cleanup_calls.append('async_cleanup')
 
-    it = Chain(range(3)).finally_(async_cleanup).iterate()
+    it = Q(range(3)).finally_(async_cleanup).iterate()
     with self.assertRaises(TypeError) as ctx:
       list(it)
     self.assertIn("use 'async for' instead of 'for'", str(ctx.exception))
@@ -1701,7 +1701,7 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     def failing_cleanup(rv: object) -> None:
       raise RuntimeError('cleanup failed')
 
-    it = Chain(range(3)).finally_(failing_cleanup).iterate(failing_fn)
+    it = Q(range(3)).finally_(failing_cleanup).iterate(failing_fn)
     with self.assertRaises(RuntimeError) as ctx:
       list(it)
     self.assertIsInstance(ctx.exception.__context__, ValueError)
@@ -1721,7 +1721,7 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
       side_effects.append(x)
       return 'discarded'
 
-    it = Chain(range(3)).finally_(cleanup).iterate_do(track)
+    it = Q(range(3)).finally_(cleanup).iterate_do(track)
     result = list(it)
     self.assertEqual(result, [0, 1, 2])
     self.assertEqual(side_effects, [0, 1, 2])
@@ -1740,7 +1740,7 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     def cleanup(rv: object) -> None:
       order.append('finally')
 
-    it = Chain(0).then(lambda x: 1 / x).except_(recovery_handler).finally_(cleanup).iterate()
+    it = Q(0).then(lambda x: 1 / x).except_(recovery_handler).finally_(cleanup).iterate()
     result = list(it)
     self.assertEqual(result, [10, 20])
     # except runs during run phase (before iteration), finally runs after iteration
@@ -1753,25 +1753,25 @@ class IterationDeferredFinallyTests(SymmetricTestCase):
     def cleanup(rv: object) -> None:
       cleanup_calls.append('cleanup')
 
-    it = Chain(range(3)).finally_(cleanup).iterate()
+    it = Q(range(3)).finally_(cleanup).iterate()
     list(it)
     self.assertEqual(cleanup_calls, ['cleanup'])
     list(it)
     self.assertEqual(cleanup_calls, ['cleanup', 'cleanup'])
 
-  async def test_no_finally_chain_works_normally(self) -> None:
-    """Chain without finally_() works normally — no deferred overhead."""
-    result = list(Chain(range(5)).iterate())
+  async def test_no_finally_pipeline_works_normally(self) -> None:
+    """Pipeline without finally_() works normally — no deferred overhead."""
+    result = list(Q(range(5)).iterate())
     self.assertEqual(result, [0, 1, 2, 3, 4])
 
   async def test_async_iteration_deferred_finally(self) -> None:
-    """Deferred finally with async for on a sync chain with sync finally handler."""
+    """Deferred finally with async for on a sync pipeline with sync finally handler."""
     cleanup_calls: list[str] = []
 
     def cleanup(rv: object) -> None:
       cleanup_calls.append('cleanup')
 
-    it = Chain(range(3)).finally_(cleanup).iterate()
+    it = Q(range(3)).finally_(cleanup).iterate()
     result: list[int] = []
     async for item in it:
       result.append(item)

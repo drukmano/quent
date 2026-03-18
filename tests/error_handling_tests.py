@@ -5,7 +5,7 @@ Covers: except_() registration, handler failure, reraise behavior,
 finally_() failure, control flow in handlers, execution order,
 ExceptionGroup behavior, and async error handling paths.
 
-Calling convention tests (ChainExcInfo rules, finally_ conventions) are
+Calling convention tests (QuentExcInfo rules, finally_ conventions) are
 in calling_convention_tests.py. Async transition tests are in asymmetry_tests.py.
 """
 
@@ -15,7 +15,7 @@ import sys
 import warnings
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Chain, ChainExcInfo, QuentException
+from quent import Q, QuentException, QuentExcInfo
 from quent._types import _ControlFlowSignal
 from tests.fixtures import (
   V_BAD_CLEANUP,
@@ -37,64 +37,60 @@ class ExceptRegistrationTest(TestCase):
   def test_except_requires_callable(self) -> None:
     """except_() with non-callable raises TypeError."""
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).except_(42)  # type: ignore[arg-type]
+      Q(1).except_(42)  # type: ignore[arg-type]
     self.assertIn('callable', str(ctx.exception))
 
   def test_except_at_most_one(self) -> None:
-    """Second except_() on same chain raises QuentException."""
-    c = Chain(1).except_(lambda _: None)
+    """Second except_() on same pipeline raises QuentException."""
+    c = Q(1).except_(lambda _: None)
     with self.assertRaises(QuentException):
       c.except_(lambda _: None)
 
   def test_exceptions_single_type(self) -> None:
     """exceptions= accepts a single exception type."""
-    c = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=ZeroDivisionError)
+    c = Q(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=ZeroDivisionError)
     self.assertEqual(c.run(), 'caught')
 
   def test_exceptions_iterable_of_types(self) -> None:
     """exceptions= accepts an iterable of types."""
-    c = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=[ZeroDivisionError, ValueError])
+    c = Q(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=[ZeroDivisionError, ValueError])
     self.assertEqual(c.run(), 'caught')
 
   def test_exceptions_none_defaults_to_exception(self) -> None:
     """exceptions=None defaults to catching Exception."""
-    c = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'caught')
+    c = Q(1).then(lambda x: 1 / 0).except_(lambda _: 'caught')
     self.assertEqual(c.run(), 'caught')
 
   def test_exceptions_empty_iterable_raises(self) -> None:
     """Empty iterable for exceptions raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(1).except_(lambda _: None, exceptions=[])
+      Q(1).except_(lambda _: None, exceptions=[])
 
   def test_exceptions_non_base_exception_raises(self) -> None:
     """Non-BaseException subclass in exceptions raises TypeError."""
     with self.assertRaises(TypeError):
-      Chain(1).except_(lambda _: None, exceptions=int)  # type: ignore[arg-type]
+      Q(1).except_(lambda _: None, exceptions=int)  # type: ignore[arg-type]
 
   def test_exceptions_string_raises_type_error(self) -> None:
     """String value for exceptions raises TypeError."""
     with self.assertRaises(TypeError):
-      Chain(1).except_(lambda _: None, exceptions='ValueError')
+      Q(1).except_(lambda _: None, exceptions='ValueError')
 
   def test_exceptions_base_exception_warns(self) -> None:
     """BaseException subtype (not Exception) emits RuntimeWarning."""
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
-      Chain(1).except_(lambda _: None, exceptions=KeyboardInterrupt)
+      Q(1).except_(lambda _: None, exceptions=KeyboardInterrupt)
     self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
 
   def test_exceptions_tuple_of_types(self) -> None:
     """exceptions= accepts a tuple of types (common usage pattern)."""
-    c = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=(ZeroDivisionError, ValueError))
+    c = Q(1).then(lambda x: 1 / 0).except_(lambda _: 'caught', exceptions=(ZeroDivisionError, ValueError))
     self.assertEqual(c.run(), 'caught')
 
   def test_exception_type_not_caught_propagates(self) -> None:
     """Exception not matching exceptions= propagates unhandled."""
-    c = (
-      Chain(1)
-      .then(lambda x: (_ for _ in ()).throw(ValueError('boom')))
-      .except_(lambda _: 'caught', exceptions=TypeError)
-    )
+    c = Q(1).then(lambda x: (_ for _ in ()).throw(ValueError('boom'))).except_(lambda _: 'caught', exceptions=TypeError)
     with self.assertRaises(ValueError):
       c.run()
 
@@ -106,102 +102,100 @@ class ExceptRegistrationTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# §6.2.2 Nested Chain as Except Handler — Execution Mode
+# §6.2.2 Nested Pipeline as Except Handler — Execution Mode
 # ---------------------------------------------------------------------------
 
 
 class ExceptNestedChainExecutionModeTest(SymmetricTestCase):
-  """SPEC §6.2.2: Nested chain as except handler runs via top-level execution.
+  """SPEC §6.2.2: Nested pipeline as except handler runs via top-level execution.
 
-  The nested chain is executed via run() (top-level execution), not the internal
-  nested chain execution path. This means:
-  - Control flow signals inside the handler chain are caught and wrapped in QuentException
-  - The handler chain's own except_() and finally_() handlers apply independently
+  The nested pipeline is executed via run() (top-level execution), not the internal
+  nested pipeline execution path. This means:
+  - Control flow signals inside the handler pipeline are caught and wrapped in QuentException
+  - The handler pipeline's own except_() and finally_() handlers apply independently
   """
 
-  async def test_return_inside_handler_chain_raises_quent_exception(self) -> None:
-    """return_() inside a nested chain except handler raises QuentException."""
-    # The nested chain uses return_() — since it runs via top-level execution,
+  async def test_return_inside_handler_pipeline_raises_quent_exception(self) -> None:
+    """return_() inside a nested pipeline except handler raises QuentException."""
+    # The nested pipeline uses return_() — since it runs via top-level execution,
     # the _Return signal is caught by _except_handler_body and wrapped in QuentException.
-    inner = Chain().then(lambda info: Chain.return_('escaped'))
-    c = Chain(1).then(lambda x: 1 / 0).except_(inner)
+    inner = Q().then(lambda info: Q.return_('escaped'))
+    c = Q(1).then(lambda x: 1 / 0).except_(inner)
     with self.assertRaises(QuentException):
       c.run()
 
-  async def test_break_inside_handler_chain_raises_quent_exception(self) -> None:
-    """break_() inside a nested chain except handler raises QuentException."""
-    inner = Chain().then(lambda info: Chain.break_('escaped'))
-    c = Chain(1).then(lambda x: 1 / 0).except_(inner)
+  async def test_break_inside_handler_pipeline_raises_quent_exception(self) -> None:
+    """break_() inside a nested pipeline except handler raises QuentException."""
+    inner = Q().then(lambda info: Q.break_('escaped'))
+    c = Q(1).then(lambda x: 1 / 0).except_(inner)
     with self.assertRaises(QuentException):
       c.run()
 
-  async def test_handler_chain_own_except_applies(self) -> None:
-    """Handler chain's own except_() applies independently."""
-    # The inner chain has its own except_ that catches errors within the handler chain.
+  async def test_handler_pipeline_own_except_applies(self) -> None:
+    """Handler pipeline's own except_() applies independently."""
+    # The inner pipeline has its own except_ that catches errors within the handler pipeline.
     inner = (
-      Chain()
-      .then(lambda info: 1 / 0)  # error inside handler chain
+      Q()
+      .then(lambda info: 1 / 0)  # error inside handler pipeline
       .except_(lambda _: 'inner-recovered')
     )
-    result = Chain(1).then(lambda x: (_ for _ in ()).throw(ValueError('outer'))).except_(inner).run()
+    result = Q(1).then(lambda x: (_ for _ in ()).throw(ValueError('outer'))).except_(inner).run()
     self.assertEqual(result, 'inner-recovered')
 
-  async def test_handler_chain_own_finally_applies(self) -> None:
-    """Handler chain's own finally_() runs independently."""
+  async def test_handler_pipeline_own_finally_applies(self) -> None:
+    """Handler pipeline's own finally_() runs independently."""
     cleanup = []
     inner = (
-      Chain()
-      .then(lambda info: ('handled', type(info.exc).__name__))
-      .finally_(lambda rv: cleanup.append('inner-finally'))
+      Q().then(lambda info: ('handled', type(info.exc).__name__)).finally_(lambda rv: cleanup.append('inner-finally'))
     )
-    result = Chain(1).then(lambda x: 1 / 0).except_(inner).run()
+    result = Q(1).then(lambda x: 1 / 0).except_(inner).run()
     self.assertEqual(result[0], 'handled')
     self.assertEqual(result[1], 'ZeroDivisionError')
     self.assertEqual(cleanup, ['inner-finally'])
 
-  async def test_handler_chain_except_and_finally_on_error(self) -> None:
-    """Handler chain's own except_ and finally_ both apply on handler error path."""
+  async def test_handler_pipeline_except_and_finally_on_error(self) -> None:
+    """Handler pipeline's own except_ and finally_ both apply on handler error path."""
     order = []
     inner = (
-      Chain()
-      .then(lambda info: 1 / 0)  # error inside handler chain
+      Q()
+      .then(lambda info: 1 / 0)  # error inside handler pipeline
       .except_(lambda _: (order.append('inner-except'), 'inner-recovered')[-1])
       .finally_(lambda rv: order.append('inner-finally'))
     )
-    result = Chain(1).then(lambda x: (_ for _ in ()).throw(ValueError('outer'))).except_(inner).run()
+    result = Q(1).then(lambda x: (_ for _ in ()).throw(ValueError('outer'))).except_(inner).run()
     self.assertEqual(result, 'inner-recovered')
     self.assertEqual(order, ['inner-except', 'inner-finally'])
 
-  async def test_async_return_inside_handler_chain_raises_quent_exception(self) -> None:
-    """Async: return_() inside a nested chain except handler raises QuentException."""
+  async def test_async_return_inside_handler_pipeline_raises_quent_exception(self) -> None:
+    """Async: return_() inside a nested pipeline except handler raises QuentException."""
 
     async def async_fail(x):
       raise ValueError('async boom')
 
-    inner = Chain().then(lambda info: Chain.return_('escaped'))
-    c = Chain(1).then(async_fail).except_(inner)
+    inner = Q().then(lambda info: Q.return_('escaped'))
+    c = Q(1).then(async_fail).except_(inner)
     with self.assertRaises(QuentException):
       await c.run()
 
-  async def test_async_handler_chain_own_except_applies(self) -> None:
-    """Async: handler chain's own except_() applies independently."""
+  async def test_async_handler_pipeline_own_except_applies(self) -> None:
+    """Async: handler pipeline's own except_() applies independently."""
 
     async def async_fail(x):
       raise ValueError('async boom')
 
-    inner = Chain().then(lambda info: 1 / 0).except_(lambda _: 'inner-recovered')
-    result = await Chain(1).then(async_fail).except_(inner).run()
+    inner = Q().then(lambda info: 1 / 0).except_(lambda _: 'inner-recovered')
+    result = await Q(1).then(async_fail).except_(inner).run()
     self.assertEqual(result, 'inner-recovered')
 
-  async def test_async_handler_chain_own_finally_applies(self) -> None:
-    """Async: handler chain's own finally_() runs independently."""
+  async def test_async_handler_pipeline_own_finally_applies(self) -> None:
+    """Async: handler pipeline's own finally_() runs independently."""
     cleanup = []
 
     async def async_fail(x):
       raise ValueError('async boom')
 
-    inner = Chain().then(lambda info: 'handled').finally_(lambda rv: cleanup.append('inner-finally'))
-    result = await Chain(1).then(async_fail).except_(inner).run()
+    inner = Q().then(lambda info: 'handled').finally_(lambda rv: cleanup.append('inner-finally'))
+    result = await Q(1).then(async_fail).except_(inner).run()
     self.assertEqual(result, 'handled')
     self.assertEqual(cleanup, ['inner-finally'])
 
@@ -226,7 +220,7 @@ class ExceptHandlerFailureRaiseTrueTest(SymmetricTestCase):
     def bad_handler(info):
       raise ValueError('handler boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
       with self.assertRaises(ZeroDivisionError) as ctx:
@@ -242,7 +236,7 @@ class ExceptHandlerFailureRaiseTrueTest(SymmetricTestCase):
     def bad_handler(info):
       raise ValueError('handler boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with warnings.catch_warnings(record=True):
       warnings.simplefilter('always')
       try:
@@ -258,7 +252,7 @@ class ExceptHandlerFailureRaiseTrueTest(SymmetricTestCase):
     def bad_handler(info):
       raise KeyboardInterrupt('handler signal')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with self.assertRaises(KeyboardInterrupt):
       c.run()
 
@@ -277,7 +271,7 @@ class ExceptHandlerFailureRaiseFalseTest(SymmetricTestCase):
     def bad_handler(info):
       raise ValueError('handler boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler)
     with self.assertRaises(ValueError) as ctx:
       c.run()
     self.assertIsInstance(ctx.exception.__cause__, ZeroDivisionError)
@@ -295,9 +289,9 @@ class ExceptControlFlowTest(TestCase):
     """return_() inside except handler raises QuentException."""
 
     def handler(info):
-      return Chain.return_('nope')
+      return Q.return_('nope')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -305,9 +299,9 @@ class ExceptControlFlowTest(TestCase):
     """break_() inside except handler raises QuentException."""
 
     def handler(info):
-      return Chain.break_('nope')
+      return Q.break_('nope')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -333,7 +327,7 @@ class FinallyFailureTest(SymmetricTestCase):
       raise RuntimeError('cleanup boom')
 
     await self.variant(
-      lambda fail_fn: Chain(1).then(fail_fn).finally_(bad_cleanup).run(),
+      lambda fail_fn: Q(1).then(fail_fn).finally_(bad_cleanup).run(),
       expected_exc=RuntimeError,
       expected_msg='cleanup boom',
       fail_fn=V_RAISE,
@@ -346,20 +340,20 @@ class FinallyFailureTest(SymmetricTestCase):
       raise ValueError('async boom')
 
     await self.variant(
-      lambda cleanup: Chain(1).then(async_fail).finally_(cleanup).run(),
+      lambda cleanup: Q(1).then(async_fail).finally_(cleanup).run(),
       expected_exc=RuntimeError,
       expected_msg='cleanup boom',
       cleanup=V_BAD_CLEANUP,
     )
 
   async def test_finally_failure_on_success_path_propagates(self) -> None:
-    """Finally failure on success path propagates as chain error.
+    """Finally failure on success path propagates as pipeline error.
     Sync cleanup with sync/async step. Async cleanup only with async step
-    (sync chain + async finally = async transition per §6.3.5)."""
+    (sync pipeline + async finally = async transition per §6.3.5)."""
     from tests.fixtures import sync_bad_cleanup
 
     await self.variant(
-      lambda fn: Chain(1).then(fn).finally_(sync_bad_cleanup).run(),
+      lambda fn: Q(1).then(fn).finally_(sync_bad_cleanup).run(),
       expected_exc=RuntimeError,
       expected_msg='cleanup boom',
       fn=V_FN,
@@ -369,7 +363,7 @@ class FinallyFailureTest(SymmetricTestCase):
     """Async finally failure on async success path — both sync and async cleanup."""
 
     await self.variant(
-      lambda cleanup: Chain(1).then(async_fn).finally_(cleanup).run(),
+      lambda cleanup: Q(1).then(async_fn).finally_(cleanup).run(),
       expected_exc=RuntimeError,
       expected_msg='cleanup boom',
       cleanup=V_BAD_CLEANUP,
@@ -381,7 +375,7 @@ class FinallyFailureTest(SymmetricTestCase):
     def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).finally_(bad_cleanup)
+    c = Q(1).then(lambda x: 1 / 0).finally_(bad_cleanup)
     with self.assertRaises(RuntimeError) as ctx:
       c.run()
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
@@ -394,7 +388,7 @@ class FinallyFailureTest(SymmetricTestCase):
     def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).finally_(bad_cleanup)
+    c = Q(1).then(lambda x: 1 / 0).finally_(bad_cleanup)
     try:
       c.run()
     except RuntimeError as exc:
@@ -415,9 +409,9 @@ class FinallyControlFlowTest(TestCase):
     """return_() in finally handler raises QuentException."""
 
     def cleanup(rv):
-      return Chain.return_('nope')
+      return Q.return_('nope')
 
-    c = Chain(1).then(lambda x: x + 1).finally_(cleanup)
+    c = Q(1).then(lambda x: x + 1).finally_(cleanup)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -425,9 +419,9 @@ class FinallyControlFlowTest(TestCase):
     """break_() in finally handler raises QuentException."""
 
     def cleanup(rv):
-      return Chain.break_('nope')
+      return Q.break_('nope')
 
-    c = Chain(1).then(lambda x: x + 1).finally_(cleanup)
+    c = Q(1).then(lambda x: x + 1).finally_(cleanup)
     with self.assertRaises(QuentException):
       c.run()
 
@@ -444,7 +438,7 @@ class ExecutionOrderTest(SymmetricTestCase):
     """Success: pipeline → finally (success context)."""
     order = []
     result = (
-      Chain(1)
+      Q(1)
       .then(lambda x: x + 1)
       .except_(lambda _: order.append('except'))
       .finally_(lambda rv: order.append('finally'))
@@ -460,7 +454,7 @@ class ExecutionOrderTest(SymmetricTestCase):
     def handler(info):
       order.append('except')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler, reraise=True).finally_(lambda rv: order.append('finally'))
+    c = Q(1).then(lambda x: 1 / 0).except_(handler, reraise=True).finally_(lambda rv: order.append('finally'))
     with self.assertRaises(ZeroDivisionError):
       c.run()
     self.assertEqual(order, ['except', 'finally'])
@@ -470,7 +464,7 @@ class ExecutionOrderTest(SymmetricTestCase):
     order = []
 
     c = (
-      Chain(1)
+      Q(1)
       .then(lambda x: 1 / 0)
       .except_(lambda _: order.append('except'), exceptions=ValueError)
       .finally_(lambda rv: order.append('finally'))
@@ -492,7 +486,7 @@ class ExecutionOrderAsyncTest(SymmetricTestCase):
     """Async success: pipeline → finally."""
     order = []
 
-    result = await Chain(1).then(async_fn).finally_(lambda rv: order.append('finally')).run()
+    result = await Q(1).then(async_fn).finally_(lambda rv: order.append('finally')).run()
     self.assertEqual(result, 2)
     self.assertEqual(order, ['finally'])
 
@@ -504,7 +498,7 @@ class ExecutionOrderAsyncTest(SymmetricTestCase):
       raise ValueError('async boom')
 
     result = await (
-      Chain(1)
+      Q(1)
       .then(async_fail)
       .except_(lambda _: (order.append('except'), 'recovered')[-1])
       .finally_(lambda rv: order.append('finally'))
@@ -521,7 +515,7 @@ class ExecutionOrderAsyncTest(SymmetricTestCase):
       raise ValueError('async boom')
 
     c = (
-      Chain(1)
+      Q(1)
       .then(async_fail)
       .except_(lambda _: order.append('except'), reraise=True)
       .finally_(lambda rv: order.append('finally'))
@@ -545,7 +539,7 @@ class ExceptionGroupTest(SymmetricTestCase):
     def fail_fn(x):
       raise ValueError('boom')
 
-    c = Chain(1).gather(lambda x: x, fail_fn)
+    c = Q(1).gather(lambda x: x, fail_fn)
     with self.assertRaises(ValueError):
       c.run()
 
@@ -563,7 +557,7 @@ class ExceptionGroupTest(SymmetricTestCase):
     def fail2(x):
       raise TypeError('boom2')
 
-    c = Chain(1).gather(ok, fail1, fail2)
+    c = Q(1).gather(ok, fail1, fail2)
     try:
       c.run()
     except BaseException as exc:
@@ -585,7 +579,7 @@ class ExceptionGroupTest(SymmetricTestCase):
     def fail2(x):
       raise TypeError('boom2')
 
-    c = Chain(1).gather(ok, fail1, fail2)
+    c = Q(1).gather(ok, fail1, fail2)
     try:
       c.run()
     except BaseException as exc:
@@ -607,7 +601,7 @@ class ExceptionGroupTest(SymmetricTestCase):
     async def fail2(x):
       raise TypeError('async boom2')
 
-    c = Chain(1).gather(ok, fail1, fail2)
+    c = Q(1).gather(ok, fail1, fail2)
     try:
       await c.run()
     except BaseException as exc:
@@ -626,7 +620,7 @@ class ExceptionGroupTest(SymmetricTestCase):
     async def fail(x):
       raise ValueError('single async boom')
 
-    c = Chain(1).gather(ok, fail)
+    c = Q(1).gather(ok, fail)
     with self.assertRaises(ValueError) as ctx:
       await c.run()
     self.assertIn('single async boom', str(ctx.exception))
@@ -643,7 +637,7 @@ class ExceptionGroupTest(SymmetricTestCase):
         raise ValueError(f'fail-{x}')
       return x
 
-    c = Chain([0, 1, 2, 3, 4]).foreach(maybe_fail, concurrency=5)
+    c = Q([0, 1, 2, 3, 4]).foreach(maybe_fail, concurrency=5)
     try:
       c.run()
       self.fail('Expected ExceptionGroup')
@@ -667,7 +661,7 @@ class ExceptionGroupTest(SymmetricTestCase):
         raise ValueError('fail-3')
       return x
 
-    c = Chain([0, 1, 2, 3, 4]).foreach(maybe_fail, concurrency=5)
+    c = Q([0, 1, 2, 3, 4]).foreach(maybe_fail, concurrency=5)
     with self.assertRaises(ValueError) as ctx:
       c.run()
     self.assertIn('fail-3', str(ctx.exception))
@@ -684,7 +678,7 @@ class ExceptionGroupTest(SymmetricTestCase):
       if x >= 2:
         raise ValueError(f'fail-{x}')
 
-    c = Chain([0, 1, 2, 3, 4]).foreach_do(maybe_fail, concurrency=5)
+    c = Q([0, 1, 2, 3, 4]).foreach_do(maybe_fail, concurrency=5)
     try:
       c.run()
       self.fail('Expected ExceptionGroup')
@@ -705,18 +699,18 @@ class AsyncExceptHandlerTest(SymmetricTestCase):
   """Async variants of except handler calling convention."""
 
   async def test_async_except_default(self) -> None:
-    """Async except handler: handler(info) where info is ChainExcInfo."""
+    """Async except handler: handler(info) where info is QuentExcInfo."""
     received = {}
 
     async def async_fail(x):
       raise ValueError('async fail')
 
-    async def handler(info: ChainExcInfo):
+    async def handler(info: QuentExcInfo):
       received['exc'] = info.exc
       received['rv'] = info.root_value
       return 'async handled'
 
-    result = await Chain(42).then(async_fail).except_(handler).run()
+    result = await Q(42).then(async_fail).except_(handler).run()
     self.assertEqual(result, 'async handled')
     self.assertIsInstance(received['exc'], ValueError)
     self.assertEqual(received['rv'], 42)
@@ -730,7 +724,7 @@ class AsyncExceptHandlerTest(SymmetricTestCase):
     async def bad_handler(info):
       raise RuntimeError('handler fail')
 
-    c = Chain(1).then(async_fail).except_(bad_handler, reraise=True)
+    c = Q(1).then(async_fail).except_(bad_handler, reraise=True)
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
       with self.assertRaises(ValueError) as ctx:
@@ -747,7 +741,7 @@ class AsyncExceptHandlerTest(SymmetricTestCase):
     async def bad_handler(info):
       raise RuntimeError('handler fail')
 
-    c = Chain(1).then(async_fail).except_(bad_handler)
+    c = Q(1).then(async_fail).except_(bad_handler)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
@@ -761,7 +755,7 @@ class AsyncExceptHandlerTest(SymmetricTestCase):
     async def bad_handler(info):
       raise KeyboardInterrupt('handler signal')
 
-    c = Chain(1).then(async_fail).except_(bad_handler, reraise=True)
+    c = Q(1).then(async_fail).except_(bad_handler, reraise=True)
     with self.assertRaises(KeyboardInterrupt):
       await c.run()
 
@@ -787,7 +781,7 @@ class AsyncFinallyTest(SymmetricTestCase):
     async def async_cleanup(rv):
       cleanup.append(rv)
 
-    result = await Chain(42).then(async_fn).finally_(async_cleanup).run()
+    result = await Q(42).then(async_fn).finally_(async_cleanup).run()
     self.assertEqual(result, 43)
     self.assertEqual(cleanup, [42])
 
@@ -801,7 +795,7 @@ class AsyncFinallyTest(SymmetricTestCase):
     async def async_cleanup(rv):
       cleanup.append(rv)
 
-    c = Chain(42).then(async_fail).finally_(async_cleanup)
+    c = Q(42).then(async_fail).finally_(async_cleanup)
     with self.assertRaises(ValueError):
       await c.run()
     self.assertEqual(cleanup, [42])
@@ -815,7 +809,7 @@ class AsyncFinallyTest(SymmetricTestCase):
     async def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(async_fail).finally_(bad_cleanup)
+    c = Q(1).then(async_fail).finally_(bad_cleanup)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIsInstance(ctx.exception.__context__, ValueError)
@@ -824,9 +818,9 @@ class AsyncFinallyTest(SymmetricTestCase):
     """Async finally: return_() raises QuentException."""
 
     async def cleanup_with_return(rv):
-      return Chain.return_('bad')
+      return Q.return_('bad')
 
-    c = Chain(1).then(async_identity).finally_(cleanup_with_return)
+    c = Q(1).then(async_identity).finally_(cleanup_with_return)
     with self.assertRaises(QuentException):
       await c.run()
 
@@ -834,9 +828,9 @@ class AsyncFinallyTest(SymmetricTestCase):
     """Async finally: break_() raises QuentException."""
 
     async def cleanup_with_break(rv):
-      return Chain.break_('bad')
+      return Q.break_('bad')
 
-    c = Chain(1).then(async_identity).finally_(cleanup_with_break)
+    c = Q(1).then(async_identity).finally_(cleanup_with_break)
     with self.assertRaises(QuentException):
       await c.run()
 
@@ -853,7 +847,7 @@ class ExceptFinallyComboTest(SymmetricTestCase):
     """except_ consumes error → finally runs in success context."""
     order = []
     result = (
-      Chain(1)
+      Q(1)
       .then(lambda x: 1 / 0)
       .except_(lambda _: (order.append('except'), 'recovered')[-1])
       .finally_(lambda rv: order.append('finally'))
@@ -866,7 +860,7 @@ class ExceptFinallyComboTest(SymmetricTestCase):
     """except_ re-raises → finally runs in failure context."""
     order = []
     c = (
-      Chain(1)
+      Q(1)
       .then(lambda x: 1 / 0)
       .except_(lambda _: order.append('except'), reraise=True)
       .finally_(lambda rv: order.append('finally'))
@@ -884,8 +878,8 @@ class ExceptFinallyComboTest(SymmetricTestCase):
 class AsyncExceptConsumeTest(SymmetricTestCase):
   """Async except handler that consumes exceptions (reraise=False)."""
 
-  async def test_async_chain_except_consume_with_sync_handler(self) -> None:
-    """Async chain (async step fails), sync except handler consumes."""
+  async def test_async_pipeline_except_consume_with_sync_handler(self) -> None:
+    """Async pipeline (async step fails), sync except handler consumes."""
     order = []
 
     async def async_fail(x):
@@ -895,12 +889,12 @@ class AsyncExceptConsumeTest(SymmetricTestCase):
       order.append('except')
       return 'sync-recovered'
 
-    result = await Chain(1).then(async_fail).except_(sync_handler).finally_(lambda rv: order.append('finally')).run()
+    result = await Q(1).then(async_fail).except_(sync_handler).finally_(lambda rv: order.append('finally')).run()
     self.assertEqual(result, 'sync-recovered')
     self.assertEqual(order, ['except', 'finally'])
 
-  async def test_async_chain_except_consume_with_async_handler(self) -> None:
-    """Async chain (async step fails), async except handler consumes."""
+  async def test_async_pipeline_except_consume_with_async_handler(self) -> None:
+    """Async pipeline (async step fails), async except handler consumes."""
     order = []
 
     async def async_fail(x):
@@ -910,29 +904,29 @@ class AsyncExceptConsumeTest(SymmetricTestCase):
       order.append('except')
       return 'async-recovered'
 
-    result = await Chain(1).then(async_fail).except_(async_handler).finally_(lambda rv: order.append('finally')).run()
+    result = await Q(1).then(async_fail).except_(async_handler).finally_(lambda rv: order.append('finally')).run()
     self.assertEqual(result, 'async-recovered')
     self.assertEqual(order, ['except', 'finally'])
 
-  async def test_sync_chain_async_except_handler_consume(self) -> None:
-    """Sync chain (sync step fails), async except handler consumes via _async_except_handler."""
+  async def test_sync_pipeline_async_except_handler_consume(self) -> None:
+    """Sync pipeline (sync step fails), async except handler consumes via _async_except_handler."""
     # This exercises the _async_except_handler path with reraise=False
 
     async def async_handler(info):
       return 'async-recovered'
 
-    result = await Chain(1).then(lambda x: 1 / 0).except_(async_handler).run()
+    result = await Q(1).then(lambda x: 1 / 0).except_(async_handler).run()
     self.assertEqual(result, 'async-recovered')
 
-  async def test_sync_chain_async_except_handler_consume_with_finally(self) -> None:
-    """Sync chain, async except handler consumes, finally runs."""
+  async def test_sync_pipeline_async_except_handler_consume_with_finally(self) -> None:
+    """Sync pipeline, async except handler consumes, finally runs."""
     cleanup = []
 
     async def async_handler(info):
       return 'async-recovered'
 
     result = await (
-      Chain(1).then(lambda x: 1 / 0).except_(async_handler).finally_(lambda rv: cleanup.append('finally')).run()
+      Q(1).then(lambda x: 1 / 0).except_(async_handler).finally_(lambda rv: cleanup.append('finally')).run()
     )
     self.assertEqual(result, 'async-recovered')
     self.assertEqual(cleanup, ['finally'])
@@ -941,8 +935,8 @@ class AsyncExceptConsumeTest(SymmetricTestCase):
 class AsyncExceptReraiseTest(SymmetricTestCase):
   """Async except handler with reraise=True."""
 
-  async def test_async_chain_except_reraise_with_sync_handler(self) -> None:
-    """Async chain, sync except handler, reraise=True re-raises original."""
+  async def test_async_pipeline_except_reraise_with_sync_handler(self) -> None:
+    """Async pipeline, sync except handler, reraise=True re-raises original."""
     order = []
 
     async def async_fail(x):
@@ -951,14 +945,14 @@ class AsyncExceptReraiseTest(SymmetricTestCase):
     def sync_handler(info):
       order.append('except')
 
-    c = Chain(1).then(async_fail).except_(sync_handler, reraise=True).finally_(lambda rv: order.append('finally'))
+    c = Q(1).then(async_fail).except_(sync_handler, reraise=True).finally_(lambda rv: order.append('finally'))
     with self.assertRaises(ValueError) as ctx:
       await c.run()
     self.assertIn('async fail', str(ctx.exception))
     self.assertEqual(order, ['except', 'finally'])
 
-  async def test_async_chain_except_reraise_with_async_handler(self) -> None:
-    """Async chain, async except handler, reraise=True re-raises original."""
+  async def test_async_pipeline_except_reraise_with_async_handler(self) -> None:
+    """Async pipeline, async except handler, reraise=True re-raises original."""
     order = []
 
     async def async_fail(x):
@@ -967,32 +961,32 @@ class AsyncExceptReraiseTest(SymmetricTestCase):
     async def async_handler(info):
       order.append('except')
 
-    c = Chain(1).then(async_fail).except_(async_handler, reraise=True).finally_(lambda rv: order.append('finally'))
+    c = Q(1).then(async_fail).except_(async_handler, reraise=True).finally_(lambda rv: order.append('finally'))
     with self.assertRaises(ValueError) as ctx:
       await c.run()
     self.assertIn('async fail', str(ctx.exception))
     self.assertEqual(order, ['except', 'finally'])
 
-  async def test_sync_chain_async_except_handler_reraise(self) -> None:
-    """Sync chain, async except handler, reraise=True via _async_except_handler."""
+  async def test_sync_pipeline_async_except_handler_reraise(self) -> None:
+    """Sync pipeline, async except handler, reraise=True via _async_except_handler."""
     side_effects = []
 
     async def async_handler(info):
       side_effects.append('handler-called')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True)
     with self.assertRaises(ZeroDivisionError):
       await c.run()
     self.assertEqual(side_effects, ['handler-called'])
 
-  async def test_sync_chain_async_except_handler_reraise_with_finally(self) -> None:
-    """Sync chain, async except handler, reraise=True, finally handler runs."""
+  async def test_sync_pipeline_async_except_handler_reraise_with_finally(self) -> None:
+    """Sync pipeline, async except handler, reraise=True, finally handler runs."""
     order = []
 
     async def async_handler(info):
       order.append('except')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True).finally_(lambda rv: order.append('finally'))
+    c = Q(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True).finally_(lambda rv: order.append('finally'))
     with self.assertRaises(ZeroDivisionError):
       await c.run()
     self.assertEqual(order, ['except', 'finally'])
@@ -1001,8 +995,8 @@ class AsyncExceptReraiseTest(SymmetricTestCase):
 class AsyncHandlerFailureTest(SymmetricTestCase):
   """Async except handler failure scenarios."""
 
-  async def test_async_chain_handler_raises_exception_reraise_mode(self) -> None:
-    """Async chain, async handler raises Exception with reraise=True → discarded, warning."""
+  async def test_async_pipeline_handler_raises_exception_reraise_mode(self) -> None:
+    """Async pipeline, async handler raises Exception with reraise=True → discarded, warning."""
 
     async def async_fail(x):
       raise ValueError('original')
@@ -1010,7 +1004,7 @@ class AsyncHandlerFailureTest(SymmetricTestCase):
     async def bad_handler(info):
       raise RuntimeError('handler boom')
 
-    c = Chain(1).then(async_fail).except_(bad_handler, reraise=True)
+    c = Q(1).then(async_fail).except_(bad_handler, reraise=True)
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
       with self.assertRaises(ValueError) as ctx:
@@ -1018,8 +1012,8 @@ class AsyncHandlerFailureTest(SymmetricTestCase):
     self.assertIn('original', str(ctx.exception))
     self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
 
-  async def test_async_chain_handler_raises_exception_consume_mode(self) -> None:
-    """Async chain, async handler raises with reraise=False → propagates with __cause__."""
+  async def test_async_pipeline_handler_raises_exception_consume_mode(self) -> None:
+    """Async pipeline, async handler raises with reraise=False → propagates with __cause__."""
 
     async def async_fail(x):
       raise ValueError('original')
@@ -1027,13 +1021,13 @@ class AsyncHandlerFailureTest(SymmetricTestCase):
     async def bad_handler(info):
       raise RuntimeError('handler boom')
 
-    c = Chain(1).then(async_fail).except_(bad_handler)
+    c = Q(1).then(async_fail).except_(bad_handler)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
 
-  async def test_async_chain_handler_raises_base_exception_reraise_mode(self) -> None:
-    """Async chain, async handler raises BaseException with reraise=True → propagates."""
+  async def test_async_pipeline_handler_raises_base_exception_reraise_mode(self) -> None:
+    """Async pipeline, async handler raises BaseException with reraise=True → propagates."""
 
     async def async_fail(x):
       raise ValueError('original')
@@ -1041,28 +1035,28 @@ class AsyncHandlerFailureTest(SymmetricTestCase):
     async def bad_handler(info):
       raise KeyboardInterrupt('signal')
 
-    c = Chain(1).then(async_fail).except_(bad_handler, reraise=True)
+    c = Q(1).then(async_fail).except_(bad_handler, reraise=True)
     with self.assertRaises(KeyboardInterrupt):
       await c.run()
 
-  async def test_sync_chain_async_handler_failure_consume_mode(self) -> None:
-    """Sync chain error, async except handler fails with reraise=False → propagates with __cause__."""
+  async def test_sync_pipeline_async_handler_failure_consume_mode(self) -> None:
+    """Sync pipeline error, async except handler fails with reraise=False → propagates with __cause__."""
 
     async def bad_handler(info):
       raise RuntimeError('handler boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIsInstance(ctx.exception.__cause__, ZeroDivisionError)
 
-  async def test_sync_chain_async_handler_failure_reraise_mode(self) -> None:
-    """Sync chain error, async except handler fails with reraise=True → discarded, original re-raised."""
+  async def test_sync_pipeline_async_handler_failure_reraise_mode(self) -> None:
+    """Sync pipeline error, async except handler fails with reraise=True → discarded, original re-raised."""
 
     async def bad_handler(info):
       raise RuntimeError('handler boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
       with self.assertRaises(ZeroDivisionError):
@@ -1082,7 +1076,7 @@ class AsyncFinallyFailureTest(SymmetricTestCase):
     async def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(async_fail).finally_(bad_cleanup)
+    c = Q(1).then(async_fail).finally_(bad_cleanup)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIn('cleanup boom', str(ctx.exception))
@@ -1094,7 +1088,7 @@ class AsyncFinallyFailureTest(SymmetricTestCase):
     async def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(async_fn).finally_(bad_cleanup)
+    c = Q(1).then(async_fn).finally_(bad_cleanup)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIn('cleanup boom', str(ctx.exception))
@@ -1110,7 +1104,7 @@ class AsyncFinallyFailureTest(SymmetricTestCase):
     async def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(async_fail).finally_(bad_cleanup)
+    c = Q(1).then(async_fail).finally_(bad_cleanup)
     try:
       await c.run()
     except RuntimeError as exc:
@@ -1128,7 +1122,7 @@ class AsyncRootCallableFailTest(SymmetricTestCase):
     async def async_root():
       raise ValueError('root boom')
 
-    c = Chain(async_root).then(lambda x: x + 1)
+    c = Q(async_root).then(lambda x: x + 1)
     with self.assertRaises(ValueError) as ctx:
       await c.run()
     self.assertIn('root boom', str(ctx.exception))
@@ -1139,7 +1133,7 @@ class AsyncRootCallableFailTest(SymmetricTestCase):
     async def async_root():
       raise ValueError('root boom')
 
-    result = await Chain(async_root).then(lambda x: x + 1).except_(lambda _: 'caught').run()
+    result = await Q(async_root).then(lambda x: x + 1).except_(lambda _: 'caught').run()
     self.assertEqual(result, 'caught')
 
   async def test_async_root_callable_fails_with_finally(self) -> None:
@@ -1149,46 +1143,46 @@ class AsyncRootCallableFailTest(SymmetricTestCase):
     async def async_root():
       raise ValueError('root boom')
 
-    c = Chain(async_root).then(lambda x: x + 1).finally_(lambda rv: cleanup.append('finally'))
+    c = Q(async_root).then(lambda x: x + 1).finally_(lambda rv: cleanup.append('finally'))
     with self.assertRaises(ValueError):
       await c.run()
     self.assertEqual(cleanup, ['finally'])
 
 
-class AsyncNestedChainErrorTest(SymmetricTestCase):
-  """Async chains with nested chains that raise."""
+class AsyncNestedPipelineErrorTest(SymmetricTestCase):
+  """Async pipelines with nested pipelines that raise."""
 
-  async def test_async_nested_chain_raises(self) -> None:
-    """Async nested chain raises → exception propagates to outer chain."""
+  async def test_async_nested_pipeline_raises(self) -> None:
+    """Async nested pipeline raises → exception propagates to outer pipeline."""
 
     async def async_fail(x):
       raise ValueError('nested boom')
 
-    inner = Chain().then(async_fail)
-    c = Chain(1).then(inner)
+    inner = Q().then(async_fail)
+    c = Q(1).then(inner)
     with self.assertRaises(ValueError) as ctx:
       await c.run()
     self.assertIn('nested boom', str(ctx.exception))
 
-  async def test_async_nested_chain_raises_caught_by_outer_except(self) -> None:
-    """Async nested chain raises → outer except handler catches it."""
+  async def test_async_nested_pipeline_raises_caught_by_outer_except(self) -> None:
+    """Async nested pipeline raises → outer except handler catches it."""
 
     async def async_fail(x):
       raise ValueError('nested boom')
 
-    inner = Chain().then(async_fail)
-    result = await Chain(1).then(inner).except_(lambda _: 'outer-caught').run()
+    inner = Q().then(async_fail)
+    result = await Q(1).then(inner).except_(lambda _: 'outer-caught').run()
     self.assertEqual(result, 'outer-caught')
 
-  async def test_async_nested_chain_raises_outer_finally_runs(self) -> None:
-    """Async nested chain raises → outer finally handler runs."""
+  async def test_async_nested_pipeline_raises_outer_finally_runs(self) -> None:
+    """Async nested pipeline raises → outer finally handler runs."""
     cleanup = []
 
     async def async_fail(x):
       raise ValueError('nested boom')
 
-    inner = Chain().then(async_fail)
-    c = Chain(1).then(inner).finally_(lambda rv: cleanup.append('outer-finally'))
+    inner = Q().then(async_fail)
+    c = Q(1).then(inner).finally_(lambda rv: cleanup.append('outer-finally'))
     with self.assertRaises(ValueError):
       await c.run()
     self.assertEqual(cleanup, ['outer-finally'])
@@ -1198,28 +1192,28 @@ class AsyncControlFlowInExceptTest(SymmetricTestCase):
   """Async control flow signals in except handlers."""
 
   async def test_async_return_in_except_handler_raises(self) -> None:
-    """Async chain: return_() in sync except handler raises QuentException."""
+    """Async pipeline: return_() in sync except handler raises QuentException."""
 
     async def async_fail(x):
       raise ValueError('boom')
 
     def handler(info):
-      return Chain.return_('nope')
+      return Q.return_('nope')
 
-    c = Chain(1).then(async_fail).except_(handler)
+    c = Q(1).then(async_fail).except_(handler)
     with self.assertRaises(QuentException):
       await c.run()
 
   async def test_async_break_in_except_handler_raises(self) -> None:
-    """Async chain: break_() in sync except handler raises QuentException."""
+    """Async pipeline: break_() in sync except handler raises QuentException."""
 
     async def async_fail(x):
       raise ValueError('boom')
 
     def handler(info):
-      return Chain.break_('nope')
+      return Q.break_('nope')
 
-    c = Chain(1).then(async_fail).except_(handler)
+    c = Q(1).then(async_fail).except_(handler)
     with self.assertRaises(QuentException):
       await c.run()
 
@@ -1230,9 +1224,9 @@ class AsyncControlFlowInExceptTest(SymmetricTestCase):
       raise ValueError('boom')
 
     async def handler_with_return(info):
-      return Chain.return_('escaped')
+      return Q.return_('escaped')
 
-    c = Chain(1).then(async_fail).except_(handler_with_return)
+    c = Q(1).then(async_fail).except_(handler_with_return)
     with self.assertRaises(QuentException):
       await c.run()
 
@@ -1241,7 +1235,7 @@ class AsyncExceptFinallyComboTest(SymmetricTestCase):
   """Combined async except + finally edge cases."""
 
   async def test_async_except_consume_then_async_finally(self) -> None:
-    """Async chain: except consumes, async finally runs in success context."""
+    """Async pipeline: except consumes, async finally runs in success context."""
     order = []
 
     async def async_fail(x):
@@ -1251,17 +1245,13 @@ class AsyncExceptFinallyComboTest(SymmetricTestCase):
       order.append('finally')
 
     result = await (
-      Chain(1)
-      .then(async_fail)
-      .except_(lambda _: (order.append('except'), 'recovered')[-1])
-      .finally_(async_cleanup)
-      .run()
+      Q(1).then(async_fail).except_(lambda _: (order.append('except'), 'recovered')[-1]).finally_(async_cleanup).run()
     )
     self.assertEqual(result, 'recovered')
     self.assertEqual(order, ['except', 'finally'])
 
   async def test_async_except_reraise_then_async_finally(self) -> None:
-    """Async chain: except re-raises, async finally runs in failure context."""
+    """Async pipeline: except re-raises, async finally runs in failure context."""
     order = []
 
     async def async_fail(x):
@@ -1270,7 +1260,7 @@ class AsyncExceptFinallyComboTest(SymmetricTestCase):
     async def async_cleanup(rv):
       order.append('finally')
 
-    c = Chain(1).then(async_fail).except_(lambda _: order.append('except'), reraise=True).finally_(async_cleanup)
+    c = Q(1).then(async_fail).except_(lambda _: order.append('except'), reraise=True).finally_(async_cleanup)
     with self.assertRaises(ValueError):
       await c.run()
     self.assertEqual(order, ['except', 'finally'])
@@ -1289,12 +1279,12 @@ class AsyncExceptFinallyComboTest(SymmetricTestCase):
     async def async_cleanup(rv):
       order.append('finally')
 
-    result = await Chain(1).then(async_fail).except_(async_handler).finally_(async_cleanup).run()
+    result = await Q(1).then(async_fail).except_(async_handler).finally_(async_cleanup).run()
     self.assertEqual(result, 'async-recovered')
     self.assertEqual(order, ['except', 'finally'])
 
   async def test_unmatched_exception_async_finally_runs(self) -> None:
-    """Async chain: unmatched exception skips except, async finally runs."""
+    """Async pipeline: unmatched exception skips except, async finally runs."""
     order = []
 
     async def async_fail(x):
@@ -1303,20 +1293,18 @@ class AsyncExceptFinallyComboTest(SymmetricTestCase):
     async def async_cleanup(rv):
       order.append('finally')
 
-    c = (
-      Chain(1).then(async_fail).except_(lambda _: order.append('except'), exceptions=TypeError).finally_(async_cleanup)
-    )
+    c = Q(1).then(async_fail).except_(lambda _: order.append('except'), exceptions=TypeError).finally_(async_cleanup)
     with self.assertRaises(ValueError):
       await c.run()
     self.assertEqual(order, ['finally'])
 
 
 class AsyncTransitionExceptTest(SymmetricTestCase):
-  """SPEC §6.3.5: Async except handler in sync chains (async transition path)."""
+  """SPEC §6.3.5: Async except handler in sync pipelines (async transition path)."""
 
-  async def test_sync_chain_async_except_handler_transition(self) -> None:
+  async def test_sync_pipeline_async_except_handler_transition(self) -> None:
     """Sync error, async except handler → triggers _async_except_handler transition."""
-    # When a sync chain's except handler returns a coroutine,
+    # When a sync pipeline's except handler returns a coroutine,
     # _async_except_handler is invoked, handling the async transition.
     result_holder = []
 
@@ -1325,20 +1313,20 @@ class AsyncTransitionExceptTest(SymmetricTestCase):
       return 'async-handled'
 
     # This returns a coroutine (from _async_except_handler), so await it.
-    result = await Chain(1).then(lambda x: 1 / 0).except_(async_handler).run()
+    result = await Q(1).then(lambda x: 1 / 0).except_(async_handler).run()
     self.assertEqual(result, 'async-handled')
 
-  async def test_async_finally_in_sync_chain_on_error_path(self) -> None:
-    """Sync chain error path, async finally handler → async transition, re-raises."""
+  async def test_async_finally_in_sync_pipeline_on_error_path(self) -> None:
+    """Sync pipeline error path, async finally handler → async transition, re-raises."""
 
-    # On the error path, async finally in a sync chain triggers async transition.
+    # On the error path, async finally in a sync pipeline triggers async transition.
     # Awaiting the coroutine re-raises the original exception after running cleanup.
     cleanup = []
 
     async def async_cleanup(rv):
       cleanup.append(rv)
 
-    coro = Chain(1).then(lambda x: 1 / 0).finally_(async_cleanup).run()
+    coro = Q(1).then(lambda x: 1 / 0).finally_(async_cleanup).run()
     import asyncio
 
     self.assertTrue(asyncio.iscoroutine(coro))
@@ -1356,31 +1344,31 @@ class BaseExceptionCleanupTest(IsolatedAsyncioTestCase):
   """§6: KeyboardInterrupt / SystemExit cleanup through chains."""
 
   async def test_keyboard_interrupt_cleans_quent_idx(self) -> None:
-    """KeyboardInterrupt through sync chain triggers cleanup."""
+    """KeyboardInterrupt through sync pipeline triggers cleanup."""
 
     def raise_ki(x):
       raise KeyboardInterrupt('test signal')
 
     with self.assertRaises(KeyboardInterrupt):
-      Chain(1).then(raise_ki).run()
+      Q(1).then(raise_ki).run()
 
   async def test_system_exit_cleans_quent_idx(self) -> None:
-    """SystemExit through sync chain triggers cleanup."""
+    """SystemExit through sync pipeline triggers cleanup."""
 
     def raise_se(x):
       raise SystemExit(42)
 
     with self.assertRaises(SystemExit):
-      Chain(1).then(raise_se).run()
+      Q(1).then(raise_se).run()
 
-  async def test_keyboard_interrupt_in_async_chain(self) -> None:
-    """KeyboardInterrupt in async chain triggers cleanup."""
+  async def test_keyboard_interrupt_in_async_pipeline(self) -> None:
+    """KeyboardInterrupt in async pipeline triggers cleanup."""
 
     async def raise_ki(x):
       raise KeyboardInterrupt('async signal')
 
     with self.assertRaises(KeyboardInterrupt):
-      await Chain(1).then(raise_ki).run()
+      await Q(1).then(raise_ki).run()
 
 
 # ---------------------------------------------------------------------------
@@ -1395,9 +1383,9 @@ class AsyncExceptControlFlowReraiseTrueTest(IsolatedAsyncioTestCase):
     """Async handler raises return_() with reraise=True -> QuentException."""
 
     async def async_handler(info):
-      return Chain.return_('escaped')
+      return Q.return_('escaped')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True)
     with self.assertRaises(QuentException) as ctx:
       await c.run()
     self.assertIn('not allowed', str(ctx.exception))
@@ -1417,7 +1405,7 @@ class SystemExitFromHandlerTest(IsolatedAsyncioTestCase):
     async def async_handler(info):
       raise SystemExit(99)
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(async_handler, reraise=True)
     with self.assertRaises(SystemExit):
       await c.run()
 
@@ -1438,7 +1426,7 @@ class SyncFinallyNoteTest(TestCase):
     def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(lambda x: 1 / 0).finally_(bad_cleanup)
+    c = Q(1).then(lambda x: 1 / 0).finally_(bad_cleanup)
     try:
       c.run()
     except RuntimeError as exc:
@@ -1456,14 +1444,14 @@ class SyncFinallyNoteTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# §6.2/§6.3: Combined except + finally error paths in async chains
+# §6.2/§6.3: Combined except + finally error paths in async pipelines
 # ---------------------------------------------------------------------------
 
 
 class ExceptFinallyComboAsyncTest(IsolatedAsyncioTestCase):
-  """§6.2/§6.3: Combined except + finally error paths in async chains."""
+  """§6.2/§6.3: Combined except + finally error paths in async pipelines."""
 
-  async def test_async_chain_finally_raises_during_except_reraise(self) -> None:
+  async def test_async_pipeline_finally_raises_during_except_reraise(self) -> None:
     """except re-raises, finally raises -> finally replaces original."""
 
     async def async_fail(x):
@@ -1475,7 +1463,7 @@ class ExceptFinallyComboAsyncTest(IsolatedAsyncioTestCase):
     def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(async_fail).except_(handler, reraise=True).finally_(bad_cleanup)
+    c = Q(1).then(async_fail).except_(handler, reraise=True).finally_(bad_cleanup)
     try:
       await c.run()
     except RuntimeError as exc:
@@ -1485,7 +1473,7 @@ class ExceptFinallyComboAsyncTest(IsolatedAsyncioTestCase):
     else:
       self.fail('Expected RuntimeError from finally')
 
-  async def test_async_chain_finally_raises_during_except_consume(self) -> None:
+  async def test_async_pipeline_finally_raises_during_except_consume(self) -> None:
     """except consumes, finally raises."""
 
     async def async_fail(x):
@@ -1497,19 +1485,19 @@ class ExceptFinallyComboAsyncTest(IsolatedAsyncioTestCase):
     def bad_cleanup(rv):
       raise RuntimeError('cleanup boom')
 
-    c = Chain(1).then(async_fail).except_(handler).finally_(bad_cleanup)
+    c = Q(1).then(async_fail).except_(handler).finally_(bad_cleanup)
     with self.assertRaises(RuntimeError) as ctx:
       await c.run()
     self.assertIn('cleanup boom', str(ctx.exception))
 
 
 # ---------------------------------------------------------------------------
-# §6.2.2: Async chain with no root value — except handler receives None
+# §6.2.2: Async pipeline with no root value — except handler receives None
 # ---------------------------------------------------------------------------
 
 
 class AsyncNoRootValueExceptTest(IsolatedAsyncioTestCase):
-  """§6.2.2: Async chain with no root value — except handler receives None for root_value."""
+  """§6.2.2: Async pipeline with no root value — except handler receives None for root_value."""
 
   async def test_no_root_value_async_except_handler_gets_none(self) -> None:
     """Async variant of root_value Null normalization."""
@@ -1522,13 +1510,13 @@ class AsyncNoRootValueExceptTest(IsolatedAsyncioTestCase):
       received['rv'] = info.root_value
       return 'handled'
 
-    result = await Chain().then(async_fail).except_(handler).run()
+    result = await Q().then(async_fail).except_(handler).run()
     self.assertEqual(result, 'handled')
     self.assertIsNone(received['rv'])
 
 
 # ---------------------------------------------------------------------------
-# §6.3.5: Async finally handler in sync chain — async transition
+# §6.3.5: Async finally handler in sync pipeline — async transition
 # (Canonical tests for async transition are in asymmetry_tests.py)
 # ---------------------------------------------------------------------------
 
@@ -1542,15 +1530,15 @@ class ControlFlowSignalContextTest(TestCase):
   """Verify signal.__context__ is set to the original exception when a
   _ControlFlowSignal is raised inside an except handler."""
 
-  def _capture_signal(self, chain) -> _ControlFlowSignal:
-    """Run chain and return the _ControlFlowSignal carried inside QuentException."""
+  def _capture_signal(self, q) -> _ControlFlowSignal:
+    """Run pipeline and return the _ControlFlowSignal carried inside QuentException."""
     captured = []
 
     def handler(info):
       captured.append(info.exc)
-      return Chain.return_('signal')
+      return Q.return_('signal')
 
-    c = chain.except_(handler)
+    c = q.except_(handler)
     try:
       c.run()
     except QuentException as qe:
@@ -1567,9 +1555,9 @@ class ControlFlowSignalContextTest(TestCase):
     def handler(info):
       nonlocal original_exc
       original_exc = info.exc
-      return Chain.return_('escape')
+      return Q.return_('escape')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler)
     with self.assertRaises(QuentException) as ctx:
       c.run()
 
@@ -1598,7 +1586,7 @@ class ControlFlowSignalContextDirectTest(TestCase):
     def handler(info):
       raise signal
 
-    c = Chain(1).then(raising_step).except_(handler)
+    c = Q(1).then(raising_step).except_(handler)
     try:
       c.run()
     except QuentException:
@@ -1627,7 +1615,7 @@ class ExceptHandlerFailureFinallyRunsTest(SymmetricTestCase):
       finally_ran.append(True)
 
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(track_finally).run()
+      Q(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(track_finally).run()
     self.assertEqual(str(ctx.exception), 'handler failed')
     self.assertTrue(finally_ran, 'finally handler must run even when except handler fails')
     # §6.2.5: handler exc chained via `raise handler_exc from original_exc`
@@ -1644,7 +1632,7 @@ class ExceptHandlerFailureFinallyRunsTest(SymmetricTestCase):
       finally_ran.append(True)
 
     with self.assertRaises(TypeError) as ctx:
-      await Chain(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(track_finally).run()
+      await Q(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(track_finally).run()
     self.assertEqual(str(ctx.exception), 'async handler failed')
     self.assertTrue(finally_ran, 'async finally handler must run even when except handler fails')
     self.assertIsInstance(ctx.exception.__cause__, ZeroDivisionError)
@@ -1660,7 +1648,7 @@ class FinallyHandlerFailureTest(SymmetricTestCase):
       raise ValueError('finally err')
 
     with self.assertRaises(ValueError) as ctx:
-      Chain(1).then(lambda x: x * 2).finally_(bad_finally).run()
+      Q(1).then(lambda x: x * 2).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'finally err')
 
   async def test_finally_raises_on_success_async(self) -> None:
@@ -1670,7 +1658,7 @@ class FinallyHandlerFailureTest(SymmetricTestCase):
       raise ValueError('async finally err')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(1).then(lambda x: x * 2).finally_(bad_finally).run()
+      await Q(1).then(lambda x: x * 2).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'async finally err')
 
   async def test_finally_raises_suppresses_original_sync(self) -> None:
@@ -1680,7 +1668,7 @@ class FinallyHandlerFailureTest(SymmetricTestCase):
       raise ValueError('finally overrides')
 
     with self.assertRaises(ValueError) as ctx:
-      Chain(1).then(lambda x: 1 / 0).finally_(bad_finally).run()
+      Q(1).then(lambda x: 1 / 0).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'finally overrides')
     # §6.3.3: original exception preserved as __context__
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
@@ -1692,7 +1680,7 @@ class FinallyHandlerFailureTest(SymmetricTestCase):
       raise ValueError('async finally overrides')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(1).then(lambda x: 1 / 0).finally_(bad_finally).run()
+      await Q(1).then(lambda x: 1 / 0).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'async finally overrides')
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
 
@@ -1710,7 +1698,7 @@ class BothHandlersRaiseTest(SymmetricTestCase):
       raise ValueError('finally err')
 
     with self.assertRaises(ValueError) as ctx:
-      Chain(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(bad_finally).run()
+      Q(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'finally err')
     # __context__ is the except handler's exception (which was propagating when finally ran)
     self.assertIsInstance(ctx.exception.__context__, TypeError)
@@ -1725,7 +1713,7 @@ class BothHandlersRaiseTest(SymmetricTestCase):
       raise ValueError('async finally err')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(bad_finally).run()
+      await Q(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'async finally err')
     self.assertIsInstance(ctx.exception.__context__, TypeError)
 
@@ -1740,7 +1728,7 @@ class BothHandlersRaiseTest(SymmetricTestCase):
       finally_ran.append(True)
 
     with self.assertRaises(TypeError):
-      await Chain(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(track_finally).run()
+      await Q(1).then(lambda x: 1 / 0).except_(bad_handler).finally_(track_finally).run()
     self.assertTrue(finally_ran)
 
   async def test_finally_failure_result_discarded_on_success(self) -> None:
@@ -1750,7 +1738,7 @@ class BothHandlersRaiseTest(SymmetricTestCase):
       raise RuntimeError('cleanup broke')
 
     with self.assertRaises(RuntimeError) as ctx:
-      Chain(1).then(lambda x: x * 2).finally_(bad_finally).run()
+      Q(1).then(lambda x: x * 2).finally_(bad_finally).run()
     self.assertEqual(str(ctx.exception), 'cleanup broke')
     # On success path, __context__ should be None (no prior exception)
     self.assertIsNone(ctx.exception.__context__)
@@ -1762,7 +1750,7 @@ class BothHandlersRaiseTest(SymmetricTestCase):
 
 
 class ErrorPositionRootValueTest(SymmetricTestCase):
-  """Verify that root_value in ChainExcInfo is always the root, regardless of error position."""
+  """Verify that root_value in QuentExcInfo is always the root, regardless of error position."""
 
   async def test_error_at_root_callable(self) -> None:
     """Error at root callable: root_value is None (root never produced a value)."""
@@ -1773,7 +1761,7 @@ class ErrorPositionRootValueTest(SymmetricTestCase):
       received['exc'] = type(info.exc).__name__
       return 'handled'
 
-    result = Chain(lambda: 1 / 0).except_(handler).run()
+    result = Q(lambda: 1 / 0).except_(handler).run()
     self.assertEqual(result, 'handled')
     self.assertIsNone(received['rv'])  # root callable failed, no root value
 
@@ -1785,7 +1773,7 @@ class ErrorPositionRootValueTest(SymmetricTestCase):
       received['rv'] = info.root_value
       return 'handled'
 
-    result = Chain(42).then(lambda x: 1 / 0).except_(handler).run()
+    result = Q(42).then(lambda x: 1 / 0).except_(handler).run()
     self.assertEqual(result, 'handled')
     self.assertEqual(received['rv'], 42)
 
@@ -1797,7 +1785,7 @@ class ErrorPositionRootValueTest(SymmetricTestCase):
       received['rv'] = info.root_value
       return 'handled'
 
-    result = Chain(10).then(lambda x: x * 2).then(lambda x: x + 5).then(lambda x: 1 / 0).except_(handler).run()
+    result = Q(10).then(lambda x: x * 2).then(lambda x: x + 5).then(lambda x: 1 / 0).except_(handler).run()
     self.assertEqual(result, 'handled')
     self.assertEqual(received['rv'], 10)  # root value, NOT 25 (intermediate)
 
@@ -1809,7 +1797,7 @@ class ErrorPositionRootValueTest(SymmetricTestCase):
       received['rv'] = info.root_value
       return 'handled'
 
-    c = Chain(999).then(lambda x: x + 1).then(lambda x: 1 / 0).except_(handler)
+    c = Q(999).then(lambda x: x + 1).then(lambda x: 1 / 0).except_(handler)
     result = c.run(7)
     self.assertEqual(result, 'handled')
     self.assertEqual(received['rv'], 7)  # run value, not 999
@@ -1833,7 +1821,7 @@ class ExceptFinallyComboSyncTest(SymmetricTestCase):
       raise RuntimeError('cleanup boom')
 
     with self.assertRaises(RuntimeError) as ctx:
-      Chain(5).then(lambda x: 1 / 0).except_(handler).finally_(bad_cleanup).run()
+      Q(5).then(lambda x: 1 / 0).except_(handler).finally_(bad_cleanup).run()
     self.assertEqual(str(ctx.exception), 'cleanup boom')
 
   async def test_except_reraise_finally_fails_sync(self) -> None:
@@ -1846,7 +1834,7 @@ class ExceptFinallyComboSyncTest(SymmetricTestCase):
       raise RuntimeError('cleanup boom')
 
     with self.assertRaises(RuntimeError) as ctx:
-      Chain(5).then(lambda x: 1 / 0).except_(handler, reraise=True).finally_(bad_cleanup).run()
+      Q(5).then(lambda x: 1 / 0).except_(handler, reraise=True).finally_(bad_cleanup).run()
     # The original ZeroDivisionError is preserved as __context__
     self.assertIsInstance(ctx.exception.__context__, ZeroDivisionError)
 
@@ -1868,7 +1856,7 @@ class AsyncExceptHandlerSuppressContextTest(IsolatedAsyncioTestCase):
     async def bad_handler(info):
       raise RuntimeError('handler fail')
 
-    c = Chain(1).then(async_fail).except_(bad_handler, reraise=True)
+    c = Q(1).then(async_fail).except_(bad_handler, reraise=True)
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
       with self.assertRaises(ValueError) as ctx:
@@ -1891,7 +1879,7 @@ class ExceptBaseExceptionWarnAndCatchTest(IsolatedAsyncioTestCase):
     with warnings.catch_warnings(record=True) as w:
       warnings.simplefilter('always')
       c = (
-        Chain(1)
+        Q(1)
         .then(lambda x: (_ for _ in ()).throw(KeyboardInterrupt('test')))
         .except_(handler, exceptions=KeyboardInterrupt)
       )
@@ -1912,7 +1900,7 @@ class ForeachDoConcurrentSingleFailureTest(IsolatedAsyncioTestCase):
       if x == 3:
         raise ValueError('fail-3')
 
-    c = Chain([0, 1, 2, 3, 4]).foreach_do(maybe_fail, concurrency=5)
+    c = Q([0, 1, 2, 3, 4]).foreach_do(maybe_fail, concurrency=5)
     with self.assertRaises(ValueError) as ctx:
       c.run()
     self.assertIn('fail-3', str(ctx.exception))
@@ -1927,7 +1915,7 @@ class ExceptReraiseBaseExceptionVariantsTest(IsolatedAsyncioTestCase):
     def bad_handler(info):
       raise SystemExit(99)
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with self.assertRaises(SystemExit) as ctx:
       c.run()
     self.assertEqual(ctx.exception.code, 99)
@@ -1941,6 +1929,6 @@ class ExceptReraiseBaseExceptionVariantsTest(IsolatedAsyncioTestCase):
     def bad_handler(info):
       raise CustomBaseExc('custom base')
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with self.assertRaises(CustomBaseExc):
       c.run()

@@ -18,7 +18,7 @@ from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
 from quent import (
-  Chain,
+  Q,
   QuentException,
 )
 from quent._types import _ControlFlowSignal, _Return
@@ -86,7 +86,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
 
         return _exit()
 
-    c = Chain(AsyncExitSuppress()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
+    c = Q(AsyncExitSuppress()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
     result = c.run()
     # The result should be a coroutine since __exit__ returns one
     if asyncio.iscoroutine(result):
@@ -107,7 +107,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
 
         return _exit()
 
-    c = Chain(AsyncExitSuccess()).with_(lambda x: x * 2)
+    c = Q(AsyncExitSuccess()).with_(lambda x: x * 2)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -115,7 +115,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
 
   def test_sync_cm_enter_raises_metadata(self) -> None:
     """§5.6: sync CM __enter__ raises — metadata stamped with '<enter failed>'."""
-    c = Chain(SyncCMEnterRaises()).with_(lambda x: x)
+    c = Q(SyncCMEnterRaises()).with_(lambda x: x)
     with self.assertRaises(RuntimeError) as ctx:
       c.run()
     self.assertEqual(str(ctx.exception), 'enter boom')
@@ -133,7 +133,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
     def body(x: object) -> object:
       raise _Return(999, (), {})
 
-    c = Chain(ExitAlsoRaises()).with_(body)
+    c = Q(ExitAlsoRaises()).with_(body)
     # The exit_exc should be chained from the signal
     with self.assertRaises(RuntimeError) as ctx:
       result = c.run()
@@ -144,7 +144,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
 
   async def test_sync_cm_body_raises_and_exit_raises(self) -> None:
     """§5.6: body raises AND __exit__ also raises — exit_exc chained from body exc."""
-    c = Chain(SyncCMExitRaises()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
+    c = Q(SyncCMExitRaises()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
     with self.assertRaises(RuntimeError) as ctx:
       result = c.run()
       if asyncio.iscoroutine(result):
@@ -168,7 +168,7 @@ class WithOpsEdgeTest(IsolatedAsyncioTestCase):
           return _exit()
         return False
 
-    c = Chain(AsyncExitOnError()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
+    c = Q(AsyncExitOnError()).with_(lambda x: (_ for _ in ()).throw(ValueError('body fail')))
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -187,7 +187,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
   async def test_traceback_enhancement_fails_in_except(self) -> None:
     """§13.11: _modify_traceback fails during except handler — warning issued."""
     with patch('quent._engine._modify_traceback', side_effect=Exception('tb boom')):
-      c = Chain(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
+      c = Q(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
       with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter('always')
         result = c.run()
@@ -204,7 +204,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
       raise RuntimeError('finally boom')
 
     with patch('quent._engine._modify_traceback', side_effect=Exception('tb mod fail')):
-      c = Chain(1).finally_(bad_finally)
+      c = Q(1).finally_(bad_finally)
       with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter('always')
         with self.assertRaises(RuntimeError):
@@ -222,7 +222,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
       calls.append('finally')
       raise RuntimeError('finally error')
 
-    c = Chain(1).then(lambda x: 1 / 0).finally_(bad_finally)
+    c = Q(1).then(lambda x: 1 / 0).finally_(bad_finally)
     with self.assertRaises(RuntimeError) as ctx:
       c.run()
     self.assertEqual(str(ctx.exception), 'finally error')
@@ -237,7 +237,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     async def bad_async_finally(rv: object) -> object:
       raise RuntimeError('async finally error')
 
-    c = Chain(1).then(async_fail).finally_(bad_async_finally)
+    c = Q(1).then(async_fail).finally_(bad_async_finally)
     with self.assertRaises(RuntimeError) as ctx:
       result = c.run()
       if asyncio.iscoroutine(result):
@@ -251,7 +251,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     async def handler_with_signal(info: object) -> object:
       raise _Return(999, (), {})
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler_with_signal)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler_with_signal)
     with self.assertRaises(QuentException) as ctx:
       result = c.run()
       if asyncio.iscoroutine(result):
@@ -264,7 +264,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     async def handler_keyboard_interrupt(info: object) -> object:
       raise KeyboardInterrupt()
 
-    c = Chain(1).then(lambda x: 1 / 0).except_(handler_keyboard_interrupt, reraise=True)
+    c = Q(1).then(lambda x: 1 / 0).except_(handler_keyboard_interrupt, reraise=True)
     with self.assertRaises(KeyboardInterrupt):
       result = c.run()
       if asyncio.iscoroutine(result):
@@ -275,14 +275,14 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
 
     Black-box: verify that exceptions still propagate cleanly through
     the engine even when the internal source link tracking encounters
-    a None link. We trigger this by running a chain whose root callable
+    a None link. We trigger this by running a pipeline whose root callable
     itself raises — the exception occurs during root evaluation.
     """
 
     def boom() -> None:
       raise ValueError('root boom')
 
-    c = Chain(boom)
+    c = Q(boom)
     with self.assertRaises(ValueError) as ctx:
       c.run()
     self.assertEqual(str(ctx.exception), 'root boom')
@@ -298,7 +298,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     def raise_base(x: int) -> int:
       raise CustomBaseError('base boom')
 
-    c = Chain(1).gather(raise_base)
+    c = Q(1).gather(raise_base)
     with self.assertRaises(CustomBaseError) as ctx:
       c.run()
     self.assertEqual(str(ctx.exception), 'base boom')
@@ -332,11 +332,11 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
     as the initial current value and threaded into subsequent steps.
     This guards the invariant that root evaluation always captures results.
     """
-    c = Chain(lambda: 42).then(lambda x: x + 1)
+    c = Q(lambda: 42).then(lambda x: x + 1)
     self.assertEqual(c.run(), 43)
 
     # Also verify with run-time root override
-    c2 = Chain(lambda: 100).then(lambda x: x * 2)
+    c2 = Q(lambda: 100).then(lambda x: x * 2)
     self.assertEqual(c2.run(5), 10)
 
   async def test_debug_logging_paths(self) -> None:
@@ -348,24 +348,24 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
       handler = logging.StreamHandler()
       handler.setLevel(logging.DEBUG)
       logger.addHandler(handler)
-      # Simple chain
-      c = Chain(1).then(lambda x: x + 1)
+      # Simple pipeline
+      c = Q(1).then(lambda x: x + 1)
       result = c.run()
       if asyncio.iscoroutine(result):
         result = await result
       self.assertEqual(result, 2)
 
-      # Async chain (triggers async debug path)
+      # Async pipeline (triggers async debug path)
       async def async_add(x: int) -> int:
         return x + 1
 
-      c2 = Chain(1).then(async_add)
+      c2 = Q(1).then(async_add)
       result2 = c2.run()
       if asyncio.iscoroutine(result2):
         result2 = await result2
       self.assertEqual(result2, 2)
       # Error path
-      c3 = Chain(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
+      c3 = Q(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
       result3 = c3.run()
       if asyncio.iscoroutine(result3):
         result3 = await result3
@@ -377,7 +377,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
   def test_control_flow_signal_escape_from_run(self) -> None:
     """§7.2.3, §7.3.2: ControlFlowSignal escape from run() — wrapped in QuentException."""
     # Use break_() outside of iteration context — it will escape as a signal
-    c = Chain(1).then(lambda x: Chain.break_())
+    c = Q(1).then(lambda x: Q.break_())
     with self.assertRaises(QuentException) as ctx:
       c.run()
     self.assertIn('break_', str(ctx.exception).lower())
@@ -385,7 +385,7 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
   def test_decorator_control_flow_signal_escape(self) -> None:
     """§10.2, §7.2.3: decorator() with ControlFlowSignal escape -> QuentException."""
 
-    @Chain().then(lambda x: Chain.break_()).decorator()
+    @Q().then(lambda x: Q.break_()).as_decorator()
     def my_fn() -> str:
       return 'hello'
 
@@ -402,13 +402,13 @@ class EngineEdgeTest(IsolatedAsyncioTestCase):
 class GeneratorEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _generator.py."""
 
-  def test_sync_iterate_on_async_chain(self) -> None:
-    """§17.1: sync `for x in chain.iterate()` on async chain — TypeError."""
+  def test_sync_iterate_on_async_pipeline(self) -> None:
+    """§17.1: sync `for x in q.iterate()` on async pipeline — TypeError."""
 
     async def async_range(n: int) -> list[int]:
       return list(range(n))
 
-    c = Chain(async_range, 5)
+    c = Q(async_range, 5)
     with self.assertRaises(TypeError) as ctx:
       for _x in c.iterate():
         pass
@@ -426,10 +426,10 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
 
     def body(x: int) -> object:
       if x == 2:
-        Chain.break_(failing_break_val)
+        Q.break_(failing_break_val)
       return x
 
-    c = Chain(range(5))
+    c = Q(range(5))
     with self.assertRaises(ValueError) as ctx:
       for _ in c.iterate(body):
         pass
@@ -443,10 +443,10 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
 
     def body(x: int) -> object:
       if x == 2:
-        Chain.break_(async_val)
+        Q.break_(async_val)
       return x
 
-    c = Chain(range(5))
+    c = Q(range(5))
     with self.assertRaises(TypeError) as ctx:
       for _ in c.iterate(body):
         pass
@@ -460,10 +460,10 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
 
     def body(x: int) -> object:
       if x == 2:
-        Chain.return_(failing_return_val)
+        Q.return_(failing_return_val)
       return x
 
-    c = Chain(range(5))
+    c = Q(range(5))
     with self.assertRaises(ValueError) as ctx:
       for _ in c.iterate(body):
         pass
@@ -477,10 +477,10 @@ class GeneratorEdgeTest(IsolatedAsyncioTestCase):
 
     def body(x: int) -> object:
       if x == 2:
-        Chain.return_(async_val)
+        Q.return_(async_val)
       return x
 
-    c = Chain(range(5))
+    c = Q(range(5))
     with self.assertRaises(TypeError) as ctx:
       for _ in c.iterate(body):
         pass
@@ -499,7 +499,7 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
     """§5.3: empty async iterable with concurrent mode — empty result."""
     from tests.fixtures import AsyncRange
 
-    c = Chain(AsyncRange(0)).foreach(lambda x: x + 1, concurrency=2)
+    c = Q(AsyncRange(0)).foreach(lambda x: x + 1, concurrency=2)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -507,13 +507,13 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
 
   def test_empty_list_concurrent(self) -> None:
     """§5.3: empty list with concurrent mode — empty result."""
-    c = Chain([]).foreach(lambda x: x + 1, concurrency=2)
+    c = Q([]).foreach(lambda x: x + 1, concurrency=2)
     result = c.run()
     self.assertEqual(result, [])
 
   async def test_concurrent_break_on_first_item(self) -> None:
     """§7.3.4, §5.3: concurrent map where fn raises break on the probed first item."""
-    c = Chain([1, 2, 3]).foreach(lambda x: Chain.break_() if x == 1 else x, concurrency=2)
+    c = Q([1, 2, 3]).foreach(lambda x: Q.break_() if x == 1 else x, concurrency=2)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -521,7 +521,7 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
 
   async def test_concurrent_return_signal(self) -> None:
     """§7.3.5: concurrent iteration where fn raises return signal."""
-    c = Chain([1, 2, 3]).foreach(lambda x: Chain.return_(99) if x == 1 else x, concurrency=2)
+    c = Q([1, 2, 3]).foreach(lambda x: Q.return_(99) if x == 1 else x, concurrency=2)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -535,7 +535,7 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
         raise _Return(99, (), {})
       return x
 
-    c = Chain([1, 2, 3]).foreach(maybe_return)
+    c = Q([1, 2, 3]).foreach(maybe_return)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -560,7 +560,7 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
     async def fn2(x: int) -> int:
       raise ValueError('regular')
 
-    c = Chain(1).gather(fn1, fn2)
+    c = Q(1).gather(fn1, fn2)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -589,7 +589,7 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
     async def fn2(x: int) -> int:
       raise TypeError('err2')
 
-    c = Chain(1).gather(fn1, fn2)
+    c = Q(1).gather(fn1, fn2)
     with self.assertRaises(ExceptionGroup) as ctx:
       result = c.run()
       if asyncio.iscoroutine(result):
@@ -599,39 +599,39 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
 
   def test_sync_gather_control_flow_signal_on_probe(self) -> None:
     """§5.5, §7.2: sync gather where first fn raises ControlFlowSignal (_Return) on probe."""
-    c = Chain(1).gather(lambda x: Chain.return_(99))
+    c = Q(1).gather(lambda x: Q.return_(99))
     result = c.run()
     self.assertEqual(result, 99)
 
 
 # ---------------------------------------------------------------------------
-# _chain.py — Builder Validation Edge Cases
+# _q.py — Builder Validation Edge Cases
 # ---------------------------------------------------------------------------
 
 
-class ChainBuilderEdgeTest(TestCase):
-  """Edge cases for _chain.py builder validation."""
+class PipelineBuilderEdgeTest(TestCase):
+  """Edge cases for _q.py builder validation."""
 
   def test_except_exceptions_string(self) -> None:
     """§6.2.1: except_(handler, exceptions='ValueError') — TypeError."""
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).except_(lambda info: None, exceptions='ValueError')  # type: ignore[arg-type]
+      Q(1).except_(lambda info: None, exceptions='ValueError')  # type: ignore[arg-type]
     self.assertIn('string', str(ctx.exception).lower())
 
   def test_except_exceptions_non_base_exception_type(self) -> None:
     """§6.2.1: except_(handler, exceptions=[int]) — TypeError."""
     with self.assertRaises(TypeError):
-      Chain(1).except_(lambda info: None, exceptions=[int])  # type: ignore[arg-type]
+      Q(1).except_(lambda info: None, exceptions=[int])  # type: ignore[arg-type]
 
   def test_except_exceptions_non_iterable_non_type(self) -> None:
     """§6.2.1: except_(handler, exceptions=42) — TypeError."""
     with self.assertRaises(TypeError):
-      Chain(1).except_(lambda info: None, exceptions=42)  # type: ignore[arg-type]
+      Q(1).except_(lambda info: None, exceptions=42)  # type: ignore[arg-type]
 
   def test_else_non_callable_with_args(self) -> None:
     """§5.9: else_(42, 'extra_arg') — non-callable with args."""
     with self.assertRaises(TypeError) as ctx:
-      Chain(1).if_(lambda x: False).then(lambda x: x).else_(42, 'extra')  # type: ignore[arg-type]
+      Q(1).if_(lambda x: False).then(lambda x: x).else_(42, 'extra')  # type: ignore[arg-type]
     self.assertIn('not callable', str(ctx.exception).lower())
 
 
@@ -675,8 +675,8 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
 
   async def test_visualization_construction_fails(self) -> None:
     """§13.11: visualization construction fails — warning and fallback."""
-    with patch('quent._traceback._stringify_chain', side_effect=Exception('viz boom')):
-      c = Chain(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
+    with patch('quent._traceback._stringify_q', side_effect=Exception('viz boom')):
+      c = Q(1).then(lambda x: 1 / 0).except_(lambda info: 'caught')
       with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter('always')
         result = c.run()
@@ -687,9 +687,9 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
       self.assertTrue(len(viz_warnings) > 0)
 
   def test_exception_note_identifies_failing_step(self) -> None:
-    """§13.6: exception notes identify the failing step and chain.
+    """§13.6: exception notes identify the failing step and pipeline.
 
-    Black-box: on Python 3.11+, exceptions from chain execution carry
+    Black-box: on Python 3.11+, exceptions from pipeline execution carry
     a note starting with 'quent: exception at' that identifies the step.
     """
     if sys.version_info < (3, 11):
@@ -698,7 +698,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     def boom(x: int) -> int:
       raise ValueError('test')
 
-    c = Chain(1).then(boom)
+    c = Q(1).then(boom)
     with self.assertRaises(ValueError) as ctx:
       c.run()
     notes = getattr(ctx.exception, '__notes__', [])
@@ -717,7 +717,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     """
     # Patch _get_obj_name to cause note generation to fail
     with patch('quent._traceback._get_obj_name', side_effect=RuntimeError('name boom')):
-      c = Chain(1).then(lambda x: 1 / 0)
+      c = Q(1).then(lambda x: 1 / 0)
       with self.assertRaises(ZeroDivisionError):
         c.run()
     # The exception propagated correctly despite note generation failure
@@ -735,7 +735,7 @@ class TracebackEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, (False, None))
 
   def test_excepthook_path(self) -> None:
-    """§13.8: sys.excepthook path — uncaught chain exception with quent metadata."""
+    """§13.8: sys.excepthook path — uncaught pipeline exception with quent metadata."""
     from quent._traceback import _quent_excepthook
 
     exc = ValueError('test')
@@ -774,7 +774,7 @@ class VizEdgeTest(TestCase):
     self.assertEqual(name2, '[1, 2, 3]')
 
   def test_functools_partial_as_step(self) -> None:
-    """§13.12: functools.partial as chain step — 'partial(inner_name)' in visualization."""
+    """§13.12: functools.partial as pipeline step — 'partial(inner_name)' in visualization."""
     from quent._viz import _get_obj_name
 
     def my_fn(x: int, y: int) -> int:
@@ -807,25 +807,25 @@ class VizEdgeTest(TestCase):
       name = _get_obj_name(obj)
     self.assertEqual(name, 'BadRepr')
 
-  def test_nested_chain_visualization_drills_through(self) -> None:
-    """§13.2, §13.3: visualization of nested chains shows inner chain structure.
+  def test_nested_pipeline_visualization_drills_through(self) -> None:
+    """§13.2, §13.3: visualization of nested pipelines shows inner pipeline structure.
 
-    Black-box: repr() of a chain containing nested chains renders the
-    inner chain structure (drilling through nesting), not just 'Chain'.
+    Black-box: repr() of a pipeline containing nested pipelines renders the
+    inner pipeline structure (drilling through nesting), not just 'Q'.
     """
-    inner = Chain(lambda: 42)
-    outer = Chain(inner)
+    inner = Q(lambda: 42)
+    outer = Q(inner)
     r = repr(outer)
     self.assertIsInstance(r, str)
-    # The visualization should reference the inner chain's content,
-    # not just show an opaque 'Chain' reference
-    self.assertIn('Chain', r)
+    # The visualization should reference the inner pipeline's content,
+    # not just show an opaque 'Q' reference
+    self.assertIn('Q', r)
     self.assertTrue(len(r) > 0)
 
   def test_gather_visualization(self) -> None:
     """§13.12: gather operation visualization."""
-    c = Chain(1).gather(lambda x: x, lambda x: x + 1)
-    # Verify the chain can be repr'd (exercises visualization)
+    c = Q(1).gather(lambda x: x, lambda x: x + 1)
+    # Verify the pipeline can be repr'd (exercises visualization)
     r = repr(c)
     self.assertIsInstance(r, str)
 
@@ -836,31 +836,31 @@ class VizEdgeTest(TestCase):
 
 
 class LinkDuckTypingTest(TestCase):
-  """Edge cases for duck typing in chain step registration."""
+  """Edge cases for duck typing in pipeline step registration."""
 
-  def test_quent_is_chain_but_run_not_callable(self) -> None:
-    """§4: object with _quent_is_chain=True but _run not callable — treated as regular value.
+  def test_quent_is_q_but_run_not_callable(self) -> None:
+    """§4: object with _quent_is_q=True but _run not callable — treated as regular value.
 
-    Black-box: when an object claims to be a chain but lacks a callable
+    Black-box: when an object claims to be a pipeline but lacks a callable
     _run, the pipeline treats it as a plain non-callable value (Rule 2).
     """
 
-    class FakeChain:
-      _quent_is_chain = True
+    class FakeQ:
+      _quent_is_q = True
       _run = 'not callable'
 
-    fake = FakeChain()
+    fake = FakeQ()
     # Used as a then() value, it should be treated as a non-callable literal
     # (Rule 2: non-callable replaces current value)
-    c = Chain(1).then(fake)
+    c = Q(1).then(fake)
     result = c.run()
     self.assertIs(result, fake)
 
   def test_getattr_raises_non_attribute_error(self) -> None:
-    """§4: object whose __getattr__ raises non-AttributeError — does not crash chain building.
+    """§4: object whose __getattr__ raises non-AttributeError — does not crash pipeline building.
 
     Black-box: objects with broken __getattr__ can still be used as
-    chain step values without raising during chain construction.
+    pipeline step values without raising during pipeline construction.
     """
 
     class BadGetattr:
@@ -868,8 +868,8 @@ class LinkDuckTypingTest(TestCase):
         raise RuntimeError(f'bad attr: {name}')
 
     bad = BadGetattr()
-    # Chain construction should not crash even though attribute access raises
-    c = Chain(1).then(bad)
+    # Pipeline construction should not crash even though attribute access raises
+    c = Q(1).then(bad)
     # The object should be treated as a non-callable value replacement
     result = c.run()
     self.assertIs(result, bad)
@@ -962,22 +962,22 @@ class VizTruncationTest(TestCase):
   """Edge cases for _viz.py truncation limits."""
 
   def test_viz_max_total_calls_truncation(self) -> None:
-    """§13.10: _VIZ_MAX_TOTAL_CALLS (500) truncation — deeply nested chains terminate.
+    """§13.10: _VIZ_MAX_TOTAL_CALLS (500) truncation — deeply nested pipelines terminate.
 
-    Build a chain with enough nesting to exceed 500 recursive viz calls
+    Build a pipeline with enough nesting to exceed 500 recursive viz calls
     and verify it terminates without error.
     """
-    from quent._viz import _stringify_chain, _VizContext
+    from quent._viz import _stringify_q, _VizContext
 
-    # Build deeply nested chains — each chain has a nested chain as a step,
-    # which triggers recursive _stringify_chain calls.
-    inner = Chain(lambda: 1)
+    # Build deeply nested pipelines — each pipeline has a nested pipeline as a step,
+    # which triggers recursive _stringify_q calls.
+    inner = Q(lambda: 1)
     for _ in range(100):
-      outer = Chain(inner)
+      outer = Q(inner)
       inner = outer
 
     ctx = _VizContext(source_link=None, link_temp_args=None)
-    result = _stringify_chain(inner, nest_lvl=0, ctx=ctx)
+    result = _stringify_q(inner, nest_lvl=0, ctx=ctx)
     # Should terminate and contain truncation marker
     self.assertIsInstance(result, str)
     self.assertTrue(len(result) > 0)
@@ -987,17 +987,17 @@ class VizTruncationTest(TestCase):
   def test_viz_max_length_truncation(self) -> None:
     """§13.10: _VIZ_MAX_LENGTH (10,000) truncation adds '... <truncated>' suffix.
 
-    Build a chain long enough to produce >10K chars of visualization.
+    Build a pipeline long enough to produce >10K chars of visualization.
     """
-    from quent._viz import _stringify_chain, _VizContext
+    from quent._viz import _stringify_q, _VizContext
 
-    # Build a chain with many steps to produce long output
-    c = Chain(lambda: 1)
+    # Build a pipeline with many steps to produce long output
+    c = Q(lambda: 1)
     for i in range(500):
       c.then(lambda x, _i=i: x + _i)
 
     ctx = _VizContext(source_link=None, link_temp_args=None)
-    result = _stringify_chain(c, nest_lvl=0, ctx=ctx)
+    result = _stringify_q(c, nest_lvl=0, ctx=ctx)
     if len(result) > 10_000:
       self.assertTrue(result.endswith('\n... <truncated>'))
 
@@ -1022,13 +1022,13 @@ class MiscEdgeTest(IsolatedAsyncioTestCase):
     self.assertFalse(result)
 
   async def test_finally_with_no_root_value(self) -> None:
-    """Finally handler receives None when chain has no root value."""
+    """Finally handler receives None when pipeline has no root value."""
     received: list[object] = []
 
     def capture_rv(rv: object) -> None:
       received.append(rv)
 
-    c = Chain().then(lambda: 42).finally_(capture_rv)
+    c = Q().then(lambda: 42).finally_(capture_rv)
     result = c.run()
     if asyncio.iscoroutine(result):
       result = await result
@@ -1071,7 +1071,7 @@ class ForeachMidTransitionSyncResultTest(IsolatedAsyncioTestCase):
         return inner()
       return x * 10
 
-    result = await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
+    result = await Q([1, 2, 3, 4]).foreach(mixed_fn).run()
     self.assertEqual(result, [10, 20, 30, 40])
 
   async def test_alternating_sync_async_results_after_transition(self) -> None:
@@ -1088,7 +1088,7 @@ class ForeachMidTransitionSyncResultTest(IsolatedAsyncioTestCase):
         return inner()
       return x * 10
 
-    result = await Chain([1, 2, 3, 4, 5]).foreach(alternating_fn).run()
+    result = await Q([1, 2, 3, 4, 5]).foreach(alternating_fn).run()
     self.assertEqual(result, [10, 20, 30, 40, 50])
 
 
@@ -1111,10 +1111,10 @@ class ForeachBreakAsyncValueTest(IsolatedAsyncioTestCase):
 
         return inner()
       if call_count[0] == 3:
-        Chain.break_(async_break_value)
+        Q.break_(async_break_value)
       return x * 10
 
-    result = await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
+    result = await Q([1, 2, 3, 4]).foreach(mixed_fn).run()
     self.assertEqual(result, [10, 20, 99])
 
   async def test_break_async_value_full_async_path(self) -> None:
@@ -1129,10 +1129,10 @@ class ForeachBreakAsyncValueTest(IsolatedAsyncioTestCase):
 
     async def fn(x: int) -> int:
       if x == 2:
-        Chain.break_(async_break_value)
+        Q.break_(async_break_value)
       return x * 10
 
-    result = await Chain(async_range(5)).foreach(fn).run()
+    result = await Q(async_range(5)).foreach(fn).run()
     self.assertEqual(result, [0, 10, 99])
 
 
@@ -1192,7 +1192,7 @@ class WithOpsAsyncTransitionTest(IsolatedAsyncioTestCase):
       raise ValueError('body error')
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(CMExitFailsOnError()).with_(async_body).run()
+      await Q(CMExitFailsOnError()).with_(async_body).run()
     self.assertEqual(str(ctx.exception), 'exit cleanup failed')
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
 
@@ -1202,7 +1202,7 @@ class WithOpsAsyncTransitionTest(IsolatedAsyncioTestCase):
     async def async_body(x: int) -> int:
       return x + 1
 
-    result = await Chain(SyncCMAsyncExit()).with_(async_body).run()
+    result = await Q(SyncCMAsyncExit()).with_(async_body).run()
     self.assertEqual(result, 43)
 
   async def test_body_raises_exit_coroutine_raises(self) -> None:
@@ -1212,7 +1212,7 @@ class WithOpsAsyncTransitionTest(IsolatedAsyncioTestCase):
       raise ValueError('body error')
 
     with self.assertRaises(RuntimeError) as ctx:
-      await Chain(SyncCMAsyncExitRaisesOnError()).with_(bad_body).run()
+      await Q(SyncCMAsyncExitRaisesOnError()).with_(bad_body).run()
     self.assertEqual(str(ctx.exception), 'async exit fail')
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
 
@@ -1223,7 +1223,7 @@ class WithOpsAsyncTransitionTest(IsolatedAsyncioTestCase):
       raise ValueError('body error')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(SyncCMAsyncExitNoSuppress()).with_(bad_body).run()
+      await Q(SyncCMAsyncExitNoSuppress()).with_(bad_body).run()
     self.assertEqual(str(ctx.exception), 'body error')
 
 
@@ -1233,33 +1233,33 @@ class WithOpsAsyncTransitionTest(IsolatedAsyncioTestCase):
 
 
 class AsyncExceptHandlerControlFlowTest(IsolatedAsyncioTestCase):
-  """Test _ControlFlowSignal in sync except handler of async chain."""
+  """Test _ControlFlowSignal in sync except handler of async pipeline."""
 
-  async def test_sync_handler_raises_return_in_async_chain(self) -> None:
-    """Sync except handler calling return_() in async chain wraps signal in QuentException."""
+  async def test_sync_handler_raises_return_in_async_pipeline(self) -> None:
+    """Sync except handler calling return_() in async pipeline wraps signal in QuentException."""
 
     async def async_fail(x: int) -> int:
       raise ValueError('original')
 
     def handler_with_return(info: object) -> None:
-      Chain.return_(42)
+      Q.return_(42)
 
     with self.assertRaises(QuentException) as ctx:
-      await Chain(1).then(async_fail).except_(handler_with_return).run()
+      await Q(1).then(async_fail).except_(handler_with_return).run()
     self.assertIn('_Return', str(ctx.exception))
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
 
-  async def test_sync_handler_raises_break_in_async_chain(self) -> None:
-    """Sync except handler calling break_() in async chain wraps signal in QuentException."""
+  async def test_sync_handler_raises_break_in_async_pipeline(self) -> None:
+    """Sync except handler calling break_() in async pipeline wraps signal in QuentException."""
 
     async def async_fail(x: int) -> int:
       raise ValueError('original')
 
     def handler_with_break(info: object) -> None:
-      Chain.break_()
+      Q.break_()
 
     with self.assertRaises(QuentException) as ctx:
-      await Chain(1).then(async_fail).except_(handler_with_break).run()
+      await Q(1).then(async_fail).except_(handler_with_break).run()
     self.assertIn('_Break', str(ctx.exception))
     self.assertIsInstance(ctx.exception.__cause__, ValueError)
 

@@ -3,14 +3,14 @@
 
 Covers:
 - §15.1: set(key) / set(key, value) instance method (pipeline step, preserves current value)
-- §15.2: Chain.set(key, value) class-level call (immediate store)
-- §15.3: chain.get(key) / Chain.get(key) dual dispatch (descriptor pipeline step / immediate retrieval)
+- §15.2: Q.set(key, value) class-level call (immediate store)
+- §15.3: q.get(key) / Q.get(key) dual dispatch (descriptor pipeline step / immediate retrieval)
 - §15.4: Storage scoping (copy-on-write, concurrent isolation, persistence)
 - §15.5: Dual dispatch via descriptor (both set and get)
 - Operations between set and get (context survives through pipeline ops)
 - Conditional set via if_()
-- chain.get('key') as pipeline step (descriptor, replaces CV)
-- chain.set('key', value) with explicit value (instance method, preserves CV)
+- q.get('key') as pipeline step (descriptor, replaces CV)
+- q.set('key', value) with explicit value (instance method, preserves CV)
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from typing import Any
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 from quent._context import _ctx_store
 from tests.symmetric import SymmetricTestCase
 
@@ -55,12 +55,12 @@ class SetGetBasicTest(TestCase):
     _reset_context()
 
   def test_set_get_basic(self) -> None:
-    """Chain(42).set('k').then(Chain.get, 'k').run() == 42.
+    """Q(42).set('k').then(Q.get, 'k').run() == 42.
 
     §15.1: set stores current value under key.
-    §15.3: Chain.get retrieves it via explicit args (Rule 1).
+    §15.3: Q.get retrieves it via explicit args (Rule 1).
     """
-    result = Chain(42).set('k').then(Chain.get, 'k').run()
+    result = Q(42).set('k').then(Q.get, 'k').run()
     self.assertEqual(result, 42)
 
   def test_set_preserves_cv(self) -> None:
@@ -68,12 +68,12 @@ class SetGetBasicTest(TestCase):
 
     The pipeline value flows through unchanged after set.
     """
-    result = Chain(42).set('k').then(lambda x: x + 1).run()
+    result = Q(42).set('k').then(lambda x: x + 1).run()
     self.assertEqual(result, 43)
 
   def test_multiple_keys(self) -> None:
     """§15.1: Multiple keys can be stored and retrieved independently."""
-    result = Chain(10).set('a').then(lambda x: x * 2).set('b').then(lambda x: (Chain.get('a'), Chain.get('b'), x)).run()
+    result = Q(10).set('a').then(lambda x: x * 2).set('b').then(lambda x: (Q.get('a'), Q.get('b'), x)).run()
     self.assertEqual(result, (10, 20, 20))
 
   def test_key_overwrite(self) -> None:
@@ -81,17 +81,17 @@ class SetGetBasicTest(TestCase):
 
     Copy-on-write creates a new dict with the updated key.
     """
-    result = Chain(10).set('k').then(lambda x: x * 3).set('k').then(Chain.get, 'k').run()
+    result = Q(10).set('k').then(lambda x: x * 3).set('k').then(Q.get, 'k').run()
     self.assertEqual(result, 30)
 
 
 # ---------------------------------------------------------------------------
-# §15.2 Chain.set(key, value) — Class-Level Call
+# §15.2 Q.set(key, value) — Class-Level Call
 # ---------------------------------------------------------------------------
 
 
 class StaticSetTest(TestCase):
-  """§15.2: Chain.set(key, value) stores value immediately (not a pipeline step)."""
+  """§15.2: Q.set(key, value) stores value immediately (not a pipeline step)."""
 
   def setUp(self) -> None:
     _reset_context()
@@ -100,29 +100,29 @@ class StaticSetTest(TestCase):
     _reset_context()
 
   def test_static_set(self) -> None:
-    """§15.2: Chain.set('k', 99) stores value, Chain.get('k') retrieves it."""
-    Chain.set('k', 99)
-    self.assertEqual(Chain.get('k'), 99)
+    """§15.2: Q.set('k', 99) stores value, Q.get('k') retrieves it."""
+    Q.set('k', 99)
+    self.assertEqual(Q.get('k'), 99)
 
   def test_static_set_returns_none(self) -> None:
-    """§15.2: Chain.set(key, value) returns None."""
-    result = Chain.set('k', 42)
+    """§15.2: Q.set(key, value) returns None."""
+    result = Q.set('k', 42)
     self.assertIsNone(result)
 
   def test_static_set_used_in_pipeline(self) -> None:
     """§15.2: Pre-populated context is visible inside a pipeline."""
-    Chain.set('config', 'prod')
-    result = Chain(1).then(lambda x: Chain.get('config')).run()
+    Q.set('config', 'prod')
+    result = Q(1).then(lambda x: Q.get('config')).run()
     self.assertEqual(result, 'prod')
 
 
 # ---------------------------------------------------------------------------
-# §15.3 Chain.get(key, default) — Static Method
+# §15.3 Q.get(key, default) — Static Method
 # ---------------------------------------------------------------------------
 
 
 class GetTest(TestCase):
-  """§15.3: Chain.get retrieval semantics."""
+  """§15.3: Q.get retrieval semantics."""
 
   def setUp(self) -> None:
     _reset_context()
@@ -131,39 +131,39 @@ class GetTest(TestCase):
     _reset_context()
 
   def test_get_missing_key_raises(self) -> None:
-    """§15.3: Chain.get('nonexistent') raises KeyError when key not found."""
+    """§15.3: Q.get('nonexistent') raises KeyError when key not found."""
     with self.assertRaises(KeyError):
-      Chain.get('nonexistent')
+      Q.get('nonexistent')
 
   def test_get_with_default(self) -> None:
-    """§15.3: Chain.get('nonexistent', 'fallback') returns 'fallback'."""
-    result = Chain.get('nonexistent', 'fallback')
+    """§15.3: Q.get('nonexistent', 'fallback') returns 'fallback'."""
+    result = Q.get('nonexistent', 'fallback')
     self.assertEqual(result, 'fallback')
 
   def test_get_default_none(self) -> None:
-    """§15.3: Chain.get('nonexistent', None) returns None (not KeyError).
+    """§15.3: Q.get('nonexistent', None) returns None (not KeyError).
 
     Providing None as the default is distinct from not providing a default.
     """
-    result = Chain.get('nonexistent', None)
+    result = Q.get('nonexistent', None)
     self.assertIsNone(result)
 
   def test_get_existing_key_ignores_default(self) -> None:
     """§15.3: When key exists, the default is ignored."""
-    Chain.set('k', 42)
-    result = Chain.get('k', 'fallback')
+    Q.set('k', 42)
+    result = Q.get('k', 'fallback')
     self.assertEqual(result, 42)
 
   def test_get_missing_key_no_context_raises(self) -> None:
     """§15.3: KeyError raised even when context store has never been initialized."""
     _reset_context()
     with self.assertRaises(KeyError):
-      Chain.get('never_set')
+      Q.get('never_set')
 
   def test_get_missing_key_no_context_with_default(self) -> None:
     """§15.3: Default returned even when context store has never been initialized."""
     _reset_context()
-    result = Chain.get('never_set', 'safe')
+    result = Q.get('never_set', 'safe')
     self.assertEqual(result, 'safe')
 
 
@@ -176,7 +176,7 @@ class SetThenOpsThenGetTest(TestCase):
   """§15.1/§15.4: Context survives through various pipeline operations.
 
   These tests verify that .set('k') stores a value that remains
-  accessible via Chain.get('k') after arbitrary intermediate pipeline
+  accessible via Q.get('k') after arbitrary intermediate pipeline
   operations transform the current value.
   """
 
@@ -188,28 +188,24 @@ class SetThenOpsThenGetTest(TestCase):
 
   def test_set_then_ops_then_get(self) -> None:
     """Context survives through multiple .then() steps."""
-    result = (
-      Chain(10).set('k').then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: x + 100).then(Chain.get, 'k').run()
-    )
+    result = Q(10).set('k').then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: x + 100).then(Q.get, 'k').run()
     self.assertEqual(result, 10)
 
   def test_set_do_then_get(self) -> None:
     """Context survives through .do() (side-effect, discards result)."""
     side_effects: list[Any] = []
-    result = Chain(10).set('k').do(lambda x: side_effects.append(x)).then(Chain.get, 'k').run()
+    result = Q(10).set('k').do(lambda x: side_effects.append(x)).then(Q.get, 'k').run()
     self.assertEqual(result, 10)
     self.assertEqual(side_effects, [10])
 
   def test_set_foreach_then_get(self) -> None:
     """Context survives through .foreach() (iteration)."""
-    result = (
-      Chain(5).set('k').then(lambda x: [x, x + 1, x + 2]).foreach(lambda x: x * 10).then(lambda _: Chain.get('k')).run()
-    )
+    result = Q(5).set('k').then(lambda x: [x, x + 1, x + 2]).foreach(lambda x: x * 10).then(lambda _: Q.get('k')).run()
     self.assertEqual(result, 5)
 
   def test_set_gather_then_get(self) -> None:
     """Context survives through .gather() (concurrent execution)."""
-    result = Chain(7).set('k').gather(lambda x: x + 1, lambda x: x + 2).then(lambda _: Chain.get('k')).run()
+    result = Q(7).set('k').gather(lambda x: x + 1, lambda x: x + 2).then(lambda _: Q.get('k')).run()
     self.assertEqual(result, 7)
 
   def test_set_with_then_get(self) -> None:
@@ -219,33 +215,25 @@ class SetThenOpsThenGetTest(TestCase):
     def make_cm():
       yield 'inside'
 
-    result = (
-      Chain(42).set('k').then(lambda _: make_cm()).with_(lambda ctx: ctx.upper()).then(lambda _: Chain.get('k')).run()
-    )
+    result = Q(42).set('k').then(lambda _: make_cm()).with_(lambda ctx: ctx.upper()).then(lambda _: Q.get('k')).run()
     self.assertEqual(result, 42)
 
   def test_set_if_then_get(self) -> None:
     """Context survives through .if_() (conditional execution)."""
-    result = Chain(10).set('k').if_(lambda x: x > 5).then(lambda x: x * 100).then(Chain.get, 'k').run()
+    result = Q(10).set('k').if_(lambda x: x > 5).then(lambda x: x * 100).then(Q.get, 'k').run()
     self.assertEqual(result, 10)
 
   def test_set_nested_chain_then_get(self) -> None:
-    """Context survives through nested chain execution."""
-    inner = Chain().then(lambda x: x * 2)
-    result = Chain(15).set('k').then(inner).then(Chain.get, 'k').run()
+    """Context survives through nested pipeline execution."""
+    inner = Q().then(lambda x: x * 2)
+    result = Q(15).set('k').then(inner).then(Q.get, 'k').run()
     self.assertEqual(result, 15)
 
   def test_set_many_ops_then_get(self) -> None:
     """Context survives through a long pipeline with mixed operations."""
     side: list[Any] = []
     result = (
-      Chain(8)
-      .set('k')
-      .then(lambda x: x + 1)
-      .do(lambda x: side.append(x))
-      .then(lambda x: x * 2)
-      .then(Chain.get, 'k')
-      .run()
+      Q(8).set('k').then(lambda x: x + 1).do(lambda x: side.append(x)).then(lambda x: x * 2).then(Q.get, 'k').run()
     )
     self.assertEqual(result, 8)
     self.assertEqual(side, [9])
@@ -275,7 +263,7 @@ class SetGetAsyncTest(SymmetricTestCase):
       return x * 2
 
     await self.variant(
-      lambda fn: Chain(10).set('k').then(fn).then(Chain.get, 'k').run(),
+      lambda fn: Q(10).set('k').then(fn).then(Q.get, 'k').run(),
       expected=10,
       fn=[('sync', sync_double), ('async', async_double)],
     )
@@ -290,7 +278,7 @@ class SetGetAsyncTest(SymmetricTestCase):
       return x + 1
 
     await self.variant(
-      lambda fn: Chain(5).set('k').then(fn).then(fn).then(fn).then(Chain.get, 'k').run(),
+      lambda fn: Q(5).set('k').then(fn).then(fn).then(fn).then(Q.get, 'k').run(),
       expected=5,
       fn=[('sync', sync_add_one), ('async', async_add_one)],
     )
@@ -307,12 +295,12 @@ class SetAfterIfRaisesTest(TestCase):
   def test_if_set_raises(self) -> None:
     """chain.if_(pred).set('k') raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(42).if_(lambda x: x > 0).set('k')
+      Q(42).if_(lambda x: x > 0).set('k')
 
   def test_if_set_explicit_raises(self) -> None:
     """chain.if_(pred).set('k', value) raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(42).if_(lambda x: x > 0).set('k', 'val')
+      Q(42).if_(lambda x: x > 0).set('k', 'val')
 
 
 # ---------------------------------------------------------------------------
@@ -335,12 +323,12 @@ class ConcurrentContextTest(TestCase):
     lock = threading.Lock()
 
     def read_context(x: Any) -> Any:
-      val = Chain.get('shared')
+      val = Q.get('shared')
       with lock:
         results.append(val)
       return x
 
-    Chain(99).set('shared').then(lambda _: [1, 2, 3]).foreach(read_context, concurrency=2).run()
+    Q(99).set('shared').then(lambda _: [1, 2, 3]).foreach(read_context, concurrency=2).run()
     self.assertEqual(len(results), 3)
     for val in results:
       self.assertEqual(val, 99)
@@ -349,16 +337,16 @@ class ConcurrentContextTest(TestCase):
     """§15.4: Workers in concurrent gather can read context set before dispatch."""
 
     def read_context_a(x: Any) -> Any:
-      return Chain.get('shared')
+      return Q.get('shared')
 
     def read_context_b(x: Any) -> Any:
-      return Chain.get('shared')
+      return Q.get('shared')
 
-    result = Chain(77).set('shared').gather(read_context_a, read_context_b, concurrency=2).run()
+    result = Q(77).set('shared').gather(read_context_a, read_context_b, concurrency=2).run()
     self.assertEqual(result, (77, 77))
 
   def test_concurrent_worker_set_isolation(self) -> None:
-    """§15.4: A worker calling Chain.set() does NOT affect parent or siblings.
+    """§15.4: A worker calling Q.set() does NOT affect parent or siblings.
 
     Copy-on-write dict semantics + copy_context().run() ensure isolation.
 
@@ -367,21 +355,21 @@ class ConcurrentContextTest(TestCase):
     are isolated via copy_context().run(). This test uses gather() where
     all functions are dispatched to pool workers after the first probe.
     """
-    Chain.set('parent_key', 'original')
+    Q.set('parent_key', 'original')
 
     def worker_a(x: Any) -> Any:
-      Chain.set('parent_key', 'from_a')
-      Chain.set('a_only', 'a')
-      return Chain.get('parent_key')
+      Q.set('parent_key', 'from_a')
+      Q.set('a_only', 'a')
+      return Q.get('parent_key')
 
     def worker_b(x: Any) -> Any:
-      Chain.set('parent_key', 'from_b')
-      Chain.set('b_only', 'b')
-      return Chain.get('parent_key')
+      Q.set('parent_key', 'from_b')
+      Q.set('b_only', 'b')
+      return Q.get('parent_key')
 
     # gather: first fn is probed, second is dispatched to pool.
     # The pool worker (worker_b) runs in a copied context.
-    result = Chain(1).gather(worker_a, worker_b, concurrency=2).run()
+    result = Q(1).gather(worker_a, worker_b, concurrency=2).run()
 
     # Each worker sees its own writes
     self.assertEqual(result[0], 'from_a')
@@ -389,7 +377,7 @@ class ConcurrentContextTest(TestCase):
 
     # worker_b's writes (pool thread) must NOT be visible in parent
     with self.assertRaises(KeyError):
-      Chain.get('b_only')
+      Q.get('b_only')
 
 
 class ConcurrentContextAsyncTest(IsolatedAsyncioTestCase):
@@ -406,11 +394,11 @@ class ConcurrentContextAsyncTest(IsolatedAsyncioTestCase):
     results: list[Any] = []
 
     async def read_context(x: Any) -> Any:
-      val = Chain.get('shared')
+      val = Q.get('shared')
       results.append(val)
       return x
 
-    await Chain(55).set('shared').then(lambda _: [1, 2, 3]).foreach(read_context, concurrency=2).run()
+    await Q(55).set('shared').then(lambda _: [1, 2, 3]).foreach(read_context, concurrency=2).run()
     self.assertEqual(len(results), 3)
     for val in results:
       self.assertEqual(val, 55)
@@ -419,12 +407,12 @@ class ConcurrentContextAsyncTest(IsolatedAsyncioTestCase):
     """§15.4: Async concurrent gather workers read parent context."""
 
     async def read_a(x: Any) -> Any:
-      return Chain.get('shared')
+      return Q.get('shared')
 
     async def read_b(x: Any) -> Any:
-      return Chain.get('shared')
+      return Q.get('shared')
 
-    result = await Chain(33).set('shared').gather(read_a, read_b, concurrency=2).run()
+    result = await Q(33).set('shared').gather(read_a, read_b, concurrency=2).run()
     self.assertEqual(result, (33, 33))
 
 
@@ -450,22 +438,22 @@ class ContextPersistenceTest(TestCase):
     subsequent executions in the same thread context.'
     """
     # First run: store a value
-    Chain(100).set('persistent').run()
+    Q(100).set('persistent').run()
 
     # Second run: retrieve the value stored by the first run
-    result = Chain(0).then(lambda _: Chain.get('persistent')).run()
+    result = Q(0).then(lambda _: Q.get('persistent')).run()
     self.assertEqual(result, 100)
 
   def test_static_set_persists_to_pipeline(self) -> None:
     """§15.2/§15.4: Static set before run is visible inside pipeline."""
-    Chain.set('pre', 'before_run')
-    result = Chain(0).then(lambda _: Chain.get('pre')).run()
+    Q.set('pre', 'before_run')
+    result = Q(0).then(lambda _: Q.get('pre')).run()
     self.assertEqual(result, 'before_run')
 
   def test_pipeline_set_visible_after_run(self) -> None:
     """§15.4: Pipeline .set() values are visible after .run() completes."""
-    Chain(200).set('post').run()
-    self.assertEqual(Chain.get('post'), 200)
+    Q(200).set('post').run()
+    self.assertEqual(Q.get('post'), 200)
 
 
 # ---------------------------------------------------------------------------
@@ -489,8 +477,8 @@ class NullNormalizationTest(TestCase):
     The Null sentinel is normalized to None before storage —
     context values never contain Null.'
     """
-    # Chain() with no root value — current value is Null internally
-    result = Chain().set('k').then(lambda: Chain.get('k')).run()
+    # Q() with no root value — current value is Null internally
+    result = Q().set('k').then(lambda: Q.get('k')).run()
     self.assertIsNone(result)
 
 
@@ -500,7 +488,7 @@ class NullNormalizationTest(TestCase):
 
 
 class DualDispatchTest(TestCase):
-  """§15.5: Chain.set and Chain.get as descriptors enable dual dispatch."""
+  """§15.5: Q.set and Q.get as descriptors enable dual dispatch."""
 
   def setUp(self) -> None:
     _reset_context()
@@ -510,50 +498,50 @@ class DualDispatchTest(TestCase):
 
   def test_instance_set_returns_chain(self) -> None:
     """§15.5: Instance access chain.set('key') returns the chain (fluent)."""
-    c = Chain(1)
+    c = Q(1)
     result = c.set('k')
     self.assertIs(result, c)
 
   def test_class_set_returns_none(self) -> None:
-    """§15.5: Class access Chain.set('key', value) returns None."""
-    result = Chain.set('k', 42)
+    """§15.5: Class access Q.set('key', value) returns None."""
+    result = Q.set('k', 42)
     self.assertIsNone(result)
 
   def test_class_get_retrieves_immediately(self) -> None:
-    """§15.3/§15.5: Class access Chain.get('k') retrieves value immediately."""
-    Chain.set('k', 'hello')
-    result = Chain.get('k')
+    """§15.3/§15.5: Class access Q.get('k') retrieves value immediately."""
+    Q.set('k', 'hello')
+    result = Q.get('k')
     self.assertEqual(result, 'hello')
 
   def test_class_get_as_pipeline_callable(self) -> None:
-    """§15.3: Chain.get can be passed as a callable to .then() (Rule 1)."""
-    Chain.set('k', 'hello')
-    result = Chain(0).then(Chain.get, 'k').run()
+    """§15.3: Q.get can be passed as a callable to .then() (Rule 1)."""
+    Q.set('k', 'hello')
+    result = Q(0).then(Q.get, 'k').run()
     self.assertEqual(result, 'hello')
 
   def test_instance_get_returns_chain(self) -> None:
     """§15.5: Instance access chain.get('key') returns the chain (fluent)."""
-    c = Chain(1).set('k')
+    c = Q(1).set('k')
     result = c.get('k')
     self.assertIs(result, c)
 
   def test_set_get_dual_dispatch_symmetry(self) -> None:
     """§15.5: Both set and get support instance (fluent) and class (immediate) access.
 
-    Instance: chain.set('k') / chain.get('k') — pipeline steps, return chain.
-    Class: Chain.set('k', v) / Chain.get('k') — immediate, return None/value.
+    Instance: q.set('k') / q.get('k') — pipeline steps, return q.
+    Class: Q.set('k', v) / Q.get('k') — immediate, return None/value.
     """
     # Class access (immediate)
-    Chain.set('class_k', 'class_v')
-    self.assertEqual(Chain.get('class_k'), 'class_v')
+    Q.set('class_k', 'class_v')
+    self.assertEqual(Q.get('class_k'), 'class_v')
 
     # Instance access (pipeline steps)
-    result = Chain(99).set('inst_k').get('inst_k').run()
+    result = Q(99).set('inst_k').get('inst_k').run()
     self.assertEqual(result, 99)
 
 
 # ---------------------------------------------------------------------------
-# §15.3 chain.get('key') — Instance Method (Descriptor Pipeline Step)
+# §15.3 q.get('key') — Instance Method (Descriptor Pipeline Step)
 # ---------------------------------------------------------------------------
 
 
@@ -569,11 +557,11 @@ class GetDescriptorBasicTest(TestCase):
     _reset_context()
 
   def test_get_descriptor_basic(self) -> None:
-    """§15.3: Chain(42).set('k').get('k').run() == 42.
+    """§15.3: Q(42).set('k').get('k').run() == 42.
 
     Instance .get('k') retrieves value from context, replaces CV.
     """
-    result = Chain(42).set('k').get('k').run()
+    result = Q(42).set('k').get('k').run()
     self.assertEqual(result, 42)
 
   def test_get_descriptor_replaces_cv(self) -> None:
@@ -583,7 +571,7 @@ class GetDescriptorBasicTest(TestCase):
     behaves like .then(), not .do().
     """
     result = (
-      Chain(10)
+      Q(10)
       .set('k')
       .then(lambda x: x * 100)  # CV is now 1000
       .get('k')  # CV should be replaced by stored value (10)
@@ -596,7 +584,7 @@ class GetDescriptorBasicTest(TestCase):
 
     When key is missing and default is provided, the default becomes CV.
     """
-    result = Chain(42).get('nonexistent', 'fb').run()
+    result = Q(42).get('nonexistent', 'fb').run()
     self.assertEqual(result, 'fb')
 
   def test_get_descriptor_missing_raises(self) -> None:
@@ -605,11 +593,11 @@ class GetDescriptorBasicTest(TestCase):
     When key is missing and no default, KeyError is raised at execution time.
     """
     with self.assertRaises(KeyError):
-      Chain(42).get('nonexistent').run()
+      Q(42).get('nonexistent').run()
 
   def test_get_descriptor_returns_chain(self) -> None:
     """§15.5: Instance access chain.get('key') returns the chain (fluent)."""
-    c = Chain(1).set('k')
+    c = Q(1).set('k')
     result = c.get('k')
     self.assertIs(result, c)
 
@@ -618,12 +606,12 @@ class GetDescriptorBasicTest(TestCase):
 
     Providing None as the default is distinct from not providing a default.
     """
-    result = Chain(42).get('nonexistent', None).run()
+    result = Q(42).get('nonexistent', None).run()
     self.assertIsNone(result)
 
   def test_get_descriptor_existing_key_ignores_default(self) -> None:
     """§15.3: When key exists in context, the default is ignored."""
-    result = Chain(42).set('k').get('k', 'fallback').run()
+    result = Q(42).set('k').get('k', 'fallback').run()
     self.assertEqual(result, 42)
 
 
@@ -640,20 +628,20 @@ class GetDescriptorAfterOpsTest(TestCase):
 
   def test_get_descriptor_after_then(self) -> None:
     """Context value retrieved via .get() after .then() operations."""
-    result = Chain(10).set('k').then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: x + 100).get('k').run()
+    result = Q(10).set('k').then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: x + 100).get('k').run()
     self.assertEqual(result, 10)
 
   def test_get_descriptor_after_do(self) -> None:
     """Context value retrieved via .get() after .do() (side-effect)."""
     side_effects: list[Any] = []
-    result = Chain(10).set('k').do(lambda x: side_effects.append(x)).get('k').run()
+    result = Q(10).set('k').do(lambda x: side_effects.append(x)).get('k').run()
     self.assertEqual(result, 10)
     self.assertEqual(side_effects, [10])
 
   def test_get_descriptor_after_foreach(self) -> None:
     """Context value retrieved via .get() after .foreach() (iteration)."""
     result = (
-      Chain(5)
+      Q(5)
       .set('k')
       .then(lambda x: [x, x + 1, x + 2])
       .foreach(lambda x: x * 10)
@@ -665,7 +653,7 @@ class GetDescriptorAfterOpsTest(TestCase):
 
   def test_get_descriptor_after_gather(self) -> None:
     """Context value retrieved via .get() after .gather() (concurrent)."""
-    result = Chain(7).set('k').gather(lambda x: x + 1, lambda x: x + 2).then(lambda _: 'discarded').get('k').run()
+    result = Q(7).set('k').gather(lambda x: x + 1, lambda x: x + 2).then(lambda _: 'discarded').get('k').run()
     self.assertEqual(result, 7)
 
   def test_get_descriptor_after_with(self) -> None:
@@ -675,18 +663,18 @@ class GetDescriptorAfterOpsTest(TestCase):
     def make_cm():
       yield 'inside'
 
-    result = Chain(42).set('k').then(lambda _: make_cm()).with_(lambda ctx: ctx.upper()).get('k').run()
+    result = Q(42).set('k').then(lambda _: make_cm()).with_(lambda ctx: ctx.upper()).get('k').run()
     self.assertEqual(result, 42)
 
   def test_get_descriptor_after_if(self) -> None:
     """Context value retrieved via .get() after .if_() (conditional)."""
-    result = Chain(10).set('k').if_(lambda x: x > 5).then(lambda x: x * 100).get('k').run()
+    result = Q(10).set('k').if_(lambda x: x > 5).then(lambda x: x * 100).get('k').run()
     self.assertEqual(result, 10)
 
   def test_get_descriptor_after_many_ops(self) -> None:
     """Context value retrieved via .get() after a long mixed pipeline."""
     side: list[Any] = []
-    result = Chain(8).set('k').then(lambda x: x + 1).do(lambda x: side.append(x)).then(lambda x: x * 2).get('k').run()
+    result = Q(8).set('k').then(lambda x: x + 1).do(lambda x: side.append(x)).then(lambda x: x * 2).get('k').run()
     self.assertEqual(result, 8)
     self.assertEqual(side, [9])
 
@@ -697,12 +685,12 @@ class GetAfterIfRaisesTest(TestCase):
   def test_if_get_raises(self) -> None:
     """chain.if_(pred).get('k') raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(42).set('k').if_(lambda x: x > 0).get('k')
+      Q(42).set('k').if_(lambda x: x > 0).get('k')
 
   def test_if_get_with_default_raises(self) -> None:
     """chain.if_(pred).get('k', default) raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(42).if_(lambda x: x > 0).get('k', 'fb')
+      Q(42).if_(lambda x: x > 0).get('k', 'fb')
 
 
 class GetDescriptorNestedChainTest(TestCase):
@@ -716,8 +704,8 @@ class GetDescriptorNestedChainTest(TestCase):
 
   def test_get_descriptor_nested_chain(self) -> None:
     """A nested chain can use .get() to access context from parent."""
-    inner = Chain().then(lambda x: x * 2).get('outer_k')
-    result = Chain(15).set('outer_k').then(lambda x: x + 5).then(inner).run()
+    inner = Q().then(lambda x: x * 2).get('outer_k')
+    result = Q(15).set('outer_k').then(lambda x: x + 5).then(inner).run()
     # inner receives 20 (15+5), doubles to 40, then .get('outer_k') → 15
     self.assertEqual(result, 15)
 
@@ -741,7 +729,7 @@ class GetDescriptorAsyncTest(SymmetricTestCase):
       return x * 2
 
     await self.variant(
-      lambda fn: Chain(10).set('k').then(fn).get('k').run(),
+      lambda fn: Q(10).set('k').then(fn).get('k').run(),
       expected=10,
       fn=[('sync', sync_double), ('async', async_double)],
     )
@@ -756,7 +744,7 @@ class GetDescriptorAsyncTest(SymmetricTestCase):
       return x + 1
 
     await self.variant(
-      lambda fn: Chain(5).set('k').then(fn).then(fn).then(fn).get('k').run(),
+      lambda fn: Q(5).set('k').then(fn).then(fn).then(fn).get('k').run(),
       expected=5,
       fn=[('sync', sync_add_one), ('async', async_add_one)],
     )
@@ -774,7 +762,7 @@ class GetDescriptorChainingTest(TestCase):
   def test_get_descriptor_chaining(self) -> None:
     """Multiple .set() and .get() in a chain: values tracked independently.
 
-    chain.set('a').set('b').get('a').set('c').get('b'):
+    q.set('a').set('b').get('a').set('c').get('b'):
     - set('a') stores CV under 'a'
     - set('b') stores CV under 'b' (same CV, set preserves it)
     - get('a') replaces CV with stored 'a'
@@ -782,7 +770,7 @@ class GetDescriptorChainingTest(TestCase):
     - get('b') replaces CV with stored 'b'
     """
     result = (
-      Chain(42)
+      Q(42)
       .set('a')  # context: a=42, CV=42
       .then(lambda x: x * 2)  # CV=84
       .set('b')  # context: a=42, b=84, CV=84
@@ -793,14 +781,14 @@ class GetDescriptorChainingTest(TestCase):
     )
     self.assertEqual(result, 84)
     # Verify all context values are correct
-    self.assertEqual(Chain.get('a'), 42)
-    self.assertEqual(Chain.get('b'), 84)
-    self.assertEqual(Chain.get('c'), 42)
+    self.assertEqual(Q.get('a'), 42)
+    self.assertEqual(Q.get('b'), 84)
+    self.assertEqual(Q.get('c'), 42)
 
   def test_get_descriptor_round_trip(self) -> None:
     """set then get then continue pipeline: get result feeds next step."""
     result = (
-      Chain(10)
+      Q(10)
       .set('k')
       .then(lambda x: x * 100)  # CV=1000
       .get('k')  # CV=10
@@ -811,7 +799,7 @@ class GetDescriptorChainingTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# §15.1 chain.set('key', value) — Instance Method with Explicit Value
+# §15.1 q.set('key', value) — Instance Method with Explicit Value
 # ---------------------------------------------------------------------------
 
 
@@ -827,14 +815,14 @@ class SetExplicitBasicTest(TestCase):
     _reset_context()
 
   def test_set_explicit_basic(self) -> None:
-    """§15.1: Chain(10).set('s', 'active').run() == 10.
+    """§15.1: Q(10).set('s', 'active').run() == 10.
 
     Explicit value is stored; CV passes through unchanged.
-    Chain.get('s') returns the explicit value.
+    Q.get('s') returns the explicit value.
     """
-    result = Chain(10).set('s', 'active').run()
+    result = Q(10).set('s', 'active').run()
     self.assertEqual(result, 10)
-    self.assertEqual(Chain.get('s'), 'active')
+    self.assertEqual(Q.get('s'), 'active')
 
   def test_set_explicit_preserves_cv(self) -> None:
     """§15.1: Explicit set doesn't change current value.
@@ -842,7 +830,7 @@ class SetExplicitBasicTest(TestCase):
     'The current value is not changed — the step's result is discarded, like .do().'
     """
     result = (
-      Chain(10)
+      Q(10)
       .set('s', 'hello')
       .then(lambda x: x + 1)  # x should be 10 (not 'hello')
       .run()
@@ -850,23 +838,23 @@ class SetExplicitBasicTest(TestCase):
     self.assertEqual(result, 11)
 
   def test_set_explicit_then_get(self) -> None:
-    """§15.1/§15.3: Chain(10).set('s', 'hello').get('s').run() == 'hello'.
+    """§15.1/§15.3: Q(10).set('s', 'hello').get('s').run() == 'hello'.
 
     Explicit set stores value, then .get() retrieves it.
     """
-    result = Chain(10).set('s', 'hello').get('s').run()
+    result = Q(10).set('s', 'hello').get('s').run()
     self.assertEqual(result, 'hello')
 
   def test_set_explicit_overwrites(self) -> None:
     """§15.1/§15.4: Explicit set overwrites a previous set on same key."""
-    result = Chain(10).set('k').set('k', 'override').get('k').run()
+    result = Q(10).set('k').set('k', 'override').get('k').run()
     # .set('k') stores 10, then .set('k', 'override') overwrites with 'override'
     self.assertEqual(result, 'override')
 
   def test_set_explicit_overwrites_by_cv_set(self) -> None:
     """§15.1/§15.4: CV-based set overwrites a previous explicit set."""
     result = (
-      Chain(10)
+      Q(10)
       .set('k', 'explicit')
       .then(lambda x: x * 5)  # CV=50
       .set('k')  # stores CV (50), overwriting 'explicit'
@@ -877,7 +865,7 @@ class SetExplicitBasicTest(TestCase):
 
   def test_set_explicit_returns_chain(self) -> None:
     """§15.5: Instance access chain.set('key', value) returns the chain (fluent)."""
-    c = Chain(1)
+    c = Q(1)
     result = c.set('k', 42)
     self.assertIs(result, c)
 
@@ -894,15 +882,15 @@ class SetExplicitWithOpsTest(TestCase):
   def test_set_explicit_with_ops_between(self) -> None:
     """Explicit set value retrievable after multiple pipeline operations."""
     result = (
-      Chain(10).set('config', 'prod').then(lambda x: x + 1).then(lambda x: x * 2).do(lambda x: None).get('config').run()
+      Q(10).set('config', 'prod').then(lambda x: x + 1).then(lambda x: x * 2).do(lambda x: None).get('config').run()
     )
     self.assertEqual(result, 'prod')
 
   def test_set_explicit_cv_unchanged_through_pipeline(self) -> None:
     """Explicit set doesn't interfere with CV flowing through pipeline."""
-    result = Chain(10).set('meta', {'source': 'test'}).then(lambda x: x + 5).then(lambda x: x * 2).run()
+    result = Q(10).set('meta', {'source': 'test'}).then(lambda x: x + 5).then(lambda x: x * 2).run()
     self.assertEqual(result, 30)
-    self.assertEqual(Chain.get('meta'), {'source': 'test'})
+    self.assertEqual(Q.get('meta'), {'source': 'test'})
 
 
 class SetExplicitAfterIfRaisesTest(TestCase):
@@ -911,7 +899,7 @@ class SetExplicitAfterIfRaisesTest(TestCase):
   def test_if_set_explicit_raises(self) -> None:
     """chain.if_(pred).set('k', value) raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(42).if_(lambda x: x > 0).set('k', 'stored')
+      Q(42).if_(lambda x: x > 0).set('k', 'stored')
 
 
 class SetExplicitVsCvTest(TestCase):
@@ -930,7 +918,7 @@ class SetExplicitVsCvTest(TestCase):
     the correct thing.
     """
     result = (
-      Chain(10)
+      Q(10)
       .set('cv_store')  # stores CV (10)
       .set('explicit_store', 'custom')  # stores 'custom'
       .then(lambda x: x * 3)  # CV=30
@@ -939,23 +927,23 @@ class SetExplicitVsCvTest(TestCase):
       .run()
     )
     self.assertEqual(result, 30)
-    self.assertEqual(Chain.get('cv_store'), 10)
-    self.assertEqual(Chain.get('explicit_store'), 'custom')
-    self.assertEqual(Chain.get('cv_store_2'), 30)
-    self.assertEqual(Chain.get('explicit_store_2'), 'custom2')
+    self.assertEqual(Q.get('cv_store'), 10)
+    self.assertEqual(Q.get('explicit_store'), 'custom')
+    self.assertEqual(Q.get('cv_store_2'), 30)
+    self.assertEqual(Q.get('explicit_store_2'), 'custom2')
 
   def test_set_explicit_ignores_cv(self) -> None:
     """§15.1: Two-arg form: 'the explicit value is captured in a closure
     and the current value is ignored.'
     """
     # Even though CV is 999, set('k', 'fixed') stores 'fixed'
-    result = Chain(999).set('k', 'fixed').get('k').run()
+    result = Q(999).set('k', 'fixed').get('k').run()
     self.assertEqual(result, 'fixed')
 
   def test_set_explicit_multiple_keys_mixed(self) -> None:
     """Mix of CV-based and explicit sets on different keys."""
     result = (
-      Chain(10)
+      Q(10)
       .set('a')  # a=10 (CV)
       .set('b', 'explicit_b')  # b='explicit_b'
       .then(lambda x: x + 5)  # CV=15
@@ -964,10 +952,10 @@ class SetExplicitVsCvTest(TestCase):
       .run()
     )
     self.assertEqual(result, 15)
-    self.assertEqual(Chain.get('a'), 10)
-    self.assertEqual(Chain.get('b'), 'explicit_b')
-    self.assertEqual(Chain.get('c'), 15)
-    self.assertEqual(Chain.get('d'), 'explicit_d')
+    self.assertEqual(Q.get('a'), 10)
+    self.assertEqual(Q.get('b'), 'explicit_b')
+    self.assertEqual(Q.get('c'), 15)
+    self.assertEqual(Q.get('d'), 'explicit_d')
 
 
 class SetExplicitAsyncTest(SymmetricTestCase):
@@ -989,7 +977,7 @@ class SetExplicitAsyncTest(SymmetricTestCase):
       return x * 2
 
     await self.variant(
-      lambda fn: Chain(10).set('k', 'explicit').then(fn).get('k').run(),
+      lambda fn: Q(10).set('k', 'explicit').then(fn).get('k').run(),
       expected='explicit',
       fn=[('sync', sync_double), ('async', async_double)],
     )

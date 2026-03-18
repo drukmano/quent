@@ -11,7 +11,7 @@ import asyncio
 import concurrent.futures
 import unittest
 
-from quent import Chain
+from quent import Q
 from tests.fixtures import async_double
 from tests.symmetric import SymmetricTestCase
 
@@ -43,7 +43,7 @@ class ToAsyncErrorMetadataTests(SymmetricTestCase):
       raise ValueError(f'boom at {x}')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain([1, 2, 3]).foreach(mixed_fn).run()
+      await Q([1, 2, 3]).foreach(mixed_fn).run()
     self.assertIn('boom at 3', str(ctx.exception))
 
   async def test_foreach_do_mid_transition_error(self) -> None:
@@ -63,7 +63,7 @@ class ToAsyncErrorMetadataTests(SymmetricTestCase):
       raise ValueError(f'foreach_do boom at {x}')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain([1, 2, 3]).foreach_do(mixed_fn).run()
+      await Q([1, 2, 3]).foreach_do(mixed_fn).run()
     self.assertIn('foreach_do boom at 3', str(ctx.exception))
 
   async def test_map_mid_transition_await_then_error(self) -> None:
@@ -90,7 +90,7 @@ class ToAsyncErrorMetadataTests(SymmetricTestCase):
       raise ValueError(f'late boom at {x}')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain([1, 2, 3, 4]).foreach(mixed_fn).run()
+      await Q([1, 2, 3, 4]).foreach(mixed_fn).run()
     self.assertIn('late boom at 4', str(ctx.exception))
 
 
@@ -120,7 +120,7 @@ class FullAsyncExceptionMetadataTests(SymmetricTestCase):
       return x * 2
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(AsyncItems()).foreach(failing_fn).run()
+      await Q(AsyncItems()).foreach(failing_fn).run()
     self.assertIn('async fail at 20', str(ctx.exception))
 
   async def test_foreach_do_full_async_error(self) -> None:
@@ -139,7 +139,7 @@ class FullAsyncExceptionMetadataTests(SymmetricTestCase):
         raise ValueError(f'async foreach_do fail at {x}')
 
     with self.assertRaises(ValueError) as ctx:
-      await Chain(AsyncItems()).foreach_do(failing_fn).run()
+      await Q(AsyncItems()).foreach_do(failing_fn).run()
     self.assertIn('async foreach_do fail at 2', str(ctx.exception))
 
 
@@ -167,7 +167,7 @@ class DualProtocolPreferenceTests(SymmetricTestCase):
           yield i
 
     # In async context (event loop running), should prefer __aiter__
-    result = await Chain(DualIterable()).foreach(lambda x: x * 2).run()
+    result = await Q(DualIterable()).foreach(lambda x: x * 2).run()
     # If async path is chosen, items are 10,20,30 -> doubled to 20,40,60
     self.assertEqual(result, [20, 40, 60])
 
@@ -189,7 +189,7 @@ class DualProtocolPreferenceTests(SymmetricTestCase):
     def track(x: int) -> None:
       calls.append(x)
 
-    result = await Chain(DualIterable()).foreach_do(track).run()
+    result = await Q(DualIterable()).foreach_do(track).run()
     # async path: items are 10, 20, 30
     self.assertEqual(result, [10, 20, 30])
     self.assertEqual(calls, [10, 20, 30])
@@ -207,7 +207,7 @@ class AsyncConcurrentWorkerTests(SymmetricTestCase):
   async def test_concurrent_map_async_fn(self) -> None:
     """map(async_fn, concurrency=2) — workers await the coroutine."""
 
-    result = await Chain([1, 2, 3, 4]).foreach(async_double, concurrency=2).run()
+    result = await Q([1, 2, 3, 4]).foreach(async_double, concurrency=2).run()
     self.assertEqual(sorted(result), [2, 4, 6, 8])
     # Results preserve input order
     self.assertEqual(result, [2, 4, 6, 8])
@@ -220,7 +220,7 @@ class AsyncConcurrentWorkerTests(SymmetricTestCase):
       calls.append(x)
       return 'discarded'
 
-    result = await Chain([10, 20, 30]).foreach_do(async_track, concurrency=2).run()
+    result = await Q([10, 20, 30]).foreach_do(async_track, concurrency=2).run()
     self.assertEqual(sorted(result), [10, 20, 30])
     self.assertEqual(sorted(calls), [10, 20, 30])
 
@@ -248,7 +248,7 @@ class ConcurrentDualProtocolTests(SymmetricTestCase):
         for i in [10, 20, 30]:
           yield i
 
-    result = await Chain(DualIterable()).foreach(lambda x: x * 2, concurrency=2).run()
+    result = await Q(DualIterable()).foreach(lambda x: x * 2, concurrency=2).run()
     # async path: items 10, 20, 30 -> doubled
     self.assertEqual(result, [20, 40, 60])
 
@@ -270,7 +270,7 @@ class ConcurrentDualProtocolTests(SymmetricTestCase):
     def track(x: int) -> None:
       calls.append(x)
 
-    result = await Chain(DualIterable()).foreach_do(track, concurrency=2).run()
+    result = await Q(DualIterable()).foreach_do(track, concurrency=2).run()
     self.assertEqual(sorted(result), [100, 200, 300])
     self.assertEqual(sorted(calls), [100, 200, 300])
 
@@ -288,9 +288,9 @@ class ConcurrentSingleItemBreakTests(SymmetricTestCase):
     """map(fn, concurrency=2) with 1 item that raises break_()."""
 
     def fn(x: int) -> int:
-      return Chain.break_(99)
+      return Q.break_(99)
 
-    result = Chain([1]).foreach(fn, concurrency=2).run()
+    result = Q([1]).foreach(fn, concurrency=2).run()
     # n==1, _Break with value -> appends to empty partial results
     self.assertEqual(result, [99])
 
@@ -298,9 +298,9 @@ class ConcurrentSingleItemBreakTests(SymmetricTestCase):
     """map(fn, concurrency=2) with 1 item that raises break_() with no value."""
 
     def fn(x: int) -> int:
-      return Chain.break_()
+      return Q.break_()
 
-    result = Chain([1]).foreach(fn, concurrency=2).run()
+    result = Q([1]).foreach(fn, concurrency=2).run()
     # n==1, _Break with no value -> returns partial results (empty list)
     self.assertEqual(result, [])
 
@@ -308,9 +308,9 @@ class ConcurrentSingleItemBreakTests(SymmetricTestCase):
     """foreach_do(fn, concurrency=2) with 1 item that raises break_()."""
 
     def fn(x: int) -> int:
-      return Chain.break_(42)
+      return Q.break_(42)
 
-    result = Chain([1]).foreach_do(fn, concurrency=2).run()
+    result = Q([1]).foreach_do(fn, concurrency=2).run()
     self.assertEqual(result, [42])
 
 
@@ -332,11 +332,11 @@ class AsyncIterateDoReturnAwaitTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(resolve)
+        return Q.return_(resolve)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(3)).iterate_do(fn):
+    async for item in Q(range(3)).iterate_do(fn):
       result.append(item)
     # iterate_do yields original 0, then return_ resolves to 999
     self.assertEqual(result, [0, 999])
@@ -349,11 +349,11 @@ class AsyncIterateDoReturnAwaitTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(resolve)
+        return Q.break_(resolve)
       return x
 
     result: list[int] = []
-    async for item in Chain(range(3)).iterate_do(fn):
+    async for item in Q(range(3)).iterate_do(fn):
       result.append(item)
     # iterate_do yields original 0, then break_ resolves to 777
     self.assertEqual(result, [0, 777])
@@ -366,11 +366,11 @@ class AsyncIterateDoReturnAwaitTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(failing_resolve)
+        return Q.return_(failing_resolve)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate(fn):
+      async for _item in Q(range(3)).iterate(fn):
         pass
     self.assertIn('resolve failed', str(ctx.exception))
 
@@ -382,11 +382,11 @@ class AsyncIterateDoReturnAwaitTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(failing_resolve)
+        return Q.break_(failing_resolve)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate(fn):
+      async for _item in Q(range(3)).iterate(fn):
         pass
     self.assertIn('break resolve failed', str(ctx.exception))
 
@@ -398,11 +398,11 @@ class AsyncIterateDoReturnAwaitTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(failing_resolve)
+        return Q.return_(failing_resolve)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate_do(fn):
+      async for _item in Q(range(3)).iterate_do(fn):
         pass
     self.assertIn('iterate_do return resolve failed', str(ctx.exception))
 
@@ -414,11 +414,11 @@ class AsyncIterateDoReturnAwaitTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(failing_resolve)
+        return Q.break_(failing_resolve)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate_do(fn):
+      async for _item in Q(range(3)).iterate_do(fn):
         pass
     self.assertIn('iterate_do break resolve failed', str(ctx.exception))
 
@@ -444,7 +444,7 @@ class AsyncGeneratorNoWrapTests(SymmetricTestCase):
           yield i
 
     result: list[int] = []
-    async for item in Chain(AsyncIterable()).iterate():
+    async for item in Q(AsyncIterable()).iterate():
       result.append(item)
     self.assertEqual(result, [100, 200, 300])
 
@@ -460,7 +460,7 @@ class AsyncGeneratorNoWrapTests(SymmetricTestCase):
           yield i
 
     result: list[int] = []
-    async for item in Chain(AsyncIterable()).iterate(lambda x: x * 2):
+    async for item in Q(AsyncIterable()).iterate(lambda x: x * 2):
       result.append(item)
     self.assertEqual(result, [20, 40, 60])
 
@@ -484,11 +484,11 @@ class AsyncSignalEvalErrorTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(failing_callable)
+        return Q.break_(failing_callable)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate(fn):
+      async for _item in Q(range(3)).iterate(fn):
         pass
     self.assertIn('break eval failed', str(ctx.exception))
 
@@ -500,11 +500,11 @@ class AsyncSignalEvalErrorTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(failing_callable)
+        return Q.return_(failing_callable)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate(fn):
+      async for _item in Q(range(3)).iterate(fn):
         pass
     self.assertIn('return eval failed', str(ctx.exception))
 
@@ -516,11 +516,11 @@ class AsyncSignalEvalErrorTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(failing_callable)
+        return Q.break_(failing_callable)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate_do(fn):
+      async for _item in Q(range(3)).iterate_do(fn):
         pass
     self.assertIn('iterate_do break eval failed', str(ctx.exception))
 
@@ -532,11 +532,11 @@ class AsyncSignalEvalErrorTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(failing_callable)
+        return Q.return_(failing_callable)
       return x
 
     with self.assertRaises(ValueError) as ctx:
-      async for _item in Chain(range(3)).iterate_do(fn):
+      async for _item in Q(range(3)).iterate_do(fn):
         pass
     self.assertIn('iterate_do return eval failed', str(ctx.exception))
 
@@ -560,10 +560,10 @@ class SyncSignalEvalErrorTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(failing_callable)
+        return Q.break_(failing_callable)
       return x
 
-    it = Chain(range(3)).iterate(fn)
+    it = Q(range(3)).iterate(fn)
     with self.assertRaises(ValueError) as ctx:
       list(it)
     self.assertIn('sync break eval failed', str(ctx.exception))
@@ -576,10 +576,10 @@ class SyncSignalEvalErrorTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(failing_callable)
+        return Q.return_(failing_callable)
       return x
 
-    it = Chain(range(3)).iterate(fn)
+    it = Q(range(3)).iterate(fn)
     with self.assertRaises(ValueError) as ctx:
       list(it)
     self.assertIn('sync return eval failed', str(ctx.exception))
@@ -608,10 +608,10 @@ class SyncSignalAwaitableNoCloseTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.break_(make_awaitable)
+        return Q.break_(make_awaitable)
       return x
 
-    it = Chain(range(3)).iterate(fn)
+    it = Q(range(3)).iterate(fn)
     with self.assertRaises(TypeError) as ctx:
       list(it)
     self.assertIn('async for', str(ctx.exception))
@@ -630,10 +630,10 @@ class SyncSignalAwaitableNoCloseTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 1:
-        return Chain.return_(make_awaitable)
+        return Q.return_(make_awaitable)
       return x
 
-    it = Chain(range(3)).iterate(fn)
+    it = Q(range(3)).iterate(fn)
     with self.assertRaises(TypeError) as ctx:
       list(it)
     self.assertIn('async for', str(ctx.exception))
@@ -661,11 +661,11 @@ class FullAsyncControlFlowSignalTests(SymmetricTestCase):
 
     def fn(x: int) -> int:
       if x == 2:
-        return Chain.return_(99)
+        return Q.return_(99)
       return x * 10
 
-    # return_() in map propagates as _Return signal, replacing chain result
-    result = await Chain(AsyncOnlyIterable()).foreach(fn).run()
+    # return_() in map propagates as _Return signal, replacing q result
+    result = await Q(AsyncOnlyIterable()).foreach(fn).run()
     self.assertEqual(result, 99)
 
 
@@ -694,7 +694,7 @@ class DualProtocolSyncFallbackTests(SymmetricTestCase):
 
     # Run in sync context (no event loop) — uses __iter__ path
     def run_sync() -> list[int]:
-      return Chain(DualIterable()).foreach(lambda x: x * 2).run()
+      return Q(DualIterable()).foreach(lambda x: x * 2).run()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
       result = await asyncio.get_event_loop().run_in_executor(executor, run_sync)
@@ -716,7 +716,7 @@ class DualProtocolSyncFallbackTests(SymmetricTestCase):
           yield i
 
     def run_sync() -> list[int]:
-      return Chain(DualIterable()).foreach(lambda x: x * 2, concurrency=2).run()
+      return Q(DualIterable()).foreach(lambda x: x * 2, concurrency=2).run()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
       result = await asyncio.get_event_loop().run_in_executor(executor, run_sync)
@@ -737,11 +737,11 @@ class ConcurrentSingleItemReturnTests(SymmetricTestCase):
     """map(fn, concurrency=2) with 1 item that raises return_()."""
 
     def fn(x: int) -> int:
-      return Chain.return_(99)
+      return Q.return_(99)
 
     # return_ is a _ControlFlowSignal but not _Break — line 501 raises it
-    result = Chain([1]).foreach(fn, concurrency=2).run()
-    # return_ replaces the chain result
+    result = Q([1]).foreach(fn, concurrency=2).run()
+    # return_ replaces the pipeline result
     self.assertEqual(result, 99)
 
 

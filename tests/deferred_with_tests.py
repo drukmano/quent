@@ -8,7 +8,7 @@ import unittest
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
-from quent import Chain
+from quent import Q
 from tests.fixtures import SyncCM, async_double, sync_double
 from tests.symmetric import SymmetricTestCase
 
@@ -129,10 +129,10 @@ class DeferredWithIterateTests(SymmetricTestCase):
   """Deferred with_ + iterate: CM stays open during iteration."""
 
   async def test_with_iterate_sync(self) -> None:
-    """Chain(SyncCM(items)).with_(lambda ctx: ctx).iterate(fn) — CM wraps iteration."""
+    """Q(SyncCM(items)).with_(lambda ctx: ctx).iterate(fn) — CM wraps iteration."""
     items = [1, 2, 3]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate(sync_double))
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate(sync_double))
     self.assertEqual(result, [2, 4, 6])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
@@ -144,7 +144,7 @@ class DeferredWithIterateTests(SymmetricTestCase):
     items = [1, 2, 3]
     cm = AsyncTrackingCM(items)
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate(async_double):
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate(async_double):
       result.append(item)
     self.assertEqual(result, [2, 4, 6])
     self.assertTrue(cm.entered)
@@ -175,7 +175,7 @@ class DeferredWithIterateTests(SymmetricTestCase):
         return iter(self.items)
 
     cm = IterableCM([10, 20, 30])
-    result = list(Chain(cm).with_do(lambda ctx: side_effects.append(ctx)).iterate(sync_double))
+    result = list(Q(cm).with_do(lambda ctx: side_effects.append(ctx)).iterate(sync_double))
     # with_do: ignore_result=True in _WithOp => the iterable is cm (original value)
     # The CM object itself is iterated, so items are [10, 20, 30]
     self.assertEqual(result, [20, 40, 60])
@@ -186,7 +186,7 @@ class DeferredWithIterateTests(SymmetricTestCase):
     """with_ + iterate() with no fn — yields items directly."""
     items = [5, 10, 15]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate())
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate())
     self.assertEqual(result, [5, 10, 15])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
@@ -196,7 +196,7 @@ class DeferredWithIterateTests(SymmetricTestCase):
     items = [1, 2, 3]
     cm = TrackingCM(items)
     side_effects: list[int] = []
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate_do(lambda x: side_effects.append(x * 10)))
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate_do(lambda x: side_effects.append(x * 10)))
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(side_effects, [10, 20, 30])
     self.assertTrue(cm.entered)
@@ -206,7 +206,7 @@ class DeferredWithIterateTests(SymmetricTestCase):
     """with_ + flat_iterate — deferred with_ + flatmap."""
     items = [[1, 2], [3], [], [4, 5]]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).flat_iterate())
+    result = list(Q(cm).with_(lambda ctx: ctx).flat_iterate())
     self.assertEqual(result, [1, 2, 3, 4, 5])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
@@ -216,7 +216,7 @@ class DeferredWithIterateTests(SymmetricTestCase):
     items = [1, 2, 3]
     cm = TrackingCM(items)
     consumed: list[Any] = []
-    result = list(Chain(cm).with_(lambda ctx: ctx).flat_iterate_do(lambda x: consumed.append(x) or [x * 10, x * 100]))
+    result = list(Q(cm).with_(lambda ctx: ctx).flat_iterate_do(lambda x: consumed.append(x) or [x * 10, x * 100]))
     # flat_iterate_do: fn result iterable is consumed (side-effect) but original items yielded
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(consumed, [1, 2, 3])
@@ -236,8 +236,8 @@ class DeferredWithLifecycleTests(SymmetricTestCase):
     """CM enter happens when iteration begins, not when iterate() is called."""
     items = [1, 2, 3]
     cm = TrackingCM(items)
-    it = Chain(cm).with_(lambda ctx: ctx).iterate()
-    # iterate() returns ChainIterator — CM not entered yet
+    it = Q(cm).with_(lambda ctx: ctx).iterate()
+    # iterate() returns QuentIterator — CM not entered yet
     self.assertFalse(cm.entered)
     result = list(it)
     # Now CM should have been entered and exited
@@ -249,7 +249,7 @@ class DeferredWithLifecycleTests(SymmetricTestCase):
     """CM exit happens after all items consumed."""
     items = [10, 20]
     cm = TrackingCM(items)
-    gen = iter(Chain(cm).with_(lambda ctx: ctx).iterate())
+    gen = iter(Q(cm).with_(lambda ctx: ctx).iterate())
     # First next — starts iteration, enters CM
     self.assertEqual(next(gen), 10)
     self.assertTrue(cm.entered)
@@ -273,7 +273,7 @@ class DeferredWithLifecycleTests(SymmetricTestCase):
       return x
 
     with self.assertRaises(ValueError):
-      list(Chain(cm).with_(lambda ctx: ctx).iterate(boom))
+      list(Q(cm).with_(lambda ctx: ctx).iterate(boom))
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
     # __exit__ should receive the exception info
@@ -292,7 +292,7 @@ class DeferredWithLifecycleTests(SymmetricTestCase):
       return x
 
     # The suppressing CM catches the exception — generator stops cleanly
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate(boom))
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate(boom))
     # Items yielded before the exception: [1] (item 2 raised)
     self.assertEqual(result, [1])
     self.assertTrue(cm.entered)
@@ -303,7 +303,7 @@ class DeferredWithLifecycleTests(SymmetricTestCase):
     items = [1, 2, 3, 4, 5]
     cm = TrackingCM(items)
     result: list[int] = []
-    for item in Chain(cm).with_(lambda ctx: ctx).iterate():
+    for item in Q(cm).with_(lambda ctx: ctx).iterate():
       if item == 3:
         break
       result.append(item)
@@ -315,7 +315,7 @@ class DeferredWithLifecycleTests(SymmetricTestCase):
     """Generator closed (.close()) — CM exits cleanly."""
     items = [1, 2, 3, 4, 5]
     cm = TrackingCM(items)
-    gen = iter(Chain(cm).with_(lambda ctx: ctx).iterate())
+    gen = iter(Q(cm).with_(lambda ctx: ctx).iterate())
     self.assertEqual(next(gen), 1)
     self.assertTrue(cm.entered)
     gen.close()
@@ -341,7 +341,7 @@ class DeferredWithAsyncLifecycleTests(IsolatedAsyncioTestCase):
       return x
 
     with self.assertRaises(ValueError):
-      async for _ in Chain(cm).with_(lambda ctx: ctx).iterate(boom):
+      async for _ in Q(cm).with_(lambda ctx: ctx).iterate(boom):
         pass
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
@@ -359,7 +359,7 @@ class DeferredWithAsyncLifecycleTests(IsolatedAsyncioTestCase):
       return x
 
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate(boom):
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate(boom):
       result.append(item)
     self.assertEqual(result, [1])
     self.assertTrue(cm.entered)
@@ -370,7 +370,7 @@ class DeferredWithAsyncLifecycleTests(IsolatedAsyncioTestCase):
     items = [1, 2, 3, 4]
     cm = AsyncTrackingCM(items)
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate():
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate():
       if item == 3:
         break
       result.append(item)
@@ -397,15 +397,15 @@ class DeferredWithEdgeCaseTests(SymmetricTestCase):
     # When with_ is not the last link, it executes during chain_run normally.
     cm = SyncCM([1, 2, 3])
     # .then(list) after with_ means with_ is NOT the last link
-    result = Chain(cm).with_(lambda ctx: ctx).then(list).run()
+    result = Q(cm).with_(lambda ctx: ctx).then(list).run()
     self.assertEqual(result, [1, 2, 3])
 
   async def test_with_iterate_reuse(self) -> None:
-    """ChainIterator.__call__ returns new iterator with same deferred_with."""
+    """QuentIterator.__call__ returns new iterator with same deferred_with."""
     items_a = [1, 2, 3]
     items_b = [10, 20]
 
-    it = Chain(lambda: None).with_(lambda ctx: ctx).iterate(sync_double)
+    it = Q(lambda: None).with_(lambda ctx: ctx).iterate(sync_double)
     # Reuse with different input
     result_a = list(it(TrackingCM(items_a)))
     self.assertEqual(result_a, [2, 4, 6])
@@ -439,7 +439,7 @@ class DeferredWithEdgeCaseTests(SymmetricTestCase):
         return False
 
     order_cm = OrderTrackingCM(items)
-    result = list(Chain(order_cm).finally_(cleanup).with_(lambda ctx: ctx).iterate())
+    result = list(Q(order_cm).finally_(cleanup).with_(lambda ctx: ctx).iterate())
     self.assertEqual(result, [1, 2, 3])
     self.assertTrue(order_cm.entered)
     self.assertTrue(order_cm.exited)
@@ -460,7 +460,7 @@ class DeferredWithProtocolTests(IsolatedAsyncioTestCase):
     items = [10, 20, 30]
     cm = AsyncTrackingCM(items)
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate():
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate():
       result.append(item)
     self.assertEqual(result, [10, 20, 30])
     self.assertTrue(cm.entered)
@@ -471,7 +471,7 @@ class DeferredWithProtocolTests(IsolatedAsyncioTestCase):
     items = [1, 2, 3]
     cm = DualProtocolTrackingCM(items)
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate():
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate():
       result.append(item)
     self.assertEqual(result, [1, 2, 3])
     # In async context, the async protocol should be preferred
@@ -484,7 +484,7 @@ class DeferredWithProtocolTests(IsolatedAsyncioTestCase):
     """Dual-protocol CM uses sync protocol in sync for."""
     items = [1, 2, 3]
     cm = DualProtocolTrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate())
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate())
     self.assertEqual(result, [1, 2, 3])
     # In sync context, the sync protocol should be used
     self.assertTrue(cm.sync_entered)
@@ -505,7 +505,7 @@ class DeferredWithFlatIterateTests(SymmetricTestCase):
     """Deferred with_ + flat_iterate(fn) — CM wraps flatmap iteration."""
     items = [1, 2, 3]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).flat_iterate(lambda x: [x, x * 10]))
+    result = list(Q(cm).with_(lambda ctx: ctx).flat_iterate(lambda x: [x, x * 10]))
     self.assertEqual(result, [1, 10, 2, 20, 3, 30])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
@@ -515,7 +515,7 @@ class DeferredWithFlatIterateTests(SymmetricTestCase):
     items = [1, 2]
     cm = TrackingCM(items)
     result = list(
-      Chain(cm)
+      Q(cm)
       .with_(lambda ctx: ctx)
       .flat_iterate(
         lambda x: [x * 2],
@@ -546,7 +546,7 @@ class WithLifecycleContrastTests(SymmetricTestCase):
       exited_during_then = cm.exited
       return val
 
-    Chain(cm).with_(lambda ctx: ctx).then(check_exit).run()
+    Q(cm).with_(lambda ctx: ctx).then(check_exit).run()
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
     # CM was already exited when then() ran
@@ -562,7 +562,7 @@ class WithLifecycleContrastTests(SymmetricTestCase):
       cm_open_during_iteration.append(cm.entered and not cm.exited)
       return item * 2
 
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate(check_open))
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate(check_open))
     self.assertEqual(result, [2, 4, 6])
     # CM was open during ALL iterations
     self.assertTrue(all(cm_open_during_iteration))
@@ -581,7 +581,7 @@ class WithLifecycleContrastTests(SymmetricTestCase):
       return item
 
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate(check_open):
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate(check_open):
       result.append(item)
     self.assertEqual(result, [10, 20])
     self.assertTrue(all(cm_open))
@@ -596,36 +596,36 @@ class WithIdentityFnTests(SymmetricTestCase):
   """Tests for with_(lambda ctx: ctx) — the explicit identity-function form."""
 
   async def test_with_identity_iterate(self) -> None:
-    """Chain(cm).with_(lambda ctx: ctx).iterate() — ctx is the iterable."""
+    """Q(cm).with_(lambda ctx: ctx).iterate() — ctx is the iterable."""
     items = [1, 2, 3]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate(sync_double))
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate(sync_double))
     self.assertEqual(result, [2, 4, 6])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
   async def test_with_identity_iterate_no_fn(self) -> None:
-    """Chain(cm).with_(lambda ctx: ctx).iterate() — yields ctx items directly."""
+    """Q(cm).with_(lambda ctx: ctx).iterate() — yields ctx items directly."""
     items = [5, 10, 15]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).iterate())
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate())
     self.assertEqual(result, [5, 10, 15])
 
   async def test_with_identity_flat_iterate(self) -> None:
-    """Chain(cm).with_(lambda ctx: ctx).flat_iterate() — ctx is flattened."""
+    """Q(cm).with_(lambda ctx: ctx).flat_iterate() — ctx is flattened."""
     items = [[1, 2], [3]]
     cm = TrackingCM(items)
-    result = list(Chain(cm).with_(lambda ctx: ctx).flat_iterate())
+    result = list(Q(cm).with_(lambda ctx: ctx).flat_iterate())
     self.assertEqual(result, [1, 2, 3])
     self.assertTrue(cm.entered)
     self.assertTrue(cm.exited)
 
   async def test_with_identity_async_iterate(self) -> None:
-    """Async: Chain(cm).with_(lambda ctx: ctx).iterate() — async CM."""
+    """Async: Q(cm).with_(lambda ctx: ctx).iterate() — async CM."""
     items = [10, 20]
     cm = AsyncTrackingCM(items)
     result: list[int] = []
-    async for item in Chain(cm).with_(lambda ctx: ctx).iterate():
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate():
       result.append(item)
     self.assertEqual(result, [10, 20])
     self.assertTrue(cm.entered)

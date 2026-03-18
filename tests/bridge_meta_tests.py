@@ -1,26 +1,27 @@
 # SPDX-License-Identifier: MIT
 """Meta-test verifying the bridge brick set's coverage guarantee.
 
-The exhaustive bridge test in bridge_tests.py uses a 24-brick subset
-(out of 96 total bricks) to test sync/async equivalence.  This meta-test
+The exhaustive bridge test in bridge_tests.py uses a 28-brick subset
+(out of 114 total bricks, of which 110 are standard and 4 are terminal) to test sync/async equivalence.  This meta-test
 programmatically verifies that every excluded brick's behavioral axes
 are represented by the included set, so no engine code path goes untested.
 
 The coverage model decomposes each brick into independent behavioral axes:
 
   1. **Operation type** (``op``): which engine code path handles this brick
-     (then, do, foreach, foreach_do, gather, with_, with_do, if_, set_get).
+     (then, do, foreach, foreach_do, gather, with_, with_do, if_, set_get,
+     while_, drive_gen).
 
   2. **Dispatch rule**: how the step's callable is invoked — the actual
      branch taken in the evaluation layer:
        - rule2 (default: fn(cv))
        - rule1 (explicit args: fn(*args, **kwargs))
-       - chain_callable (nested Chain as callable)
+       - chain_callable (nested Q as callable)
        - literal (non-callable value, Rule 2 non-callable path)
 
-     The composite ``chain_callable+rule1`` (nested Chain with explicit args)
+     The composite ``chain_callable+rule1`` (nested Q with explicit args)
      is NOT a distinct engine branch — it decomposes into two independently
-     tested paths: the Chain.__call__ dispatch (chain_callable) and the
+     tested paths: the Q.__call__ dispatch (chain_callable) and the
      args-replacement logic (rule1).  The bridge set covers both components
      separately.
 
@@ -91,6 +92,12 @@ _BRIDGE_BRICK_NAMES = frozenset(
     # error handlers (happy path)
     'except_nested',
     'finally_nested',
+    # while_ — loop engine path (truthiness + callable predicate)
+    'while_then_default',
+    'while_then_pred',
+    # drive_gen — generator driving (sync gen + async gen)
+    'drive_gen_single',
+    'drive_gen_async_gen',
   }
 )
 
@@ -113,10 +120,10 @@ def _dispatch_rule(brick: Brick) -> str:
   # Rule 1: explicit args/kwargs — all use the same fn(*args, **kwargs) path
   if cc in ('args', 'pred_args', 'else_args', 'else_do_args', 'pred_kwargs'):
     return 'rule1'
-  # Chain callable: nested chain as the step value
+  # Q callable: nested pipeline as the step value
   if cc in ('nested_chain', 'pred_nested_chain', 'else_nested_chain', 'else_do_nested_chain'):
     return 'chain_callable'
-  # Chain callable + Rule 1: nested chain with explicit args — a composite
+  # Q callable + Rule 1: nested pipeline with explicit args — a composite
   # of two independently-tested paths (chain_callable + rule1).
   if cc in ('nested_chain_args', 'else_nested_chain_args'):
     return 'chain_callable+rule1'
@@ -213,7 +220,7 @@ def _iteration_source(brick: Brick) -> str | None:
 
 
 class BridgeBrickCoverageTest(unittest.TestCase):
-  """Verify the 24-brick bridge set covers all 96 bricks' behavioral axes."""
+  """Verify the 28-brick bridge set covers all 114 bricks' behavioral axes."""
 
   def setUp(self) -> None:
     self.all_bricks = ALL_BRICKS
@@ -230,12 +237,12 @@ class BridgeBrickCoverageTest(unittest.TestCase):
   # -- structural invariants --
 
   def test_total_brick_count(self) -> None:
-    """ALL_BRICKS has exactly 96 bricks (guards against silent additions/removals)."""
-    self.assertEqual(len(self.all_bricks), 96)
+    """ALL_BRICKS has exactly 114 bricks (guards against silent additions/removals)."""
+    self.assertEqual(len(self.all_bricks), 114)
 
   def test_bridge_set_size(self) -> None:
-    """The bridge set has exactly 24 bricks."""
-    self.assertEqual(len(self.included), 24)
+    """The bridge set has exactly 28 bricks."""
+    self.assertEqual(len(self.included), 28)
 
   def test_bridge_names_are_valid(self) -> None:
     """Every name in the bridge set corresponds to an actual brick."""
@@ -258,14 +265,14 @@ class BridgeBrickCoverageTest(unittest.TestCase):
     )
 
   def test_excluded_count(self) -> None:
-    """72 bricks are excluded (96 - 24)."""
-    self.assertEqual(len(self.excluded), 72)
+    """86 bricks are excluded (114 - 28)."""
+    self.assertEqual(len(self.excluded), 86)
 
   # -- axis coverage: every op type is represented --
 
   def test_all_ops_covered(self) -> None:
-    """The bridge set includes at least one brick for every operation type."""
-    all_ops = {b.op for b in self.all_bricks}
+    """The bridge set includes at least one brick for every non-terminal operation type."""
+    all_ops = {b.op for b in self.all_bricks if not b.is_terminal}
     missing = all_ops - self.included_ops
     self.assertEqual(missing, set(), f'Operation types missing from bridge set: {missing}')
 
@@ -334,8 +341,10 @@ class BridgeBrickCoverageTest(unittest.TestCase):
   # -- per-brick coverage: every excluded brick maps to covering bricks --
 
   def test_every_excluded_brick_op_is_covered(self) -> None:
-    """Every excluded brick's operation type appears in the bridge set."""
+    """Every excluded non-terminal brick's operation type appears in the bridge set."""
     for brick in self.excluded:
+      if brick.is_terminal:
+        continue  # covered by terminal bridge test
       with self.subTest(brick=brick.name, op=brick.op):
         self.assertIn(
           brick.op,
@@ -350,13 +359,15 @@ class BridgeBrickCoverageTest(unittest.TestCase):
     branch taken in the evaluation layer.  Multiple calling conventions
     (args, pred_args, else_args, kwargs, pred_kwargs) all collapse to
     the same Rule 1 dispatch.  Similarly, nested_chain variants all
-    use the same Chain.__call__ dispatch path.
+    use the same Q.__call__ dispatch path.
 
     Composite rules (chain_callable+rule1) are covered if each atomic
     component is independently present in the bridge set — they compose
     two independent engine branches.
     """
     for brick in self.excluded:
+      if brick.is_terminal:
+        continue  # covered by terminal bridge test
       dr = _dispatch_rule(brick)
       components = _dispatch_rule_components(dr)
       for component in components:
@@ -414,6 +425,8 @@ class BridgeBrickCoverageTest(unittest.TestCase):
     This is the strongest per-brick coverage assertion.
     """
     for brick in self.excluded:
+      if brick.is_terminal:
+        continue  # covered by terminal bridge test
       dr = _dispatch_rule(brick)
       components = _dispatch_rule_components(dr)
       with self.subTest(brick=brick.name, op=brick.op, dispatch_rule=dr):
@@ -474,6 +487,26 @@ class BridgeBrickCoverageTest(unittest.TestCase):
           f'has no non-concurrent counterpart in bridge set. '
           f'Concurrency is not orthogonal for this op.',
         )
+
+  def test_all_terminal_ops_covered(self) -> None:
+    """The terminal bridge set covers all 4 terminal operation types."""
+    from tests.bridge_tests import _TERMINAL_BRIDGE_BRICK_NAMES
+
+    terminal_bricks = [b for b in self.all_bricks if b.is_terminal]
+    terminal_bridge = [b for b in terminal_bricks if b.name in _TERMINAL_BRIDGE_BRICK_NAMES]
+    terminal_ops = {b.op for b in terminal_bricks}
+    covered_ops = {b.op for b in terminal_bridge}
+    missing = terminal_ops - covered_ops
+    self.assertEqual(missing, set(), f'Terminal operation types missing from terminal bridge set: {missing}')
+
+  def test_terminal_bridge_set_matches_bridge_tests(self) -> None:
+    """Terminal bridge set definition matches bridge_tests._TERMINAL_BRIDGE_BRICK_NAMES."""
+    from tests.bridge_tests import _TERMINAL_BRIDGE_BRICK_NAMES as authoritative
+
+    terminal_names = {b.name for b in self.all_bricks if b.is_terminal}
+    # Every terminal brick should be in the terminal bridge set
+    missing = terminal_names - authoritative
+    self.assertEqual(missing, set(), f'Terminal bricks not in terminal bridge set: {missing}')
 
 
 if __name__ == '__main__':

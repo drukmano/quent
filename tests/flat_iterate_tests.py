@@ -7,7 +7,7 @@ import unittest
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 from tests.symmetric import SymmetricTestCase
 
 # ---------------------------------------------------------------------------
@@ -20,23 +20,23 @@ class FlatIterateBasicTests(SymmetricTestCase):
 
   async def test_flat_iterate_basic(self) -> None:
     """flat_iterate() with no fn — flattens nested iterables."""
-    result = list(Chain([[1, 2], [3], [], [4, 5]]).flat_iterate())
+    result = list(Q([[1, 2], [3], [], [4, 5]]).flat_iterate())
     self.assertEqual(result, [1, 2, 3, 4, 5])
 
   async def test_flat_iterate_with_fn(self) -> None:
     """flat_iterate(fn) — fn returns iterable, each sub-item yielded."""
-    result = list(Chain(range(3)).flat_iterate(lambda x: [x, x * 10]))
+    result = list(Q(range(3)).flat_iterate(lambda x: [x, x * 10]))
     self.assertEqual(result, [0, 0, 1, 10, 2, 20])
 
   async def test_flat_iterate_with_flush(self) -> None:
     """After source exhaustion, flush() output is yielded."""
-    result = list(Chain([[1], [2]]).flat_iterate(flush=lambda: [98, 99]))
+    result = list(Q([[1], [2]]).flat_iterate(flush=lambda: [98, 99]))
     self.assertEqual(result, [1, 2, 98, 99])
 
   async def test_flat_iterate_fn_and_flush(self) -> None:
     """Both fn and flush — fn transforms each item, then flush appends."""
     result = list(
-      Chain(range(3)).flat_iterate(
+      Q(range(3)).flat_iterate(
         lambda x: [x, x * 10],
         flush=lambda: [99],
       )
@@ -45,12 +45,12 @@ class FlatIterateBasicTests(SymmetricTestCase):
 
   async def test_flat_iterate_empty_fn_result(self) -> None:
     """fn returns empty iterable — skip, no items yielded for that element."""
-    result = list(Chain([1, 2, 3]).flat_iterate(lambda x: [] if x == 2 else [x]))
+    result = list(Q([1, 2, 3]).flat_iterate(lambda x: [] if x == 2 else [x]))
     self.assertEqual(result, [1, 3])
 
   async def test_flat_iterate_empty_flush(self) -> None:
     """flush returns empty iterable — nothing extra yielded."""
-    result = list(Chain([[1], [2]]).flat_iterate(flush=lambda: []))
+    result = list(Q([[1], [2]]).flat_iterate(flush=lambda: []))
     self.assertEqual(result, [1, 2])
 
 
@@ -71,7 +71,7 @@ class FlatIterateDoBasicTests(SymmetricTestCase):
       consumed.extend(items)
       return items
 
-    result = list(Chain([1, 2, 3]).flat_iterate_do(capture_items))
+    result = list(Q([1, 2, 3]).flat_iterate_do(capture_items))
     # Original items yielded (not fn results)
     self.assertEqual(result, [1, 2, 3])
     # Side-effect: fn was called and its iterable consumed
@@ -81,7 +81,7 @@ class FlatIterateDoBasicTests(SymmetricTestCase):
     """flat_iterate_do with flush — original items yielded, then flush output."""
     side_effects: list[int] = []
     result = list(
-      Chain([1, 2]).flat_iterate_do(
+      Q([1, 2]).flat_iterate_do(
         lambda x: side_effects.append(x) or [x * 10],
         flush=lambda: [88, 99],
       )
@@ -96,7 +96,7 @@ class FlatIterateDoBasicTests(SymmetricTestCase):
     # but each item is itself iterated (flat mode without fn).
     # flat_iterate_do with no fn: flat mode means each item is iterated.
     # Since ignore_result=True and fn is None, flat mode yields sub-items.
-    result = list(Chain([[1, 2], [3]]).flat_iterate_do())
+    result = list(Q([[1, 2], [3]]).flat_iterate_do())
     # No fn, flat mode: each item is iterated and sub-items yielded
     self.assertEqual(result, [1, 2, 3])
 
@@ -112,7 +112,7 @@ class FlatIterateAsyncTests(IsolatedAsyncioTestCase):
   async def test_flat_iterate_async(self) -> None:
     """async for with sync source — flat_iterate works in async context."""
     result: list[int] = []
-    async for item in Chain([[1, 2], [3], [4, 5]]).flat_iterate():
+    async for item in Q([[1, 2], [3], [4, 5]]).flat_iterate():
       result.append(item)
     self.assertEqual(result, [1, 2, 3, 4, 5])
 
@@ -123,7 +123,7 @@ class FlatIterateAsyncTests(IsolatedAsyncioTestCase):
       return [x, x * 10]
 
     result: list[int] = []
-    async for item in Chain(range(3)).flat_iterate(async_expand):
+    async for item in Q(range(3)).flat_iterate(async_expand):
       result.append(item)
     self.assertEqual(result, [0, 0, 1, 10, 2, 20])
 
@@ -134,7 +134,7 @@ class FlatIterateAsyncTests(IsolatedAsyncioTestCase):
       return [98, 99]
 
     result: list[int] = []
-    async for item in Chain([[1], [2]]).flat_iterate(flush=async_flush):
+    async for item in Q([[1], [2]]).flat_iterate(flush=async_flush):
       result.append(item)
     self.assertEqual(result, [1, 2, 98, 99])
 
@@ -148,7 +148,7 @@ class FlatIterateAsyncTests(IsolatedAsyncioTestCase):
       return items
 
     result: list[int] = []
-    async for item in Chain([1, 2, 3]).flat_iterate_do(capture):
+    async for item in Q([1, 2, 3]).flat_iterate_do(capture):
       result.append(item)
     self.assertEqual(result, [1, 2, 3])
     self.assertEqual(consumed, [10, 20, 30])
@@ -163,7 +163,7 @@ class FlatIterateWithDeferredWithTests(SymmetricTestCase):
   """flat_iterate combined with deferred with_."""
 
   async def test_flat_iterate_with_deferred_with(self) -> None:
-    """Chain(cm).with_(fn).flat_iterate(transform, flush=flush_fn) — CM stays open."""
+    """Q(cm).with_(fn).flat_iterate(transform, flush=flush_fn) — CM stays open."""
 
     class TrackingCM:
       def __init__(self, value: Any) -> None:
@@ -182,7 +182,7 @@ class FlatIterateWithDeferredWithTests(SymmetricTestCase):
     items = [1, 2, 3]
     cm = TrackingCM(items)
     result = list(
-      Chain(cm)
+      Q(cm)
       .with_(lambda ctx: ctx)
       .flat_iterate(
         lambda x: [x, x * 10],
@@ -234,7 +234,7 @@ class FlatIterateStreamingCodecPatternTests(SymmetricTestCase):
 
     request_ctx = RequestContextCM()
     result = list(
-      Chain(request_ctx)
+      Q(request_ctx)
       .with_(lambda _ctx: iter_raw())
       .flat_iterate(
         decode_raw_bytes,
@@ -271,7 +271,7 @@ class FlatIterateStreamingCodecPatternTests(SymmetricTestCase):
 
     request_ctx = AsyncRequestContextCM()
     result: list[str] = []
-    async for item in Chain(request_ctx).with_(lambda _ctx: raw_chunks).flat_iterate(decode_raw, flush=flush_fn):
+    async for item in Q(request_ctx).with_(lambda _ctx: raw_chunks).flat_iterate(decode_raw, flush=flush_fn):
       result.append(item)
     self.assertEqual(result, ['async ', 'data', '<end>'])
     self.assertTrue(request_ctx.entered)
@@ -288,33 +288,33 @@ class FlatIterateEdgeCaseTests(SymmetricTestCase):
 
   async def test_flat_iterate_fn_returns_string(self) -> None:
     """Strings are iterables of chars — verify they are flattened."""
-    result = list(Chain(['ab', 'cd']).flat_iterate(lambda x: x))
+    result = list(Q(['ab', 'cd']).flat_iterate(lambda x: x))
     # 'ab' -> 'a', 'b'; 'cd' -> 'c', 'd'
     self.assertEqual(result, ['a', 'b', 'c', 'd'])
 
   async def test_flat_iterate_flush_only_no_fn(self) -> None:
     """fn=None + flush — flatten items, then yield flush output."""
-    result = list(Chain([[1, 2], [3]]).flat_iterate(flush=lambda: [99]))
+    result = list(Q([[1, 2], [3]]).flat_iterate(flush=lambda: [99]))
     self.assertEqual(result, [1, 2, 3, 99])
 
   async def test_flat_iterate_empty_source(self) -> None:
     """Empty source iterable — only flush output (if any)."""
-    result = list(Chain([]).flat_iterate(flush=lambda: [42]))
+    result = list(Q([]).flat_iterate(flush=lambda: [42]))
     self.assertEqual(result, [42])
 
   async def test_flat_iterate_empty_source_no_flush(self) -> None:
     """Empty source, no flush — yields nothing."""
-    result = list(Chain([]).flat_iterate())
+    result = list(Q([]).flat_iterate())
     self.assertEqual(result, [])
 
   async def test_flat_iterate_single_element(self) -> None:
     """Single element source with fn."""
-    result = list(Chain([5]).flat_iterate(lambda x: [x, x + 1]))
+    result = list(Q([5]).flat_iterate(lambda x: [x, x + 1]))
     self.assertEqual(result, [5, 6])
 
   async def test_flat_iterate_reuse(self) -> None:
-    """ChainIterator from flat_iterate is reusable via __call__."""
-    it = Chain(lambda: None).flat_iterate(lambda x: [x, x * 10])
+    """QuentIterator from flat_iterate is reusable via __call__."""
+    it = Q(lambda: None).flat_iterate(lambda x: [x, x * 10])
     result_a = list(it([1, 2]))
     self.assertEqual(result_a, [1, 10, 2, 20])
     result_b = list(it([3]))
@@ -332,13 +332,13 @@ class FlatIteratePendingIfTest(unittest.TestCase):
   def test_flat_iterate_with_pending_if_raises(self) -> None:
     """flat_iterate() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
-      Chain([[1, 2], [3]]).if_(lambda x: True).flat_iterate()
+      Q([[1, 2], [3]]).if_(lambda x: True).flat_iterate()
     self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
   def test_flat_iterate_do_with_pending_if_raises(self) -> None:
     """flat_iterate_do() with a pending if_() raises QuentException."""
     with self.assertRaises(QuentException) as ctx:
-      Chain([[1, 2], [3]]).if_(lambda x: True).flat_iterate_do()
+      Q([[1, 2], [3]]).if_(lambda x: True).flat_iterate_do()
     self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
 

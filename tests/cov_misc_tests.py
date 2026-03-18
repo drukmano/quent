@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Implementation coverage tests for _traceback.py, _chain.py, _types.py polyfill, debug logging.
+"""Implementation coverage tests for _traceback.py, _q.py, _types.py polyfill, debug logging.
 
 These tests target internal code paths for coverage.
 For spec-mandated behavior tests, see edge_tests.py, traceback_tests.py, and pipeline_tests.py.
@@ -13,23 +13,23 @@ import traceback
 import unittest
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Chain
+from quent import Q
 from tests.fixtures import async_fn
 
 # ---------------------------------------------------------------------------
-# _chain.py — Coverage: builder internal paths
+# _q.py — Coverage: builder internal paths
 # ---------------------------------------------------------------------------
 
 
-class ChainBuilderCovTest(TestCase):
-  """Coverage tests for _chain.py builder internals."""
+class QBuilderCovTest(TestCase):
+  """Coverage tests for _q.py builder internals."""
 
   def test_normalize_exception_types_none_with_default(self) -> None:
     """Lines 118-119: _normalize_exception_types with None exc_types and a default.
 
     This is the early return path when default is provided.
     """
-    from quent._chain import _normalize_exception_types
+    from quent._q import _normalize_exception_types
 
     default_types = (ValueError, TypeError)
     result = _normalize_exception_types(None, 'test', default=default_types)
@@ -37,7 +37,7 @@ class ChainBuilderCovTest(TestCase):
 
   def test_normalize_exception_types_none_no_default(self) -> None:
     """Lines 120-121: _normalize_exception_types with None exc_types and no default."""
-    from quent._chain import _normalize_exception_types
+    from quent._q import _normalize_exception_types
 
     with self.assertRaises(TypeError) as ctx:
       _normalize_exception_types(None, 'test')
@@ -49,8 +49,8 @@ class ChainBuilderCovTest(TestCase):
     This is a defensive check that runs only in __debug__ mode.
     """
     # Normal clone should work without issues
-    c = Chain(1).then(lambda x: x + 1)
-    cloned = c.clone()
+    q = Q(1).then(lambda x: x + 1)
+    cloned = q.clone()
     self.assertEqual(cloned.run(), 2)
 
   # test_control_flow_signal_escape_from_run removed — canonical tests in control_flow_tests.py
@@ -156,7 +156,7 @@ class ComplexExceptionChainTest(TestCase):
 
     # Create a quent-marked exception with a __cause__ chain
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       cause = RuntimeError('cause in hook test')
       exc.__cause__ = cause
@@ -197,7 +197,7 @@ class ComplexExceptionChainTest(TestCase):
   def test_traceback_exception_patch_with_quent_exception(self):
     """Lines 319-330: Patched TracebackException.__init__ cleans quent frames."""
     try:
-      Chain(1).then(lambda x: 1 / 0).run()
+      Q(1).then(lambda x: 1 / 0).run()
     except ZeroDivisionError as exc:
       # Create a __cause__ chain
       cause = RuntimeError('chained cause')
@@ -226,13 +226,13 @@ class ComplexExceptionChainTest(TestCase):
     """
     from unittest.mock import patch as mock_patch
 
-    with mock_patch('quent._traceback._stringify_chain', side_effect=Exception('viz boom')):
+    with mock_patch('quent._traceback._stringify_q', side_effect=Exception('viz boom')):
       import warnings
 
       with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter('always')
         try:
-          Chain(1).then(lambda x: 1 / 0).run()
+          Q(1).then(lambda x: 1 / 0).run()
         except ZeroDivisionError:
           pass  # Expected
         else:
@@ -242,9 +242,9 @@ class ComplexExceptionChainTest(TestCase):
       self.assertTrue(len(viz_warnings) > 0, f'Expected viz warning, got: {w}')
 
   def test_exception_note_attachment(self):
-    """§13.6: exception notes are attached to chain exceptions (Python 3.11+).
+    """§13.6: exception notes are attached to pipeline exceptions (Python 3.11+).
 
-    Black-box: on Python 3.11+, exceptions from chain execution carry
+    Black-box: on Python 3.11+, exceptions from pipeline execution carry
     a 'quent: exception at' note identifying the failing step.
     On pre-3.11 (no add_note), exceptions propagate without notes.
     """
@@ -253,9 +253,9 @@ class ComplexExceptionChainTest(TestCase):
     def boom(x: int) -> int:
       raise ValueError('test')
 
-    c = Chain(1).then(boom)
+    q = Q(1).then(boom)
     with self.assertRaises(ValueError) as ctx:
-      c.run()
+      q.run()
 
     if sys.version_info >= (3, 11):
       notes = getattr(ctx.exception, '__notes__', [])
@@ -461,7 +461,7 @@ class DebugLoggingAsyncContinuationTest(IsolatedAsyncioTestCase):
   async def test_async_continuation_started_log_message(self) -> None:
     """Engine emits 'async continuation started' at DEBUG level.
 
-    Per SPEC §14.5: the engine emits "chain <repr>: async continuation started"
+    Per SPEC §14.5: the engine emits "pipeline <repr>: async continuation started"
     at DEBUG level when an async continuation begins.
     """
     logger = logging.getLogger('quent')
@@ -480,9 +480,9 @@ class DebugLoggingAsyncContinuationTest(IsolatedAsyncioTestCase):
     logger.setLevel(logging.DEBUG)
 
     try:
-      # A chain that transitions to async (sync root, then async step)
-      c = Chain(1).then(async_fn)
-      result = await c.run()
+      # A pipeline that transitions to async (sync root, then async step)
+      q = Q(1).then(async_fn)
+      result = await q.run()
       self.assertEqual(result, 2)
 
       # Check log records for the expected message

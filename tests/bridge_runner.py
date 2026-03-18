@@ -1,12 +1,12 @@
 """Unified bridge test runner and oracle verification infrastructure.
 
 Provides ``run_bridge()`` -- the unified bridge test runner covering all axes:
-operation type, chain length, operation order (permutations), sync/async per
+operation type, pipeline length, operation order (permutations), sync/async per
 position, error path, concurrency, error handlers, nesting depth, and
 gather-aware asymmetry comparison.
 
 The bridge contract is tested WITHOUT computing expected values: for any fixed
-chain configuration, ALL sync/async permutations must produce the same result.
+pipeline configuration, ALL sync/async permutations must produce the same result.
 If any permutation differs, the bridge is broken.
 """
 
@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from typing import Any
 from unittest import IsolatedAsyncioTestCase
 
-from quent import Chain
-from tests.bricks import ALL_BRICKS, Brick
+from quent import Q
+from tests.bricks import ALL_BRICKS, STANDARD_BRICKS, TERMINAL_BRICKS, Brick  # noqa: F401
 from tests.fixtures import (
   Result,
   async_fn,
@@ -78,8 +78,8 @@ async def run_bridge(
   Args:
     test: The test case instance (for assertions and subTest).
     bricks: Brick pool to permute. Defaults to ALL_BRICKS.
-    max_length: Maximum chain length.
-    min_length: Minimum chain length.
+    max_length: Maximum pipeline length.
+    min_length: Minimum pipeline length.
     include_error_path: Include error position axis (positions 0..length-1).
     exclude_gather_error: Skip error injection at gather brick positions.
     include_concurrency: Include concurrency axis for supporting bricks.
@@ -210,7 +210,7 @@ async def run_bridge(
                       )
                       combo_labels.append(label)
 
-                      async def _run_chain(
+                      async def _run_q(
                         _perm=perm,
                         _sa=sa_combo,
                         _conc=conc_combo,
@@ -219,7 +219,7 @@ async def run_bridge(
                         _ndepth=nesting_depth,
                       ) -> Result:
                         def _build() -> Any:
-                          c = Chain(10)
+                          c = Q(10)
                           for _i, (brick, (_, fn), (_, conc_val)) in enumerate(zip(_perm, _sa, _conc)):
                             _apply_brick_with_options(c, brick, fn, conc_val, _ndepth)
                           if _hconfig is not None:
@@ -228,7 +228,7 @@ async def run_bridge(
 
                         return await capture(_build)
 
-                      result = await _run_chain()
+                      result = await _run_q()
                       results.append(result)
                       stats.total_combinations += 1
 
@@ -392,7 +392,7 @@ async def run_bridge(
   return stats
 
 
-def _apply_with_conc(c: Chain[Any], brick: Brick, fn: Any, conc: int) -> None:
+def _apply_with_conc(c: Q[Any], brick: Brick, fn: Any, conc: int) -> None:
   """Apply a brick with concurrency parameter.
 
   Rebuilds the operation call to include ``concurrency=conc``.
@@ -407,13 +407,204 @@ def _apply_with_conc(c: Chain[Any], brick: Brick, fn: Any, conc: int) -> None:
     c.gather(fn, fn, concurrency=conc).then(lambda t: t[0])
 
 
+async def capture_terminal(build_fn: Any) -> Result:
+  """Build a terminal pipeline and collect its ChainIterator output.
+
+  Terminal bricks (iterate, iterate_do, flat_iterate, flat_iterate_do)
+  return a ChainIterator instead of a value.  This function calls
+  ``build_fn()`` to get the iterator, then collects all items via
+  ``async for`` and returns the collected list as a Result.
+
+  Args:
+    build_fn: Zero-arg callable that builds the pipeline and returns
+        the ChainIterator (the return value of brick.apply()).
+
+  Returns:
+    Result with value=collected list on success, or captured exception.
+  """
+  try:
+    iterator = build_fn()
+    collected = []
+    async for item in iterator:
+      collected.append(item)
+    return Result(success=True, value=collected)
+  except BaseException as exc:
+    return Result(success=False, exc_type=type(exc), exc_message=str(exc))
+
+
+async def run_terminal_bridge(
+  test: IsolatedAsyncioTestCase,
+  *,
+  prefix_bricks: list[Brick],
+  terminal_bricks: list[Brick],
+  max_prefix_length: int = 2,
+  min_prefix_length: int = 0,
+) -> BridgeStats:
+  """Terminal bridge test runner for iteration terminal operations.
+
+  Terminal bricks (iterate, iterate_do, flat_iterate, flat_iterate_do) produce
+  a ChainIterator instead of a value.  This runner builds pipelines with
+  0..max_prefix_length prefix bricks followed by a terminal brick, then
+  collects results via ``async for`` and asserts sync/async symmetry + oracle
+  correctness.
+
+  For every combination of prefix bricks and terminal brick, runs ALL
+  sync/async permutations (prefix positions + terminal fn position) and
+  asserts they produce the same collected list.
+
+  Args:
+    test: The test case instance (for assertions and subTest).
+    prefix_bricks: Brick pool for prefix positions.
+    terminal_bricks: Terminal bricks to test.
+    max_prefix_length: Maximum number of prefix bricks (default 2).
+    min_prefix_length: Minimum number of prefix bricks (default 0).
+
+  Returns:
+    BridgeStats with totals and any failures.
+  """
+  stats = BridgeStats()
+  _log = lambda msg: print(msg, flush=True)
+
+  n_prefix = len(prefix_bricks)
+  n_terminal = len(terminal_bricks)
+  t0 = time.monotonic()
+  last_log_time = t0
+
+  _log(
+    f'\n[terminal-bridge] starting: {n_prefix} prefix bricks, '
+    f'{n_terminal} terminal bricks, '
+    f'prefix lengths {min_prefix_length}-{max_prefix_length}'
+  )
+
+  with warnings.catch_warnings(record=True) as _bridge_warnings:
+    warnings.simplefilter('always')
+
+    for prefix_length in range(min_prefix_length, max_prefix_length + 1):
+      length_t0 = time.monotonic()
+      length_orderings = (n_prefix**prefix_length) * n_terminal
+      length_orderings_done = 0
+      _log(f'[terminal-bridge] prefix_length={prefix_length}: {length_orderings} orderings')
+
+      for prefix_perm in itertools.product(prefix_bricks, repeat=prefix_length):
+        for terminal in terminal_bricks:
+          stats.total_orderings += 1
+          length_orderings_done += 1
+          prefix_name = ' -> '.join(b.name for b in prefix_perm)
+          ordering_name = f'{prefix_name} -> {terminal.name}' if prefix_name else terminal.name
+
+          # Build sync/async axes: one per prefix position + one for terminal
+          sa_axes: list[list[tuple[str, Any]]] = []
+          for _i in range(prefix_length):
+            sa_axes.append([('sync', sync_fn), ('async', async_fn)])
+          sa_axes.append([('sync', sync_fn), ('async', async_fn)])  # terminal position
+
+          results: list[Result] = []
+          combo_labels: list[str] = []
+
+          for sa_combo in itertools.product(*sa_axes):
+            sa_label = ','.join(s[0] for s in sa_combo)
+            label = f'{ordering_name} [{sa_label}]'
+            combo_labels.append(label)
+
+            async def _run_terminal(
+              _perm=prefix_perm,
+              _terminal=terminal,
+              _sa=sa_combo,
+            ) -> Result:
+              def _build_and_iterate() -> Any:
+                q = Q(10)
+                for _j, (brick, (_, fn)) in enumerate(zip(_perm, _sa[:-1])):
+                  brick.apply(q, fn)
+                _, terminal_fn = _sa[-1]
+                return _terminal.apply(q, terminal_fn)
+
+              return await capture_terminal(_build_and_iterate)
+
+            result = await _run_terminal()
+            results.append(result)
+            stats.total_combinations += 1
+
+          stats.total_configs += 1
+
+          # Assert symmetry
+          if results:
+            first = results[0]
+            for i in range(1, len(results)):
+              if (
+                first.success != results[i].success
+                or (first.success and first.value != results[i].value)
+                or (not first.success and first.exc_type != results[i].exc_type)
+              ):
+                failure_msg = (
+                  f'TERMINAL BRIDGE BROKEN: {combo_labels[0]} != {combo_labels[i]}\n'
+                  f'  first:  {first}\n  other:  {results[i]}'
+                )
+                stats.failures.append(failure_msg)
+
+            # Oracle correctness check
+            if first.success:
+              pipeline_value = compose_oracles(list(prefix_perm), 10, sync_fn)
+              expected = terminal.oracle(pipeline_value, sync_fn)
+              if first.value != expected:
+                failure_msg = (
+                  f'TERMINAL ORACLE MISMATCH: {combo_labels[0]}\n  actual:   {first.value}\n  expected: {expected}'
+                )
+                stats.failures.append(failure_msg)
+
+          # Progress logging every 10s
+          now = time.monotonic()
+          if now - last_log_time >= 10.0:
+            elapsed = now - t0
+            length_elapsed = now - length_t0
+            pct = length_orderings_done / length_orderings * 100 if length_orderings else 0
+            if length_orderings_done > 0:
+              rate = length_elapsed / length_orderings_done
+              remaining_time = (length_orderings - length_orderings_done) * rate
+              eta_str = f'ETA {remaining_time:.0f}s'
+            else:
+              eta_str = 'ETA ?'
+            _log(
+              f'[terminal-bridge] prefix_len={prefix_length}: '
+              f'{length_orderings_done}/{length_orderings} '
+              f'({pct:.0f}%) | {stats.total_combinations} combos, '
+              f'{elapsed:.0f}s elapsed, {eta_str}, '
+              f'{len(stats.failures)} failures'
+            )
+            last_log_time = now
+
+      _log(f'[terminal-bridge] prefix_length={prefix_length} done in {time.monotonic() - length_t0:.1f}s')
+
+    # Validate captured warnings
+    unexpected = [
+      w
+      for w in _bridge_warnings
+      if not (issubclass(w.category, RuntimeWarning) and str(w.message).startswith('quent: '))
+    ]
+    if unexpected:
+      msgs = '\n'.join(f'  {w.filename}:{w.lineno}: [{w.category.__name__}] {w.message}' for w in unexpected)
+      stats.failures.append(f'[terminal-bridge] unexpected warnings emitted:\n{msgs}')
+
+  elapsed = time.monotonic() - t0
+  _log(
+    f'[terminal-bridge] done: {stats.total_orderings} orderings, '
+    f'{stats.total_configs} configs, '
+    f'{stats.total_combinations} combos, {elapsed:.1f}s, '
+    f'{len(stats.failures)} failures'
+  )
+
+  if stats.failures:
+    test.fail(f'{len(stats.failures)} terminal bridge failure(s):\n' + '\n'.join(stats.failures[:20]))
+
+  return stats
+
+
 # ---------------------------------------------------------------------------
 # Oracle-based correctness verification
 # ---------------------------------------------------------------------------
 
 
 def compose_oracles(bricks: list[Brick] | tuple[Brick, ...], input_value: Any, fn: Any = None) -> Any:
-  """Chain all brick oracles sequentially to compute the expected value.
+  """Compose all brick oracles sequentially to compute the expected value.
 
   Args:
     bricks: Sequence of bricks whose oracles to compose.
@@ -442,9 +633,21 @@ async def verify_brick_oracle(
   computed with the same fn.  This validates the brick definition
   itself is correct.
   """
-  c = Chain(input_value)
-  brick.apply(c, sync_fn)
-  result = await capture(c.run)
+  if brick.is_terminal:
+
+    async def _collect() -> Any:
+      q = Q(input_value)
+      iterator = brick.apply(q, sync_fn)
+      collected = []
+      async for item in iterator:
+        collected.append(item)
+      return collected
+
+    result = await capture(_collect)
+  else:
+    q = Q(input_value)
+    brick.apply(q, sync_fn)
+    result = await capture(q.run)
   expected = brick.oracle(input_value, sync_fn)
   test.assertTrue(result.success, f'{brick.name}: unexpected error: {result.exc_message}')
   test.assertEqual(
@@ -469,27 +672,27 @@ async def verify_all_brick_oracles(
 # ---------------------------------------------------------------------------
 
 
-def _apply_brick_nested(chain: Any, brick: Brick, fn: Any, depth: int) -> None:
+def _apply_brick_nested(q: Any, brick: Brick, fn: Any, depth: int) -> None:
   """Apply a brick at a given nesting depth (0=flat, 1=one level, 2=two levels)."""
   if depth <= 0:
-    brick.apply(chain, fn)
+    brick.apply(q, fn)
     return
-  inner = Chain()
+  inner = Q()
   _apply_brick_nested(inner, brick, fn, depth - 1)
-  chain.then(inner)
+  q.then(inner)
 
 
-def _apply_brick_with_options(chain: Any, brick: Brick, fn: Any, conc_val: int | None, nesting_depth: int) -> None:
+def _apply_brick_with_options(q: Any, brick: Brick, fn: Any, conc_val: int | None, nesting_depth: int) -> None:
   """Apply a brick with optional concurrency and nesting depth."""
   if nesting_depth <= 0:
     if conc_val is not None and brick.supports_concurrency:
-      _apply_with_conc(chain, brick, fn, conc_val)
+      _apply_with_conc(q, brick, fn, conc_val)
     else:
-      brick.apply(chain, fn)
+      brick.apply(q, fn)
   else:
-    inner = Chain()
+    inner = Q()
     _apply_brick_with_options(inner, brick, fn, conc_val, nesting_depth - 1)
-    chain.then(inner)
+    q.then(inner)
 
 
 # ---------------------------------------------------------------------------

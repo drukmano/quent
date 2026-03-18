@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from quent import Chain
+from quent import Q
 from tests.fixtures import (
   CustomBaseError,
   Result,
@@ -96,19 +96,19 @@ async def async_raise_base(x: Any) -> Any:
 
 
 def sync_return_signal(x: Any) -> Any:
-  return Chain.return_(x * 100)
+  return Q.return_(x * 100)
 
 
 async def async_return_signal(x: Any) -> Any:
-  return Chain.return_(x * 100)
+  return Q.return_(x * 100)
 
 
 def sync_break_signal(x: Any) -> Any:
-  return Chain.break_(x * 100)
+  return Q.break_(x * 100)
 
 
 async def async_break_signal(x: Any) -> Any:
-  return Chain.break_(x * 100)
+  return Q.break_(x * 100)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ async def async_break_signal(x: Any) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class HandlerConfig:
-  """Configuration for attaching error handlers to a chain.
+  """Configuration for attaching error handlers to a pipeline.
 
   The ``oracle`` callable computes the expected Result for a given
   (error_type, happy_value, partial_value) combination:
@@ -129,89 +129,89 @@ class HandlerConfig:
   """
 
   name: str
-  apply: Callable[..., Any]  # (chain, is_handler_async: bool) -> None
+  apply: Callable[..., Any]  # (q, is_handler_async: bool) -> None
   has_finally: bool = False  # True if this config attaches a finally_ handler
   oracle: Callable[..., Result | None] | None = None
 
 
-def _apply_no_handler(chain: Any, is_handler_async: bool) -> None:
+def _apply_no_handler(q: Any, is_handler_async: bool) -> None:
   pass
 
 
-def _apply_except_consume(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_consume(q: Any, is_handler_async: bool) -> None:
   handler = async_except_consume if is_handler_async else sync_except_consume
-  chain.except_(handler)
+  q.except_(handler)
 
 
-def _apply_except_reraise(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_reraise(q: Any, is_handler_async: bool) -> None:
   handler = async_except_noop if is_handler_async else sync_except_noop
-  chain.except_(handler, reraise=True)
+  q.except_(handler, reraise=True)
 
 
-def _apply_except_fails(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_fails(q: Any, is_handler_async: bool) -> None:
   handler = async_except_fails if is_handler_async else sync_except_fails
-  chain.except_(handler)
+  q.except_(handler)
 
 
-def _apply_finally_ok(chain: Any, is_handler_async: bool) -> None:
+def _apply_finally_ok(q: Any, is_handler_async: bool) -> None:
   handler = async_finally_ok if is_handler_async else sync_finally_ok
-  chain.finally_(handler)
+  q.finally_(handler)
 
 
-def _apply_finally_fails(chain: Any, is_handler_async: bool) -> None:
+def _apply_finally_fails(q: Any, is_handler_async: bool) -> None:
   handler = async_bad_cleanup if is_handler_async else sync_bad_cleanup
-  chain.finally_(handler)
+  q.finally_(handler)
 
 
-def _apply_except_consume_finally_ok(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_consume_finally_ok(q: Any, is_handler_async: bool) -> None:
   exc_handler = async_except_consume if is_handler_async else sync_except_consume
   fin_handler = async_finally_ok if is_handler_async else sync_finally_ok
-  chain.except_(exc_handler)
-  chain.finally_(fin_handler)
+  q.except_(exc_handler)
+  q.finally_(fin_handler)
 
 
-def _apply_except_reraise_finally_ok(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_reraise_finally_ok(q: Any, is_handler_async: bool) -> None:
   exc_handler = async_except_noop if is_handler_async else sync_except_noop
   fin_handler = async_finally_ok if is_handler_async else sync_finally_ok
-  chain.except_(exc_handler, reraise=True)
-  chain.finally_(fin_handler)
+  q.except_(exc_handler, reraise=True)
+  q.finally_(fin_handler)
 
 
-def _apply_except_consume_finally_fails(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_consume_finally_fails(q: Any, is_handler_async: bool) -> None:
   exc_handler = async_except_consume if is_handler_async else sync_except_consume
   fin_handler = async_bad_cleanup if is_handler_async else sync_bad_cleanup
-  chain.except_(exc_handler)
-  chain.finally_(fin_handler)
+  q.except_(exc_handler)
+  q.finally_(fin_handler)
 
 
-def _apply_except_with_args(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_with_args(q: Any, is_handler_async: bool) -> None:
   handler = async_except_consume if is_handler_async else sync_except_consume
-  chain.except_(handler, 'injected_arg')
+  q.except_(handler, 'injected_arg')
 
 
-def _apply_except_nested_chain(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_nested_chain(q: Any, is_handler_async: bool) -> None:
   handler = async_except_consume if is_handler_async else sync_except_consume
-  chain.except_(Chain().then(handler))
+  q.except_(Q().then(handler))
 
 
-def _apply_finally_with_args(chain: Any, is_handler_async: bool) -> None:
+def _apply_finally_with_args(q: Any, is_handler_async: bool) -> None:
   handler = async_finally_ok if is_handler_async else sync_finally_ok
-  chain.finally_(handler, 'injected_arg')
+  q.finally_(handler, 'injected_arg')
 
 
-def _apply_finally_nested_chain(chain: Any, is_handler_async: bool) -> None:
+def _apply_finally_nested_chain(q: Any, is_handler_async: bool) -> None:
   handler = async_finally_ok if is_handler_async else sync_finally_ok
-  chain.finally_(Chain().then(handler))
+  q.finally_(Q().then(handler))
 
 
-def _apply_except_kwargs(chain: Any, is_handler_async: bool) -> None:
+def _apply_except_kwargs(q: Any, is_handler_async: bool) -> None:
   handler = async_except_kwargs if is_handler_async else sync_except_kwargs
-  chain.except_(handler, sentinel=True)
+  q.except_(handler, sentinel=True)
 
 
-def _apply_finally_kwargs(chain: Any, is_handler_async: bool) -> None:
+def _apply_finally_kwargs(q: Any, is_handler_async: bool) -> None:
   handler = async_finally_kwargs if is_handler_async else sync_finally_kwargs
-  chain.finally_(handler, sentinel=True)
+  q.finally_(handler, sentinel=True)
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +386,7 @@ def _oracle_except_with_args(error_type: str, happy_value: Any, partial_value: A
 
 
 def _oracle_except_nested_chain(error_type: str, happy_value: Any, partial_value: Any) -> Result | None:
-  """except_nested_chain: Chain().then(consume) -> 'recovered'."""
+  """except_nested_pipeline: Q().then(consume) -> 'recovered'."""
   if error_type == 'break_signal':
     return None
   if error_type == 'none':
@@ -487,15 +487,15 @@ HANDLER_CONFIGS: list[HandlerConfig] = [
   ),
   HandlerConfig(
     name='except_reraise+finally_fails',
-    apply=lambda chain, is_async: chain.except_(
-      async_except_noop if is_async else sync_except_noop, reraise=True
-    ).finally_(async_bad_cleanup if is_async else sync_bad_cleanup),
+    apply=lambda q, is_async: q.except_(async_except_noop if is_async else sync_except_noop, reraise=True).finally_(
+      async_bad_cleanup if is_async else sync_bad_cleanup
+    ),
     has_finally=True,
     oracle=_oracle_except_reraise_finally_fails,
   ),
   HandlerConfig(
     name='except_fails+finally_ok',
-    apply=lambda chain, is_async: chain.except_(async_except_fails if is_async else sync_except_fails).finally_(
+    apply=lambda q, is_async: q.except_(async_except_fails if is_async else sync_except_fails).finally_(
       async_finally_ok if is_async else sync_finally_ok
     ),
     has_finally=True,
@@ -503,7 +503,7 @@ HANDLER_CONFIGS: list[HandlerConfig] = [
   ),
   HandlerConfig(
     name='except_fails+finally_fails',
-    apply=lambda chain, is_async: chain.except_(async_except_fails if is_async else sync_except_fails).finally_(
+    apply=lambda q, is_async: q.except_(async_except_fails if is_async else sync_except_fails).finally_(
       async_bad_cleanup if is_async else sync_bad_cleanup
     ),
     has_finally=True,

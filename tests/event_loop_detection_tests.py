@@ -360,14 +360,14 @@ class TrioPipelineTests(unittest.TestCase):
   """Full pipeline execution under trio verifies dual-protocol objects use async."""
 
   def test_dual_cm_uses_async_protocol_under_trio(self) -> None:
-    """Chain(dual_cm).with_(fn).run() inside trio.run() uses __aenter__, not __enter__."""
-    from quent import Chain
+    """Q(dual_cm).with_(fn).run() inside trio.run() uses __aenter__, not __enter__."""
+    from quent import Q
 
     cm = TrackingDualCM('hello')
     result_holder: list[object] = []
 
     async def check() -> None:
-      result = await Chain(cm).with_(lambda v: v).run()
+      result = await Q(cm).with_(lambda v: v).run()
       result_holder.append(result)
 
     trio.run(check)
@@ -376,8 +376,8 @@ class TrioPipelineTests(unittest.TestCase):
     self.assertEqual(result_holder, ['hello'])
 
   def test_basic_async_chain_under_trio(self) -> None:
-    """Chain(5).then(async_fn).run() works inside trio.run() and returns correct result."""
-    from quent import Chain
+    """Q(5).then(async_fn).run() works inside trio.run() and returns correct result."""
+    from quent import Q
 
     result_holder: list[object] = []
 
@@ -385,21 +385,21 @@ class TrioPipelineTests(unittest.TestCase):
       return x * 2
 
     async def check() -> None:
-      result = await Chain(5).then(async_double).run()
+      result = await Q(5).then(async_double).run()
       result_holder.append(result)
 
     trio.run(check)
     self.assertEqual(result_holder, [10])
 
   def test_dual_iterable_uses_async_protocol_under_trio(self) -> None:
-    """Chain(dual_iterable).foreach(fn).run() inside trio.run() uses __aiter__."""
-    from quent import Chain
+    """Q(dual_iterable).foreach(fn).run() inside trio.run() uses __aiter__."""
+    from quent import Q
 
     iterable = TrackingDualIterable([])
     result_holder: list[object] = []
 
     async def check() -> None:
-      result = await Chain(iterable).foreach(lambda x: x).run()
+      result = await Q(iterable).foreach(lambda x: x).run()
       result_holder.append(result)
 
     trio.run(check)
@@ -418,14 +418,14 @@ class CurioPipelineTests(unittest.TestCase):
   """Full pipeline execution under curio verifies dual-protocol objects use async."""
 
   def test_dual_cm_uses_async_protocol_under_curio(self) -> None:
-    """Chain(dual_cm).with_(fn).run() inside curio.run() uses __aenter__, not __enter__."""
-    from quent import Chain
+    """Q(dual_cm).with_(fn).run() inside curio.run() uses __aenter__, not __enter__."""
+    from quent import Q
 
     cm = TrackingDualCM('hello')
     result_holder: list[object] = []
 
     async def check() -> None:
-      result = await Chain(cm).with_(lambda v: v).run()
+      result = await Q(cm).with_(lambda v: v).run()
       result_holder.append(result)
 
     curio.run(check)
@@ -434,8 +434,8 @@ class CurioPipelineTests(unittest.TestCase):
     self.assertEqual(result_holder, ['hello'])
 
   def test_basic_async_chain_under_curio(self) -> None:
-    """Chain(5).then(async_fn).run() works inside curio.run() and returns correct result."""
-    from quent import Chain
+    """Q(5).then(async_fn).run() works inside curio.run() and returns correct result."""
+    from quent import Q
 
     result_holder: list[object] = []
 
@@ -443,21 +443,21 @@ class CurioPipelineTests(unittest.TestCase):
       return x * 2
 
     async def check() -> None:
-      result = await Chain(5).then(async_double).run()
+      result = await Q(5).then(async_double).run()
       result_holder.append(result)
 
     curio.run(check)
     self.assertEqual(result_holder, [10])
 
   def test_dual_iterable_uses_async_protocol_under_curio(self) -> None:
-    """Chain(dual_iterable).foreach(fn).run() inside curio.run() uses __aiter__."""
-    from quent import Chain
+    """Q(dual_iterable).foreach(fn).run() inside curio.run() uses __aiter__."""
+    from quent import Q
 
     iterable = TrackingDualIterable([])
     result_holder: list[object] = []
 
     async def check() -> None:
-      result = await Chain(iterable).foreach(lambda x: x).run()
+      result = await Q(iterable).foreach(lambda x: x).run()
       result_holder.append(result)
 
     curio.run(check)
