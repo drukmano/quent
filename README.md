@@ -1,10 +1,7 @@
 <div align="center">
-  <br>
   <img src="https://raw.githubusercontent.com/drukmano/quent/master/docs/assets/logo.png" alt="quent" width="200">
-  <br><br>
   <h1>quent</h1>
   <p><strong>Write it once. Run it sync or async.</strong></p>
-  <br>
   <p>
     <a href="https://pypi.org/project/quent/"><img src="https://img.shields.io/pypi/v/quent?style=flat-square" alt="PyPI"></a>
     &nbsp;
