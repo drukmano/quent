@@ -379,6 +379,121 @@ Q(fetch).name('auth_pipeline').then(validate).run()
 
 ---
 
+#### while\_
+
+```python
+q.while_(predicate=None, /, *args, **kwargs) -> Q
+```
+
+Begin a loop. Must be followed by `.then()` or `.do()`, which registers the loop body. The loop repeatedly evaluates the body while the predicate is truthy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `predicate` | `Any \| None` | Callable, literal value, or `None` (uses current value truthiness). |
+| `*args` | `Any` | Positional arguments forwarded to the predicate callable. |
+| `**kwargs` | `Any` | Keyword arguments forwarded to the predicate callable. |
+
+**Returns:** `self` (`Q`). The next `.then()` or `.do()` becomes the loop body.
+
+**Raises:**
+
+- `QuentException` if `while_()` is called while an `if_()` is already pending.
+- `QuentException` if `while_()` is called while another `while_()` is already pending.
+- `QuentException` if any method other than `.then()` or `.do()` is called while `while_()` is pending.
+- `TypeError` if `predicate` is a non-callable, non-`None` literal and `args`/`kwargs` are provided.
+
+**Body modes:**
+
+- **`.then(fn)`:** `fn`'s result feeds back as the loop value each iteration. When the loop terminates, the final loop value replaces the current pipeline value.
+- **`.do(fn)`:** `fn` runs for side effects; its return value is discarded. The loop value is unchanged.
+
+```python
+# Decrement until zero — default predicate tests truthiness
+Q(10).while_().then(lambda x: x - 1).run()  # 0
+
+# Predicate callable — halve while value exceeds 1
+Q(100).while_(lambda x: x > 1).then(lambda x: x // 2).run()  # 1
+
+# break_() to exit early with a value
+Q(1).while_(True).then(lambda x: Q.break_(x) if x >= 100 else x * 2).run()  # 128
+
+# Nested pipeline for combining while with if
+Q(data).while_(has_more).then(
+  Q().if_(is_valid).then(process).else_(skip)
+).run()
+```
+
+!!! warning "Infinite loops with `.do()`"
+    When using `.do()` with `while_()`, the loop value never changes. If the predicate tests the loop value (including the default `None` predicate), this creates an infinite loop. Use `break_()` to exit, or use `.then()` to transform the loop value.
+
+!!! note "`break_()` semantics in `while_`"
+    `break_()` in `while_` preserves the current loop value (or uses the break value if provided). This differs from `foreach`, where `break_()` preserves partial results collected so far.
+
+!!! note "`else_()` not supported"
+    `else_()` / `else_do()` after `while_().then()` or `while_().do()` raises `QuentException` — else branches are only valid after `if_()`, not after `while_()`.
+
+---
+
+#### drive\_gen
+
+```python
+q.drive_gen(fn, /) -> Q
+```
+
+Drive a sync or async generator bidirectionally using Python's generator send protocol. The step function `fn` processes each yielded value; its return is sent back into the generator. When the generator stops, the last `fn` result becomes the pipeline value.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `fn` | `Callable` | Step function. Called as `fn(yielded_value)` for each value the generator yields. |
+
+**Returns:** `self` (`Q`).
+
+**Raises:**
+
+- `TypeError` if `fn` is not callable.
+- `TypeError` if the current pipeline value at execution time is not a sync generator, async generator, or callable that produces one.
+
+**Prerequisite:** The current pipeline value must be a generator (sync or async) or a callable that produces one.
+
+**Behavior:**
+
+1. If the current value is callable (not already a generator), invoke it to obtain the generator.
+2. Get the first yielded value (`next(gen)` or `await gen.__anext__()`).
+3. Call `result = fn(yielded_value)`. If `result` is awaitable, await it.
+4. Send `result` back (`gen.send(result)` or `await gen.asend(result)`).
+5. Repeat from step 3 until `StopIteration` / `StopAsyncIteration`.
+6. The last `fn` result becomes the current pipeline value.
+
+If the generator yields nothing (immediate stop), the pipeline value is `None`.
+
+```python
+def gen():
+  x = yield 1
+  x = yield x + 1
+  x = yield x + 1
+
+Q(gen()).drive_gen(lambda x: x * 2).run()
+# Flow: yield 1 → fn(1)=2 → send 2 → yield 3 → fn(3)=6 → send 6 → yield 7 → fn(7)=14
+# returns: 14
+
+# Async generator
+result = await Q(async_gen()).drive_gen(process_request).run()
+
+# Callable that produces a generator
+Q(lambda: gen()).drive_gen(step_fn).run()
+
+# Compose with error handling
+Q(gen()).drive_gen(step_fn).except_(handle_error).finally_(cleanup).run()
+```
+
+!!! note "Calling convention"
+    Unlike other pipeline steps, `drive_gen`'s step function does **not** follow the standard 2-rule calling convention. The yielded value is always passed directly as `fn(yielded_value)` — no args/kwargs dispatch.
+
+!!! note "Error semantics"
+    Exceptions from `fn` or `gen.send()` propagate out of `drive_gen`. The generator is always closed in cleanup (via `gen.close()` or `await gen.aclose()`). Exceptions are NOT injected into the generator (no `gen.throw()`).
+
+---
+
 ### Concurrent Execution
 
 The `concurrency` parameter is available on `.foreach()`, `.foreach_do()`, and `.gather()`.
@@ -581,6 +696,64 @@ q()  # 10
 
 ---
 
+#### debug
+
+```python
+q.debug(v=<no value>, /, *args, **kwargs) -> DebugResult | Coroutine[Any, Any, DebugResult]
+```
+
+Execute the pipeline with step-level instrumentation and return a `DebugResult` capturing the execution trace. The original pipeline is **not** modified — `debug()` clones the pipeline internally.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `v` | `Any` | Optional value injected into the pipeline (same as `run()`). |
+| `*args` | `Any` | Positional arguments for `v` if callable. |
+| `**kwargs` | `Any` | Keyword arguments for `v` if callable. |
+
+**Returns:** A `DebugResult` (sync pipelines) or a coroutine resolving to a `DebugResult` (async pipelines).
+
+**Raises:** `QuentException` if `if_()` or `while_()` is pending.
+
+**`DebugResult` fields:**
+
+| Field / Property | Type | Description |
+|------------------|------|-------------|
+| `value` | `Any` | The pipeline's final result (same as `run()` would return). |
+| `steps` | `list[StepRecord]` | Ordered list of step records. |
+| `elapsed_ns` | `int` | Total wall-clock nanoseconds. |
+| `succeeded` | `bool` | `True` if all steps completed without error. |
+| `failed` | `bool` | `True` if any step raised an exception. |
+| `print_trace(file=None)` | method | Print a formatted execution trace table. |
+
+**`StepRecord` fields (frozen dataclass):**
+
+| Field / Property | Type | Description |
+|------------------|------|-------------|
+| `step_name` | `str` | Name of the step. |
+| `input_value` | `Any` | Current value passed to the step. |
+| `result` | `Any` | Value produced by the step. |
+| `elapsed_ns` | `int` | Wall-clock nanoseconds for this step. |
+| `exception` | `BaseException \| None` | Exception raised, or `None`. |
+| `ok` | `bool` | `True` if the step succeeded. |
+
+```python
+result = Q(5).then(lambda x: x * 2).then(str).debug()
+print(result.value)       # '10'
+print(result.elapsed_ns)  # total nanoseconds
+result.print_trace()      # formatted table to stderr
+
+# Async pipeline
+result = await Q(fetch).then(parse).debug(url)
+```
+
+!!! note "`DebugResult` and `StepRecord`"
+    These types are not exported in `__all__`. They are accessible from the `quent._debug` module or via the return value of `debug()`.
+
+!!! note "Exception behavior"
+    If the pipeline raises during `debug()`, the exception propagates normally — `debug()` does not suppress errors.
+
+---
+
 ### Iteration Methods
 
 #### iterate
@@ -727,6 +900,55 @@ for item in Q([[1, 2], [3]]).flat_iterate_do(lambda sub: [print(x) for x in sub]
 ```
 
 When `fn` is `None`, behaves identically to `flat_iterate()` with no `fn` (flattens one level). The `flush` output is always yielded (the "do" discard semantic applies only to `fn`'s results).
+
+---
+
+#### buffer
+
+```python
+q.buffer(n, /) -> Q
+```
+
+Attach a backpressure-aware bounded buffer for use with iteration terminals (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`). The buffer decouples producer and consumer, enabling the producer to run ahead up to `n` items while the consumer processes them.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `n` | `int` | Maximum number of items the buffer can hold. Must be a positive integer. |
+
+**Returns:** `self` (`Q`). Does **not** add a pipeline step — it is a pipeline-level modifier.
+
+**Raises:**
+
+- `ValueError` if `n` is zero or negative.
+- `TypeError` if `n` is not an integer (booleans are rejected even though `bool` is a subclass of `int`).
+- `QuentException` if `run()` is called instead of an iteration terminal.
+- `QuentException` if called while an `if_()` or `while_()` is pending.
+
+**Behavior:**
+
+- **Sync** (`for`): the producer runs in a background daemon thread using `queue.Queue(maxsize=n)`.
+- **Async** (`async for`): the producer runs as a background `asyncio.Task` using `asyncio.Queue(maxsize=n)`.
+- Items are delivered in order (FIFO).
+- When the buffer is full, the producer blocks (backpressure). When empty, the consumer blocks.
+- If the producer raises, the exception is propagated to the consumer at the next read.
+- If the consumer exits early (`break`, `GeneratorExit`), the producer is signaled to stop.
+
+```python
+# Producer runs ahead up to 10 items
+for item in Q(produce).buffer(10).iterate():
+  process(item)
+
+# With transformation
+for item in Q(produce).buffer(5).iterate(transform):
+  consume(item)
+
+# Async usage
+async for item in Q(async_produce).buffer(10).iterate():
+  await process(item)
+```
+
+!!! note "Interaction with other features"
+    The buffer size is preserved across `clone()` and iterator reuse. When both `buffer()` and a deferred `with_` are active, the buffer wraps the iterable after the context manager is entered.
 
 ---
 
@@ -901,7 +1123,7 @@ Signal early termination of pipeline execution. The optional value becomes the p
 Q.break_(v=<no value>, /, *args, **kwargs) -> NoReturn
 ```
 
-Signal early termination of a `foreach()`/`foreach_do()` iteration.
+Signal early termination of a `foreach()`/`foreach_do()` iteration or a `while_()` loop.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -909,7 +1131,7 @@ Signal early termination of a `foreach()`/`foreach_do()` iteration.
 | `*args` | `Any` | Positional arguments for `v` if callable. |
 | `**kwargs` | `Any` | Keyword arguments for `v` if callable. |
 
-**Raises:** `QuentException` if used outside of a `foreach`/`foreach_do` operation.
+**Raises:** `QuentException` if used outside of a `foreach`/`foreach_do`/`while_` operation or an iteration context (`iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`).
 
 ```python
 Q([1, 2, 3, 4, 5]).foreach(
