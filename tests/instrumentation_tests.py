@@ -22,11 +22,7 @@ import warnings
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from quent import Chain, ChainExcInfo
-from tests.tests_helper import (
-  async_double,
-  async_fn,
-  async_identity,
-)
+from tests.fixtures import async_double, async_fn, async_identity
 
 
 class SimpleCM:
@@ -789,3 +785,222 @@ class OnStepInputValueTest(TestCase):
     finally_calls = [c for c in self.calls if c['step_name'] == 'finally_']
     self.assertEqual(len(finally_calls), 1)
     self.assertIsNone(finally_calls[0]['input_value'])
+
+
+class OnStepExceptionParameterTest(TestCase):
+  """§14.1: on_step 6-arg form receives exception parameter."""
+
+  def setUp(self):
+    self.calls = []
+    Chain.on_step = self._recorder
+
+  def tearDown(self):
+    Chain.on_step = None
+
+  def _recorder(self, chain, step_name, input_value, result, elapsed_ns, exception):
+    self.calls.append(
+      {
+        'chain': chain,
+        'step_name': step_name,
+        'input_value': input_value,
+        'result': result,
+        'elapsed_ns': elapsed_ns,
+        'exception': exception,
+      }
+    )
+
+  def test_success_exception_is_none(self):
+    """§14.1: on_step fires with exception=None on success."""
+    Chain(42).run()
+    self.assertTrue(len(self.calls) >= 1)
+    for call in self.calls:
+      self.assertIsNone(call['exception'])
+
+  def test_success_multi_step_exception_is_none(self):
+    """§14.1: All successful steps have exception=None."""
+    Chain(1).then(lambda x: x + 1).then(lambda x: x * 2).run()
+    for call in self.calls:
+      self.assertIsNone(call['exception'])
+
+  def test_failure_exception_set(self):
+    """§14.1: on_step fires with the exception when a step fails."""
+    with self.assertRaises(ZeroDivisionError):
+      Chain(1).then(lambda x: 1 / 0).run()
+    # The failing 'then' step should have fired with the exception.
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    self.assertEqual(len(then_calls), 1)
+    self.assertIsInstance(then_calls[0]['exception'], ZeroDivisionError)
+    self.assertIsNone(then_calls[0]['result'])
+    self.assertIsInstance(then_calls[0]['elapsed_ns'], int)
+    self.assertGreaterEqual(then_calls[0]['elapsed_ns'], 0)
+
+  def test_failure_at_root(self):
+    """§14.1: on_step fires with exception when root step fails."""
+
+    def bad_root():
+      raise ValueError('root boom')
+
+    with self.assertRaises(ValueError):
+      Chain(bad_root).run()
+    root_calls = [c for c in self.calls if c['step_name'] == 'root']
+    self.assertEqual(len(root_calls), 1)
+    self.assertIsInstance(root_calls[0]['exception'], ValueError)
+    self.assertIsNone(root_calls[0]['result'])
+
+  def test_failure_with_except_handler(self):
+    """§14.1: on_step fires for failing step AND for except_ handler."""
+    result = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'handled').run()
+    self.assertEqual(result, 'handled')
+    # The failing 'then' step fires with exception set.
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    self.assertEqual(len(then_calls), 1)
+    self.assertIsInstance(then_calls[0]['exception'], ZeroDivisionError)
+    # The except_ handler fires as a success step (exception=None on the handler step).
+    except_calls = [c for c in self.calls if c['step_name'] == 'except_']
+    self.assertEqual(len(except_calls), 1)
+    self.assertIsNone(except_calls[0]['exception'])
+
+  def test_success_steps_before_failure(self):
+    """§14.1: Steps before the failing step have exception=None."""
+    with self.assertRaises(ZeroDivisionError):
+      Chain(1).then(lambda x: x + 1).then(lambda x: 1 / 0).run()
+    # root and first then should succeed
+    root_calls = [c for c in self.calls if c['step_name'] == 'root']
+    self.assertEqual(len(root_calls), 1)
+    self.assertIsNone(root_calls[0]['exception'])
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    # One success, one failure
+    success_thens = [c for c in then_calls if c['exception'] is None]
+    failure_thens = [c for c in then_calls if c['exception'] is not None]
+    self.assertEqual(len(success_thens), 1)
+    self.assertEqual(len(failure_thens), 1)
+    self.assertIsInstance(failure_thens[0]['exception'], ZeroDivisionError)
+
+
+class OnStepBackwardCompatTest(TestCase):
+  """§14.1: 5-arg callbacks still work (backward compatibility)."""
+
+  def setUp(self):
+    self.calls = []
+    Chain.on_step = self._recorder_5arg
+
+  def tearDown(self):
+    Chain.on_step = None
+
+  def _recorder_5arg(self, chain, step_name, input_value, result, elapsed_ns):
+    """Classic 5-arg callback — no exception parameter."""
+    self.calls.append(
+      {
+        'step_name': step_name,
+        'input_value': input_value,
+        'result': result,
+        'elapsed_ns': elapsed_ns,
+      }
+    )
+
+  def test_5arg_callback_success(self):
+    """§14.1: 5-arg on_step callback works for successful steps."""
+    Chain(42).then(lambda x: x + 1).run()
+    step_names = [c['step_name'] for c in self.calls]
+    self.assertIn('root', step_names)
+    self.assertIn('then', step_names)
+    root_call = self.calls[0]
+    self.assertEqual(root_call['result'], 42)
+
+  def test_5arg_callback_not_called_on_failure(self):
+    """§14.1: 5-arg on_step callback is NOT called for failing steps."""
+    with self.assertRaises(ZeroDivisionError):
+      Chain(1).then(lambda x: 1 / 0).run()
+    # Root should be recorded, but failing then step should not
+    # (5-arg callbacks don't receive the exception parameter).
+    step_names = [c['step_name'] for c in self.calls]
+    self.assertIn('root', step_names)
+    # The failing then step should NOT be in calls for a 5-arg callback
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    self.assertEqual(len(then_calls), 0)
+
+  def test_5arg_callback_with_except_handler(self):
+    """§14.1: 5-arg on_step works with except_ handler present."""
+    result = Chain(1).then(lambda x: 1 / 0).except_(lambda _: 'handled').run()
+    self.assertEqual(result, 'handled')
+    step_names = [c['step_name'] for c in self.calls]
+    self.assertIn('root', step_names)
+    # except_ handler itself fires on_step (it's a success step)
+    self.assertIn('except_', step_names)
+
+  def test_5arg_callback_with_varargs(self):
+    """§14.1: Callback with *args is treated as 6-arg compatible."""
+    vararg_calls = []
+
+    def vararg_recorder(chain, step_name, *args):
+      vararg_calls.append({'step_name': step_name, 'args': args})
+
+    Chain.on_step = vararg_recorder
+    Chain(42).run()
+    self.assertTrue(len(vararg_calls) >= 1)
+    # *args should capture (input_value, result, elapsed_ns, exception)
+    root_call = vararg_calls[0]
+    self.assertEqual(root_call['step_name'], 'root')
+    self.assertEqual(len(root_call['args']), 4)  # input_value, result, elapsed_ns, exception=None
+    self.assertIsNone(root_call['args'][3])  # exception is None on success
+
+
+class OnStepExceptionAsyncTest(IsolatedAsyncioTestCase):
+  """§14.1: on_step exception parameter in async chains."""
+
+  def setUp(self):
+    self.calls = []
+    Chain.on_step = self._recorder
+
+  def tearDown(self):
+    Chain.on_step = None
+
+  def _recorder(self, chain, step_name, input_value, result, elapsed_ns, exception):
+    self.calls.append(
+      {
+        'step_name': step_name,
+        'input_value': input_value,
+        'result': result,
+        'elapsed_ns': elapsed_ns,
+        'exception': exception,
+      }
+    )
+
+  async def test_async_success_exception_none(self):
+    """§14.1: Async steps have exception=None on success."""
+
+    async def async_add(x):
+      return x + 1
+
+    result = await Chain(10).then(async_add).run()
+    self.assertEqual(result, 11)
+    for call in self.calls:
+      self.assertIsNone(call['exception'])
+
+  async def test_async_failure_exception_set(self):
+    """§14.1: Async failing step fires on_step with exception set."""
+
+    async def async_fail(x):
+      raise ValueError('async boom')
+
+    with self.assertRaises(ValueError):
+      await Chain(1).then(async_fail).run()
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    self.assertEqual(len(then_calls), 1)
+    self.assertIsInstance(then_calls[0]['exception'], ValueError)
+    self.assertIsNone(then_calls[0]['result'])
+
+  async def test_async_failure_with_except_handler(self):
+    """§14.1: Async chain with except_ handler — on_step fires for both failing step and handler."""
+
+    async def async_fail(x):
+      raise ValueError('boom')
+
+    result = await Chain(1).then(async_fail).except_(lambda _: 'recovered').run()
+    self.assertEqual(result, 'recovered')
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    self.assertEqual(len(then_calls), 1)
+    self.assertIsInstance(then_calls[0]['exception'], ValueError)
+    except_calls = [c for c in self.calls if c['step_name'] == 'except_']
+    self.assertEqual(len(except_calls), 1)
+    self.assertIsNone(except_calls[0]['exception'])
