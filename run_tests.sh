@@ -16,7 +16,7 @@ ruff check quent/ tests/
 echo "==> Type check (mypy)"
 mypy quent/
 
-echo "==> Tests"
-python scripts/run_tests_parallel.py
+echo "==> Tests (with coverage)"
+python scripts/run_tests_parallel.py --coverage
 
 echo "==> All checks passed."

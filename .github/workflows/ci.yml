@@ -136,7 +136,14 @@ jobs:
         run: uv run python -m compileall -q quent/
 
       - name: Run tests
-        run: uv run python scripts/run_tests_parallel.py
+        run: uv run python scripts/run_tests_parallel.py ${{ (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12') && '--coverage' || '' }}
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
 
   security:
     runs-on: ubuntu-latest
