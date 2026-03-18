@@ -182,6 +182,31 @@ def _except_handler_body(
   return result
 
 
+def _handle_finally_exc(
+  exc: BaseException,
+  chain: Chain[Any],
+  finally_link: Link,
+  root_link: Link | None,
+  root_value: Any,
+  is_nested: bool,
+) -> None:
+  """Handle an exception from a finally handler -- attach metadata and re-raise.
+
+  Handles both ``_ControlFlowSignal`` (converted to ``QuentException``) and
+  general ``BaseException`` (stamps exception source, modifies traceback).
+  Shared by ``_finally_handler_body`` and ``_await_finally_result``.
+  """
+  if isinstance(exc, _ControlFlowSignal):
+    raise QuentException(_signal_in_handler_msg(exc, 'finally')) from None
+  if root_value is not Null:
+    _set_link_temp_args(exc, finally_link, root_value=root_value)
+  try:
+    _modify_traceback(exc, chain, finally_link, root_link, is_nested=is_nested)
+  except Exception as e:
+    warnings.warn(f'quent: traceback enhancement failed: {e!r}', RuntimeWarning, stacklevel=_user_stacklevel())
+  raise exc
+
+
 def _finally_handler_body(chain: Chain[Any], root_value: Any, root_link: Link | None, is_nested: bool = False) -> Any:
   """Evaluate the chain's finally handler and return its result."""
   __tracebackhide__ = True
@@ -189,16 +214,8 @@ def _finally_handler_body(chain: Chain[Any], root_value: Any, root_link: Link | 
   _finally_link = chain._on_finally_link
   try:
     return _evaluate_value(_finally_link, _null_to_none(root_value))
-  except _ControlFlowSignal as signal:
-    raise QuentException(_signal_in_handler_msg(signal, 'finally')) from None
   except BaseException as exc_:
-    if root_value is not Null:
-      _set_link_temp_args(exc_, _finally_link, root_value=root_value)
-    try:
-      _modify_traceback(exc_, chain, _finally_link, root_link, is_nested=is_nested)
-    except Exception as e:
-      warnings.warn(f'quent: traceback enhancement failed: {e!r}', RuntimeWarning, stacklevel=_user_stacklevel())
-    raise exc_
+    _handle_finally_exc(exc_, chain, _finally_link, root_link, root_value, is_nested)
 
 
 async def _await_finally_result(
@@ -220,16 +237,8 @@ async def _await_finally_result(
   _finally_link = chain._on_finally_link
   try:
     await finally_result
-  except _ControlFlowSignal as signal:
-    raise QuentException(_signal_in_handler_msg(signal, 'finally')) from None
   except BaseException as exc_:
-    if root_value is not Null:
-      _set_link_temp_args(exc_, _finally_link, root_value=root_value)
-    try:
-      _modify_traceback(exc_, chain, _finally_link, root_link, is_nested=is_nested)
-    except Exception as e:
-      warnings.warn(f'quent: traceback enhancement failed: {e!r}', RuntimeWarning, stacklevel=_user_stacklevel())
-    raise exc_
+    _handle_finally_exc(exc_, chain, _finally_link, root_link, root_value, is_nested)
 
 
 async def _async_finally_transition(
@@ -1138,7 +1147,10 @@ def _run(
     if is_nested:
       _exc_to_propagate = exc
     else:
-      msg = 'Chain.break_() cannot be used outside of a foreach/foreach_do iteration.'
+      msg = (
+        'Chain.break_() cannot be used outside of an iteration context'
+        ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
+      )
       _q_exc = QuentException(msg)
       _q_exc.__suppress_context__ = True
       _exc_to_propagate = _q_exc
@@ -1344,7 +1356,10 @@ async def _run_async(
       _log.debug('[exec:%06x] chain %r: break signal', exec_id, chain)
     if is_nested:
       raise
-    msg = 'Chain.break_() cannot be used outside of a foreach/foreach_do iteration.'
+    msg = (
+      'Chain.break_() cannot be used outside of an iteration context'
+      ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
+    )
     raise QuentException(msg) from None
 
   except BaseException as exc:

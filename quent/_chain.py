@@ -8,7 +8,7 @@ import sys
 import warnings
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from concurrent.futures import Executor
-from typing import Any, ClassVar, Generic, NoReturn, ParamSpec, TypeVar, overload
+from typing import Any, ClassVar, Generic, Literal, NoReturn, ParamSpec, TypeVar, overload
 
 from ._context import _MISSING, _ctx_get, _ctx_set
 from ._engine import _run
@@ -77,7 +77,6 @@ class _SetDescriptor:
 
           _store.__qualname__ = _store.__name__ = f'set({key!r}, ...)'
 
-        obj._require_no_pending_if('set')
         return obj._then(_store, (), {}, ignore_result=True)
 
       return instance_set
@@ -115,7 +114,6 @@ class _GetDescriptor:
           return _ctx_get(key, default)
 
         _retrieve.__qualname__ = _retrieve.__name__ = f'get({key!r})'
-        obj._require_no_pending_if('get')
         return obj._then(_retrieve, (), {})
 
       return instance_get
@@ -335,6 +333,7 @@ class Chain(Generic[_T], _UncopyableMixin):
 
         Chain(fetch).name('auth_pipeline').then(validate).run()
     """
+    self._ensure_if_consumed()
     self._name = label
     return self
 
@@ -351,6 +350,7 @@ class Chain(Generic[_T], _UncopyableMixin):
     original_value: Any | None = None,
   ) -> Self:
     """Construct a Link from the given arguments and append it to the pipeline. O(1) via tail pointer."""
+    self._ensure_if_consumed()
     link = Link(v, args, kwargs, ignore_result=ignore_result, original_value=original_value)
     if self._current_link is not None:  # 3+ links: append to tail
       self._current_link.next_link = link
@@ -476,11 +476,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         Chain([1, 2, 3]).foreach(lambda x: x ** 2).run()  # [1, 4, 9]
     """
     _require_callable(fn, 'foreach', self)
-    _validate_concurrency(concurrency, 'foreach', self)
-    _validate_executor(executor, 'foreach')
-    # Inner Link is stored for traceback drill-through and temp arg display.
-    inner = Link(fn)
-    return self._then(_make_iter_op(inner, 'foreach', concurrency, executor), original_value=inner)  # type: ignore[return-value]
+    return self._build_foreach(fn, 'foreach', concurrency, executor)  # type: ignore[return-value]
 
   def foreach_do(
     self, fn: Callable[[Any], Any], /, *, concurrency: int | None = None, executor: Executor | None = None
@@ -522,10 +518,21 @@ class Chain(Generic[_T], _UncopyableMixin):
         # returns: [1, 2, 3] (original elements preserved)
     """
     _require_callable(fn, 'foreach_do', self)
-    _validate_concurrency(concurrency, 'foreach_do', self)
-    _validate_executor(executor, 'foreach_do')
+    return self._build_foreach(fn, 'foreach_do', concurrency, executor)
+
+  def _build_foreach(
+    self,
+    fn: Callable[[Any], Any],
+    method_name: Literal['foreach', 'foreach_do'],
+    concurrency: int | None,
+    executor: Executor | None,
+  ) -> Self:
+    """Shared implementation for foreach() and foreach_do()."""
+    _validate_concurrency(concurrency, method_name, self)
+    _validate_executor(executor, method_name)
+    # Inner Link is stored for traceback drill-through and temp arg display.
     inner = Link(fn)
-    return self._then(_make_iter_op(inner, 'foreach_do', concurrency, executor), original_value=inner)
+    return self._then(_make_iter_op(inner, method_name, concurrency, executor), original_value=inner)
 
   def gather(
     self, *fns: Callable[[_T], Any], concurrency: int = -1, executor: Executor | None = None
@@ -588,8 +595,8 @@ class Chain(Generic[_T], _UncopyableMixin):
 
     ``buffer()`` is a chain-level modifier — it does not add a pipeline
     step.  It only takes effect when the chain is consumed via an
-    iteration terminal.  If ``run()`` is used instead, the buffer
-    setting is silently ignored.
+    iteration terminal.  If ``run()`` is used instead, a
+    ``QuentException`` is raised.
 
     Args:
       n: Maximum number of items the buffer can hold.  Must be a
@@ -608,7 +615,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         # Producer feeds items into a buffer of size 10.
         # Consumer reads from the buffer with backpressure.
     """
-    self._require_no_pending_if('buffer')
+    self._ensure_if_consumed()
     if isinstance(n, bool) or not isinstance(n, int):
       msg = f'buffer() requires a positive integer, got {type(n).__name__}'
       raise TypeError(msg)
@@ -705,9 +712,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         Chain(-5).if_(lambda x: x > 0).then(lambda x: x * 2).run()  # -5 (unchanged)
         Chain(5).if_().then(lambda x: x * 2).else_(0).run()  # 10 (truthy)
     """
-    if self._pending_if:
-      msg = 'if_() called while a previous if_() is still pending — add .then() or .do() first.'
-      raise QuentException(msg)
+    self._ensure_if_consumed()
     if predicate is None and (args or kwargs):
       msg = 'if_() received args/kwargs but no predicate — pass a callable or value as the first argument.'
       raise QuentException(msg)
@@ -877,6 +882,7 @@ class Chain(Generic[_T], _UncopyableMixin):
 
         Chain(0).then(lambda x: 1 / x).except_(lambda e: -1).run()  # -1
     """
+    self._ensure_if_consumed()
     _require_callable(fn, 'except_', self)
     if self._on_except_link is not None:
       msg = "You can only register one 'except' callback."
@@ -929,6 +935,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         Chain(resource).then(process).finally_(cleanup).run()
         # cleanup(resource) always runs, even if process raises
     """
+    self._ensure_if_consumed()
     _require_callable(fn, 'finally_', self)
     if self._on_finally_link is not None:
       msg = "You can only register one 'finally' callback."
@@ -942,14 +949,10 @@ class Chain(Generic[_T], _UncopyableMixin):
     msg = f'A {type(signal).__name__} signal escaped the chain via {source}().'
     return QuentException(msg)
 
-  def _require_no_pending_if(self, method: str) -> None:
+  def _ensure_if_consumed(self) -> None:
     """Raise if an if_() is pending without a matching then()/do()."""
     if self._pending_if:
-      msg = (
-        f'{method}() called with a pending .if_() that was never consumed by .then() or .do(). '
-        f'Usage: chain.if_(pred).then(v).{method}()'
-      )
-      raise QuentException(msg)
+      raise QuentException('if_() must be followed by .then() or .do() to register the conditional branch.')
 
   # ---- Execution ----
 
@@ -1009,7 +1012,7 @@ class Chain(Generic[_T], _UncopyableMixin):
 
         Chain(5).then(lambda x: x * 2).run()  # 10
     """
-    self._require_no_pending_if('run')
+    self._ensure_if_consumed()
     if self._buffer_size is not None:
       raise QuentException(
         'buffer() requires an iteration terminal'
@@ -1052,7 +1055,7 @@ class Chain(Generic[_T], _UncopyableMixin):
     """
     from ._debug import _debug_run, _make_debug_chain
 
-    self._require_no_pending_if('debug')
+    self._ensure_if_consumed()
     debug_chain = _make_debug_chain(self)
     return _debug_run(debug_chain, v, args, kwargs)
 
@@ -1074,7 +1077,7 @@ class Chain(Generic[_T], _UncopyableMixin):
 
         get_name()  # 'ALICE'
     """
-    self._require_no_pending_if('decorator')
+    self._ensure_if_consumed()
     chain = self.clone()
 
     def _decorator(fn: Callable[_P, _R]) -> Callable[_P, _R]:
@@ -1102,7 +1105,7 @@ class Chain(Generic[_T], _UncopyableMixin):
     flush: Callable[[], Any] | None = None,
   ) -> ChainIterator[Any]:
     """Shared implementation for iterate/iterate_do/flat_iterate/flat_iterate_do."""
-    self._require_no_pending_if(method)
+    self._ensure_if_consumed()
     link = Link(fn) if fn is not None else None
     chain_run = functools.partial(_run, self)
     last_link = self._current_link or self._first_link
@@ -1220,7 +1223,7 @@ class Chain(Generic[_T], _UncopyableMixin):
         base = Chain().then(validate).then(normalize)
         for_api = base.clone().then(to_json)  # base is not modified
     """
-    self._require_no_pending_if('clone')
+    self._ensure_if_consumed()
     cls = type(self)
     new = cls.__new__(cls)
     new._name = self._name

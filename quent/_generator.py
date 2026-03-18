@@ -84,14 +84,7 @@ def _run_deferred_finally_sync(chain: Chain[Any], deferred: list[Any]) -> None:
     # Handler returned a coroutine — can't await in sync context.
     if hasattr(result, 'close'):
       result.close()
-    warnings.warn(
-      'iterate(): finally handler returned a coroutine during sync iteration; '
-      'the handler was NOT awaited and its cleanup code was skipped. '
-      'Resources held by the handler (connections, file handles, etc.) may leak. '
-      "Use 'async for' to properly await async finally handlers.",
-      RuntimeWarning,
-      stacklevel=2,
-    )
+    raise TypeError("Sync iteration chain's finally_() handler returned a coroutine; use 'async for' instead of 'for'.")
 
 
 async def _run_deferred_finally_async(chain: Chain[Any], deferred: list[Any]) -> None:
@@ -130,6 +123,37 @@ async def _async_cm_exit_clean(cm: Any, use_async: bool) -> None:
       await exit_result
 
 
+def _cm_exc_exit_sync(cm: Any) -> bool:
+  """Call sync CM __exit__ with active exception info. Returns True if exception was suppressed."""
+  __tracebackhide__ = True
+  exc_info = sys.exc_info()
+  if not isinstance(exc_info[1], (GeneratorExit, _ControlFlowSignal)):
+    suppress = cm.__exit__(*exc_info)
+    if _isawaitable(suppress):
+      if hasattr(suppress, 'close'):
+        suppress.close()
+      return False
+    return bool(suppress)
+  _sync_cm_exit_clean(cm)
+  return False
+
+
+async def _cm_exc_exit_async(cm: Any, use_async: bool) -> bool:
+  """Call CM __exit__/__aexit__ with active exception info. Returns True if exception was suppressed."""
+  __tracebackhide__ = True
+  exc_info = sys.exc_info()
+  if not isinstance(exc_info[1], (GeneratorExit, _ControlFlowSignal)):
+    if use_async:
+      suppress = await cm.__aexit__(*exc_info)
+    else:
+      suppress = cm.__exit__(*exc_info)
+      if _isawaitable(suppress):
+        suppress = await suppress
+    return bool(suppress)
+  await _async_cm_exit_clean(cm, use_async)
+  return False
+
+
 # Module-level functions (not methods) to avoid binding `self` in the generator closure.
 
 
@@ -152,6 +176,7 @@ def _sync_generator(
   _has_deferred = chain is not None and chain._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   _with_cm: Any = None  # Tracks entered CM for cleanup
+  _cm_exited = False
 
   try:
     # Run the chain pipeline
@@ -242,45 +267,32 @@ def _sync_generator(
         for sub in flush_result:
           yield sub
 
-    except _Break as exc:
+    except (_Break, _Return) as exc:
       resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
-          _close_and_raise_sync(resolved, '_Break')
-        yield resolved
-      return
-    except _Return as exc:
-      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
-      if resolved is not _NO_VALUE:
-        if _isawaitable(resolved):
-          _close_and_raise_sync(resolved, '_Return')
+          _close_and_raise_sync(resolved, type(exc).__name__)
         yield resolved
       return
 
+  except BaseException:
+    # CM exception-path exit — handles __exit__(exc) and suppression.
+    if _with_cm is not None:
+      _cm_exited = True
+      if _cm_exc_exit_sync(_with_cm):
+        return  # CM suppressed the exception.
+    raise
+
   finally:
-    # CM exit + deferred finally — single cleanup path for all exit modes.
-    # Structure: try { cm.__exit__ } finally { deferred_finally }
-    # ensures deferred finally runs even if __exit__ raises.
-    _cm_suppress = False
+    # Cleanup: CM clean-exit (non-exception paths) + deferred finally.
+    # Exception-path CM exit is handled in except above; _cm_exited prevents double-exit.
     try:
-      if _with_cm is not None:
-        _exc_info = sys.exc_info()
-        if _exc_info[1] is not None and not isinstance(_exc_info[1], (GeneratorExit, _ControlFlowSignal)):
-          _cm_suppress = _with_cm.__exit__(*_exc_info)
-          if _isawaitable(_cm_suppress):
-            if hasattr(_cm_suppress, 'close'):
-              _cm_suppress.close()
-            _cm_suppress = False
-          else:
-            _cm_suppress = bool(_cm_suppress)
-        else:
-          _sync_cm_exit_clean(_with_cm)
+      if _with_cm is not None and not _cm_exited:
+        _sync_cm_exit_clean(_with_cm)
     finally:
       if _deferred is not None:
         assert chain is not None  # guaranteed by _has_deferred guard
         _run_deferred_finally_sync(chain, _deferred)
-    if _cm_suppress:
-      return  # noqa: B012 — intentional: CM suppression semantics require return in finally
 
 
 async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
@@ -310,6 +322,7 @@ async def _async_generator(
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
   _with_cm: Any = None
   _use_async_cm = False
+  _cm_exited = False
 
   try:
     # Run the chain pipeline
@@ -412,7 +425,7 @@ async def _async_generator(
           for sub in flush_result:
             yield sub
 
-    except _Break as exc:
+    except (_Break, _Return) as exc:
       resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
@@ -420,43 +433,28 @@ async def _async_generator(
             resolved = await resolved
           except BaseException as await_exc:
             _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
-            raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
-        yield resolved
-      return
-    except _Return as exc:
-      resolved = _resolve_signal_value(exc, link, chain, ignore_result, idx)
-      if resolved is not _NO_VALUE:
-        if _isawaitable(resolved):
-          try:
-            resolved = await resolved
-          except BaseException as await_exc:
-            _handle_iterate_exc(await_exc, link, chain, ignore_result, exc.value, idx)
-            raise await_exc  # explicit raise for modified __traceback__ on Python <3.11
+            raise await_exc
         yield resolved
       return
 
+  except BaseException:
+    # CM exception-path exit — handles __exit__(exc) / __aexit__(exc) and suppression.
+    if _with_cm is not None:
+      _cm_exited = True
+      if await _cm_exc_exit_async(_with_cm, _use_async_cm):
+        return  # CM suppressed the exception.
+    raise
+
   finally:
-    # CM exit + deferred finally — single cleanup path for all exit modes.
-    _cm_suppress = False
+    # Cleanup: CM clean-exit (non-exception paths) + deferred finally.
+    # Exception-path CM exit is handled in except above; _cm_exited prevents double-exit.
     try:
-      if _with_cm is not None:
-        _exc_info = sys.exc_info()
-        if _exc_info[1] is not None and not isinstance(_exc_info[1], (GeneratorExit, _ControlFlowSignal)):
-          if _use_async_cm:
-            _cm_suppress = await _with_cm.__aexit__(*_exc_info)
-          else:
-            _cm_suppress = _with_cm.__exit__(*_exc_info)
-            if _isawaitable(_cm_suppress):
-              _cm_suppress = await _cm_suppress
-          _cm_suppress = bool(_cm_suppress)
-        else:
-          await _async_cm_exit_clean(_with_cm, _use_async_cm)
+      if _with_cm is not None and not _cm_exited:
+        await _async_cm_exit_clean(_with_cm, _use_async_cm)
     finally:
       if _deferred is not None:
         assert chain is not None  # guaranteed by _has_deferred guard
         await _run_deferred_finally_async(chain, _deferred)
-    if _cm_suppress:
-      return  # noqa: B012 — intentional: CM suppression semantics require return in finally
 
 
 class ChainIterator(_UncopyableMixin, Generic[_T]):

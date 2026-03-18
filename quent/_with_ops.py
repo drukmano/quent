@@ -16,6 +16,20 @@ from ._types import _ControlFlowSignal
 _WITH_UNSET: Any = object()
 
 
+async def _async_cm_exit(cm: Any, is_async_cm: bool, *args: Any) -> Any:
+  """Call the appropriate CM exit method and await the result.
+
+  Dispatches to ``__aexit__`` for async CMs, or ``__exit__`` for sync CMs
+  (awaiting the result if it turns out to be awaitable).
+  """
+  if is_async_cm:
+    return await cm.__aexit__(*args)
+  result = cm.__exit__(*args)
+  if _isawaitable(result):
+    return await result
+  return result
+
+
 class _WithOp:
   """Context manager operation: enter value as CM, call fn with context.
 
@@ -57,27 +71,21 @@ class _WithOp:
       body_result = await body_result
     except _ControlFlowSignal as signal:
       try:
-        exit_result = current_value.__exit__(None, None, None)
-        if _isawaitable(exit_result):
-          await exit_result
+        await _async_cm_exit(current_value, False, None, None, None)
       except BaseException as exit_exc:
         raise exit_exc from signal
       raise
     except BaseException as exc:
       _set_link_temp_args(exc, self._link, ctx=ctx)
       try:
-        suppress = current_value.__exit__(type(exc), exc, exc.__traceback__)
-        if _isawaitable(suppress):
-          suppress = await suppress
+        suppress = await _async_cm_exit(current_value, False, type(exc), exc, exc.__traceback__)
       except BaseException as exit_exc:
         raise exit_exc from exc
       if not suppress:
         raise
       return self._suppressed_result(outer_value)
     else:
-      exit_result = current_value.__exit__(None, None, None)
-      if _isawaitable(exit_result):
-        await exit_result
+      await _async_cm_exit(current_value, False, None, None, None)
       if self._ignore_result:
         return outer_value
       return body_result
@@ -98,7 +106,7 @@ class _WithOp:
         result = await result
     except _ControlFlowSignal as signal:
       try:
-        await current_value.__aexit__(None, None, None)
+        await _async_cm_exit(current_value, True, None, None, None)
       except BaseException as exit_exc:
         raise exit_exc from signal
       raise
@@ -106,14 +114,14 @@ class _WithOp:
       result = _WITH_UNSET
       _set_link_temp_args(exc, self._link, ctx=ctx)
       try:
-        suppress = await current_value.__aexit__(type(exc), exc, exc.__traceback__)
+        suppress = await _async_cm_exit(current_value, True, type(exc), exc, exc.__traceback__)
       except BaseException as exit_exc:
         raise exit_exc from exc
       if not suppress:
         raise
       return self._suppressed_result(outer_value)
     else:
-      await current_value.__aexit__(None, None, None)
+      await _async_cm_exit(current_value, True, None, None, None)
     if result is _WITH_UNSET:
       return self._suppressed_result(outer_value)
     if self._ignore_result:
