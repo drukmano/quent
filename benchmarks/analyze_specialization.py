@@ -17,13 +17,13 @@ import sys
 
 
 def _warm_up() -> None:
-  """Execute chains to trigger adaptive specialization."""
-  from benchmarks._helpers import make_sync_chain
+  """Execute pipelines to trigger adaptive specialization."""
+  from benchmarks._helpers import make_sync_pipeline
 
   for _ in range(200):
     for n in (1, 5, 10):
-      chain = make_sync_chain(n)
-      chain.run(0)
+      q = make_sync_pipeline(n)
+      q.run(0)
 
 
 def main() -> None:

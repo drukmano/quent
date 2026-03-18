@@ -12,7 +12,7 @@ import traceback as tb_mod
 
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
 
-from quent import Chain
+from quent import Q
 
 # ---------------------------------------------------------------------------
 # Case counters
@@ -24,7 +24,7 @@ _caught_by_except_cases = 0
 
 def _header(label: str) -> None:
   width = max(60, len(label) + 6)
-  bar = '═' * width
+  bar = '=' * width
   print(f'\n{bar}')
   print(f'  {label}')
   print(f'{bar}')
@@ -102,23 +102,23 @@ def section_basic_sync():
   _header('SECTION 1 — Basic sync')
 
   run_case(
-    'CASE 1: Simple chain — Chain(1).then(lambda x: 1/0).run()',
-    lambda: Chain(1).then(lambda x: 1 / 0).run(),
+    'CASE 1: Simple pipeline — Q(1).then(lambda x: 1/0).run()',
+    lambda: Q(1).then(lambda x: 1 / 0).run(),
   )
 
   run_case(
-    'CASE 2: Callable root that raises — Chain(lambda: 1/0).run()',
-    lambda: Chain(lambda: 1 / 0).run(),
+    'CASE 2: Callable root that raises — Q(lambda: 1/0).run()',
+    lambda: Q(lambda: 1 / 0).run(),
   )
 
   run_case(
-    'CASE 3: Error in do() — Chain(1).do(lambda x: 1/0).run()',
-    lambda: Chain(1).do(lambda x: 1 / 0).run(),
+    'CASE 3: Error in do() — Q(1).do(lambda x: 1/0).run()',
+    lambda: Q(1).do(lambda x: 1 / 0).run(),
   )
 
   run_case(
-    'CASE 4: Error deep in chain (4 steps, fails at step 3)',
-    lambda: Chain(1).then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: 1 / 0).then(str).run(),
+    'CASE 4: Error deep in pipeline (4 steps, fails at step 3)',
+    lambda: Q(1).then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: 1 / 0).then(str).run(),
   )
 
   def step_a(x):
@@ -132,7 +132,7 @@ def section_basic_sync():
 
   run_case(
     'CASE 5: Named functions — step_a → step_b(raises) → step_c',
-    lambda: Chain(1).then(step_a).then(step_b).then(step_c).run(),
+    lambda: Q(1).then(step_a).then(step_b).then(step_c).run(),
   )
 
 
@@ -158,36 +158,36 @@ def section_basic_async():
 
   run_async_case(
     'CASE 6: Async function that raises',
-    lambda: Chain(1).then(_bad_async).run(),
+    lambda: Q(1).then(_bad_async).run(),
   )
 
   run_async_case(
     'CASE 7: sync → async → error',
-    lambda: Chain(1).then(lambda x: x + 1).then(_async_identity).then(_bad_async).run(),
+    lambda: Q(1).then(lambda x: x + 1).then(_async_identity).then(_bad_async).run(),
   )
 
   run_async_case(
     'CASE 8: Async root that raises',
-    lambda: Chain(_async_root_raises).run(),
+    lambda: Q(_async_root_raises).run(),
   )
 
 
 # ===========================================================================
-# SECTION 3 – Nested chains
+# SECTION 3 – Nested pipelines
 # ===========================================================================
 
 
-def section_nested_chains():
-  _header('SECTION 3 — Nested chains')
+def section_nested_pipelines():
+  _header('SECTION 3 — Nested pipelines')
 
   run_case(
-    'CASE 9: Inner chain raises — Chain(1).then(Chain().then(lambda: 1/0))',
-    lambda: Chain(1).then(Chain().then(lambda x: 1 / 0)).run(),
+    'CASE 9: Inner pipeline raises — Q(1).then(Q().then(lambda: 1/0))',
+    lambda: Q(1).then(Q().then(lambda x: 1 / 0)).run(),
   )
 
   run_case(
-    'CASE 10: Doubly nested chain raises',
-    lambda: Chain(1).then(Chain().then(Chain().then(lambda x: 1 / 0))).run(),
+    'CASE 10: Doubly nested pipeline raises',
+    lambda: Q(1).then(Q().then(Q().then(lambda x: 1 / 0))).run(),
   )
 
   def inner_step(x):
@@ -200,8 +200,8 @@ def section_nested_chains():
     raise AttributeError('deep fail')
 
   run_case(
-    'CASE 11: Nested chains with named functions in both levels',
-    lambda: Chain(1).then(Chain().then(inner_step).then(deep_fail)).then(outer_step).run(),
+    'CASE 11: Nested pipelines with named functions in both levels',
+    lambda: Q(1).then(Q().then(inner_step).then(deep_fail)).then(outer_step).run(),
   )
 
 
@@ -215,17 +215,17 @@ def section_except_handler():
 
   run_case_caught(
     'CASE 12: except_ handles the exception (no traceback expected)',
-    lambda: Chain(1).then(lambda x: 1 / 0).except_(lambda e: f'caught: {e}').run(),
+    lambda: Q(1).then(lambda x: 1 / 0).except_(lambda e: f'caught: {e}').run(),
   )
 
   run_case(
     'CASE 13: except_ itself raises (chained exception expected)',
-    lambda: Chain(1).then(lambda x: 1 / 0).except_(lambda e: 1 / 0).run(),
+    lambda: Q(1).then(lambda x: 1 / 0).except_(lambda e: 1 / 0).run(),
   )
 
   run_case(
     'CASE 14: except_ with non-matching exception type (ZeroDivisionError vs TypeError)',
-    lambda: Chain(1).then(lambda x: 1 / 0).except_(lambda e: 'caught', exceptions=TypeError).run(),
+    lambda: Q(1).then(lambda x: 1 / 0).except_(lambda e: 'caught', exceptions=TypeError).run(),
   )
 
 
@@ -238,13 +238,13 @@ def section_finally_handler():
   _header('SECTION 5 — finally_ handler')
 
   run_case(
-    'CASE 15: finally_ runs even when main chain raises (finally prints)',
-    lambda: Chain(1).then(lambda x: 1 / 0).finally_(lambda x: print(f'  [finally] root_value={x!r}')).run(),
+    'CASE 15: finally_ runs even when main pipeline raises (finally prints)',
+    lambda: Q(1).then(lambda x: 1 / 0).finally_(lambda x: print(f'  [finally] root_value={x!r}')).run(),
   )
 
   run_case(
     'CASE 16: finally_ itself raises (nested exception)',
-    lambda: Chain(1).then(lambda x: 1 / 0).finally_(lambda x: 1 / 0).run(),
+    lambda: Q(1).then(lambda x: 1 / 0).finally_(lambda x: 1 / 0).run(),
   )
 
 
@@ -257,18 +257,18 @@ def section_map():
   _header('SECTION 6 — map / foreach_do')
 
   run_case(
-    'CASE 17: map callback always raises — Chain([1,2,3]).foreach(lambda x: 1/0)',
-    lambda: Chain([1, 2, 3]).foreach(lambda x: 1 / 0).run(),
+    'CASE 17: map callback always raises — Q([1,2,3]).foreach(lambda x: 1/0)',
+    lambda: Q([1, 2, 3]).foreach(lambda x: 1 / 0).run(),
   )
 
   run_case(
-    'CASE 18: map fails on specific item — Chain([1,2,0]).foreach(lambda x: 10//x)',
-    lambda: Chain([1, 2, 0]).foreach(lambda x: 10 // x).run(),
+    'CASE 18: map fails on specific item — Q([1,2,0]).foreach(lambda x: 10//x)',
+    lambda: Q([1, 2, 0]).foreach(lambda x: 10 // x).run(),
   )
 
   run_case(
     'CASE 19: foreach_do callback raises',
-    lambda: Chain([1, 2, 3]).foreach_do(lambda x: 1 / 0).run(),
+    lambda: Q([1, 2, 3]).foreach_do(lambda x: 1 / 0).run(),
   )
 
 
@@ -282,7 +282,7 @@ def section_filter():
 
   run_case(
     'CASE 20: Error in foreach callback',
-    lambda: Chain([1, 2, 3]).foreach(lambda x: 1 / 0).run(),
+    lambda: Q([1, 2, 3]).foreach(lambda x: 1 / 0).run(),
   )
 
 
@@ -316,17 +316,17 @@ def section_with():
 
   run_case(
     'CASE 21: Error inside with_ body',
-    lambda: Chain(_SimpleCM()).with_(lambda ctx: 1 / 0).run(),
+    lambda: Q(_SimpleCM()).with_(lambda ctx: 1 / 0).run(),
   )
 
   run_case(
     'CASE 22: Error in __enter__',
-    lambda: Chain(_BadEnterCM()).with_(lambda ctx: ctx).run(),
+    lambda: Q(_BadEnterCM()).with_(lambda ctx: ctx).run(),
   )
 
   run_case(
     'CASE 23: with_do error — body raises, original value not kept',
-    lambda: Chain(_SimpleCM()).with_do(lambda ctx: 1 / 0).run(),
+    lambda: Q(_SimpleCM()).with_do(lambda ctx: 1 / 0).run(),
   )
 
 
@@ -341,7 +341,7 @@ def section_gather():
   run_case(
     'CASE 24: One gathered function raises (sync)',
     lambda: (
-      Chain(1)
+      Q(1)
       .gather(
         lambda x: x + 1,
         lambda x: 1 / 0,
@@ -354,7 +354,7 @@ def section_gather():
   run_async_case(
     'CASE 25: One gathered function raises (async)',
     lambda: (
-      Chain(1)
+      Q(1)
       .gather(
         lambda x: x + 1,
         lambda x: 1 / 0,
@@ -366,18 +366,18 @@ def section_gather():
 
 
 # ===========================================================================
-# SECTION 10 – Reusable chains
+# SECTION 10 – Reusable pipelines
 # ===========================================================================
 
 
 def section_reusable():
-  _header('SECTION 10 — Reusable chains')
+  _header('SECTION 10 — Reusable pipelines')
 
   def _run_reusable_sync():
-    fc = Chain().then(lambda x: 1 / 0)
-    return fc(1)
+    q = Q().then(lambda x: 1 / 0)
+    return q(1)
 
-  run_case('CASE 26: Reusable chain that raises (sync)', _run_reusable_sync)
+  run_case('CASE 26: Reusable pipeline that raises (sync)', _run_reusable_sync)
 
   def _run_reusable_deep():
     def step1(x):
@@ -389,10 +389,10 @@ def section_reusable():
     def step3(x):
       raise StopIteration('reusable stop')
 
-    fc = Chain().then(step1).then(step2).then(step3)
-    return fc(5)
+    q = Q().then(step1).then(step2).then(step3)
+    return q(5)
 
-  run_case('CASE 27: Reusable chain — named steps, raises at step 3', _run_reusable_deep)
+  run_case('CASE 27: Reusable pipeline — named steps, raises at step 3', _run_reusable_deep)
 
 
 # ===========================================================================
@@ -403,19 +403,19 @@ def section_reusable():
 def section_deep():
   _header('SECTION 11 — Deep call stacks')
 
-  def _build_deep_chain():
-    c = Chain(1)
+  def _build_deep_pipeline():
+    q = Q(1)
     for _ in range(9):
-      c = c.then(lambda x: x + 1)
-    c = c.then(lambda x: 1 / 0)
-    return c.run()
+      q = q.then(lambda x: x + 1)
+    q = q.then(lambda x: 1 / 0)
+    return q.run()
 
-  run_case('CASE 28: 10 steps, last one raises', _build_deep_chain)
+  run_case('CASE 28: 10 steps, last one raises', _build_deep_pipeline)
 
   def _build_triple_nested():
-    return Chain(1).then(Chain().then(Chain().then(Chain().then(lambda x: 1 / 0)))).run()
+    return Q(1).then(Q().then(Q().then(Q().then(lambda x: 1 / 0)))).run()
 
-  run_case('CASE 29: 3-level nested chain, innermost raises', _build_triple_nested)
+  run_case('CASE 29: 3-level nested pipeline, innermost raises', _build_triple_nested)
 
 
 # ===========================================================================
@@ -441,22 +441,22 @@ def section_matrix():
 
   run_case(
     'CASE 30: sync → sync → error',
-    lambda: Chain(1).then(lambda x: x + 1).then(_fail_sync).run(),
+    lambda: Q(1).then(lambda x: x + 1).then(_fail_sync).run(),
   )
 
   run_async_case(
     'CASE 31: sync → async → error',
-    lambda: Chain(1).then(lambda x: x + 1).then(_fail_sync_wrapped).run(),
+    lambda: Q(1).then(lambda x: x + 1).then(_fail_sync_wrapped).run(),
   )
 
   run_async_case(
     'CASE 32: async → sync → error',
-    lambda: Chain(1).then(_passthrough_async).then(_fail_sync).run(),
+    lambda: Q(1).then(_passthrough_async).then(_fail_sync).run(),
   )
 
   run_async_case(
     'CASE 33: async → async → error',
-    lambda: Chain(1).then(_passthrough_async).then(_bad_async).run(),
+    lambda: Q(1).then(_passthrough_async).then(_bad_async).run(),
   )
 
 
@@ -482,17 +482,17 @@ def section_args():
 
   run_case(
     'CASE 34: Error with explicit positional extra arg',
-    lambda: Chain(1).then(_raiser_extra_arg, 1, 'extra').run(),
+    lambda: Q(1).then(_raiser_extra_arg, 1, 'extra').run(),
   )
 
   run_case(
     'CASE 35: Error with kwargs only',
-    lambda: Chain(1).then(_raiser_kwonly, key='val').run(),
+    lambda: Q(1).then(_raiser_kwonly, key='val').run(),
   )
 
   run_case(
     'CASE 36: Error with ellipsis — callable invoked with no args',
-    lambda: Chain(1).then(_raiser_no_args, ...).run(),
+    lambda: Q(1).then(_raiser_no_args, ...).run(),
   )
 
 
@@ -508,17 +508,17 @@ def section_control_flow():
   global _total_cases, _caught_by_except_cases
   _total_cases += 1
   _caught_by_except_cases += 1
-  _header('CASE 37: Chain.return_() — early exit, result expected (no traceback)')
+  _header('CASE 37: Q.return_() — early exit, result expected (no traceback)')
   try:
-    result = Chain(1).then(lambda x: Chain.return_(x + 99)).run()
+    result = Q(1).then(lambda x: Q.return_(x + 99)).run()
     print(f'[early return]  result = {result!r}')
   except Exception:
     tb_mod.print_exc()
   print()
 
   run_case(
-    'CASE 38: Chain.break_() outside map — raises QuentException',
-    lambda: Chain(1).then(lambda x: Chain.break_()).run(),
+    'CASE 38: Q.break_() outside map — raises QuentException',
+    lambda: Q(1).then(lambda x: Q.break_()).run(),
   )
 
 
@@ -538,13 +538,13 @@ def section_chained_exc():
   _header('SECTION 15 — Chained exceptions (raise from)')
 
   run_case(
-    'CASE 39: raise ValueError("new") from TypeError("original") inside chain',
-    lambda: Chain(1).then(_raise_from).run(),
+    'CASE 39: raise ValueError("new") from TypeError("original") inside pipeline',
+    lambda: Q(1).then(_raise_from).run(),
   )
 
 
 # ===========================================================================
-# SECTION 16 – Nested chain with except_ handler
+# SECTION 16 – Nested pipeline with except_ handler
 # ===========================================================================
 
 
@@ -553,26 +553,26 @@ def _inner_raiser(x):
 
 
 def section_nested_except():
-  _header('SECTION 16 — Nested chain with except_ handler')
+  _header('SECTION 16 — Nested pipeline with except_ handler')
 
-  # CASE 40: Inner chain raises, outer chain has except_ that catches
+  # CASE 40: Inner pipeline raises, outer pipeline has except_ that catches
   run_case_caught(
-    'CASE 40: Inner chain raises, outer except_ catches',
-    lambda: Chain(1).then(Chain().then(_inner_raiser)).except_(lambda e: f'outer caught: {e}').run(),
+    'CASE 40: Inner pipeline raises, outer except_ catches',
+    lambda: Q(1).then(Q().then(_inner_raiser)).except_(lambda e: f'outer caught: {e}').run(),
   )
 
-  # CASE 41: Inner chain raises, outer except_ with wrong exception type
+  # CASE 41: Inner pipeline raises, outer except_ with wrong exception type
   run_case(
-    'CASE 41: Inner chain raises, outer except_ wrong type (catches TypeError, gets ValueError)',
-    lambda: Chain(1).then(Chain().then(_inner_raiser)).except_(lambda e: f'caught: {e}', exceptions=TypeError).run(),
+    'CASE 41: Inner pipeline raises, outer except_ wrong type (catches TypeError, gets ValueError)',
+    lambda: Q(1).then(Q().then(_inner_raiser)).except_(lambda e: f'caught: {e}', exceptions=TypeError).run(),
   )
 
-  # CASE 42: Inner chain has its own except_ that catches, outer continues
+  # CASE 42: Inner pipeline has its own except_ that catches, outer continues
   run_case_caught(
-    'CASE 42: Inner except_ catches, outer chain continues (no traceback)',
+    'CASE 42: Inner except_ catches, outer pipeline continues (no traceback)',
     lambda: (
-      Chain(1)
-      .then(Chain().then(_inner_raiser).except_(lambda e: f'inner caught: {e}'))
+      Q(1)
+      .then(Q().then(_inner_raiser).except_(lambda e: f'inner caught: {e}'))
       .then(lambda x: f'outer got: {x}')
       .except_(lambda e: f'outer caught: {e}')
       .run()
@@ -581,23 +581,23 @@ def section_nested_except():
 
 
 # ===========================================================================
-# SECTION 17 – Nested chain with finally_ handler
+# SECTION 17 – Nested pipeline with finally_ handler
 # ===========================================================================
 
 _finally_tracker_17 = []
 
 
 def section_nested_finally():
-  _header('SECTION 17 — Nested chain with finally_ handler')
+  _header('SECTION 17 — Nested pipeline with finally_ handler')
 
   _finally_tracker_17.clear()
 
-  # CASE 43: Outer chain has finally_, inner chain raises
+  # CASE 43: Outer pipeline has finally_, inner pipeline raises
   run_case(
-    'CASE 43: Outer finally_ runs when inner chain raises',
+    'CASE 43: Outer finally_ runs when inner pipeline raises',
     lambda: (
-      Chain(1)
-      .then(Chain().then(lambda x: 1 / 0))
+      Q(1)
+      .then(Q().then(lambda x: 1 / 0))
       .finally_(lambda x: _finally_tracker_17.append('outer_finally_ran'))
       .run()
     ),
@@ -608,8 +608,8 @@ def section_nested_finally():
 
   # CASE 44: Both inner and outer have finally_
   def _case44():
-    inner = Chain().then(lambda x: 1 / 0).finally_(lambda x: _finally_tracker_17.append('inner_finally'))
-    return Chain(1).then(inner).finally_(lambda x: _finally_tracker_17.append('outer_finally')).run()
+    inner = Q().then(lambda x: 1 / 0).finally_(lambda x: _finally_tracker_17.append('inner_finally'))
+    return Q(1).then(inner).finally_(lambda x: _finally_tracker_17.append('outer_finally')).run()
 
   run_case(
     'CASE 44: Both inner and outer have finally_, inner raises',
@@ -619,14 +619,14 @@ def section_nested_finally():
 
 
 # ===========================================================================
-# SECTION 18 – Chain with both except_ and finally_
+# SECTION 18 – Pipeline with both except_ and finally_
 # ===========================================================================
 
 _finally_tracker_18 = []
 
 
 def section_except_and_finally():
-  _header('SECTION 18 — Chain with both except_ and finally_')
+  _header('SECTION 18 — Pipeline with both except_ and finally_')
 
   _finally_tracker_18.clear()
 
@@ -634,7 +634,7 @@ def section_except_and_finally():
   run_case_caught(
     'CASE 45: except_ catches + finally_ runs (no traceback)',
     lambda: (
-      Chain(1)
+      Q(1)
       .then(lambda x: 1 / 0)
       .except_(lambda e: f'caught: {e}')
       .finally_(lambda x: _finally_tracker_18.append('finally_45'))
@@ -649,7 +649,7 @@ def section_except_and_finally():
   run_case(
     'CASE 46: except_ wrong type + finally_ runs (traceback shown, finally_ ran)',
     lambda: (
-      Chain(1)
+      Q(1)
       .then(lambda x: 1 / 0)
       .except_(lambda e: 'caught', exceptions=TypeError)
       .finally_(lambda x: _finally_tracker_18.append('finally_46'))
@@ -666,7 +666,7 @@ def section_except_and_finally():
 
   def _case47():
     return (
-      Chain(1)
+      Q(1)
       .then(lambda x: 1 / 0)
       .except_(_except_reraises)
       .finally_(lambda x: _finally_tracker_18.append('finally_47'))
@@ -699,27 +699,27 @@ def section_args_kwargs():
   # CASE 48: .then(fn, arg1, arg2, key=val) that raises
   run_case(
     'CASE 48: .then(fn, arg1, arg2, key=val) raises',
-    lambda: Chain(1).then(_step_with_args_kwargs, 'a1', 'a2', key='kv').run(),
+    lambda: Q(1).then(_step_with_args_kwargs, 'a1', 'a2', key='kv').run(),
   )
 
   # CASE 49: .do(fn, arg1, key=val) that raises
   run_case(
     'CASE 49: .do(fn, arg1, key=val) raises',
-    lambda: Chain(1).do(_do_with_args, 'extra', key='kval').run(),
+    lambda: Q(1).do(_do_with_args, 'extra', key='kval').run(),
   )
 
-  # CASE 50: Nested chain as a .then() step with args passed to a step that raises
+  # CASE 50: Nested pipeline as a .then() step with args passed to a step that raises
   def _inner_raises(x):
     raise RuntimeError(f'inner got: {x!r}')
 
   run_case(
-    'CASE 50: Nested chain step with inner raises',
-    lambda: Chain(1).then(Chain().then(lambda x: x + 1).then(_inner_raises)).run(),
+    'CASE 50: Nested pipeline step with inner raises',
+    lambda: Q(1).then(Q().then(lambda x: x + 1).then(_inner_raises)).run(),
   )
 
 
 # ===========================================================================
-# SECTION 20 – Async nested chains
+# SECTION 20 – Async nested pipelines
 # ===========================================================================
 
 
@@ -732,64 +732,64 @@ async def _async_step_ok(x):
 
 
 def section_async_nested():
-  _header('SECTION 20 — Async nested chains')
+  _header('SECTION 20 — Async nested pipelines')
 
-  # CASE 51: Async inner chain raises inside sync outer chain
+  # CASE 51: Async inner pipeline raises inside sync outer pipeline
   run_async_case(
-    'CASE 51: Async inner chain raises inside sync outer chain',
-    lambda: Chain(1).then(Chain().then(_async_inner_raiser)).run(),
+    'CASE 51: Async inner pipeline raises inside sync outer pipeline',
+    lambda: Q(1).then(Q().then(_async_inner_raiser)).run(),
   )
 
-  # CASE 52: Sync inner chain raises inside async outer chain
+  # CASE 52: Sync inner pipeline raises inside async outer pipeline
   run_async_case(
-    'CASE 52: Sync inner chain raises inside async outer (outer has async step before)',
-    lambda: Chain(1).then(_async_step_ok).then(Chain().then(_inner_raiser)).run(),
+    'CASE 52: Sync inner pipeline raises inside async outer (outer has async step before)',
+    lambda: Q(1).then(_async_step_ok).then(Q().then(_inner_raiser)).run(),
   )
 
   # CASE 53: Double-nested async: outer async -> inner async -> innermost raises
   run_async_case(
     'CASE 53: Double-nested async — outer async -> inner async -> innermost raises',
     lambda: (
-      Chain(1).then(_async_step_ok).then(Chain().then(_async_step_ok).then(Chain().then(_async_inner_raiser))).run()
+      Q(1).then(_async_step_ok).then(Q().then(_async_step_ok).then(Q().then(_async_inner_raiser))).run()
     ),
   )
 
 
 # ===========================================================================
-# SECTION 21 – Reusable chain variations
+# SECTION 21 – Reusable pipeline variations
 # ===========================================================================
 
 
 def section_reusable_variations():
-  _header('SECTION 21 — Reusable chain variations')
+  _header('SECTION 21 — Reusable pipeline variations')
 
-  # CASE 54: Reusable chain with except_ handler that catches
+  # CASE 54: Reusable pipeline with except_ handler that catches
   def _case54():
-    fc = Chain().then(lambda x: 1 / 0).except_(lambda e: f'reusable caught: {e}')
-    return fc(1)
+    q = Q().then(lambda x: 1 / 0).except_(lambda e: f'reusable caught: {e}')
+    return q(1)
 
   run_case_caught(
-    'CASE 54: Reusable chain with except_ that catches',
+    'CASE 54: Reusable pipeline with except_ that catches',
     _case54,
   )
 
-  # CASE 55: Reusable chain with nested chain that raises
+  # CASE 55: Reusable pipeline with nested pipeline that raises
   def _case55():
-    fc = Chain().then(Chain().then(lambda x: 1 / 0))
-    return fc(1)
+    q = Q().then(Q().then(lambda x: 1 / 0))
+    return q(1)
 
   run_case(
-    'CASE 55: Reusable chain with nested chain that raises',
+    'CASE 55: Reusable pipeline with nested pipeline that raises',
     _case55,
   )
 
-  # CASE 56: Reusable chain called multiple times — 2nd call same formatting
+  # CASE 56: Reusable pipeline called multiple times — 2nd call same formatting
   def _case56():
-    fc = Chain().then(lambda x: 1 / 0)
+    q = Q().then(lambda x: 1 / 0)
     results = []
     for i in range(2):
       try:
-        fc(i)
+        q(i)
       except Exception:
         results.append(f'call {i + 1} raised')
         tb_mod.print_exc()
@@ -798,7 +798,7 @@ def section_reusable_variations():
 
   global _total_cases, _traceback_cases
   _total_cases += 1
-  _header('CASE 56: Reusable chain called twice — both calls show formatting')
+  _header('CASE 56: Reusable pipeline called twice — both calls show formatting')
   try:
     result = _case56()
     print(f'[no exception]  result = {result!r}')
@@ -816,69 +816,69 @@ def section_reusable_variations():
 def section_edge_cases():
   _header('SECTION 22 — Edge cases')
 
-  # CASE 57: Empty chain (no root, no links)
+  # CASE 57: Empty pipeline (no root, no links)
   run_case(
-    'CASE 57: Empty chain — Chain().run() (should return None, no exception)',
-    lambda: Chain().run(),
+    'CASE 57: Empty pipeline — Q().run() (should return None, no exception)',
+    lambda: Q().run(),
   )
 
-  # CASE 58: Chain with only root, no links
+  # CASE 58: Pipeline with only root, no links
   run_case(
-    'CASE 58: Chain with only root, no links — Chain(42).run() (should return 42)',
-    lambda: Chain(42).run(),
+    'CASE 58: Pipeline with only root, no links — Q(42).run() (should return 42)',
+    lambda: Q(42).run(),
   )
 
-  # CASE 59: Chain root is another Chain
+  # CASE 59: Pipeline root is another pipeline
   run_case(
-    'CASE 59: Chain root is another Chain — Chain(Chain(1).then(lambda x: 1/0)).run()',
-    lambda: Chain(Chain(1).then(lambda x: 1 / 0)).run(),
+    'CASE 59: Pipeline root is another pipeline — Q(Q(1).then(lambda x: 1/0)).run()',
+    lambda: Q(Q(1).then(lambda x: 1 / 0)).run(),
   )
 
-  # CASE 60: Very long chain (20 steps) — verify formatting with many steps
+  # CASE 60: Very long pipeline (20 steps) — verify formatting with many steps
   def _case60():
-    c = Chain(1)
+    q = Q(1)
     for i in range(19):
-      c = c.then(lambda x, _i=i: x + 1)
-    c = c.then(lambda x: 1 / 0)
-    return c.run()
+      q = q.then(lambda x, _i=i: x + 1)
+    q = q.then(lambda x: 1 / 0)
+    return q.run()
 
   run_case(
-    'CASE 60: Very long chain (20 steps), last one raises',
+    'CASE 60: Very long pipeline (20 steps), last one raises',
     _case60,
   )
 
-  # CASE 61: Chain with functools.partial as a step that raises
+  # CASE 61: Pipeline with functools.partial as a step that raises
   def _partial_target(a, b, c):
     raise ValueError(f'partial: a={a!r}, b={b!r}, c={c!r}')
 
   run_case(
-    'CASE 61: Chain with functools.partial as a step that raises',
-    lambda: Chain(1).then(functools.partial(_partial_target, 'a_val', 'b_val')).run(),
+    'CASE 61: Pipeline with functools.partial as a step that raises',
+    lambda: Q(1).then(functools.partial(_partial_target, 'a_val', 'b_val')).run(),
   )
 
-  # CASE 62: Chain with a class (constructor) as a step
+  # CASE 62: Pipeline with a class (constructor) as a step
   run_case(
-    'CASE 62: Chain with class (int) as step, then lambda raises',
-    lambda: Chain(1).then(int).then(lambda x: 1 / 0).run(),
+    'CASE 62: Pipeline with class (int) as step, then lambda raises',
+    lambda: Q(1).then(int).then(lambda x: 1 / 0).run(),
   )
 
 
 # ===========================================================================
-# SECTION 23 – Mixed operations chain
+# SECTION 23 – Mixed operations pipeline
 # ===========================================================================
 
 
 def section_mixed_ops():
-  _header('SECTION 23 — Mixed operations chain')
+  _header('SECTION 23 — Mixed operations pipeline')
 
-  # CASE 63: Complex chain mixing then/do/foreach/with_ — error deep
+  # CASE 63: Complex pipeline mixing then/do/foreach/with_ — error deep
   def _fail_in_foreach(x):
     raise RuntimeError(f'foreach callback failed on {x!r}')
 
   run_case(
     'CASE 63: then -> do -> foreach -> foreach pipeline, error in second foreach (deep)',
     lambda: (
-      Chain([1, 2, 3])
+      Q([1, 2, 3])
       .then(lambda x: [v * 10 for v in x])
       .do(lambda x: None)
       .foreach(lambda x: x + 1)
@@ -887,10 +887,10 @@ def section_mixed_ops():
     ),
   )
 
-  # CASE 64: Chain with then -> foreach -> foreach, error in second foreach
+  # CASE 64: Pipeline with then -> foreach -> foreach, error in second foreach
   run_case(
     'CASE 64: then -> foreach -> foreach pipeline, error in second foreach',
-    lambda: Chain([1, 2, 0]).then(lambda x: x).foreach(lambda x: x * 2).foreach(lambda x: 10 / x).run(),
+    lambda: Q([1, 2, 0]).then(lambda x: x).foreach(lambda x: x * 2).foreach(lambda x: 10 / x).run(),
   )
 
 
@@ -916,50 +916,50 @@ def section_async_handlers():
   # CASE 65: Async except_ handler that catches
   run_async_case_caught(
     'CASE 65: Async except_ handler that catches',
-    lambda: Chain(1).then(lambda x: 1 / 0).except_(_async_except_handler).run(),
+    lambda: Q(1).then(lambda x: 1 / 0).except_(_async_except_handler).run(),
   )
 
-  # CASE 66: Async finally_ handler + sync chain raises
+  # CASE 66: Async finally_ handler + sync pipeline raises
   _async_finally_tracker.clear()
 
   run_async_case(
-    'CASE 66: Async finally_ handler + sync chain raises',
-    lambda: Chain(1).then(_async_step_ok).then(lambda x: 1 / 0).finally_(_async_finally_handler).run(),
+    'CASE 66: Async finally_ handler + sync pipeline raises',
+    lambda: Q(1).then(_async_step_ok).then(lambda x: 1 / 0).finally_(_async_finally_handler).run(),
   )
   print(f'  [tracker] _async_finally_tracker = {_async_finally_tracker}')
 
 
 # ===========================================================================
-# SECTION 25 – Decorator chains
+# SECTION 25 – Decorator pipelines
 # ===========================================================================
 
 
 def section_decorator():
-  _header('SECTION 25 — Decorator chains')
+  _header('SECTION 25 — Decorator pipelines')
 
-  # CASE 67: Decorated function — Chain.decorator() wrapping a failing fn
-  @Chain().then(lambda x: x + 1).then(lambda x: 1 / 0).decorator()
+  # CASE 67: Decorated function — Q.as_decorator() wrapping a failing fn
+  @Q().then(lambda x: x + 1).then(lambda x: 1 / 0).as_decorator()
   def decorated_simple(x):
     return x
 
   run_case(
-    'CASE 67: Decorated function — chain.decorator() wrapping, inner link raises',
+    'CASE 67: Decorated function — q.as_decorator() wrapping, inner link raises',
     lambda: decorated_simple(42),
   )
 
-  # CASE 68: Decorator with named functions mid-chain
+  # CASE 68: Decorator with named functions mid-pipeline
   def add_one(x):
     return x + 1
 
   def fail_step(x):
-    raise ValueError('decorator chain failed')
+    raise ValueError('decorator pipeline failed')
 
-  @Chain().then(add_one).then(fail_step).then(str).decorator()
+  @Q().then(add_one).then(fail_step).then(str).as_decorator()
   def decorated_mid_fail(x):
     return x
 
   run_case(
-    'CASE 68: Decorator — named functions, fail in the middle of chain',
+    'CASE 68: Decorator — named functions, fail in the middle of pipeline',
     lambda: decorated_mid_fail(10),
   )
 
@@ -980,7 +980,7 @@ def section_iterate():
   # CASE 69: Sync iterate fn raises
   run_case(
     'CASE 69: iterate — sync fn raises on item 3',
-    lambda: list(Chain(range(5)).iterate(_bad_iterate_fn)),
+    lambda: list(Q(range(5)).iterate(_bad_iterate_fn)),
   )
 
   # CASE 70: iterate_do fn raises
@@ -990,7 +990,7 @@ def section_iterate():
 
   run_case(
     'CASE 70: iterate_do — sync fn raises on item 2',
-    lambda: list(Chain(range(5)).iterate_do(_bad_iterate_do_fn)),
+    lambda: list(Q(range(5)).iterate_do(_bad_iterate_do_fn)),
   )
 
   # CASE 71: Async iterate fn raises
@@ -1001,7 +1001,7 @@ def section_iterate():
 
   async def _consume_async_iterate():
     result = []
-    async for item in Chain(range(5)).iterate(_async_bad_iterate_fn):
+    async for item in Q(range(5)).iterate(_async_bad_iterate_fn):
       result.append(item)
     return result
 
@@ -1034,7 +1034,7 @@ def section_async_cm():
   # CASE 72: AsyncCM body raises
   run_async_case(
     'CASE 72: Async context manager — body raises',
-    lambda: Chain(_AsyncSimpleCM()).with_(_async_body_raises).run(),
+    lambda: Q(_AsyncSimpleCM()).with_(_async_body_raises).run(),
   )
 
 
@@ -1079,13 +1079,13 @@ def section_async_filter_gather():
   # CASE 73: Async foreach callback raises
   run_async_case(
     'CASE 73: Async foreach — callback raises on item 3',
-    lambda: Chain(_AsyncRange(5)).foreach(_async_bad_pred).run(),
+    lambda: Q(_AsyncRange(5)).foreach(_async_bad_pred).run(),
   )
 
   # CASE 74: Async gather fn raises
   run_async_case(
     'CASE 74: Async gather — one async fn raises',
-    lambda: Chain(1).gather(_async_gather_ok, _async_gather_raises, _async_gather_ok).run(),
+    lambda: Q(1).gather(_async_gather_ok, _async_gather_raises, _async_gather_ok).run(),
   )
 
 
@@ -1121,25 +1121,25 @@ class _AsyncCallableObj:
 def section_callable_objects():
   _header('SECTION 29 — Callable objects')
 
-  # CASE 75: Callable object in chain, then raise_fn
+  # CASE 75: Callable object in pipeline, then raise_fn
   def _raise(x):
     raise ValueError('after callable obj')
 
   run_case(
-    'CASE 75: CallableObj in chain, then raise_fn',
-    lambda: Chain(1).then(_CallableObj()).then(_raise).run(),
+    'CASE 75: CallableObj in pipeline, then raise_fn',
+    lambda: Q(1).then(_CallableObj()).then(_raise).run(),
   )
 
   # CASE 76: Callable object that raises
   run_case(
     'CASE 76: CallableObj that raises',
-    lambda: Chain(1).then(_CallableObjRaises()).run(),
+    lambda: Q(1).then(_CallableObjRaises()).run(),
   )
 
   # CASE 77: Async callable object that raises
   run_async_case(
     'CASE 77: AsyncCallableObj that raises',
-    lambda: Chain(1).then(_AsyncCallableObj()).run(),
+    lambda: Q(1).then(_AsyncCallableObj()).run(),
   )
 
 
@@ -1154,10 +1154,10 @@ def section_excepthook():
   global _total_cases
   _total_cases += 1
 
-  _header('CASE 78: sys.excepthook display for a mid-chain failure')
+  _header('CASE 78: sys.excepthook display for a mid-pipeline failure')
   print('(Simulating what an uncaught exception would show via sys.excepthook)\n')
   try:
-    Chain(1).then(lambda v: v + 1).then(lambda v: 1 / 0).run()
+    Q(1).then(lambda v: v + 1).then(lambda v: 1 / 0).run()
   except Exception:
     exc_type, exc_value, exc_tb = sys.exc_info()
     sys.excepthook(exc_type, exc_value, exc_tb)
@@ -1172,7 +1172,7 @@ def section_excepthook():
 def main():
   section_basic_sync()
   section_basic_async()
-  section_nested_chains()
+  section_nested_pipelines()
   section_except_handler()
   section_finally_handler()
   section_map()
@@ -1202,7 +1202,7 @@ def main():
   section_excepthook()
 
   # Summary
-  bar = '═' * 60
+  bar = '=' * 60
   print(f'\n{bar}')
   print('  SUMMARY')
   print(bar)

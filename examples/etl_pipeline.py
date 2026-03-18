@@ -6,7 +6,7 @@ collection operations (.foreach, .foreach_do), pipeline composition
 (.clone), and error handling (.except_, .finally_).
 
 Patterns shown:
-  - Chain as the pipeline backbone
+  - `Q` as the pipeline backbone
   - Multiple simulated data sources (CSV-like, JSON-like, API-like)
   - .then() for transforms, .do() for logging side effects
   - .foreach() for per-record transformation
@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 
-from quent import Chain
+from quent import Q
 
 # ---------------------------------------------------------------------------
 # Simulated source data
@@ -183,7 +183,7 @@ def log_loaded(count: int) -> None:
 def handle_etl_error(ei) -> int:
   """Log the error and return 0 as a safe fallback result.
 
-  Registered with except_(handler) -- handler receives ChainExcInfo(exc, root_value)
+  Registered with except_(handler) -- handler receives QuentExcInfo(exc, root_value)
   as the current value (standard 2-rule calling convention).
   """
   print(f'  [error] ETL failed: {type(ei.exc).__name__}: {ei.exc}')
@@ -214,7 +214,7 @@ if __name__ == '__main__':
   print('=' * 60)
 
   count = (
-    Chain(extract_users, 'users_2024.csv')
+    Q(extract_users, 'users_2024.csv')
     .do(log_count)                                                            # side-effect: log raw count, value unchanged
     .then(lambda records: [r for r in records if is_valid_user(r)])          # keep only valid records
     .do(log_count)                                                            # side-effect: log filtered count
@@ -239,7 +239,7 @@ if __name__ == '__main__':
 
   # Build a shared transform pipeline (no load step yet).
   base_transform = (
-    Chain(extract_users, 'users_2024.csv')
+    Q(extract_users, 'users_2024.csv')
     .then(lambda records: [r for r in records if is_valid_user(r)])
     .foreach(normalize_user)
     .foreach(enrich_user)
@@ -272,7 +272,7 @@ if __name__ == '__main__':
     return bad_records
 
   result = (
-    Chain(extract_bad_data, 'corrupt_feed.csv')
+    Q(extract_bad_data, 'corrupt_feed.csv')
     .then(lambda records: [r for r in records if is_valid_user(r)])
     .foreach(normalize_user)          # will raise AttributeError on None name
     .foreach(enrich_user)
@@ -295,7 +295,7 @@ if __name__ == '__main__':
   # Replace sync extract and normalize with async equivalents.
   # The pipeline structure is identical -- quent handles the bridging.
   async_count = (
-    Chain(async_extract_users, 'users_2024.csv')
+    Q(async_extract_users, 'users_2024.csv')
     .do(log_count)
     .then(lambda records: [r for r in records if is_valid_user(r)])
     .do(log_count)
@@ -318,7 +318,7 @@ if __name__ == '__main__':
   loaded_orders.clear()
 
   order_count = (
-    Chain(extract_orders, 'orders_q4.json')
+    Q(extract_orders, 'orders_q4.json')
     .do(log_count)
     .then(lambda orders: [o for o in orders if is_valid_order(o)])
     .do(log_count)

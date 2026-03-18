@@ -20,35 +20,35 @@ from benchmarks._helpers import (
   DummyCM,
   add_one,
   identity,
-  make_sync_chain,
+  make_sync_pipeline,
   noop,
   predicate_true,
 )
-from quent import Chain
+from quent import Q
 
 _RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
 
 
 def workload(iterations: int) -> None:
-  """Run a representative mix of chain operations."""
+  """Run a representative mix of pipeline operations."""
   for _ in range(iterations):
-    # Basic chain execution at various sizes.
+    # Basic pipeline execution at various sizes.
     for n in (1, 5, 10, 50):
-      chain = make_sync_chain(n)
-      chain.run(0)
+      q = make_sync_pipeline(n)
+      q.run(0)
 
     # Operations.
     data = list(range(20))
-    Chain(data).foreach(add_one).run()
-    Chain(data).foreach_do(noop).run()
-    Chain().gather(identity, identity, identity).run(42)
-    Chain(DummyCM(99)).with_(identity).run()
-    Chain().if_(predicate_true).then(identity).run(42)
-    Chain().if_(predicate_true).then(identity).else_(add_one).run(42)
+    Q(data).foreach(add_one).run()
+    Q(data).foreach_do(noop).run()
+    Q().gather(identity, identity, identity).run(42)
+    Q(DummyCM(99)).with_(identity).run()
+    Q().if_(predicate_true).then(identity).run(42)
+    Q().if_(predicate_true).then(identity).else_(add_one).run(42)
 
-    # Nested chain.
-    inner = Chain().then(add_one)
-    Chain().then(inner).run(10)
+    # Nested pipeline.
+    inner = Q().then(add_one)
+    Q().then(inner).run(10)
 
 
 def main() -> None:

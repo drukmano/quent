@@ -20,10 +20,10 @@ from benchmarks._helpers import (
   DummyCM,
   add_one,
   identity,
-  make_sync_chain,
+  make_sync_pipeline,
   noop,
 )
-from quent import Chain
+from quent import Q
 from quent._engine import _run, _run_async
 from quent._eval import _evaluate_value
 
@@ -31,17 +31,17 @@ from quent._eval import _evaluate_value
 def workload() -> None:
   """Run a representative workload for line profiling."""
   for _ in range(5000):
-    # Chain execution at various sizes.
+    # Pipeline execution at various sizes.
     for n in (1, 5, 10):
-      chain = make_sync_chain(n)
-      chain.run(0)
+      q = make_sync_pipeline(n)
+      q.run(0)
 
     # Operations.
     data = list(range(20))
-    Chain(data).foreach(add_one).run()
-    Chain(data).foreach_do(noop).run()
-    Chain().gather(identity, identity, identity).run(42)
-    Chain(DummyCM(99)).with_(identity).run()
+    Q(data).foreach(add_one).run()
+    Q(data).foreach_do(noop).run()
+    Q().gather(identity, identity, identity).run(42)
+    Q(DummyCM(99)).with_(identity).run()
 
 
 def main() -> None:

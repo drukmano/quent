@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Shared chain factories and workloads for benchmark scripts."""
+"""Shared pipeline factories and workloads for benchmark scripts."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import statistics
 from contextlib import contextmanager
 from typing import Any
 
-from quent import Chain
+from quent import Q
 from quent._link import Link
 
 # ---- Constants ----
@@ -70,47 +70,47 @@ def dummy_cm(value: Any = 42):  # type: ignore[no-untyped-def]
   yield value
 
 
-# ---- Chain factories ----
+# ---- Pipeline factories ----
 
 
-def make_sync_chain(n_links: int) -> Chain:
-  """Create a Chain with *n_links* ``.then(identity)`` steps."""
-  c = Chain()
+def make_sync_pipeline(n_links: int) -> Q:
+  """Create a pipeline with *n_links* ``.then(identity)`` steps."""
+  q = Q()
   for _ in range(n_links):
-    c.then(identity)
-  return c
+    q.then(identity)
+  return q
 
 
-def make_async_chain(n_links: int) -> Chain:
-  """Create a Chain with *n_links* ``.then(async_identity)`` steps."""
-  c = Chain()
+def make_async_pipeline(n_links: int) -> Q:
+  """Create a pipeline with *n_links* ``.then(async_identity)`` steps."""
+  q = Q()
   for _ in range(n_links):
-    c.then(async_identity)
-  return c
+    q.then(async_identity)
+  return q
 
 
-def make_mixed_chain(n_links: int) -> Chain:
-  """Create a Chain alternating sync and async identity steps."""
-  c = Chain()
+def make_mixed_pipeline(n_links: int) -> Q:
+  """Create a pipeline alternating sync and async identity steps."""
+  q = Q()
   for i in range(n_links):
     if i % 2 == 0:
-      c.then(identity)
+      q.then(identity)
     else:
-      c.then(async_identity)
-  return c
+      q.then(async_identity)
+  return q
 
 
 # ---- Execution helpers ----
 
 
-def run_sync(chain: Chain, value: Any = 0) -> Any:
-  """Execute a chain synchronously."""
-  return chain.run(value)
+def run_sync(q: Q, value: Any = 0) -> Any:
+  """Execute a pipeline synchronously."""
+  return q.run(value)
 
 
-def run_async(chain: Chain, value: Any = 0) -> Any:
-  """Execute a chain via asyncio.run."""
-  return asyncio.run(chain.run(value))
+def run_async(q: Q, value: Any = 0) -> Any:
+  """Execute a pipeline via asyncio.run."""
+  return asyncio.run(q.run(value))
 
 
 # ---- Link factory ----

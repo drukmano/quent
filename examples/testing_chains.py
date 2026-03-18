@@ -1,34 +1,34 @@
 """
-Testing quent chains with unittest.
+Testing quent pipelines with unittest.
 
-This recipe demonstrates how to unit test quent chains using unittest and
+This recipe demonstrates how to unit test quent pipelines using unittest and
 unittest.mock. It covers:
 
   - Testing sync pipeline happy paths and error paths
   - Testing async pipelines with AsyncMock
   - Verifying .do() side-effect behaviour (callable called, pipeline value unchanged)
-  - Testing .except_() -- handler's return value replaces chain result
+  - Testing .except_() -- handler's return value replaces pipeline result
   - Testing .finally_() -- runs on success and failure, result discarded
-  - Cloning chains to verify execution independence
-  - Using .decorator() to wrap functions with chain behaviour
+  - Cloning pipelines to verify execution independence
+  - Using .as_decorator() to wrap functions with pipeline behaviour
   - Using on_step for instrumentation-based testing
-  - Testing control flow (Chain.return_, Chain.break_)
-  - Testing the bridge contract (same chain, sync vs async callables)
+  - Testing control flow (Q.return_, Q.break_)
+  - Testing the bridge contract (same pipeline, sync vs async callables)
 
 Key testing insights:
 
-1. Inject mock callables directly into the chain rather than patching
+1. Inject mock callables directly into the pipeline rather than patching
    module-level names with 'patch'. This keeps tests explicit and avoids
    fragile string targets.
 
 2. Always use MagicMock(spec=fn) or create_autospec(fn) when passing mocks
-   into chains. Plain MagicMock() has a _quent_is_chain attribute auto-created
+   into pipelines. Plain MagicMock() has a _quent_is_q attribute auto-created
    by MagicMock's attribute machinery, which causes quent to treat the mock as
-   a nested chain (duck-typing: getattr(v, '_quent_is_chain', False)). The
+   a nested pipeline (duck-typing: getattr(v, '_quent_is_q', False)). The
    spec= parameter restricts attribute access to the real function's interface.
 
 3. Pipeline input convention: pass the initial value to .run(v), not as the
-   chain root. Use Chain().then(step1).then(step2).run(input) so that
+   pipeline root. Use Q().then(step1).then(step2).run(input) so that
    .run(input) threads the input into the first step as its argument.
 
 Run with:
@@ -43,7 +43,7 @@ import unittest
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock, create_autospec
 
-from quent import Chain, QuentException
+from quent import Q, QuentException
 
 # ---------------------------------------------------------------------------
 # Application under test
@@ -76,19 +76,19 @@ def save_user(user: dict) -> dict:
   return user
 
 
-def build_user_pipeline() -> Chain:
-  """Return a reusable Chain: fetch -> validate -> enrich -> save, with error handler.
+def build_user_pipeline() -> Q:
+  """Return a reusable pipeline: fetch -> validate -> enrich -> save, with error handler.
 
   The value passed to .run(user_id) flows into fetch_user as its first argument.
   """
 
   def handle_validation_error(ei) -> dict:
-    # except_ default calling convention: fn(ChainExcInfo(exc, root_value)).
+    # except_ default calling convention: fn(QuentExcInfo(exc, root_value)).
     # ei.root_value is the initial value passed to .run() -- the user_id here.
     return {'error': str(ei.exc), 'user_id': ei.root_value}
 
   return (
-    Chain()
+    Q()
     .then(fetch_user)
     .then(validate_user)
     .then(enrich_user)
@@ -108,16 +108,16 @@ async def async_save_user(user: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# TestChainSync -- sync pipeline tests
+# TestQSync -- sync pipeline tests
 # ---------------------------------------------------------------------------
 
 
-class TestChainSync(unittest.TestCase):
+class TestQSync(unittest.TestCase):
   """Sync pipeline tests using MagicMock for injectable dependencies."""
 
   def test_happy_path(self):
     """Mock fetch and save; assert save receives enriched user and result matches."""
-    # Use spec= so quent's duck-typing check (_quent_is_chain) returns False,
+    # Use spec= so quent's duck-typing check (_quent_is_q) returns False,
     # not a truthy MagicMock attribute.
     mock_fetch = MagicMock(
       spec=fetch_user,
@@ -126,7 +126,7 @@ class TestChainSync(unittest.TestCase):
     mock_save = MagicMock(spec=save_user, side_effect=lambda user: user)
 
     result = (
-      Chain()
+      Q()
       .then(mock_fetch)
       .then(validate_user)
       .then(enrich_user)
@@ -144,7 +144,7 @@ class TestChainSync(unittest.TestCase):
     }
     mock_save.assert_called_once_with(expected_saved)
 
-    # Chain returns the last step's result.
+    # Pipeline returns the last step's result.
     self.assertEqual(result, expected_saved)
 
   def test_validation_failure_with_except(self):
@@ -154,7 +154,7 @@ class TestChainSync(unittest.TestCase):
     mock_save = MagicMock(spec=save_user)
 
     result = (
-      Chain()
+      Q()
       .then(mock_fetch)
       .then(validate_user)
       .then(enrich_user)
@@ -167,7 +167,7 @@ class TestChainSync(unittest.TestCase):
     # save must NOT have been called -- pipeline aborted at validate_user.
     mock_save.assert_not_called()
 
-    # except_ handler's return value replaces the chain result (reraise=False default).
+    # except_ handler's return value replaces the pipeline result (reraise=False default).
     self.assertIn('error', result)
     self.assertEqual(result['user_id'], 2)
 
@@ -179,7 +179,7 @@ class TestChainSync(unittest.TestCase):
     tracker = MagicMock(spec=save_user, return_value='discarded')
 
     result = (
-      Chain()
+      Q()
       .then(mock_fetch)
       .then(validate_user)
       .do(tracker)        # side-effect: called with validated user; return discarded
@@ -195,14 +195,14 @@ class TestChainSync(unittest.TestCase):
     self.assertTrue(result['active'])
 
   def test_except_with_explicit_args(self):
-    """except_(handler, arg) -- explicit args mean handler receives those args, not ChainExcInfo."""
+    """except_(handler, arg) -- explicit args mean handler receives those args, not QuentExcInfo."""
     mock_fetch = MagicMock(spec=fetch_user, side_effect=ConnectionError('network down'))
 
     result = (
-      Chain()
+      Q()
       .then(mock_fetch)
       .then(validate_user)
-      # Explicit args: handler receives those args instead of ChainExcInfo.
+      # Explicit args: handler receives those args instead of QuentExcInfo.
       .except_(
         lambda code: {'error': code, 'user_id': 99},
         'ConnectionError',
@@ -220,7 +220,7 @@ class TestChainSync(unittest.TestCase):
     finally_tracker = MagicMock(spec=save_user)
 
     # Success path.
-    Chain(42).then(lambda x: x * 2).finally_(finally_tracker).run()
+    Q(42).then(lambda x: x * 2).finally_(finally_tracker).run()
     # finally_ follows standard calling convention: receives root value.
     finally_tracker.assert_called_once_with(42)
 
@@ -231,18 +231,18 @@ class TestChainSync(unittest.TestCase):
       raise RuntimeError('boom')
 
     with self.assertRaises(RuntimeError):
-      Chain(42).then(failing_step).finally_(finally_tracker).run()
+      Q(42).then(failing_step).finally_(finally_tracker).run()
     finally_tracker.assert_called_once_with(42)
 
   def test_clone_independence(self):
-    """Cloned chains are independent -- running one does not affect the other."""
+    """Cloned pipelines are independent -- running one does not affect the other."""
     enrichment_calls: list[int] = []
 
     def recording_enrich(user: dict) -> dict:
       enrichment_calls.append(user['id'])
       return enrich_user(user)
 
-    base = Chain().then(validate_user).then(recording_enrich)
+    base = Q().then(validate_user).then(recording_enrich)
     clone_a = base.clone()
     clone_b = base.clone()
 
@@ -270,11 +270,11 @@ class TestChainSync(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestChainAsync -- async pipeline tests
+# TestQAsync -- async pipeline tests
 # ---------------------------------------------------------------------------
 
 
-class TestChainAsync(IsolatedAsyncioTestCase):
+class TestQAsync(IsolatedAsyncioTestCase):
   """Async pipeline tests using AsyncMock for injectable dependencies."""
 
   async def test_async_happy_path(self):
@@ -285,7 +285,7 @@ class TestChainAsync(IsolatedAsyncioTestCase):
 
     # .run() returns a coroutine when async steps are present -- must await.
     result = await (
-      Chain()
+      Q()
       .then(mock_fetch)
       .then(validate_user)
       .then(enrich_user)
@@ -303,7 +303,7 @@ class TestChainAsync(IsolatedAsyncioTestCase):
     mock_fetch = AsyncMock(spec=async_fetch_user, side_effect=ValueError('async db error'))
 
     result = await (
-      Chain()
+      Q()
       .then(mock_fetch)
       .then(validate_user)
       .then(enrich_user)
@@ -316,13 +316,13 @@ class TestChainAsync(IsolatedAsyncioTestCase):
     self.assertEqual(result['user_id'], 7)
 
   async def test_mixed_sync_async(self):
-    """Chain transparently bridges async fetch -> sync validate/enrich -> async save."""
+    """Pipeline transparently bridges async fetch -> sync validate/enrich -> async save."""
     user_data = {'id': 9, 'name': 'Heidi', 'email': 'heidi@example.com'}
     mock_async_fetch = AsyncMock(spec=async_fetch_user, return_value=user_data)
     mock_async_save = AsyncMock(spec=async_save_user, side_effect=lambda user: user)
 
     result = await (
-      Chain()
+      Q()
       .then(mock_async_fetch)  # async -- triggers async transition
       .then(validate_user)     # sync -- runs inside async continuation
       .then(enrich_user)       # sync
@@ -337,7 +337,7 @@ class TestChainAsync(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestControlFlow -- Chain.return_ and Chain.break_
+# TestControlFlow -- Q.return_ and Q.break_
 # ---------------------------------------------------------------------------
 
 
@@ -345,64 +345,64 @@ class TestControlFlow(unittest.TestCase):
   """Tests for control flow signals."""
 
   def test_early_return(self):
-    """Chain.return_() exits the pipeline and produces the return value."""
+    """Q.return_() exits the pipeline and produces the return value."""
     result = (
-      Chain(10)
-      .then(lambda x: Chain.return_(x * 2) if x > 5 else x)
+      Q(10)
+      .then(lambda x: Q.return_(x * 2) if x > 5 else x)
       .then(lambda x: x + 100)  # skipped by return_
       .run()
     )
     self.assertEqual(result, 20)
 
   def test_early_return_no_value(self):
-    """Chain.return_() with no value produces None."""
+    """Q.return_() with no value produces None."""
     result = (
-      Chain(10)
-      .then(lambda x: Chain.return_())
+      Q(10)
+      .then(lambda x: Q.return_())
       .then(lambda x: x + 100)
       .run()
     )
     self.assertIsNone(result)
 
   def test_break_in_map(self):
-    """Chain.break_() stops iteration; partial results are returned."""
+    """Q.break_() stops iteration; partial results are returned."""
     result = (
-      Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_() if x == 3 else x * 2)
+      Q([1, 2, 3, 4, 5])
+      .foreach(lambda x: Q.break_() if x == 3 else x * 2)
       .run()
     )
     # x=1 -> 2, x=2 -> 4, x=3 -> break (no value), partial results [2, 4]
     self.assertEqual(result, [2, 4])
 
   def test_break_with_value(self):
-    """Chain.break_(value) appends break value to partial results."""
+    """Q.break_(value) appends break value to partial results."""
     result = (
-      Chain([1, 2, 3, 4, 5])
-      .foreach(lambda x: Chain.break_(x * 10) if x == 3 else x * 2)
+      Q([1, 2, 3, 4, 5])
+      .foreach(lambda x: Q.break_(x * 10) if x == 3 else x * 2)
       .run()
     )
     # x=3 -> break with value 30 (appended to [2, 4])
     self.assertEqual(result, [2, 4, 30])
 
   def test_break_outside_iteration_raises(self):
-    """Chain.break_() outside foreach/foreach_do raises QuentException."""
+    """Q.break_() outside foreach/foreach_do raises QuentException."""
     with self.assertRaises(QuentException):
-      Chain(1).then(lambda x: Chain.break_()).run()
+      Q(1).then(lambda x: Q.break_()).run()
 
 
 # ---------------------------------------------------------------------------
-# TestDecorator -- Chain.decorator()
+# TestDecorator -- Q.as_decorator()
 # ---------------------------------------------------------------------------
 
 
 class TestDecorator(unittest.TestCase):
-  """Tests for Chain.decorator() -- wrapping functions with chain behaviour."""
+  """Tests for Q.as_decorator() -- wrapping functions with pipeline behaviour."""
 
   def test_decorator_wraps_function(self):
-    """Decorated function's return value feeds into the chain as initial value."""
+    """Decorated function's return value feeds into the pipeline as initial value."""
     enrichment_tracker = create_autospec(enrich_user, side_effect=lambda user: {**user, 'enriched': True})
 
-    @Chain().then(enrichment_tracker).decorator()
+    @Q().then(enrichment_tracker).as_decorator()
     def get_user(user_id: int) -> dict:
       return {'id': user_id, 'name': 'Ivan', 'email': 'ivan@example.com'}
 
@@ -418,18 +418,18 @@ class TestDecorator(unittest.TestCase):
     except_tracker = MagicMock(spec=save_user, return_value={'error': 'caught'})
 
     @(
-      Chain()
+      Q()
       .then(validate_user)
       .except_(except_tracker, exceptions=ValueError)
       .finally_(finally_tracker)
-      .decorator()
+      .as_decorator()
     )
     def get_incomplete_user(user_id: int) -> dict:
       return {'id': user_id, 'name': 'Judy'}  # missing 'email'
 
     result = get_incomplete_user(55)
 
-    # except_ default convention: fn(ChainExcInfo(exc, root_value)).
+    # except_ default convention: fn(QuentExcInfo(exc, root_value)).
     except_tracker.assert_called_once()
     ei_arg = except_tracker.call_args.args[0]
     self.assertIsInstance(ei_arg.exc, ValueError)
@@ -438,7 +438,7 @@ class TestDecorator(unittest.TestCase):
     # finally_ always runs; receives root_value; return discarded.
     finally_tracker.assert_called_once_with({'id': 55, 'name': 'Judy'})
 
-    # Chain result is except_ handler's return value.
+    # Pipeline result is except_ handler's return value.
     self.assertEqual(result, {'error': 'caught'})
 
 
@@ -448,26 +448,26 @@ class TestDecorator(unittest.TestCase):
 
 
 class TestOnStep(unittest.TestCase):
-  """Tests for Chain.on_step instrumentation."""
+  """Tests for Q.on_step instrumentation."""
 
   def setUp(self):
     """Record the original on_step value to restore after each test."""
-    self._original_on_step = Chain.on_step
+    self._original_on_step = Q.on_step
 
   def tearDown(self):
     """Restore original on_step to prevent cross-test contamination."""
-    Chain.on_step = self._original_on_step
+    Q.on_step = self._original_on_step
 
   def test_on_step_records_steps(self):
-    """on_step receives (chain, step_name, input_value, result, elapsed_ns) for each step."""
+    """on_step receives (q, step_name, input_value, result, elapsed_ns) for each step."""
     steps_log: list[tuple[str, object]] = []
 
-    def recorder(chain, step_name, input_value, result, elapsed_ns):
+    def recorder(q, step_name, input_value, result, elapsed_ns):
       steps_log.append((step_name, result))
 
-    Chain.on_step = recorder
+    Q.on_step = recorder
 
-    Chain(10).then(lambda x: x * 2).do(lambda x: None).run()
+    Q(10).then(lambda x: x * 2).do(lambda x: None).run()
 
     # Expect: root, then, do
     step_names = [name for name, _ in steps_log]
@@ -485,20 +485,20 @@ class TestOnStep(unittest.TestCase):
 
   def test_on_step_disabled_by_default(self):
     """When on_step is None (default), no instrumentation overhead."""
-    # Just verify the chain runs without error when on_step is None.
-    Chain.on_step = None
-    result = Chain(5).then(lambda x: x + 1).run()
+    # Just verify the pipeline runs without error when on_step is None.
+    Q.on_step = None
+    result = Q(5).then(lambda x: x + 1).run()
     self.assertEqual(result, 6)
 
   def test_on_step_elapsed_ns(self):
     """elapsed_ns is a non-negative integer for each step."""
     elapsed_values: list[int] = []
 
-    def recorder(chain, step_name, input_value, result, elapsed_ns):
+    def recorder(q, step_name, input_value, result, elapsed_ns):
       elapsed_values.append(elapsed_ns)
 
-    Chain.on_step = recorder
-    Chain(1).then(lambda x: x + 1).run()
+    Q.on_step = recorder
+    Q(1).then(lambda x: x + 1).run()
 
     for ns in elapsed_values:
       self.assertIsInstance(ns, int)
@@ -506,7 +506,7 @@ class TestOnStep(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestBridgeContract -- same chain, sync vs async callables
+# TestBridgeContract -- same pipeline, sync vs async callables
 # ---------------------------------------------------------------------------
 
 
@@ -519,7 +519,7 @@ class TestBridgeContract(IsolatedAsyncioTestCase):
 
     # Sync variant.
     sync_result = (
-      Chain()
+      Q()
       .then(lambda uid: user_data)
       .then(validate_user)
       .then(enrich_user)
@@ -535,7 +535,7 @@ class TestBridgeContract(IsolatedAsyncioTestCase):
       return u
 
     async_result = await (
-      Chain()
+      Q()
       .then(async_fetch)
       .then(validate_user)
       .then(enrich_user)
@@ -558,7 +558,7 @@ class TestPatterns(unittest.TestCase):
   def test_gather_results(self):
     """gather() returns a tuple; access results by index."""
     result = (
-      Chain(10)
+      Q(10)
       .gather(
         lambda x: x + 1,
         lambda x: x * 2,
@@ -573,7 +573,7 @@ class TestPatterns(unittest.TestCase):
   def test_map_and_filter(self):
     """map() transforms each element; list comprehension filters the result."""
     result = (
-      Chain([1, 2, 3, 4, 5, 6])
+      Q([1, 2, 3, 4, 5, 6])
       .foreach(lambda x: x * 10)
       .then(lambda xs: [x for x in xs if x > 30])
       .run()
@@ -583,22 +583,22 @@ class TestPatterns(unittest.TestCase):
 
   def test_if_else(self):
     """if_/else_ conditional branching."""
-    chain = (
-      Chain()
+    q = (
+      Q()
       .if_(lambda x: x > 0).then(lambda x: f'positive: {x}')
       .else_(lambda x: f'non-positive: {x}')
     )
 
-    self.assertEqual(chain.run(5), 'positive: 5')
-    self.assertEqual(chain.run(-3), 'non-positive: -3')
-    self.assertEqual(chain.run(0), 'non-positive: 0')
+    self.assertEqual(q.run(5), 'positive: 5')
+    self.assertEqual(q.run(-3), 'non-positive: -3')
+    self.assertEqual(q.run(0), 'non-positive: 0')
 
   def test_foreach_do_preserves_elements(self):
     """foreach_do() calls fn for side-effects but collects original elements."""
     side_effects: list[int] = []
 
     result = (
-      Chain([1, 2, 3])
+      Q([1, 2, 3])
       .foreach_do(lambda x: side_effects.append(x * 10))
       .run()
     )

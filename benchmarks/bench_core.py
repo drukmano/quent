@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""pyperf benchmarks for core operations: _evaluate_value, Link, Chain.run.
+"""pyperf benchmarks for core operations: _evaluate_value, Link, pipeline run.
 
 Run with:
     python benchmarks/bench_core.py
@@ -12,7 +12,7 @@ from __future__ import annotations
 import pyperf
 
 from benchmarks._helpers import identity, noop
-from quent import Chain
+from quent import Q
 from quent._eval import _evaluate_value
 from quent._link import Link
 
@@ -23,7 +23,7 @@ from quent._link import Link
 
 
 def bench_raw_call_overhead(loops: int) -> float:
-  """Baseline: raw Python function call with no chain overhead."""
+  """Baseline: raw Python function call with no pipeline overhead."""
   t0 = pyperf.perf_counter()
   for _ in range(loops):
     identity(42)
@@ -85,97 +85,97 @@ def bench_link_init_with_args(loops: int) -> float:
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_construction_empty(loops: int) -> float:
-  """Empty Chain() construction — build time only."""
+def bench_pipeline_construction_empty(loops: int) -> float:
+  """Empty pipeline construction — build time only."""
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    Chain()
+    Q()
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_construction_5(loops: int) -> float:
-  """Chain construction: 5 .then() calls, no execution."""
+def bench_pipeline_construction_5(loops: int) -> float:
+  """Pipeline construction: 5 .then() calls, no execution."""
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    c = Chain()
-    c.then(identity)
-    c.then(identity)
-    c.then(identity)
-    c.then(identity)
-    c.then(identity)
+    q = Q()
+    q.then(identity)
+    q.then(identity)
+    q.then(identity)
+    q.then(identity)
+    q.then(identity)
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_run_empty(loops: int) -> float:
-  """Chain().run() with no links."""
-  chain = Chain()
+def bench_pipeline_run_empty(loops: int) -> float:
+  """Pipeline .run() with no links."""
+  q = Q()
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_run_1(loops: int) -> float:
-  """Chain with 1 .then(identity) link."""
-  chain = Chain().then(identity)
+def bench_pipeline_run_1(loops: int) -> float:
+  """Pipeline with 1 .then(identity) link."""
+  q = Q().then(identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_run_5(loops: int) -> float:
-  """Chain with 5 .then(identity) links."""
-  chain = Chain()
+def bench_pipeline_run_5(loops: int) -> float:
+  """Pipeline with 5 .then(identity) links."""
+  q = Q()
   for _ in range(5):
-    chain.then(identity)
+    q.then(identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_run_10(loops: int) -> float:
-  """Chain with 10 .then(identity) links."""
-  chain = Chain()
+def bench_pipeline_run_10(loops: int) -> float:
+  """Pipeline with 10 .then(identity) links."""
+  q = Q()
   for _ in range(10):
-    chain.then(identity)
+    q.then(identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
-def bench_chain_run_50(loops: int) -> float:
-  """Chain with 50 .then(identity) links."""
-  chain = Chain()
+def bench_pipeline_run_50(loops: int) -> float:
+  """Pipeline with 50 .then(identity) links."""
+  q = Q()
   for _ in range(50):
-    chain.then(identity)
+    q.then(identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
 def bench_then_vs_do(loops: int) -> float:
   """then() vs do(): measure do() (side-effect, value not propagated)."""
-  chain = Chain()
+  q = Q()
   for _ in range(5):
-    chain.do(noop)
+    q.do(noop)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
 def bench_lambda_callable(loops: int) -> float:
-  """Chain using lambda callables instead of named functions."""
-  chain = Chain()
+  """Pipeline using lambda callables instead of named functions."""
+  q = Q()
   for _ in range(5):
-    chain.then(lambda x: x)
+    q.then(lambda x: x)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
@@ -185,14 +185,14 @@ class _Incrementer:
 
 
 def bench_class_callable(loops: int) -> float:
-  """Chain using __call__ instances (method dispatch overhead)."""
+  """Pipeline using __call__ instances (method dispatch overhead)."""
   fn = _Incrementer()
-  chain = Chain()
+  q = Q()
   for _ in range(5):
-    chain.then(fn)
+    q.then(fn)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(0)
+    q.run(0)
   return pyperf.perf_counter() - t0
 
 
@@ -205,13 +205,13 @@ if __name__ == '__main__':
   runner.bench_time_func('evaluate_value_non_callable', bench_evaluate_value_non_callable)
   runner.bench_time_func('link_init', bench_link_init)
   runner.bench_time_func('link_init_with_args', bench_link_init_with_args)
-  runner.bench_time_func('chain_construction_empty', bench_chain_construction_empty)
-  runner.bench_time_func('chain_construction_5', bench_chain_construction_5)
-  runner.bench_time_func('chain_run_empty', bench_chain_run_empty)
-  runner.bench_time_func('chain_run_1', bench_chain_run_1)
-  runner.bench_time_func('chain_run_5', bench_chain_run_5)
-  runner.bench_time_func('chain_run_10', bench_chain_run_10)
-  runner.bench_time_func('chain_run_50', bench_chain_run_50)
+  runner.bench_time_func('pipeline_construction_empty', bench_pipeline_construction_empty)
+  runner.bench_time_func('pipeline_construction_5', bench_pipeline_construction_5)
+  runner.bench_time_func('pipeline_run_empty', bench_pipeline_run_empty)
+  runner.bench_time_func('pipeline_run_1', bench_pipeline_run_1)
+  runner.bench_time_func('pipeline_run_5', bench_pipeline_run_5)
+  runner.bench_time_func('pipeline_run_10', bench_pipeline_run_10)
+  runner.bench_time_func('pipeline_run_50', bench_pipeline_run_50)
   runner.bench_time_func('then_vs_do', bench_then_vs_do)
   runner.bench_time_func('lambda_callable', bench_lambda_callable)
   runner.bench_time_func('class_callable', bench_class_callable)

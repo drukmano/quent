@@ -2,7 +2,7 @@
 Retry with exponential backoff and jitter -- quent recipe.
 
 Demonstrates how to build a reusable retry-with-backoff wrapper and
-compose it into quent chains via .then(), .do(), and .except_().
+compose it into quent pipelines via .then(), .do(), and .except_().
 
 Patterns shown:
   - retry(fn) -- wraps a sync callable with exponential-backoff retry logic
@@ -11,7 +11,7 @@ Patterns shown:
   - Final safety net via .except_()
   - Both sync and async demonstrations
   - Practical: simulated flaky network call
-  - Nested chain as a reusable retry building block
+  - Nested pipeline as a reusable retry building block
 
 Run with:
     python examples/retry_backoff.py
@@ -23,7 +23,7 @@ import asyncio
 import random
 import time
 
-from quent import Chain
+from quent import Q
 
 # ---------------------------------------------------------------------------
 # Retry helpers
@@ -130,20 +130,20 @@ class FlakyService:
 
 
 # ---------------------------------------------------------------------------
-# Nested chain for retry with per-attempt error handling
+# Nested pipeline for retry with per-attempt error handling
 # ---------------------------------------------------------------------------
 
-def make_retry_chain(service: FlakyService, max_attempts: int = 3) -> Chain:
-  """Build a chain that retries a service call with backoff.
+def make_retry_pipeline(service: FlakyService, max_attempts: int = 3) -> Q:
+  """Build a pipeline that retries a service call with backoff.
 
-  This demonstrates using a nested chain as a reusable retry building block.
-  The nested chain has its own except_() for per-attempt logging; the outer
-  chain can add its own except_() for final failure handling.
+  This demonstrates using a nested pipeline as a reusable retry building block.
+  The nested pipeline has its own except_() for per-attempt logging; the outer
+  pipeline can add its own except_() for final failure handling.
   """
   wrapped = retry(service.fetch, max_attempts=max_attempts, base_delay=0.05)
 
   return (
-    Chain()
+    Q()
     .then(wrapped)
     .do(lambda r: print(f'  [nested] success: {r["body"]}'))
   )
@@ -163,7 +163,7 @@ if __name__ == '__main__':
 
   svc = FlakyService('sync-svc', fail_count=2)
   result = (
-    Chain('https://api.example.com/data')
+    Q('https://api.example.com/data')
     .then(retry(svc.fetch, max_attempts=4, base_delay=0.05))
     .do(lambda r: print(f'  [do] status={r["status"]}'))
     # except_ with Ellipsis: handler receives only the exception.
@@ -179,7 +179,7 @@ if __name__ == '__main__':
 
   async_svc = FlakyService('async-svc', fail_count=2)
   result = asyncio.run(
-    Chain('https://api.example.com/async-data')
+    Q('https://api.example.com/async-data')
     .then(async_retry(async_svc.async_fetch, max_attempts=4, base_delay=0.05))
     .do(lambda r: print(f'  [do] body={r["body"]!r}'))
     .except_(lambda ei: print(f'  [except] gave up: {ei.exc}') or {})
@@ -187,18 +187,18 @@ if __name__ == '__main__':
   )
   print(f'  Result: {result}\n')
 
-  # -- Nested chain demo ---------------------------------------------------
+  # -- Nested pipeline demo ---------------------------------------------------
   print('=' * 60)
-  print('NESTED CHAIN DEMO: reusable retry chain as a .then() step')
+  print('NESTED PIPELINE DEMO: reusable retry pipeline as a .then() step')
   print('=' * 60)
 
   nested_svc = FlakyService('nested-svc', fail_count=1)
-  retry_chain = make_retry_chain(nested_svc, max_attempts=3)
+  retry_q = make_retry_pipeline(nested_svc, max_attempts=3)
 
   result = (
-    Chain('https://api.example.com/nested')
-    # The nested retry chain runs with the current value (the URL) as input.
-    .then(retry_chain)
+    Q('https://api.example.com/nested')
+    # The nested retry pipeline runs with the current value (the URL) as input.
+    .then(retry_q)
     .then(lambda r: f'Final answer: {r["body"]}')
     .run()
   )
@@ -211,10 +211,10 @@ if __name__ == '__main__':
 
   hopeless_svc = FlakyService('hopeless-svc', fail_count=100)  # always fails
   result = (
-    Chain('https://api.example.com/hopeless')
+    Q('https://api.example.com/hopeless')
     .then(retry(hopeless_svc.fetch, max_attempts=3, base_delay=0.02))
     # except_ default calling convention: handler(exc, root_value).
-    # root_value is the URL string passed to Chain().
+    # root_value is the URL string passed to Q().
     .except_(lambda ei: {'error': str(ei.exc), 'url': ei.root_value})
     .run()
   )

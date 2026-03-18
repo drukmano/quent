@@ -9,10 +9,10 @@ Patterns shown:
   - gather() for concurrent requests to multiple services
   - concurrency= parameter to limit parallel requests
   - except_() for centralised error handling
-  - Nested chains for per-service error handling
+  - Nested pipelines for per-service error handling
   - if_/else_ for conditional routing
   - do() for request/response logging
-  - Chain.return_() for early rejection (auth/rate-limit failures)
+  - Q.return_() for early rejection (auth/rate-limit failures)
   - Simulated HTTP calls (sync and async variants)
   - Same pipeline works sync and async
 
@@ -27,7 +27,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from quent import Chain, ChainExcInfo
+from quent import Q, QuentExcInfo
 
 # ---------------------------------------------------------------------------
 # Domain types
@@ -139,9 +139,9 @@ def authenticate(request: Request) -> Request:
   token = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
   user = TOKEN_DB.get(token)
   if user is None:
-    # Chain.return_() signals early termination of the entire pipeline.
-    # The return value becomes the chain's result -- downstream steps are skipped.
-    return Chain.return_(Response(
+    # Q.return_() signals early termination of the entire pipeline.
+    # The return value becomes the pipeline's result -- downstream steps are skipped.
+    return Q.return_(Response(
       status=401,
       body={'error': 'Unauthorized', 'detail': 'Invalid or missing token'},
     ))
@@ -161,7 +161,7 @@ def rate_limit(request: Request) -> Request:
   count = RATE_LIMITS.get(request.client_ip, 0) + 1
   RATE_LIMITS[request.client_ip] = count
   if count > RATE_LIMIT_MAX:
-    return Chain.return_(Response(
+    return Q.return_(Response(
       status=429,
       body={
         'error': 'Too Many Requests',
@@ -203,7 +203,7 @@ def _handle_get_user_dashboard(request: Request, user_id: int) -> Response:
   # gather() fans out to three services concurrently via ThreadPoolExecutor (sync)
   # or TaskGroup (async). Results are accessed by index from the returned tuple.
   result = (
-    Chain(user_id)
+    Q(user_id)
     .gather(fetch_user_profile, fetch_user_orders, fetch_user_prefs)
     .then(lambda r: {
       'profile': r[0],
@@ -280,10 +280,10 @@ def add_error_headers(response: Response) -> Response:
 # Error handler
 # ---------------------------------------------------------------------------
 
-def error_handler(ei: ChainExcInfo) -> Response:
+def error_handler(ei: QuentExcInfo) -> Response:
   """Centralized error handler.
 
-  Registered with except_() default calling convention: handler(ChainExcInfo).
+  Registered with except_() default calling convention: handler(QuentExcInfo).
   ei.exc is the caught exception; ei.root_value is the Request object passed to .run().
   """
   print(f'  [error_handler] caught {type(ei.exc).__name__}: {ei.exc}')
@@ -294,16 +294,16 @@ def error_handler(ei: ChainExcInfo) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# Gateway chain factory
+# Gateway pipeline factory
 # ---------------------------------------------------------------------------
 
 def handle(request: Request) -> Response:
   """Process *request* through the full gateway pipeline."""
   return (
-    Chain(request)
+    Q(request)
     .do(log_request)                           # side-effect: log request
-    .then(authenticate)                        # may Chain.return_() a 401
-    .then(rate_limit)                          # may Chain.return_() a 429
+    .then(authenticate)                        # may Q.return_() a 401
+    .then(rate_limit)                          # may Q.return_() a 429
     .then(route)                               # dispatch to route handler
     .if_(is_success).then(add_cors_headers)     # conditional: CORS on success
     .else_(add_error_headers)                  # else: minimal headers on error
@@ -395,7 +395,7 @@ if __name__ == '__main__':
   async def async_handle_dashboard(user_id: int) -> dict:
     """Gather async services and merge results."""
     return await (
-      Chain(user_id)
+      Q(user_id)
       .gather(
         async_fetch_user_profile,
         async_fetch_user_orders,

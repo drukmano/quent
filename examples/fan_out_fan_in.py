@@ -7,17 +7,17 @@ them back into a single value.
 
 quent expresses this naturally:
 
-  Chain(user_id)
+  Q(user_id)
     .gather(get_profile, get_orders, get_prefs)   # fan-out -> tuple of 3 results
     .then(lambda r: merge(r[0], r[1], r[2]))       # fan-in -> single merged dict
 
-The same chain definition works for both sync and async callables -- quent
+The same pipeline definition works for both sync and async callables -- quent
 detects awaitables automatically and switches to async execution transparently.
 
 Patterns shown:
   - gather() for parallel execution
   - Multiple processing branches with different logic
-  - Nested chains for branch-specific error handling
+  - Nested pipelines for branch-specific error handling
   - clone() for creating branch variations
   - concurrency= for controlling parallelism
   - Both CPU-bound (ThreadPoolExecutor) and IO-bound (async) examples
@@ -32,7 +32,7 @@ import asyncio
 import json
 import time
 
-from quent import Chain
+from quent import Q
 
 # ---------------------------------------------------------------------------
 # Simulated sync services (each costs ~50 ms to simulate network latency)
@@ -157,7 +157,7 @@ if __name__ == '__main__':
 
   t0 = time.perf_counter()
   result = (
-    Chain(USER_ID)
+    Q(USER_ID)
     # gather() fans out to 3 services concurrently via ThreadPoolExecutor.
     # Returns a tuple: (profile, orders, prefs).
     .gather(get_user_profile, get_user_orders, get_user_preferences)
@@ -176,7 +176,7 @@ if __name__ == '__main__':
 
   t0 = time.perf_counter()
   result = asyncio.run(
-    Chain(USER_ID)
+    Q(USER_ID)
     .gather(
       async_get_user_profile,
       async_get_user_orders,
@@ -198,7 +198,7 @@ if __name__ == '__main__':
 
   t0 = time.perf_counter()
   result = asyncio.run(
-    Chain(USER_ID)
+    Q(USER_ID)
     .gather(
       async_get_user_profile,
       async_get_user_orders,
@@ -219,7 +219,7 @@ if __name__ == '__main__':
   _header('d) Nested fan-out: gather -> map each order')
 
   result = (
-    Chain(USER_ID)
+    Q(USER_ID)
     # Level 1: fan-out to 3 services.
     .gather(get_user_profile, get_user_orders, get_user_preferences)
     .then(lambda r: merge_user_data(r[0], r[1], r[2]))          # fan-in -> enriched dict
@@ -236,15 +236,15 @@ if __name__ == '__main__':
   # ------------------------------------------------------------------
   _header('e) clone() for branch variations')
 
-  # Build a base fan-out chain that gathers profile + orders.
-  base_chain = (
-    Chain()
+  # Build a base fan-out pipeline that gathers profile + orders.
+  base_q = (
+    Q()
     .gather(get_user_profile, get_user_orders)
   )
 
   # Clone A: merge into a summary dict.
-  summary_chain = (
-    base_chain.clone()
+  summary_q = (
+    base_q.clone()
     .then(lambda r: {
       'name': r[0]['name'],
       'total_orders': len(r[1]),
@@ -253,39 +253,39 @@ if __name__ == '__main__':
   )
 
   # Clone B: extract only the order list.
-  orders_only_chain = (
-    base_chain.clone()
+  orders_only_q = (
+    base_q.clone()
     .then(lambda tup: tup[1])  # second element of the gather tuple
   )
 
-  summary = summary_chain.run(USER_ID)
-  orders = orders_only_chain.run(USER_ID)
+  summary = summary_q.run(USER_ID)
+  orders = orders_only_q.run(USER_ID)
 
   _show('Summary (clone A)', summary)
   _show('Orders only (clone B)', orders)
 
   # ------------------------------------------------------------------
-  # f) Error handling per branch via nested chains
+  # f) Error handling per branch via nested pipelines
   # ------------------------------------------------------------------
-  _header('f) Per-branch error handling with nested chains')
+  _header('f) Per-branch error handling with nested pipelines')
 
   def flaky_service(user_id: int) -> dict:
     """A service that always fails -- demonstrates per-branch recovery."""
     raise ConnectionError(f'Service unavailable for user {user_id}')
 
-  # Wrap the flaky service in a nested chain with its own except_().
+  # Wrap the flaky service in a nested pipeline with its own except_().
   # The outer pipeline continues even if this branch fails.
   safe_flaky = (
-    Chain()
+    Q()
     .then(flaky_service)
     .except_(lambda ei: {'error': str(ei.exc)})
   )
 
   result = (
-    Chain(USER_ID)
+    Q(USER_ID)
     .gather(
       get_user_profile,
-      lambda uid: safe_flaky.run(uid),  # nested chain handles its own errors
+      lambda uid: safe_flaky.run(uid),  # nested pipeline handles its own errors
       get_user_preferences,
     )
     .then(lambda r: {

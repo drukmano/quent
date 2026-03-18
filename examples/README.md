@@ -27,10 +27,10 @@ Each script is self-contained and uses only quent + the standard library.
 | File | Description | Key Features |
 |------|-------------|--------------|
 | [`etl_pipeline.py`](etl_pipeline.py) | Complete Extract-Transform-Load pipeline | `then`, `do`, `foreach`, `except_`, `finally_`, `clone` |
-| [`api_gateway.py`](api_gateway.py) | API gateway with auth, routing, and error handling | `gather`, `if_`/`else_`, `do`, `except_`, `Chain.return_` |
+| [`api_gateway.py`](api_gateway.py) | API gateway with auth, routing, and error handling | `gather`, `if_`/`else_`, `do`, `except_`, `Q.return_` |
 | [`fan_out_fan_in.py`](fan_out_fan_in.py) | Fan-out/fan-in concurrent processing | `gather`, `concurrency`, `clone`, sync and async variants |
-| [`retry_backoff.py`](retry_backoff.py) | Retry with exponential backoff and jitter | `except_`, nested chains, sync and async retry wrappers |
-| [`testing_chains.py`](testing_chains.py) | Unit testing quent chains with `unittest` | `MagicMock(spec=...)`, `AsyncMock`, `clone`, `decorator`, `on_step` |
+| [`retry_backoff.py`](retry_backoff.py) | Retry with exponential backoff and jitter | `except_`, nested pipelines, sync and async retry wrappers |
+| [`testing_chains.py`](testing_chains.py) | Unit testing quent pipelines with `unittest` | `MagicMock(spec=...)`, `AsyncMock`, `clone`, `as_decorator`, `on_step` |
 
 ## Notes
 

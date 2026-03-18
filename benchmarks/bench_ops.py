@@ -18,7 +18,7 @@ from benchmarks._helpers import (
   predicate_false,
   predicate_true,
 )
-from quent import Chain
+from quent import Q
 
 # ---- Benchmark functions ----
 
@@ -26,104 +26,104 @@ from quent import Chain
 def bench_map_10(loops: int) -> float:
   """.foreach(add_one) over a 10-element list."""
   data = list(range(10))
-  chain = Chain(data).foreach(add_one)
+  q = Q(data).foreach(add_one)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
 def bench_map_100(loops: int) -> float:
   """.foreach(add_one) over a 100-element list."""
   data = list(range(100))
-  chain = Chain(data).foreach(add_one)
+  q = Q(data).foreach(add_one)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
 def bench_map_1000(loops: int) -> float:
   """.foreach(add_one) over a 1000-element list."""
   data = list(range(1000))
-  chain = Chain(data).foreach(add_one)
+  q = Q(data).foreach(add_one)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
 def bench_foreach_do_10(loops: int) -> float:
   """.foreach_do(noop) over a 10-element list."""
   data = list(range(10))
-  chain = Chain(data).foreach_do(noop)
+  q = Q(data).foreach_do(noop)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
 def bench_foreach_do_100(loops: int) -> float:
   """.foreach_do(noop) over a 100-element list."""
   data = list(range(100))
-  chain = Chain(data).foreach_do(noop)
+  q = Q(data).foreach_do(noop)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
 def bench_gather_2(loops: int) -> float:
   """.gather(identity, identity) — 2 concurrent branches."""
-  chain = Chain().gather(identity, identity)
+  q = Q().gather(identity, identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(42)
+    q.run(42)
   return pyperf.perf_counter() - t0
 
 
 def bench_gather_5(loops: int) -> float:
   """.gather(identity * 5) — 5 concurrent branches."""
-  chain = Chain().gather(identity, identity, identity, identity, identity)
+  q = Q().gather(identity, identity, identity, identity, identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(42)
+    q.run(42)
   return pyperf.perf_counter() - t0
 
 
 def bench_gather_10(loops: int) -> float:
   """.gather(identity * 10) — 10 concurrent branches."""
-  chain = Chain().gather(*([identity] * 10))
+  q = Q().gather(*([identity] * 10))
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(42)
+    q.run(42)
   return pyperf.perf_counter() - t0
 
 
 def bench_with_cm(loops: int) -> float:
   """.with_(identity) using DummyCM context manager."""
-  chain = Chain(DummyCM(99)).with_(identity)
+  q = Q(DummyCM(99)).with_(identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run()
+    q.run()
   return pyperf.perf_counter() - t0
 
 
 def bench_if_true(loops: int) -> float:
   """.if_(predicate_true).then(identity) — branch taken."""
-  chain = Chain().if_(predicate_true).then(identity)
+  q = Q().if_(predicate_true).then(identity)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(42)
+    q.run(42)
   return pyperf.perf_counter() - t0
 
 
 def bench_if_false_else(loops: int) -> float:
   """.if_(predicate_false).then(identity).else_(add_one) — else branch taken."""
-  chain = Chain().if_(predicate_false).then(identity).else_(add_one)
+  q = Q().if_(predicate_false).then(identity).else_(add_one)
   t0 = pyperf.perf_counter()
   for _ in range(loops):
-    chain.run(42)
+    q.run(42)
   return pyperf.perf_counter() - t0
 
 
