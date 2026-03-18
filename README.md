@@ -212,6 +212,29 @@ Q(user).if_(is_premium).do(log_premium_access).then(next_step).run()
 </details>
 
 <details>
+<summary><strong>Loops</strong> &mdash; while_</summary>
+
+<br>
+
+```python
+# Decrement until zero (default predicate tests truthiness)
+Q(10).while_().then(lambda x: x - 1).run()  # 0
+
+# Predicate callable -- halve while value exceeds 1
+Q(100).while_(lambda x: x > 1).then(lambda x: x // 2).run()  # 1
+
+# break_() to exit early
+Q(1).while_(True).then(lambda x: Q.break_(x) if x >= 100 else x * 2).run()  # 128
+
+# Nest conditionals inside a loop body via nested pipeline
+Q(data).while_(has_more).then(
+  Q().if_(is_valid).then(process).else_(skip)
+).run()
+```
+
+</details>
+
+<details>
 <summary><strong>Context Managers</strong> &mdash; with_ / with_do</summary>
 
 <br>
@@ -312,6 +335,50 @@ async for item in Q(async_source).iterate(transform):
 
 </details>
 
+<details>
+<summary><strong>Generator Driving</strong> &mdash; drive_gen</summary>
+
+<br>
+
+Drive sync or async generators via the send protocol:
+
+```python
+def gen():
+  x = yield 1
+  x = yield x + 1
+  x = yield x + 1
+
+Q(gen()).drive_gen(lambda x: x * 2).run()
+# Flow: yield 1 → fn(1)=2 → send 2 → yield 3 → fn(3)=6 → send 6 → yield 7 → fn(7)=14
+# returns: 14
+
+# Works with async generators too
+result = await Q(async_gen()).drive_gen(process).run()
+```
+
+</details>
+
+<details>
+<summary><strong>Buffered Iteration</strong> &mdash; buffer</summary>
+
+<br>
+
+Decouple producer and consumer with a bounded, backpressure-aware buffer:
+
+```python
+# Producer runs ahead up to 10 items while consumer processes
+for item in Q(produce).buffer(10).iterate():
+  process(item)
+
+# Works with all iteration terminals and async
+async for item in Q(async_produce).buffer(10).iterate(transform):
+  await consume(item)
+```
+
+Sync uses a background thread + `queue.Queue`; async uses a background task + `asyncio.Queue`.
+
+</details>
+
 ---
 
 ### Calling Conventions
@@ -383,6 +450,8 @@ All methods return `self` for fluent chaining.
 | `.except_(fn, /, *args, exceptions=None, reraise=False, **kwargs)` | Exception handler (one per pipeline) |
 | `.finally_(fn, /, *args, **kwargs)` | Cleanup handler (one per pipeline) |
 | `.name(label)` | Assign a label for traceback identification |
+| `.while_(predicate=None, /, *args, **kwargs)` | Begin loop; next `.then()` or `.do()` becomes body |
+| `.drive_gen(fn)` | Drive a sync/async generator via send protocol |
 | `.set(key)` / `.set(key, value)` | Store a value in the execution context (current value unchanged) |
 | `.get(key)` / `.get(key, default)` | Retrieve a value from context; replaces current value |
 
@@ -392,6 +461,7 @@ All methods return `self` for fluent chaining.
 |:-------|:------------|
 | `.run(v=Null, /, *args, **kwargs)` | Execute the pipeline; returns value or coroutine |
 | `q(...)` | Alias for `.run()` |
+| `.debug(v=Null, /, *args, **kwargs)` | Execute with step-level tracing; returns `DebugResult` |
 
 ### Reuse and Iteration
 
@@ -402,6 +472,7 @@ All methods return `self` for fluent chaining.
 | `.iterate_do(fn=None)` | Like iterate, fn results discarded |
 | `.flat_iterate(fn=None, *, flush=None)` | Flatmap iterator; flattens one level or maps fn to sub-iterables |
 | `.flat_iterate_do(fn=None, *, flush=None)` | Like flat_iterate, fn results discarded; original elements yielded |
+| `.buffer(n)` | Attach backpressure buffer for iteration terminals |
 | `.clone()` | Deep copy for fork-and-extend |
 | `Q.from_steps(*steps)` | Construct a pipeline from a sequence of `.then()` steps |
 
@@ -412,7 +483,7 @@ All methods return `self` for fluent chaining.
 | Method | Description |
 |:-------|:------------|
 | `Q.return_(v=Null, /, *args, **kwargs)` | Signal early return from pipeline |
-| `Q.break_(v=Null, /, *args, **kwargs)` | Signal break from iteration; value is appended to partial results |
+| `Q.break_(v=Null, /, *args, **kwargs)` | Signal break from iteration or `while_` loop |
 
 ### Context API (Class-Level)
 
