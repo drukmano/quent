@@ -151,6 +151,14 @@
   text-align: center;
 }
 
+/* Hero logo */
+.md-typeset .hero .hero-logo {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  margin-bottom: 1rem;
+}
+
 /* Gradient headline — large, fluid, eye-catching */
 .md-typeset .hero h1 {
   font-size: clamp(2.8rem, 6vw, 4.2rem);

@@ -39,9 +39,11 @@
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="quent" />
+  <meta property="og:image" content="https://raw.githubusercontent.com/drukmano/quent/master/docs/assets/logo.png" />
   {% if page and page.meta and page.meta.description %}
-  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="{{ page.meta.title or page.title }}" />
   <meta name="twitter:description" content="{{ page.meta.description }}" />
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/drukmano/quent/master/docs/assets/logo.png" />
   {% endif %}
 {% endblock %}

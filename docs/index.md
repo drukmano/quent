@@ -13,6 +13,8 @@ hide:
 
 <div class="hero" markdown>
 
+<img src="assets/logo.png" alt="quent" class="hero-logo">
+
 # quent
 
 **Write pipeline code once — runs sync or async automatically.**

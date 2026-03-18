@@ -11,8 +11,9 @@ theme:
   name: material
   language: en
   custom_dir: docs/overrides
+  logo: assets/logo.png
+  favicon: assets/logo.png
   icon:
-    logo: material/link-variant
     repo: fontawesome/brands/github
   features:
     - navigation.instant
@@ -58,7 +59,9 @@ hooks:
 plugins:
   - search:
       separator: '[\s\-\.]+'
-  - social
+  - social:
+      cards_layout_options:
+        logo: docs/assets/logo.png
   - meta
   - tags
   - privacy
