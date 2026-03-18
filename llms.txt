@@ -45,39 +45,123 @@ branch_a = base.clone().then(save_to_db)
 branch_b = base.clone().then(save_to_file)
 ```
 
-## API Overview
+## The Bridge Contract
 
-- [Chain(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#constructor) -- Constructor with optional root value.
-- [.then(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#then) -- Append step; result replaces current value.
-- [.do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#do) -- Side-effect step; result discarded.
-- [.foreach(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach) -- Apply fn to each element, collect results.
-- [.foreach_do(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach_do) -- Side-effect per element, keep originals.
-- [.gather(*fns, concurrency=-1, executor=None)](https://quent.readthedocs.io/en/latest/reference/#gather) -- Run multiple functions concurrently on current value.
-- [.with_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_) -- Enter current value as context manager, call fn.
-- [.with_do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_do) -- Context manager side-effect variant.
-- [.if_(predicate=None, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#if_) -- Begin conditional; must be followed by .then() or .do().
-- [.else_(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#else_) -- Else branch for preceding if_().
-- [.else_do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#else_do) -- Side-effect else branch.
-- [.except_(fn, *args, exceptions=None, reraise=False, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#except_) -- Exception handler (one per chain).
-- [.finally_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#finally_) -- Cleanup handler (one per chain, always runs).
-- [.name(label)](https://quent.readthedocs.io/en/latest/reference/#name) -- Assign a label for traceback identification.
-- [.run(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#run) -- Execute chain.
-- [.decorator()](https://quent.readthedocs.io/en/latest/reference/#decorator) -- Wrap chain as function decorator.
-- [.iterate(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate) -- Sync/async iterator over chain output.
-- [.iterate_do(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate_do) -- Iterator with side-effect fn.
-- [.clone()](https://quent.readthedocs.io/en/latest/reference/#clone) -- Independent copy of chain.
-- [Chain.return_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Early return from chain.
-- [Chain.break_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from iteration; value appended to partial results.
-- [Chain.on_step](https://quent.readthedocs.io/en/latest/reference/#on_step) -- Class-level step instrumentation callback.
-- [ChainExcInfo](https://quent.readthedocs.io/en/latest/reference/#chainexcinfo) -- NamedTuple (exc, root_value) passed to except handlers.
-- [Null](https://quent.readthedocs.io/en/latest/reference/#null-sentinel) -- Sentinel for "no value provided".
-- [QuentException](https://quent.readthedocs.io/en/latest/reference/#quentexception) -- Public exception type.
+> Given a pipeline of N steps, replacing any step's callable with a functionally equivalent callable of the opposite sync/async kind produces the same observable result.
+
+Execution starts synchronously. On first awaitable result, transitions to async and stays async. A fully sync pipeline has zero async overhead. `.run()` returns a plain value or a coroutine.
+
+## Calling Conventions
+
+Two rules, applied in strict priority order. First match wins. These same 2 rules apply universally to ALL contexts: standard steps, except_() handlers, finally_() handlers, and if_() predicates.
+
+| Priority | Rule | Trigger | Invocation |
+|---|---|---|---|
+| 1 | Explicit args | Args/kwargs provided | `fn(*args, **kwargs)` -- current value NOT passed |
+| 2 | Default | None of the above | `fn(cv)`, `fn()` if no value, or `v` as-is if non-callable |
+
+```python
+Chain(5).then(str).run()                    # str(5) -- Rule 2
+Chain(5).then(print, 'hello').run()         # print('hello') -- Rule 1
+Chain(5).then(42).run()                     # 42 -- non-callable, Rule 2
+```
 
 ## Key Concepts
 
-- [Calling Conventions](https://quent.readthedocs.io/en/latest/guide/chains/) -- Two rules: explicit args override current value; no args passes current value as first argument.
-- [Sync/Async Bridging](https://quent.readthedocs.io/en/latest/guide/async/) -- Execution starts sync; transitions to async on first awaitable; caller decides whether to await.
-- [Enhanced Tracebacks](https://quent.readthedocs.io/en/latest/reference/) -- Chain visualization injected into exceptions with `<----` marker pointing to failing step.
+- **Null sentinel** distinguishes "no value" from `None`. `Chain()` = no root value. `Chain(None)` = root value `None`. Never exposed to user code.
+- **Current value** flows through the pipeline -- each step receives it and (unless side-effect) its result becomes the new current value.
+- **Root value** seeds the pipeline: `Chain(v)` at build time, `chain.run(v)` at run time (overrides build-time root).
+
+## API Overview
+
+### Constructor and Execution
+
+- [Chain(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#constructor) -- Constructor with optional root value.
+- [.run(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#run) -- Execute chain. Returns value or coroutine.
+- [chain(...)](https://quent.readthedocs.io/en/latest/reference/#__call__) -- Alias for `.run()`.
+
+### Pipeline Building
+
+All methods return `self` for fluent chaining.
+
+- [.then(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#then) -- Append step; result replaces current value.
+- [.do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#do) -- Side-effect step; result discarded. `fn` must be callable.
+- [.foreach(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach) -- Apply fn to each element, collect results.
+- [.foreach_do(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach_do) -- Side-effect per element, keep originals.
+- [.gather(*fns, concurrency=-1, executor=None)](https://quent.readthedocs.io/en/latest/reference/#gather) -- Run multiple fns concurrently on current value. Always concurrent.
+- [.with_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_) -- Enter current value as context manager, call fn. Result replaces current value.
+- [.with_do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_do) -- Context manager side-effect variant. Result discarded.
+- [.if_(predicate=None, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#if_) -- Begin conditional; must be followed by `.then()` or `.do()`.
+- [.else_(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#else_) -- Else branch for preceding if_().
+- [.else_do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#else_do) -- Side-effect else branch.
+- [.name(label)](https://quent.readthedocs.io/en/latest/reference/#name) -- Assign a label for traceback identification.
+
+### Context API
+
+- [.set(key)](https://quent.readthedocs.io/en/latest/reference/#set-instance----pipeline-step) / [.set(key, value)](https://quent.readthedocs.io/en/latest/reference/#set-instance----pipeline-step) -- Pipeline step: store current value or explicit value in execution context. Current value unchanged.
+- [.get(key)](https://quent.readthedocs.io/en/latest/reference/#get-instance----pipeline-step) / [.get(key, default)](https://quent.readthedocs.io/en/latest/reference/#get-instance----pipeline-step) -- Pipeline step: retrieve value from context. Replaces current value.
+- [Chain.set(key, value)](https://quent.readthedocs.io/en/latest/reference/#set-class----immediate) -- Immediate: store value in context at call site.
+- [Chain.get(key)](https://quent.readthedocs.io/en/latest/reference/#get-class----immediate) / [Chain.get(key, default)](https://quent.readthedocs.io/en/latest/reference/#get-class----immediate) -- Immediate: retrieve from context at call site.
+
+### Error Handling
+
+- [.except_(fn, *args, exceptions=None, reraise=False, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#except_) -- Exception handler (one per chain). Handler receives `ChainExcInfo(exc, root_value)` as current value.
+- [.finally_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#finally_) -- Cleanup handler (one per chain, always runs). Receives root value. Return always discarded.
+
+### Iteration
+
+- [.iterate(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate) -- Dual sync/async iterator over chain output.
+- [.iterate_do(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate_do) -- Iterator with side-effect fn; original elements yielded.
+- [.flat_iterate(fn=None, *, flush=None)](https://quent.readthedocs.io/en/latest/reference/#flat_iterate) -- Flatmap iterator; flattens one level or maps fn to sub-iterables. Optional `flush` emits remaining items after source ends.
+- [.flat_iterate_do(fn=None, *, flush=None)](https://quent.readthedocs.io/en/latest/reference/#flat_iterate_do) -- Like flat_iterate but fn results discarded; original elements yielded.
+
+### Reuse
+
+- [.clone()](https://quent.readthedocs.io/en/latest/reference/#clone) -- Independent copy of chain. Structure deep-copied, callables shared.
+- [.decorator()](https://quent.readthedocs.io/en/latest/reference/#decorator) -- Wrap chain as function decorator.
+- [Chain.from_steps(*steps)](https://quent.readthedocs.io/en/latest/reference/#from_steps) -- Construct chain from a sequence of `.then()` steps. Single list/tuple arg auto-unpacked.
+
+### Control Flow
+
+- [Chain.return_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Early return from chain. Propagates through nested chains.
+- [Chain.break_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from iteration; value appended to partial results.
+
+### Instrumentation
+
+- [Chain.on_step](https://quent.readthedocs.io/en/latest/reference/#on_step) -- Class-level step instrumentation callback. Supports two signatures:
+  - 5 args: `(chain, step_name, input_value, result, elapsed_ns)` -- backward-compatible, not called on failure.
+  - 6 args: `(chain, step_name, input_value, result, elapsed_ns, exception)` -- preferred, called on both success and failure.
+  - Arity auto-detected via `inspect.signature` (cached). Zero overhead when `None`.
+
+### Deferred with_ in Iteration
+
+When `.with_(fn)` or `.with_do(fn)` is the last pipeline step before an iteration terminal (`iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`), context manager entry is deferred to iteration time. The CM stays open for the duration of iteration and exits in the generator's `finally:` block. When both deferred `with_` and deferred `finally_()` are active, the CM exits first, then `finally_()` runs.
+
+### Exports
+
+- [Chain](https://quent.readthedocs.io/en/latest/reference/#chain) -- Main pipeline class.
+- [ChainExcInfo](https://quent.readthedocs.io/en/latest/reference/#chainexcinfo) -- NamedTuple (exc, root_value) passed to except handlers.
+- [ChainIterator](https://quent.readthedocs.io/en/latest/reference/#chainiterator) -- Type alias for `.iterate()` / `.iterate_do()` / `.flat_iterate()` / `.flat_iterate_do()` return values.
+- [QuentException](https://quent.readthedocs.io/en/latest/reference/#quentexception) -- Exception type for quent-specific errors.
+- [Null](https://quent.readthedocs.io/en/latest/reference/#null-sentinel) -- Internal sentinel for "no value provided".
+- `__version__` -- Version string.
+
+## Enhanced Tracebacks
+
+When an exception occurs inside a chain, quent injects a `<quent>` frame into the traceback with chain visualization and `<----` marker on the failing step. Internal frames are cleaned. Named chains render as `Chain[label](root)`. Exception notes on Python 3.11+. Controlled by `QUENT_NO_TRACEBACK=1` and `QUENT_TRACEBACK_VALUES=0`.
+
+## Concurrency
+
+- `foreach`/`foreach_do`: `concurrency=None` (sequential, default), `-1` (unbounded), or positive integer.
+- `gather`: always concurrent, `concurrency=-1` (unbounded, default) or positive integer.
+- Sync: ThreadPoolExecutor. Async: Semaphore + TaskGroup (3.11+) / asyncio.gather (3.10).
+- `executor` param on all three: optional user-provided Executor for sync path.
+- Mixed sync/async within one concurrent operation raises TypeError.
+- Works with asyncio, trio, and curio.
+
+## Thread Safety
+
+Building is not thread-safe. A fully constructed chain is safe to execute concurrently from multiple threads, including free-threaded Python (PEP 703).
 
 ## Optional
 

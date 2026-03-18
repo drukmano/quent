@@ -655,7 +655,6 @@ Key points:
 
 - **`finally_` guarantees cleanup** -- the pipeline is always reset.
 - **One class, both clients.** `pipe.execute` is sync or async depending on the client.
-- **`finally_` guarantees cleanup** -- the pipeline is always reset.
 
 ---
 

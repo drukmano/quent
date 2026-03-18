@@ -116,8 +116,8 @@ def process_order_task(order_id: str):
 !!! tip "How it works"
     The `process_order` function builds a single Chain. When called with async callables (from the FastAPI endpoint), the chain returns a coroutine. When called with sync callables (from the Celery task), it returns a value directly. The validation and total calculation steps are plain sync functions that work in both paths.
 
-!!! warning "Chains cannot be pickled"
-    Chain objects block pickling (CWE-502). Do not serialize a Chain for Celery task arguments. Build the chain inside the task function, as shown above.
+!!! warning "Chains are not picklable in practice"
+    Most chain contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a Chain for Celery task arguments. Build the chain inside the task function, as shown above.
 
 ### Using `Depends` for dependency injection
 
@@ -488,8 +488,8 @@ async def generate_invoice_endpoint(order_id: str) -> dict:
   )
 ```
 
-!!! warning "Chains cannot be pickled"
-    Never pass a Chain as a Celery task argument. Build the chain inside the task function.
+!!! warning "Chains are not picklable in practice"
+    Most chain contents (lambdas, closures, bound methods) naturally fail to pickle. Do not serialize a Chain for Celery task arguments. Build the chain inside the task function, as shown above.
 
 ### Reusable pipeline factories with helper functions
 

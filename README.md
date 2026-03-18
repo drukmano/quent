@@ -11,6 +11,8 @@
     &nbsp;
     <a href="https://github.com/drukmano/quent/actions/workflows/ci.yml"><img src="https://github.com/drukmano/quent/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     &nbsp;
+    <a href="https://codecov.io/gh/drukmano/quent"><img src="https://codecov.io/gh/drukmano/quent/branch/master/graph/badge.svg" alt="Coverage"></a>
+    &nbsp;
     <a href="https://github.com/astral-sh/ruff"><img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json" alt="Ruff"></a>
     &nbsp;
     <a href="https://pepy.tech/project/quent"><img src="https://static.pepy.tech/badge/quent/month" alt="Downloads"></a>
@@ -31,7 +33,8 @@
 - **One definition, two worlds** &mdash; a single chain works for both sync and async callers. Zero code duplication.
 - **Zero ceremony** &mdash; no decorators, no base classes, no type wrappers. Just chain your functions.
 - **Drop-in migration** &mdash; unify existing sync and async implementations into one pipeline. Stop maintaining two versions.
-- **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561). Compatible with asyncio, trio, and curio &mdash; async event loop detection uses `sys.modules` lookups, adding zero overhead when those libraries are not loaded.
+- **Pure Python** &mdash; zero runtime dependencies. Fully typed (PEP 561).
+- **Works with asyncio, trio, and curio** &mdash; async pipelines run transparently under any of these event loops. Event loop detection uses `sys.modules` lookups (~50ns), adding zero overhead when those libraries are not loaded. Dual-protocol objects (context managers and iterables supporting both sync and async protocols) automatically prefer the async protocol under any running event loop.
 - **Focused** &mdash; every feature exists because removing it would force separate sync and async code paths.
 
 ---
@@ -380,6 +383,8 @@ All methods return `self` for fluent chaining.
 | `.except_(fn, /, *args, exceptions=None, reraise=False, **kwargs)` | Exception handler (one per chain) |
 | `.finally_(fn, /, *args, **kwargs)` | Cleanup handler (one per chain) |
 | `.name(label)` | Assign a label for traceback identification |
+| `.set(key)` / `.set(key, value)` | Store a value in the execution context (current value unchanged) |
+| `.get(key)` / `.get(key, default)` | Retrieve a value from context; replaces current value |
 
 ### Execution
 
@@ -395,7 +400,10 @@ All methods return `self` for fluent chaining.
 | `.decorator()` | Wrap chain as a function decorator |
 | `.iterate(fn=None)` | Dual sync/async generator over output |
 | `.iterate_do(fn=None)` | Like iterate, fn results discarded |
+| `.flat_iterate(fn=None, *, flush=None)` | Flatmap iterator; flattens one level or maps fn to sub-iterables |
+| `.flat_iterate_do(fn=None, *, flush=None)` | Like flat_iterate, fn results discarded; original elements yielded |
 | `.clone()` | Deep copy for fork-and-extend |
+| `Chain.from_steps(*steps)` | Construct a chain from a sequence of `.then()` steps |
 
 ### Control Flow
 
@@ -405,6 +413,13 @@ All methods return `self` for fluent chaining.
 |:-------|:------------|
 | `Chain.return_(v=Null, /, *args, **kwargs)` | Signal early return from chain |
 | `Chain.break_(v=Null, /, *args, **kwargs)` | Signal break from iteration; value is appended to partial results |
+
+### Context API (Class-Level)
+
+| Method | Description |
+|:-------|:------------|
+| `Chain.set(key, value)` | Store a value in the execution context immediately (not a pipeline step) |
+| `Chain.get(key)` / `Chain.get(key, default)` | Retrieve a value from the execution context immediately |
 
 ### Exports and Instrumentation
 
@@ -417,7 +432,7 @@ All methods return `self` for fluent chaining.
 | `__version__` | Package version string |
 | `Chain.on_step` | Optional callback `(chain, step_name, input_value, result, elapsed_ns)` for instrumentation |
 
-> **Note:** Chain objects cannot be pickled (security measure -- see [Troubleshooting](https://quent.readthedocs.io/en/latest/troubleshooting/#8-typeerror-when-pickling-a-chain)). Define chains at module level and reference by name instead of serializing.
+> **Note:** `copy.copy()` and `copy.deepcopy()` are blocked on Chain objects (`TypeError`). Use `.clone()` to produce a correct independent copy. Pickling is not blocked — most chain contents (lambdas, closures) will naturally fail to pickle, but quent does not enforce this.
 
 ---
 
@@ -433,7 +448,7 @@ quent's correctness rests on a single guarantee: any pipeline step can be swappe
 
 ### Scale
 
-- **1,342 test methods** across 20 test modules and 286 test classes
+- **1,342+ test methods** across 24 test modules and 286+ test classes
 - **21 CI matrix combinations** &mdash; 3 OSes (Ubuntu, macOS, Windows) &times; 5 Python versions (3.10&ndash;3.14), plus free-threaded builds (3.13t, 3.14t)
 - **Security scanning** &mdash; `pip-audit` for dependency vulnerabilities, `bandit` SAST for source code
 

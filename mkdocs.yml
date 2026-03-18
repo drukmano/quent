@@ -127,6 +127,7 @@ nav:
     - vs unasync: comparisons/vs-unasync.md
     - vs Other Libraries: comparisons/vs-others.md
   - API Reference: reference.md
+  - Error Reference: errors.md
   - Troubleshooting: troubleshooting.md
   - Changelog: changelog.md
 

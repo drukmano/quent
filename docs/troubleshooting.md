@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting — Common Errors and How to Fix Them"
-description: "Solutions for common quent errors: forgetting return before Chain.return_(), break_() outside iteration, else_() without if_(), non-callable in do(), exception handling pitfalls, duplicate handler registration, pickling, concurrency validation, nesting depth, and task limits."
+description: "Solutions for common quent errors: forgetting return before Chain.return_(), break_() outside iteration, else_() without if_(), non-callable in do(), exception handling pitfalls, duplicate handler registration, copying, concurrency validation, nesting depth, and task limits."
 tags:
   - troubleshooting
   - errors
@@ -289,32 +289,28 @@ pipeline = (
 
 ---
 
-## 7. `TypeError` When Pickling a Chain
+## 7. `TypeError` When Copying a Chain
 
 ### Error
 
 ```
-TypeError: Chain objects cannot be pickled. Chains contain arbitrary callables
-whose execution during unpickling could lead to arbitrary code execution (CWE-502).
+TypeError: Chain objects cannot be copied with copy.copy()/copy.deepcopy(). Use Chain.clone() instead.
 ```
 
 ### Cause
 
-Chain objects deliberately block pickling as a security measure. This affects `pickle.dumps`, `multiprocessing.Pool`, Celery task arguments, and pickle-based caches.
+`copy.copy()` and `copy.deepcopy()` are blocked on Chain objects. A shallow copy would produce a broken object with shared linked-list node references, leading to subtle corruption. A deep copy is semantically undefined for objects containing arbitrary callables.
 
 ### Fix
 
-Define chains at module level and reference by name:
+Use `.clone()` to produce a correct independent copy:
 
 ```python
 from quent import Chain
 
-pipeline = Chain().then(validate).then(transform).then(save)
-
-# Celery: reference the module-level chain
-@celery_app.task
-def process_order(order_id):
-  return pipeline.run(order_id)
+base = Chain().then(validate).then(transform)
+branch_a = base.clone().then(to_json)    # independent copy
+branch_b = base.clone().then(to_record)  # independent copy
 ```
 
 ---
@@ -324,11 +320,11 @@ def process_order(order_id):
 ### Errors
 
 ```
-TypeError: map() concurrency must be a positive integer, got bool
+TypeError: foreach() concurrency must be a positive integer or -1 (unbounded), got bool
 ```
 
 ```
-ValueError: map() concurrency must be >= 1, got 0
+ValueError: foreach() concurrency must be -1 (unbounded) or a positive integer, got 0
 ```
 
 ### Cause
@@ -412,7 +408,7 @@ This replaces argument values with type-name placeholders (e.g., `<str>` instead
 
 ### Symptom
 
-Multiple concurrent workers (in `gather()`, or `map()`/`foreach_do()` with `concurrency`) fail simultaneously, producing an `ExceptionGroup` instead of a single exception.
+Multiple concurrent workers (in `gather()`, or `foreach()`/`foreach_do()` with `concurrency`) fail simultaneously, producing an `ExceptionGroup` instead of a single exception.
 
 ### Cause
 

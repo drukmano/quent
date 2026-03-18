@@ -20,9 +20,10 @@
 - [7. Control Flow](#7-control-flow)
 - [8. Execution](#8-execution)
 - [9. Iteration](#9-iteration)
-  - [9.5 flat_iterate()](#95-flat_itefn--none---on_exhaust--none)
-  - [9.6 flat_iterate_do()](#96-flat_iterate_dofn--none---on_exhaust--none)
+  - [9.5 flat_iterate()](#95-flat_itefn--none---flush--none)
+  - [9.6 flat_iterate_do()](#96-flat_iterate_dofn--none---flush--none)
   - [9.7 Deferred with_ in Iteration](#97-deferred-with_-in-iteration)
+  - [9.8 buffer(n)](#98-buffern)
 - [10. Reuse](#10-reuse)
 - [11. Concurrency](#11-concurrency)
 - [12. Null Sentinel](#12-null-sentinel)
@@ -429,7 +430,7 @@ All operations participate in the transparent sync/async bridge: if any operatio
 **Contract:** Enter the current pipeline value as a context manager, invoke `fn` following the standard calling convention with the context value (the result of `__enter__` or `__aenter__`) as the current value, and replace the current pipeline value with `fn`'s return value. The context manager is properly exited regardless of whether `fn` succeeds or fails.
 
 **Arguments:**
-- `fn` — callable to invoke in the context. Receives the context value per the standard calling convention. Must be callable (enforced at build time).
+- `fn` — required callable to invoke in the context. Receives the context value per the standard calling convention. Must be callable (enforced at build time).
 - `*args, **kwargs` — forwarded to `fn` following the standard calling convention.
 
 **Behavior:**
@@ -445,8 +446,6 @@ All operations participate in the transparent sync/async bridge: if any operatio
 **Exit handler failure:** If `__exit__` itself raises an exception, that exception propagates and **replaces** the original body exception, matching Python's native `with` statement behavior. The original body exception is preserved as `__context__` on the new exception.
 
 **Control flow signals:** If `fn` raises a control flow signal (`return_()` or `break_()`), `__exit__` is called with no exception info (clean exit), and the signal propagates to the outer pipeline.
-
-**Bare form — `with_()`:** When `fn` is omitted, the context value (the result of `__enter__`/`__aenter__`) replaces the pipeline value directly. This form is only valid before an iteration terminal (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`) — the context manager entry is deferred to iteration time (see §9.7). A bare `with_()` not followed by an iterate variant raises `TypeError` at run time. Positional or keyword arguments without `fn` raise `TypeError` at build time.
 
 ### 5.7 `with_do(fn, /, *args, **kwargs)`
 
@@ -921,13 +920,13 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 - **`return_(v)`**: During iteration, `return_()` yields the return value (if one is provided) and then stops iteration. The return value is evaluated following the standard calling convention — if it is callable, it is called; if it is a literal, it is yielded as-is. This differs from normal chain execution, where `return_()` replaces the chain's result entirely. In iteration, previously yielded values have already been emitted to the caller and cannot be "replaced." Therefore, the return value is yielded as a final item before stopping iteration, rather than replacing all prior output.
 - **`break_(v)`**: Stops iteration. If a value is provided, it is yielded before stopping. If no value is provided, iteration stops immediately with no additional value yielded.
 
-### 9.5 `flat_iterate(fn=None, *, on_exhaust=None)`
+### 9.5 `flat_iterate(fn=None, *, flush=None)`
 
 **Contract:** Return a dual sync/async flatmap iterator over the chain's output. Each element of the chain's iterable result is either iterated directly (when `fn` is `None`, flattening one level of nesting) or transformed by `fn` into a sub-iterable whose items are individually yielded.
 
 **Arguments:**
 - `fn` — optional callable that receives each element and returns an iterable. Each item from the returned iterable is yielded individually. When `None`, each source element is iterated directly (flattening one level).
-- `on_exhaust` — optional zero-argument callable invoked once after the source iterable is fully consumed. Must return an iterable; each item is yielded into the stream. Intended for emitting buffered or remaining items after the source ends (e.g., flushing a codec buffer).
+- `flush` — optional zero-argument callable invoked once after the source iterable is fully consumed. Must return an iterable; each item is yielded into the stream. Intended for emitting buffered or remaining items after the source ends (e.g., flushing a codec buffer).
 
 **Return value:** Returns a `ChainIterator` object (same as `iterate()`).
 
@@ -935,15 +934,15 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 - Flattens one level of nesting: source `[[1, 2], [3]]` yields `1, 2, 3`.
 - When `fn` is provided: each source element is passed to `fn`, and each sub-item from `fn`'s returned iterable is yielded.
 - When `fn` is `None`: each source element is iterated directly (it must be iterable).
-- After the source is exhausted, if `on_exhaust` is provided, `on_exhaust()` is called and each item from its return value is yielded into the stream.
+- After the source is exhausted, if `flush` is provided, `flush()` is called and each item from its return value is yielded into the stream.
 - All iteration behavior — sync/async support, error handling, deferred `finally_()`, control flow (§9.4), iterator reuse (§9.3) — matches `iterate()` (§9.1).
 
 **Error behavior:**
 - Exceptions from `fn` propagate to the caller at the iteration point, as with `iterate()`.
-- If `on_exhaust()` raises, the exception propagates at the iteration point.
-- If `fn` or `on_exhaust` returns an awaitable during sync iteration (`for`), a `TypeError` is raised directing the user to use `async for`.
+- If `flush()` raises, the exception propagates at the iteration point.
+- If `fn` or `flush` returns an awaitable during sync iteration (`for`), a `TypeError` is raised directing the user to use `async for`.
 
-### 9.6 `flat_iterate_do(fn=None, *, on_exhaust=None)`
+### 9.6 `flat_iterate_do(fn=None, *, flush=None)`
 
 **Contract:** Like `flat_iterate()`, but `fn` runs as a side-effect — its returned iterable is fully consumed (driving side-effects) but not yielded. The original source elements are yielded instead.
 
@@ -952,13 +951,13 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 **Behavior:**
 - `fn` is invoked for each element. Its returned iterable is fully consumed (executing side-effects), but the sub-items are discarded.
 - The original source element is yielded for each iteration step.
-- `on_exhaust` output is yielded normally (not discarded) — the "do" discard semantic applies only to `fn`'s results.
+- `flush` output is yielded normally (not discarded) — the "do" discard semantic applies only to `fn`'s results.
 - When `fn` is `None`: behaves identically to `flat_iterate()` with no `fn` (flattens one level).
 - All other behavior matches `flat_iterate()`.
 
 ### 9.7 Deferred `with_` in Iteration
 
-**Contract:** When `with_(fn)`, `with_do(fn)`, or bare `with_()` is the last pipeline step before an iteration terminal (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`), context manager entry is **deferred** to iteration time. The context manager remains open for the entire duration of iteration and is exited when iteration ends.
+**Contract:** When `with_(fn)` or `with_do(fn)` is the last pipeline step before an iteration terminal (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`), context manager entry is **deferred** to iteration time. The context manager remains open for the entire duration of iteration and is exited when iteration ends.
 
 **Motivation:** Without deferral, `with_()` would enter the CM during the chain's `run()` phase and exit it before iteration begins — the resource would be closed before any items are consumed. Deferral keeps the CM open throughout iteration, matching the natural lifetime of `with` blocks in Python.
 
@@ -969,9 +968,8 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 2. At iteration start, the CM is entered via `__enter__()` (or `__aenter__()`).
 3. If `with_(fn)` was used: `fn` is invoked with the context value per the standard calling convention. The result becomes the iterable for iteration.
 4. If `with_do(fn)` was used: `fn` runs as a side-effect (result discarded); the CM object itself becomes the iterable (it must be iterable).
-5. If bare `with_()` was used: the context value (the `__enter__` result) becomes the iterable directly.
-6. Iteration proceeds with the CM open.
-7. The CM is exited in the generator's `finally:` block, guaranteeing cleanup on all exit paths.
+5. Iteration proceeds with the CM open.
+6. The CM is exited in the generator's `finally:` block, guaranteeing cleanup on all exit paths.
 
 **CM exit semantics:**
 - **Normal completion / source exhausted:** `__exit__(None, None, None)`.
@@ -987,6 +985,55 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 **Sync/async rules:**
 - Sync iteration (`for`): only `__enter__`/`__exit__` is used. If the CM only supports async protocol, or if the inner `fn` returns an awaitable, a `TypeError` is raised directing the user to use `async for`.
 - Async iteration (`async for`): both protocols are supported, with async preferred for dual-protocol CMs.
+
+### 9.8 `buffer(n)`
+
+**Contract:** Attach a backpressure-aware bounded buffer between the chain's iterable output (producer) and the iteration consumer. The buffer decouples producer and consumer, enabling the producer to run ahead up to `n` items while the consumer processes them.
+
+**Arguments:**
+- `n` — maximum number of items the buffer can hold. Must be a positive integer.
+
+**Return value:** Returns the chain (fluent method). `buffer()` is a chain-level modifier, not a pipeline step — it does not add a Link to the chain. It only takes effect when consumed via an iteration terminal (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`). If `run()` is used instead, a `QuentException` is raised — `buffer()` requires an iteration terminal.
+
+**Behavior:**
+- When the buffer is full, the producer blocks (backpressure). When the buffer is empty, the consumer blocks.
+- For sync iteration (`for`): the producer runs in a background daemon thread using `queue.Queue(maxsize=n)`. The consumer reads from the queue in the iteration loop.
+- For async iteration (`async for`): the producer runs as a background `asyncio.Task` using `asyncio.Queue(maxsize=n)`. The consumer awaits `queue.get()` in the async iteration loop.
+- Items are delivered in order — the buffer is FIFO.
+- Works with all iteration terminals: `iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`.
+- The buffer wraps the iterable *after* the chain's `run()` phase and any deferred `with_` entry, but *before* the `fn` callback (if any) is applied to each item.
+
+**Error behavior:**
+- If the producer raises an exception, it is propagated to the consumer at the next `get()`.
+- If the consumer exits early (e.g., `break`, `GeneratorExit`), the producer is signaled to stop:
+  - Sync: a `threading.Event` is set; the producer checks it periodically during `put()`.
+  - Async: the producer task is cancelled.
+- Cleanup is guaranteed via `finally:` blocks in both the consumer generator and the producer.
+
+**Validation:**
+- `n` must be a positive integer. `bool` values are rejected (even though `bool` is a subclass of `int`).
+- `buffer(0)`, `buffer(-1)`, or non-integer values raise `ValueError` or `TypeError`.
+- `buffer()` called with a pending `if_()` (not yet consumed by `then()`/`do()`) raises `QuentException`.
+
+**Interaction with other features:**
+- **`clone()`**: The buffer size is preserved across `clone()`. The cloned chain's buffer setting is independent (modifying one does not affect the other).
+- **Iterator reuse**: The buffer size is preserved when calling the `ChainIterator` to create a new iterator with different arguments.
+- **Deferred `with_`**: When both `buffer()` and a deferred `with_` are active, the buffer wraps the iterable *after* the CM is entered and the inner function produces the iterable.
+
+**Example:**
+```python
+# Producer feeds items into a buffer of size 10; consumer reads with backpressure.
+for item in Chain(produce).buffer(10).iterate():
+    process(item)
+
+# With transformation function
+for item in Chain(produce).buffer(5).iterate(transform):
+    consume(item)
+
+# Async usage
+async for item in Chain(async_produce).buffer(10).iterate():
+    await process(item)
+```
 
 ---
 
@@ -1397,24 +1444,33 @@ Visualization is best-effort. If visualization construction fails for any reason
 
 ### 14.1 Class-Level Callback
 
-`Chain.on_step` is a class-level attribute that, when set, is called after each step completes during chain execution.
+`Chain.on_step` is a class-level attribute that, when set, is called after each step completes (or fails) during chain execution.
 
 ```python
 Chain.on_step = my_callback  # Enable
 Chain.on_step = None          # Disable (default)
 ```
 
-**Signature:**
+**Signature (6-argument form, preferred):**
+
+```python
+def on_step(chain: Chain, step_name: str, input_value: Any, result: Any, elapsed_ns: int, exception: BaseException | None) -> None
+```
+
+**Backward-compatible 5-argument form:**
 
 ```python
 def on_step(chain: Chain, step_name: str, input_value: Any, result: Any, elapsed_ns: int) -> None
 ```
 
+The engine auto-detects callback arity via `inspect.signature` (cached on first call). Callbacks accepting 5 positional parameters are called without the `exception` argument. Callbacks accepting 6 or more positional parameters (including `*args`) receive the `exception` argument.
+
 - `chain` — the `Chain` instance being executed.
 - `step_name` — the name of the step that just completed. For the root value, this is `'root'`. For pipeline steps, this is the method name that registered the step: `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'except_'`, or `'finally_'`. The `'if_'` step name covers the entire conditional operation — `on_step` fires with `step_name='if_'` regardless of which branch was taken (truthy or falsy). The `'else_'` and `'else_do'` names appear in chain visualization but are not reported as separate `on_step` events; they are part of the `if_` operation.
 - `input_value` — the current pipeline value that was passed to the step, normalized to `None` if absent (the internal `Null` sentinel is never exposed). For the root step, this is the run value (or `None` if no run value was provided). For `except_` steps, this is the `ChainExcInfo` that was passed to the handler. For `finally_` steps, this is the root value (or `None`). For all other steps, it is the current pipeline value before the step executed.
-- `result` — the value produced by the step.
+- `result` — the value produced by the step. On failure (`exception` is not `None`), `result` is `None`.
 - `elapsed_ns` — wall-clock nanoseconds elapsed for this step, measured via `time.perf_counter_ns()`.
+- `exception` — the exception raised by the step, or `None` on success. When a step raises an exception, `on_step` fires with `exception` set to the exception instance and `result=None`. The callback fires *before* the chain's `except_` handler runs (if any), so the raw exception is visible. 5-argument callbacks do not receive this parameter and are not called on step failure.
 
 ### 14.2 Zero Overhead When Disabled
 

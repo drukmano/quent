@@ -386,9 +386,10 @@ The `concurrency` parameter is available on `.foreach()`, `.foreach_do()`, and `
 | `concurrency` | Sync mode | Async mode |
 |---------------|-----------|------------|
 | `None` (default) | Sequential (foreach/foreach_do). All concurrent (gather). | Sequential (foreach/foreach_do). All concurrent (gather). |
+| `-1` (unbounded) | `ThreadPoolExecutor` with one worker per item/fn | All tasks launched concurrently (no semaphore) |
 | Positive integer | `ThreadPoolExecutor(max_workers=concurrency)` | `asyncio.Semaphore(concurrency)` to limit concurrent tasks |
 
-**Validation:** Must be a positive integer (`>= 1`) or `None`. Booleans are rejected (`TypeError`). Values less than `1` raise `ValueError`.
+**Validation:** Must be a positive integer (`>= 1`), `-1` (unbounded), or `None`. Booleans are rejected (`TypeError`). Values less than `1` (excluding `-1`) raise `ValueError`.
 
 **Sync/async detection:** The first item/function is probed. If it returns an awaitable, async path is used. If not, sync path. Mixed sync/async within a single concurrent operation raises `TypeError`.
 
@@ -654,6 +655,157 @@ for item in chain.iterate_do(print):
 
 ---
 
+#### flat\_iterate
+
+```python
+chain.flat_iterate(fn=None, *, flush=None) -> ChainIterator
+```
+
+Return a dual sync/async flatmap iterator over the chain's output. Each element of the chain's iterable result is either iterated directly (when `fn` is `None`, flattening one level of nesting) or transformed by `fn` into a sub-iterable whose items are individually yielded.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `fn` | `Callable \| None` | `None` | Optional callable that receives each element and returns an iterable. Each item from the returned iterable is yielded individually. When `None`, each source element is iterated directly (flattening one level). |
+| `flush` | `Callable \| None` | `None` | Optional zero-argument callable invoked once after the source iterable is fully consumed. Must return an iterable; each item is yielded into the stream. Intended for emitting buffered or remaining items after the source ends (e.g., flushing a codec buffer). |
+
+**Returns:** `ChainIterator` -- supports both `__iter__` (for `for` loops) and `__aiter__` (for `async for` loops).
+
+```python
+# Flatten one level of nesting (fn=None)
+for item in Chain([[1, 2], [3, 4]]).flat_iterate():
+  print(item)  # 1, 2, 3, 4
+
+# Transform each element into a sub-iterable
+for word in Chain(['hello world', 'foo bar']).flat_iterate(str.split):
+  print(word)  # hello, world, foo, bar
+
+# With flush -- emit remaining buffered items after source ends
+buffer = []
+def chunk(item):
+  buffer.append(item)
+  if len(buffer) >= 3:
+    result, buffer[:] = buffer[:], []
+    return result
+  return []
+
+def flush_buffer():
+  return buffer
+
+for chunk in Chain(range(7)).flat_iterate(chunk, flush=flush_buffer):
+  print(chunk)
+```
+
+All iteration behavior -- sync/async support, error handling, deferred `finally_()`, control flow, iterator reuse -- matches `iterate()`.
+
+**Error behavior:**
+
+- Exceptions from `fn` propagate to the caller at the iteration point, as with `iterate()`.
+- If `flush()` raises, the exception propagates at the iteration point.
+- If `fn` or `flush` returns an awaitable during sync iteration (`for`), a `TypeError` is raised directing the user to use `async for`.
+
+---
+
+#### flat\_iterate\_do
+
+```python
+chain.flat_iterate_do(fn=None, *, flush=None) -> ChainIterator
+```
+
+Like `flat_iterate()`, but `fn` runs as a side-effect -- its returned iterable is fully consumed (driving side-effects) but not yielded. The original source elements are yielded instead.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `fn` | `Callable \| None` | `None` | Optional side-effect callable. Its returned iterable is consumed but discarded. |
+| `flush` | `Callable \| None` | `None` | Optional zero-argument callable. Output is yielded normally (not discarded). |
+
+**Returns:** `ChainIterator`.
+
+```python
+for item in Chain([[1, 2], [3]]).flat_iterate_do(lambda sub: [print(x) for x in sub]):
+  print('source:', item)
+  # prints each sub-item via fn, then yields the original source element
+```
+
+When `fn` is `None`, behaves identically to `flat_iterate()` with no `fn` (flattens one level). The `flush` output is always yielded (the "do" discard semantic applies only to `fn`'s results).
+
+---
+
+#### Deferred with\_ in Iteration
+
+When `.with_(fn)` or `.with_do(fn)` is the **last pipeline step** before an iteration terminal (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`), context manager entry is **deferred** to iteration time. The context manager remains open for the entire duration of iteration and is exited when iteration ends.
+
+!!! warning "Only `.with_(fn)` is supported"
+    Bare `.with_()` (no argument) is prohibited. Only `.with_(fn)` with an explicit callable triggers deferred context manager wrapping.
+
+**Why deferral?** Without deferral, `.with_()` would enter the CM during the chain's `run()` phase and exit it before iteration begins -- the resource would be closed before any items are consumed. Deferral keeps the CM open throughout iteration, matching the natural lifetime of `with` blocks in Python.
+
+**Lifecycle:**
+
+1. The chain runs normally, producing a value that must be a context manager.
+2. At iteration start, the CM is entered via `__enter__()` (or `__aenter__()`).
+3. If `.with_(fn)` was used: `fn` is invoked with the context value per the standard calling convention. The result becomes the iterable for iteration.
+4. If `.with_do(fn)` was used: `fn` runs as a side-effect (result discarded); the CM object itself becomes the iterable (it must be iterable).
+5. Iteration proceeds with the CM open.
+6. The CM is exited in the generator's `finally:` block, guaranteeing cleanup on all exit paths (normal exhaustion, `break`, exceptions, generator `.close()`).
+
+**CM exit semantics:**
+
+- **Normal completion / source exhausted:** `__exit__(None, None, None)`.
+- **`break`, `return_()`, `break_()` (control flow):** `__exit__(None, None, None)` -- control flow signals are not errors.
+- **Generator `.close()` / `GeneratorExit`:** `__exit__(None, None, None)`.
+- **Exception during iteration:** `__exit__(*sys.exc_info())` -- the CM receives the exception. If `__exit__` returns truthy, the exception is suppressed.
+
+**Ordering with deferred `finally_()`:** When both a deferred `with_` and a deferred `finally_()` are active, the CM exits first, then the deferred `finally_()` runs. The deferred finally runs even if `__exit__` raises.
+
+```python
+# File stays open for entire iteration, then closes
+for line in Chain(open, 'data.txt').with_(lambda f: f).iterate(str.strip):
+  process(line)
+
+# Async context manager with deferred cleanup
+async for row in Chain(db.connect).with_(lambda conn: conn.cursor()).iterate():
+  process(row)
+```
+
+---
+
+### Class Methods
+
+#### from\_steps
+
+```python
+Chain.from_steps(*steps) -> Chain
+```
+
+Construct a chain from a sequence of steps, each appended via `.then()`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `*steps` | `Any` | Variadic positional arguments. Each becomes a `.then()` step. If a single argument is passed and it is a `list` or `tuple`, it is unpacked as the step sequence. |
+
+**Returns:** A new `Chain` instance with no root value.
+
+**Equivalence:** `Chain.from_steps(a, b, c)` is equivalent to `Chain().then(a).then(b).then(c)`.
+
+Steps can be callables, literal values, or nested Chains -- anything `.then()` accepts. `Chain.from_steps()` with no arguments returns an empty chain (equivalent to `Chain()`).
+
+```python
+# Variadic form
+pipeline = Chain.from_steps(validate, normalize, str.upper)
+pipeline.run('  hello  ')
+
+# List form -- useful for dynamic pipeline construction
+steps = [validate, normalize, str.upper]
+pipeline = Chain.from_steps(steps)
+pipeline.run('  hello  ')
+
+# Dynamic pipeline from a plugin registry
+plugins = load_plugins()
+pipeline = Chain.from_steps([p.transform for p in plugins])
+```
+
+---
+
 ### Reuse Methods
 
 #### clone
@@ -811,6 +963,109 @@ Chain.on_step = None  # disable
 
 ---
 
+### Context API
+
+Pipeline steps are positional -- each step receives only the current value from the immediately preceding step. When non-adjacent steps need to share data (e.g., an early step produces a value that a later step needs, but intermediate transformations change the current value), the context API provides named storage scoped to the execution context, accessible from any step without altering the pipeline's value flow.
+
+Storage is backed by a `ContextVar`-based dictionary. Each `set()` creates a new dict (copy-on-write), ensuring concurrent workers (via `foreach`/`gather` with `concurrency`) are properly isolated -- a worker's `set()` does not affect the parent or sibling workers.
+
+#### set (instance -- pipeline step)
+
+```python
+chain.set(key: str) -> Chain
+chain.set(key: str, value: Any) -> Chain
+```
+
+Append a pipeline step that stores a value under `key` in the execution context. The current pipeline value is **not changed** (like `.do()`).
+
+| Form | Behavior |
+|------|----------|
+| `chain.set(key)` | Stores the current pipeline value under `key`. |
+| `chain.set(key, value)` | Stores the explicit `value` under `key`. |
+
+**Returns:** `self` (`Chain`).
+
+```python
+result = (
+  Chain(fetch_user)
+  .set('user')                        # store current value (the user) in context
+  .set('source', 'api')              # store explicit value 'api' under 'source'
+  .then(validate_permissions)         # transform continues with original user
+  .get('user')                        # retrieve original user
+  .then(format_response)
+  .run(user_id)
+)
+```
+
+#### set (class -- immediate)
+
+```python
+Chain.set(key: str, value: Any) -> None
+```
+
+Store a value in the execution context immediately. This is **not** a pipeline step -- it takes effect at the call site, not during `run()`.
+
+```python
+Chain.set('config', load_config())    # pre-populate context before running pipelines
+```
+
+#### get (instance -- pipeline step)
+
+```python
+chain.get(key: str) -> Chain
+chain.get(key: str, default: Any) -> Chain
+```
+
+Append a pipeline step that retrieves the value stored under `key` from the execution context. The retrieved value **replaces** the current value (like `.then()`).
+
+| Scenario | Behavior |
+|----------|----------|
+| Key found | Stored value becomes the new current value. |
+| Key not found, no default | Raises `KeyError` at execution time. |
+| Key not found, default provided | Default becomes the new current value. |
+
+**Returns:** `self` (`Chain`).
+
+```python
+result = (
+  Chain(fetch_user)
+  .set('user')                        # store user in context
+  .then(transform)                    # current value changes
+  .get('user')                        # retrieve original user -- becomes current value
+  .then(format_response)
+  .run(user_id)
+)
+```
+
+#### get (class -- immediate)
+
+```python
+Chain.get(key: str, default: Any = <missing>) -> Any
+```
+
+Retrieve a value from the execution context immediately. This is **not** a pipeline step.
+
+- If `key` is found: returns the stored value.
+- If `key` is not found and no `default`: raises `KeyError`.
+- If `key` is not found and `default` provided: returns `default`.
+
+```python
+Chain.set('config', load_config())
+result = (
+  Chain(fetch_data)
+  .then(lambda data: process(data, Chain.get('config')))
+  .run()
+)
+```
+
+!!! note "Dual dispatch"
+    Both `set` and `get` are Python descriptors that dispatch differently based on instance vs. class access. Instance access (`chain.set(...)` / `chain.get(...)`) appends a pipeline step. Class access (`Chain.set(...)` / `Chain.get(...)`) operates on context immediately.
+
+!!! warning "if_() constraint"
+    `.set()` and `.get()` do not consume a pending `if_()`. Calling them while `if_()` is pending raises `QuentException`.
+
+---
+
 ### Dunder Methods
 
 #### \_\_bool\_\_
@@ -829,25 +1084,22 @@ Always returns `True`. A chain instance is always truthy.
 chain.__repr__() -> str
 ```
 
-Returns a string showing the chain structure:
+Returns the chain visualization (multiline, indented) — the same format used in traceback injection, but without the `<----` error marker. When `.name(label)` has been called, renders as `Chain[label](root)`. Respects `QUENT_TRACEBACK_VALUES=0`.
 
 ```python
-repr(Chain(fetch).then(validate).do(log))
-# "Chain(fetch).then(...).do(...)"
+repr(Chain(fetch_data).then(validate).do(log))
+# Chain(fetch_data)
+#     .then(validate)
+#     .do(log)
 ```
 
 ---
 
-#### Pickling
+#### Copying
 
-Chain objects **cannot be pickled**. Attempting `pickle.dumps(chain)` raises `TypeError`:
+`copy.copy()` and `copy.deepcopy()` are blocked on Chain objects (`TypeError`). A shallow or deep copy would produce a broken object with shared linked-list structure. Use [`.clone()`](#clone) to produce a correct independent copy.
 
-```
-TypeError: Chain objects cannot be pickled. Chains contain arbitrary callables
-whose execution during unpickling could lead to arbitrary code execution (CWE-502).
-```
-
-This affects `pickle.dumps`, `multiprocessing.Pool`, Celery task arguments, and pickle-based caches.
+Pickling is **not** blocked — most chain contents (lambdas, closures, bound methods) will naturally fail to pickle, but quent does not enforce this.
 
 ---
 
@@ -890,27 +1142,7 @@ Chain(42).then(lambda x: 1/0).except_(handle_error).run()
 
 ## Null Sentinel
 
-`Null` is an internal singleton sentinel meaning **"no value was provided."** Distinct from `None`, which is a valid pipeline value. It is not part of the public API.
-
-| Property | Detail |
-|----------|--------|
-| `repr()` | `'<Null>'` |
-| Immutable | `copy()` / `deepcopy()` return `self` |
-| Unpicklable | `pickle.dumps(Null)` raises `TypeError` |
-| Thread-safe | Created at module level |
-
-**Critical distinction:**
-
-```python
-Chain(None)  # root value is None -- fn receives fn(None)
-Chain()      # no root value -- fn receives fn() with zero args
-```
-
-**Effect on calling conventions:**
-
-- Current value is Null + no explicit args: `fn()` (zero arguments)
-- Current value is not Null (including `None`) + no explicit args: `fn(current_value)`
-- Explicit args provided: `fn(*args, **kwargs)` regardless
+`Null` is an internal sentinel used to distinguish "no value was provided" from `None`. It is never exposed to user code -- `run()` returns `None` (not `Null`) when no value is produced, and handlers always receive `None` when no root value exists. You may see `<Null>` mentioned in tracebacks or debug output; it indicates the absence of a value rather than a `None` value.
 
 ---
 
@@ -1015,6 +1247,71 @@ All `repr()` output in visualizations is sanitized: ANSI escape sequences stripp
 
 ---
 
+## Alternative Event Loops (Trio & Curio)
+
+quent supports **asyncio**, **trio**, and **curio** event loops. Async pipelines work transparently under any of these runtimes -- no configuration or adapter code is required.
+
+### How It Works
+
+Event loop detection uses `sys.modules` lookups to check whether a runtime's loop is active. This adds zero overhead when a library is not loaded (~50ns dict lookup returning `None`). Detection order:
+
+1. **asyncio** -- checked first via the C-level `asyncio._get_running_loop()` for performance.
+2. **trio** -- detected via `trio.lowlevel.current_trio_token()` (only probed if `trio.lowlevel` is in `sys.modules`).
+3. **curio** -- detected via `curio.meta.curio_running()` (only probed if `curio.meta` is in `sys.modules`).
+
+### Dual-Protocol Preference
+
+When a pipeline value supports both sync and async protocols -- context managers (`__enter__`/`__exit__` vs `__aenter__`/`__aexit__`) or iterables (`__iter__` vs `__aiter__`) -- and any async event loop is running, the **async protocol** is preferred. This applies uniformly across asyncio, trio, and curio.
+
+### Usage
+
+No special API is needed. Use the same `Chain` API under any runtime:
+
+```python
+import trio
+from quent import Chain
+
+async def async_double(x):
+  return x * 2
+
+async def main():
+  result = await Chain(5).then(async_double).run()
+  print(result)  # 10
+
+trio.run(main)
+```
+
+```python
+import curio
+from quent import Chain
+
+async def main():
+  result = await Chain(10).then(lambda x: x + 1).run()
+  print(result)  # 11
+
+curio.run(main)
+```
+
+Dual-protocol context managers and iterables automatically use the async protocol under trio and curio, just as they do under asyncio:
+
+```python
+import trio
+from quent import Chain
+
+# Dual-protocol CM uses __aenter__/__aexit__ under trio
+async def main():
+  result = await Chain(dual_protocol_cm).with_(lambda ctx: ctx).run()
+
+trio.run(main)
+```
+
+### Differences from asyncio
+
+- **Concurrency operations** (`gather`, `foreach` with `concurrency`): The async concurrent path uses `asyncio.Semaphore` and `asyncio.TaskGroup` (or `asyncio.gather` on 3.10). Under trio or curio, async steps still work correctly for sequential execution, but the concurrent async path relies on asyncio primitives. For concurrent async pipelines under trio or curio, ensure the steps are compatible with asyncio task scheduling.
+- **Event loop detection** is lightweight and non-invasive -- it never imports trio or curio, only checks `sys.modules` for already-loaded modules.
+
+---
+
 ## Environment Variables
 
 | Variable | Values | Effect |
@@ -1077,10 +1374,23 @@ chain(v=<no value>, /, *args, **kwargs) -> Any  # alias for run()
 # Iteration
 chain.iterate(fn=None) -> ChainIterator
 chain.iterate_do(fn=None) -> ChainIterator
+chain.flat_iterate(fn=None, *, flush=None) -> ChainIterator
+chain.flat_iterate_do(fn=None, *, flush=None) -> ChainIterator
+
+# Context API (instance -- pipeline steps)
+chain.set(key: str) -> Chain
+chain.set(key: str, value: Any) -> Chain
+chain.get(key: str) -> Chain
+chain.get(key: str, default: Any) -> Chain
+
+# Context API (class -- immediate)
+Chain.set(key: str, value: Any) -> None
+Chain.get(key: str, default: Any = <missing>) -> Any
 
 # Reuse
 chain.clone() -> Chain
 chain.decorator() -> Callable
+Chain.from_steps(*steps) -> Chain
 
 # Control flow (class methods)
 Chain.return_(v=<no value>, /, *args, **kwargs) -> NoReturn
