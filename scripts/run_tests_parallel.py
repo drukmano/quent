@@ -18,12 +18,27 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+SLOW_MODULES: frozenset[str] = frozenset({
+  'tests.bridge_tests',
+  'tests.transition_tests',
+  'tests.property_tests',
+  'tests.repr_fuzz_tests',
+  'tests.generator_parity_tests',
+})
+
 
 def _use_coverage() -> bool:
   """Return True if coverage instrumentation is requested."""
   if '--coverage' in sys.argv:
     return True
   return os.environ.get('QUENT_COVERAGE', '').strip() not in ('', '0')
+
+
+def _use_slow() -> bool:
+  """Return True if slow/exhaustive test modules should be included."""
+  if '--slow' in sys.argv:
+    return True
+  return os.environ.get('QUENT_SLOW_TESTS', '').strip() not in ('', '0')
 
 
 def _run_module(mod: str, *, coverage: bool) -> tuple[str, int, str]:
@@ -71,12 +86,19 @@ def _coverage_finalize() -> int:
 
 def main() -> int:
   coverage = _use_coverage()
+  slow = _use_slow()
   test_dir = Path('tests')
   modules = sorted(f'tests.{f.stem}' for f in test_dir.glob('*_tests.py'))
 
   if not modules:
     print('No test modules found')
     return 1
+
+  if not slow:
+    skipped = [m for m in modules if m in SLOW_MODULES]
+    modules = [m for m in modules if m not in SLOW_MODULES]
+    if skipped:
+      print(f'Skipping {len(skipped)} slow module(s) (use --slow to include)')
 
   # Clean stale coverage data before starting
   if coverage:
@@ -88,7 +110,12 @@ def main() -> int:
       cov_xml.unlink()
 
   max_workers = os.cpu_count() or 4
-  mode = ' (with coverage)' if coverage else ''
+  mode_parts = []
+  if coverage:
+    mode_parts.append('with coverage')
+  if slow:
+    mode_parts.append('with slow tests')
+  mode = f' ({", ".join(mode_parts)})' if mode_parts else ''
   print(f'Running {len(modules)} test modules in parallel{mode}\n')
   t0 = time.monotonic()
 
