@@ -348,6 +348,8 @@ quent is designed so that fully synchronous pipelines have **zero async overhead
 - **Sync path is a plain `while` loop** -- calling functions and checking results. No async machinery.
 - **One-way transition** -- the async transition happens at most once per pipeline execution. Once the async continuation takes over, it processes all remaining steps without checking whether to go back to sync.
 
+For detailed benchmark numbers -- per-step overhead, async transition cost, I/O-bound comparisons, and reproducible scripts -- see the **[Performance & Benchmarks](performance.md)** guide.
+
 ---
 
 ## Practical Patterns

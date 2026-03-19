@@ -513,6 +513,30 @@ See the [examples/](examples/) directory for complete, runnable recipes covering
 
 ---
 
+## Performance
+
+The sync path is a tight `while` loop &mdash; zero async machinery. Each sync step adds **~210 ns** of overhead. The async path adds **~4 &micro;s** per step &mdash; overhead that disappears against real I/O.
+
+| Pipeline | 1 Step | 5 Steps | 10 Steps | Per Step |
+|:---------|:------:|:-------:|:--------:|:--------:|
+| **Sync** | 0.8 &micro;s | 1.7 &micro;s | 2.7 &micro;s | ~210 ns |
+| **Async** | 17 &micro;s | 33 &micro;s | 53 &micro;s | ~4 &micro;s |
+| **Mixed** (sync+async) | &mdash; | 22 &micro;s | 34 &micro;s | &mdash; |
+
+<sub>Baselines &mdash; raw function call: ~26 ns &middot; bare <code>await coroutine()</code>: ~2.8 &micro;s</sub>
+
+**I/O-bound workloads** &mdash; quent's primary use case. Pipeline overhead is fixed; I/O latency dwarfs it:
+
+| I/O Latency | 5-Step Overhead | % of Total |
+|:------------|:---------------:|:----------:|
+| 1 ms &ensp;(fast query) | ~22 &micro;s | 2.2% |
+| 5 ms &ensp;(database) | ~22 &micro;s | 0.4% |
+| 50 ms (HTTP API) | ~22 &micro;s | 0.04% |
+
+<sub>Python 3.14, Apple M-series, macOS. See <a href="benchmarks/">benchmark scripts</a> for reproducible results. &mdash; <a href="https://quent.readthedocs.io/en/latest/guide/performance/">Full performance guide &rarr;</a></sub>
+
+---
+
 ## Testing
 
 quent's correctness rests on a single guarantee: any pipeline step can be swapped between sync and async without changing the result. The test suite is purpose-built to prove this exhaustively.
