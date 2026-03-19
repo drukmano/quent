@@ -945,6 +945,143 @@ async for item in Q(async_produce).buffer(10).iterate():
 
 ---
 
+## flat\_iterate and flat\_iterate\_do -- Flatmap Iteration
+
+`.flat_iterate()` and `.flat_iterate_do()` are flatmap iteration terminals. Each source element is expanded into sub-items before yielding.
+
+### `.flat_iterate(fn=None, *, flush=None)`
+
+Each element of the pipeline's iterable result is either iterated directly (when `fn` is `None`, flattening one level of nesting) or transformed by `fn` into a sub-iterable whose items are individually yielded.
+
+```python
+from quent import Q
+
+# Flatten one level of nesting (fn=None)
+for item in Q([[1, 2], [3, 4]]).flat_iterate():
+  print(item)  # 1, 2, 3, 4
+
+# Transform each element into a sub-iterable
+for word in Q(['hello world', 'foo bar']).flat_iterate(str.split):
+  print(word)  # hello, world, foo, bar
+```
+
+The optional `flush` callable is invoked once after the source iterable is fully consumed. It must return an iterable; each item is yielded into the stream. This is useful for emitting buffered or remaining items after the source ends.
+
+### `.flat_iterate_do(fn=None, *, flush=None)`
+
+Like `flat_iterate()`, but `fn` runs as a side-effect — its returned iterable is consumed (executing side-effects) but the items are not yielded. The original source elements are yielded instead.
+
+```python
+for item in Q([[1, 2], [3]]).flat_iterate_do(lambda sub: [print(x) for x in sub]):
+  print('source:', item)
+```
+
+Both methods return a `QuentIterator` supporting `__iter__` (for `for` loops) and `__aiter__` (for `async for` loops). All iteration behavior — sync/async, control flow, deferred `finally_()`, and `buffer()` — matches `iterate()`.
+
+---
+
+## Deferred with\_ in Iteration
+
+When `.with_(fn)` or `.with_do(fn)` is the **last pipeline step** before an iteration terminal (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`), context manager entry is **deferred** to iteration time.
+
+Without deferral, `.with_()` would enter the context manager during the pipeline's `run()` phase and exit it before iteration begins — the resource would be closed before any items are consumed. Deferral keeps the context manager open throughout iteration:
+
+```python
+from quent import Q
+
+# File stays open for entire iteration, then closes
+for line in Q(open, 'data.txt').with_(lambda f: f).iterate(str.strip):
+  process(line)
+
+# Async context manager with deferred cleanup
+async for row in Q(db.connect).with_(lambda conn: conn.cursor()).iterate():
+  process(row)
+```
+
+The context manager is exited in the generator's `finally:` block, guaranteeing cleanup on all exit paths (normal exhaustion, `break`, exceptions, generator `.close()`).
+
+**When both `buffer()` and a deferred `with_` are active,** the buffer wraps the iterable after the context manager is entered and the inner function produces the iterable.
+
+---
+
+## Named Pipelines
+
+`.name(label)` assigns a user-provided label for traceback identification. The label appears in pipeline visualizations (`Q[label](root)`), exception notes, and `repr(q)`. It has no effect on execution semantics:
+
+```python
+from quent import Q
+
+Q(fetch).name('auth_pipeline').then(validate).run()
+```
+
+---
+
+## Context API
+
+The Context API provides named storage scoped to the execution context. It is useful when non-adjacent steps need to share data without altering the pipeline's value flow.
+
+Storage is backed by a `ContextVar`-based dictionary. Each `set()` creates a new dict (copy-on-write), ensuring concurrent workers are properly isolated.
+
+### Instance methods (pipeline steps)
+
+```python
+q.set(key)           # store current pipeline value under key
+q.set(key, value)    # store explicit value under key
+q.get(key)           # retrieve value -- replaces current pipeline value
+q.get(key, default)  # retrieve with fallback
+```
+
+```python
+from quent import Q
+
+result = (
+  Q(fetch_user)
+  .set('user')                        # store current value (the user) in context
+  .set('source', 'api')              # store explicit value 'api' under 'source'
+  .then(validate_permissions)         # transform continues with original user
+  .get('user')                        # retrieve original user
+  .then(format_response)
+  .run(user_id)
+)
+```
+
+### Class methods (immediate)
+
+```python
+Q.set(key, value)         # store value immediately (not a pipeline step)
+Q.get(key)                # retrieve value immediately
+Q.get(key, default)       # retrieve with fallback
+```
+
+!!! note "Dual dispatch"
+    `q.set(...)` / `q.get(...)` (instance access) append a pipeline step. `Q.set(...)` / `Q.get(...)` (class access) operate on context immediately via descriptor dispatch.
+
+---
+
+## from\_steps -- Dynamic Pipeline Construction
+
+`Q.from_steps(*steps)` constructs a pipeline from a sequence of steps, each appended via `.then()`:
+
+```python
+from quent import Q
+
+# Variadic form
+pipeline = Q.from_steps(validate, normalize, str.upper)
+pipeline.run('  hello  ')
+
+# List form -- useful for dynamic construction
+steps = [validate, normalize, str.upper]
+pipeline = Q.from_steps(steps)
+
+# From a plugin registry
+plugins = load_plugins()
+pipeline = Q.from_steps([p.transform for p in plugins])
+```
+
+`Q.from_steps(a, b, c)` is equivalent to `Q().then(a).then(b).then(c)`. When a single `list` or `tuple` is passed, it is unpacked as the step sequence.
+
+---
+
 ## Control Flow
 
 quent provides two class methods for non-local control flow. These work by raising internal `BaseException` signals that the pipeline catches and handles. They bypass `except Exception` clauses.
@@ -971,21 +1108,21 @@ result = Q(None).then(process).then(further_processing).run()
 - **Non-callable value:** `Q.return_(42)` -- the pipeline returns `42`.
 - **Callable value:** `Q.return_(fn, *args, **kwargs)` -- the callable is invoked when the signal is caught. Its return value becomes the pipeline's result.
 
-!!! warning "Must use `return`"
-    `Q.return_()` raises an internal signal. You **must** use it with `return` so the signal propagates up the call stack:
+!!! tip "Idiomatic usage with `return`"
+    `Q.return_()` works by raising an internal `BaseException` subclass — the signal propagates regardless of whether `return` is present. However, it is idiomatically written with `return` to satisfy type checkers and signal intent to readers:
 
     ```python
-    # Correct:
+    # Idiomatic:
     return Q.return_(value)
 
-    # Wrong -- the signal is raised immediately; if your function catches
-    # BaseException, the pipeline will not see it
+    # Also valid -- the exception-based mechanism does not require the return
+    # keyword for propagation, but linters may flag subsequent code as unreachable
     Q.return_(value)
     ```
 
 ### `Q.break_(v=<no value>, *args, **kwargs)` -- Break from a Loop or Iteration
 
-Break out of a `.foreach()`, `.foreach_do()`, or `.while_()` loop:
+Break out of a `.foreach()`, `.foreach_do()`, `.while_()`, `.iterate()`, `.iterate_do()`, `.flat_iterate()`, or `.flat_iterate_do()` context:
 
 ```python
 from quent import Q
@@ -1007,7 +1144,7 @@ result = Q([1, 2, 3, 4, 5]).foreach(
 ```
 
 !!! warning
-    `Q.break_()` is only valid inside `.foreach()`, `.foreach_do()`, or `.while_()`. Using it elsewhere raises `QuentException`. Using it inside `gather()` also raises `QuentException`.
+    `Q.break_()` is only valid inside `.foreach()`, `.foreach_do()`, `.while_()`, or an iteration context (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`). Using it elsewhere raises `QuentException`. Using it inside `gather()` also raises `QuentException`.
 
 **`break_()` in `while_()` vs `foreach()`:** The semantics differ. In `while_()`, the break value (or current loop value if no value given) becomes the loop's result directly. In `foreach()`, the break value is **appended** to the partial results list collected so far.
 
@@ -1114,5 +1251,8 @@ result = Q(5).then(lambda x: x * 2).then(str).run()
 | `.while_(pred).then(fn)` | Predicate and fn get loop value | Yes (final loop value) | Predicate: Yes or None |
 | `.while_(pred).do(fn)` | Predicate and fn get loop value | No (loop value unchanged) | Predicate: Yes or None |
 | `.drive_gen(fn)` | fn receives each yielded value | Yes (last fn result) | Yes |
+| `.flat_iterate(fn)` | Each sub-item from fn(element) | N/A — yields sub-items | No |
+| `.flat_iterate_do(fn)` | Each source element | N/A — yields source elements | No |
 | `.buffer(n)` | N/A (pipeline modifier) | N/A | N/A |
+| `.name(label)` | N/A (metadata only) | N/A | N/A |
 | `.debug(v)` | N/A (execution method) | N/A — returns `DebugResult` | N/A |

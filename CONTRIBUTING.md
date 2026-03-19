@@ -87,7 +87,7 @@ For more on the design philosophy, see [Why quent](https://quent.readthedocs.io/
 
 ## Pull Request Guidelines
 
-- Branch from `dev` for all contributions.
+- Branch from `master` for all contributions.
 - One feature or fix per PR.
 - Include tests for new behavior. Derive test assertions from `SPEC.md`.
 - Ensure the full QA pipeline passes (`bash run_tests.sh`).

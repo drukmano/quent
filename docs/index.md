@@ -168,7 +168,7 @@ The moment an awaitable appears, execution seamlessly transitions to async. The 
     # results: (validate_result, enrich_result, score_result)
     ```
 
-    `.gather()` runs multiple functions on the current value. If any returns an awaitable, all are gathered concurrently via `asyncio.gather`.
+    `.gather()` runs multiple functions on the current value concurrently. In sync mode it uses `ThreadPoolExecutor`; in async mode it uses `asyncio.TaskGroup` (Python 3.11+) or `asyncio.gather()` (Python 3.10).
 
 ---
 
@@ -231,7 +231,7 @@ pip install quent
 
     ---
 
-    `Q.return_()` exits early with an optional value. `Q.break_()` stops iteration inside `.foreach()` or `.foreach_do()`.
+    `Q.return_()` exits early with an optional value. `Q.break_()` stops iteration inside `.foreach()`, `.foreach_do()`, `.while_()`, or any iteration context (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`).
 
     [Pipelines & Methods](guide/pipelines.md)
 

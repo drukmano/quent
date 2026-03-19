@@ -1,6 +1,6 @@
 ---
-title: "API Reference — Q, Null, QuentException"
-description: "Complete API reference for quent: Q class with all pipeline methods, Null sentinel, QuentException, calling conventions, and configuration options."
+title: "API Reference — Q, QuentExcInfo, QuentIterator, QuentException"
+description: "Complete API reference for quent: Q class with all pipeline methods, QuentExcInfo, QuentIterator, QuentException, calling conventions, and configuration options."
 tags:
   - api
   - reference
@@ -137,14 +137,14 @@ Q(5).do(print).then(lambda x: x * 2).run()
 #### foreach
 
 ```python
-q.foreach(fn, /, *, concurrency=None, executor=None) -> Q
+q.foreach(fn=None, /, *, concurrency=None, executor=None) -> Q
 ```
 
-Apply `fn` to each element of the current iterable value. Collects results into a list that replaces the current value. `fn` must be callable.
+Apply `fn` to each element of the current iterable value. Collects results into a list that replaces the current value. When `fn` is `None`, elements are collected as-is (identity mode).
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `fn` | `Callable` | *(required)* | Callable applied to each element. |
+| `fn` | `Callable \| None` | `None` | Callable applied to each element, or `None` for identity collection. |
 | `concurrency` | `int \| None` | `None` | Maximum concurrent executions. `None` = sequential. See [Concurrent Execution](#concurrent-execution). |
 | `executor` | `Executor \| None` | `None` | Optional executor for sync concurrent execution. When provided, used instead of creating a new ThreadPoolExecutor (caller manages lifecycle). |
 
@@ -152,13 +152,17 @@ Apply `fn` to each element of the current iterable value. Collects results into 
 
 **Raises:**
 
-- `TypeError` if `fn` is not callable.
+- `TypeError` if `fn` is provided and not callable.
 - `TypeError` if `concurrency` is not an integer (including `bool`).
 - `ValueError` if `concurrency` is less than 1 (excluding `-1` for unbounded).
 
 ```python
 Q([1, 2, 3]).foreach(lambda x: x ** 2).run()
 # [1, 4, 9]
+
+# Identity mode -- collect elements as-is
+Q(range(5)).foreach().run()
+# [0, 1, 2, 3, 4]
 
 # With concurrency: process up to 4 items concurrently
 Q(urls).foreach(fetch, concurrency=4).run()
@@ -1123,7 +1127,7 @@ Signal early termination of pipeline execution. The optional value becomes the p
 Q.break_(v=<no value>, /, *args, **kwargs) -> NoReturn
 ```
 
-Signal early termination of a `foreach()`/`foreach_do()` iteration or a `while_()` loop.
+Signal early termination of a `foreach()`, `foreach_do()`, or `while_()` loop, or any iteration context (`iterate()`, `iterate_do()`, `flat_iterate()`, `flat_iterate_do()`).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -1158,27 +1162,30 @@ Q([1, 2, 3, 4, 5]).foreach(
 #### on\_step
 
 ```python
-Q.on_step: ClassVar[Callable[[Q, str, Any, Any, int], None] | None] = None
+Q.on_step: ClassVar[Callable[[Q, str, Any, Any, int, BaseException | None], None] | None] = None
 ```
 
-Class-level callback for pipeline execution instrumentation. Called after each pipeline step completes.
+Class-level callback for pipeline execution instrumentation. Called after each pipeline step completes (or fails).
 
 | Argument | Type | Description |
 |----------|------|-------------|
 | `q` | `Q` | The `Q` instance being executed. |
-| `step_name` | `str` | Method name: `'root'`, `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'except_'`, or `'finally_'`. |
+| `step_name` | `str` | Method name: `'root'`, `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'while_'`, `'drive_gen'`, `'except_'`, or `'finally_'`. |
 | `input_value` | `Any` | The input value the step received. |
-| `result` | `Any` | The value produced by the step. |
+| `result` | `Any` | The value produced by the step. `None` on failure. |
 | `elapsed_ns` | `int` | Wall-clock nanoseconds via `time.perf_counter_ns()`. |
+| `exception` | `BaseException \| None` | The exception raised by the step, or `None` on success. Fires *before* the pipeline's `except_` handler runs. |
 
 **Zero overhead when disabled:** When `on_step` is `None` (default), no timing or callback dispatch occurs. The code path is short-circuited entirely.
+
+**Not called for control flow signals:** `on_step` does not fire for control flow signals (`return_()`, `break_()`).
 
 **Error handling:** If the callback raises, it is logged at WARNING level and pipeline execution continues uninterrupted.
 
 **Thread safety:** `on_step` is class-level. Set it before concurrent pipeline execution begins. Subclass overrides are respected.
 
 ```python
-Q.on_step = lambda q, step, inp, result, ns: print(f'{step}: {ns/1e6:.1f}ms')
+Q.on_step = lambda q, step, inp, result, ns, exc: print(f'{step}: {ns/1e6:.1f}ms{" FAIL" if exc else ""}')
 Q(5).then(lambda x: x * 2).run()
 Q.on_step = None  # disable
 ```
@@ -1362,9 +1369,9 @@ Q(42).then(lambda x: 1/0).except_(handle_error).run()
 
 ---
 
-## Null Sentinel
+## Null Sentinel (Internal)
 
-`Null` is an internal sentinel used to distinguish "no value was provided" from `None`. It is never exposed to user code -- `run()` returns `None` (not `Null`) when no value is produced, and handlers always receive `None` when no root value exists. You may see `<Null>` mentioned in tracebacks or debug output; it indicates the absence of a value rather than a `None` value.
+`Null` is an **internal** implementation detail — it is not part of `__all__` and should not be imported directly. It is used internally to distinguish "no value was provided" from `None`. It is never exposed to user code -- `run()` returns `None` (not `Null`) when no value is produced, and handlers always receive `None` when no root value exists. You may see `<Null>` mentioned in tracebacks or debug output; it indicates the absence of a value rather than a `None` value.
 
 ---
 
@@ -1575,7 +1582,7 @@ Q(v=<no value>, /, *args, **kwargs)
 # Pipeline building
 q.then(v, /, *args, **kwargs) -> Q
 q.do(fn, /, *args, **kwargs) -> Q
-q.foreach(fn, /, *, concurrency=None, executor=None) -> Q
+q.foreach(fn=None, /, *, concurrency=None, executor=None) -> Q
 q.foreach_do(fn, /, *, concurrency=None, executor=None) -> Q
 q.gather(*fns, concurrency=-1, executor=None) -> Q
 q.with_(fn, /, *args, **kwargs) -> Q
@@ -1619,5 +1626,5 @@ Q.return_(v=<no value>, /, *args, **kwargs) -> NoReturn
 Q.break_(v=<no value>, /, *args, **kwargs) -> NoReturn
 
 # Instrumentation (class attribute)
-Q.on_step: Callable[[Q, str, Any, Any, int], None] | None = None
+Q.on_step: Callable[[Q, str, Any, Any, int, BaseException | None], None] | None = None
 ```

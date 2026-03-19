@@ -44,7 +44,7 @@ finally_() requires a callable, got NoneType
 ### `Q() keyword arguments require a root value as the first positional argument`
 
 **Exception type:** `TypeError`
-**Source:** `quent/_chain.py` (line 240)
+**Source:** `quent/_q.py` (line 258)
 
 **Trigger:** `kwargs` or `args` were passed to `Q(...)` without a root value. Example: `Q(key=val)` with no positional `v`.
 
@@ -59,7 +59,7 @@ Q(my_function, key=val)  # correct
 ### `run() keyword arguments require a root value as the first positional argument`
 
 **Exception type:** `TypeError`
-**Source:** `quent/_chain.py` (line 955)
+**Source:** `quent/_q.py` (line 1163)
 
 **Trigger:** `.run()` was called with `kwargs` but no root value argument.
 
@@ -74,7 +74,7 @@ q.run(my_callable, key=val)  # correct
 ### `run() received arguments but v is not callable (got <type>)`
 
 **Exception type:** `TypeError`
-**Source:** `quent/_chain.py` (line 957–958)
+**Source:** `quent/_q.py` (line 1165)
 
 **Trigger:** `.run(v, *args, **kwargs)` was called with extra args but `v` is not callable.
 
@@ -85,7 +85,7 @@ q.run(my_callable, key=val)  # correct
 ### `gather() concurrency must be -1 or a positive integer, not None`
 
 **Exception type:** `TypeError`
-**Source:** `quent/_chain.py` (line 557)
+**Source:** `quent/_q.py` (line 611)
 
 **Trigger:** `.gather()` was called with `concurrency=None`. Unlike `.foreach()`, `.gather()` requires an explicit concurrency value — `None` is not accepted.
 
@@ -204,7 +204,7 @@ q.except_(handler, exceptions=(ValueError, RuntimeError))
 ### `You can only register one 'except' callback.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 823)
+**Source:** `quent/_q.py` (line 1026)
 
 **Trigger:** `.except_()` was called more than once on the same pipeline.
 
@@ -215,7 +215,7 @@ q.except_(handler, exceptions=(ValueError, RuntimeError))
 ### `You can only register one 'finally' callback.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 875)
+**Source:** `quent/_q.py` (line 1079)
 
 **Trigger:** `.finally_()` was called more than once on the same pipeline.
 
@@ -226,7 +226,7 @@ q.except_(handler, exceptions=(ValueError, RuntimeError))
 ### `if_() called while a previous if_() is still pending — add .then() or .do() first.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 650)
+**Source:** `quent/_q.py` (line 650)
 
 **Trigger:** A second `.if_()` was called before the previous `.if_()` was resolved with `.then()` or `.do()`.
 
@@ -242,7 +242,7 @@ q.if_(pred_a).if_(pred_b)  # wrong — second if_() sees pending first
 ### `if_() received args/kwargs but no predicate — pass a callable or value as the first argument.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 653)
+**Source:** `quent/_q.py` (line 750)
 
 **Trigger:** `.if_()` was called with positional or keyword arguments but without a predicate (first argument).
 
@@ -253,7 +253,7 @@ q.if_(pred_a).if_(pred_b)  # wrong — second if_() sees pending first
 ### `else_() / else_do() called while a previous if_() is still pending — add .then() or .do() first.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 682–685)
+**Source:** `quent/_q.py` (line 682–685)
 
 ```
 else_() called while a previous if_() is still pending — add .then() or .do() first.
@@ -274,7 +274,7 @@ q.if_(pred).else_(val_b)              # wrong — no .then() after if_()
 ### `else_() / else_do() requires a preceding if_() — the pipeline has no steps yet.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 688–692)
+**Source:** `quent/_q.py` (line 688–692)
 
 ```
 else_() requires a preceding if_() — the pipeline has no steps yet.
@@ -294,7 +294,7 @@ q.if_(pred).then(val_a).else_(val_b)
 ### `else_() / else_do() must follow immediately after if_().then() with no operations in between.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 694–699)
+**Source:** `quent/_q.py` (line 694–699)
 
 ```
 else_() must follow immediately after if_().then() with no operations in between.
@@ -330,7 +330,7 @@ q.if_(pred).then(val_a).else_(val_b).do(log)
 ### `<method>() called with a pending .if_() that was never consumed by .then() or .do().`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 889–893)
+**Source:** `quent/_q.py` (line 1090–1095)
 
 ```
 run() called with a pending .if_() that was never consumed by .then() or .do().
@@ -483,7 +483,7 @@ q.gather(lambda x: None if x is None else process(x))
 ### `A _Return signal escaped the pipeline via <method>().`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 883)
+**Source:** `quent/_q.py` (line 1087)
 
 ```
 A _Return signal escaped the pipeline via run().
@@ -624,7 +624,7 @@ These errors indicate a bug in quent itself, not in user code. If you encounter 
 ### `clone() missing slots: [<slots>]`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_chain.py` (line 1161)
+**Source:** `quent/_q.py` (line 1407)
 
 **Trigger:** `clone()` produced a new `Q` instance with one or more `__slots__` uninitialized. This is an internal consistency check that fires only in debug mode (`__debug__ = True`, i.e., not when running with `-O`).
 

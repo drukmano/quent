@@ -379,6 +379,28 @@ Sync uses a background thread + `queue.Queue`; async uses a background task + `a
 
 </details>
 
+<details>
+<summary><strong>Debug Execution</strong> &mdash; debug</summary>
+
+<br>
+
+Execute a pipeline with step-level tracing. Returns a `DebugResult` capturing the full execution trace &mdash; each step's name, input, result, timing, and exception status. The original pipeline is not modified (an internal clone is used).
+
+```python
+result = Q(5).then(lambda x: x * 2).then(str).debug()
+print(result.value)       # '10'
+print(result.succeeded)   # True
+print(result.elapsed_ns)  # total nanoseconds
+result.print_trace()      # formatted table to stderr
+
+# Works with async pipelines
+result = await Q(fetch).then(parse).debug(url)
+```
+
+`DebugResult` provides `value`, `steps` (list of `StepRecord`), `elapsed_ns`, `succeeded`, `failed`, and `print_trace()`. Each `StepRecord` has `step_name`, `input_value`, `result`, `elapsed_ns`, `exception`, and `ok`.
+
+</details>
+
 ---
 
 ### Calling Conventions
@@ -437,8 +459,8 @@ All methods return `self` for fluent chaining.
 |:-------|:------------|
 | `.then(v, /, *args, **kwargs)` | Append step; result replaces current value |
 | `.do(fn, /, *args, **kwargs)` | Side-effect step; fn must be callable, result discarded |
-| `.foreach(fn, /, *, concurrency=None, executor=None)` | Transform each element, collect results |
-| `.foreach_do(fn, /, *, concurrency=None, executor=None)` | Side-effect per element, keep originals |
+| `.foreach(fn=None, /, *, concurrency=None, executor=None)` | Transform each element, collect results. `fn=None` collects elements as-is (identity mode) |
+| `.foreach_do(fn, /, *, concurrency=None, executor=None)` | Side-effect per element, keep originals. `fn` is required |
 | `.gather(*fns, concurrency=-1, executor=None)` | Run multiple fns on current value, collect results as tuple |
 | `.with_(fn, /, *args, **kwargs)` | Enter current value as context manager, call fn |
 | `.with_do(fn, /, *args, **kwargs)` | Same as with_, but fn result discarded |
@@ -501,7 +523,7 @@ All methods return `self` for fluent chaining.
 | `QuentIterator` | Type alias for `.iterate()` / `.iterate_do()` return values |
 | `QuentException` | Exception type for quent-specific errors |
 | `__version__` | Package version string |
-| `Q.on_step` | Optional callback `(q, step_name, input_value, result, elapsed_ns)` for instrumentation |
+| `Q.on_step` | Optional callback `(q, step_name, input_value, result, elapsed_ns, exception)` for instrumentation. `exception` is `None` on success, the exception object on failure (before `except_` runs). Not called for control flow signals. Zero overhead when `None`. |
 
 > **Note:** `copy.copy()` and `copy.deepcopy()` are blocked on Q objects (`TypeError`). Use `.clone()` to produce a correct independent copy. Pickling is not blocked — most pipeline contents (lambdas, closures) will naturally fail to pickle, but quent does not enforce this.
 

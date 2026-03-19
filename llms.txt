@@ -114,6 +114,7 @@ All methods return `self` for fluent chaining.
 - [.iterate_do(fn=None)](https://quent.readthedocs.io/en/latest/reference/#iterate_do) -- Iterator with side-effect fn; original elements yielded.
 - [.flat_iterate(fn=None, *, flush=None)](https://quent.readthedocs.io/en/latest/reference/#flat_iterate) -- Flatmap iterator; flattens one level or maps fn to sub-iterables. Optional `flush` emits remaining items after source ends.
 - [.flat_iterate_do(fn=None, *, flush=None)](https://quent.readthedocs.io/en/latest/reference/#flat_iterate_do) -- Like flat_iterate but fn results discarded; original elements yielded.
+- [.buffer(n)](https://quent.readthedocs.io/en/latest/reference/#buffer) -- Attach a bounded backpressure buffer of size `n` between producer and consumer. Decouples iteration producer from consumer; producer runs ahead up to `n` items. `n` must be a positive integer. Only takes effect with iteration terminals; raises `QuentException` if used with `run()`.
 
 ### Reuse
 
@@ -133,6 +134,10 @@ All methods return `self` for fluent chaining.
   - 6 args: `(q, step_name, input_value, result, elapsed_ns, exception)` -- preferred, called on both success and failure.
   - Arity auto-detected via `inspect.signature` (cached). Zero overhead when `None`.
 
+### Debugging
+
+- [.debug(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#debug) -- Execute pipeline with step-level instrumentation. Returns a `DebugResult` (sync) or a coroutine resolving to `DebugResult` (async). The original pipeline is not modified; `debug()` clones internally. `DebugResult` fields: `value` (final result), `steps` (list of `StepRecord`), `elapsed_ns`, `succeeded`, `failed`, `print_trace()`. Each `StepRecord` captures `step_name`, `input_value`, `result`, `elapsed_ns`, and `exception`. Exceptions propagate normally; `DebugResult` not returned on failure.
+
 ### Deferred with_ in Iteration
 
 When `.with_(fn)` or `.with_do(fn)` is the last pipeline step before an iteration terminal (`iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`), context manager entry is deferred to iteration time. The CM stays open for the duration of iteration and exits in the generator's `finally:` block. When both deferred `with_` and deferred `finally_()` are active, the CM exits first, then `finally_()` runs.
@@ -143,7 +148,6 @@ When `.with_(fn)` or `.with_do(fn)` is the last pipeline step before an iteratio
 - [QuentExcInfo](https://quent.readthedocs.io/en/latest/reference/#quentexcinfo) -- NamedTuple (exc, root_value) passed to except handlers.
 - [QuentIterator](https://quent.readthedocs.io/en/latest/reference/#quentiterator) -- Type alias for `.iterate()` / `.iterate_do()` / `.flat_iterate()` / `.flat_iterate_do()` return values.
 - [QuentException](https://quent.readthedocs.io/en/latest/reference/#quentexception) -- Exception type for quent-specific errors.
-- [Null](https://quent.readthedocs.io/en/latest/reference/#null-sentinel) -- Internal sentinel for "no value provided".
 - `__version__` -- Version string.
 
 ## Enhanced Tracebacks

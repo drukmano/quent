@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [6.0.0] - 2026-03-18
+
+### Changed
+
+- **Identity makeover: Chain → Q** — the core class is now `Q` (formerly `Chain`). `ChainExcInfo` → `QuentExcInfo`, `ChainIterator` → `QuentIterator`. The `.decorator()` method is now `.as_decorator()`. Internal module `_chain.py` renamed to `_q.py`. All documentation, examples, and tests updated. `'chain'`/`'chaining'` kept in pyproject.toml keywords for SEO.
+
 ## [5.3.0] - 2026-03-17
 
 ### Added
@@ -82,6 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Python 3.10 through 3.14** support, including free-threaded builds. Zero runtime dependencies on Python 3.11+ (`typing_extensions` required only on 3.10).
 - **Build-time validation** -- non-callable values with args raise `TypeError`, duplicate `except_`/`finally_` raise `QuentException`, pending `if_()` without `.then()`/`.do()` caught at `run()`/`as_decorator()`/`iterate()`.
 
+[6.0.0]: https://github.com/drukmano/quent/releases/tag/v6.0.0
 [5.3.0]: https://github.com/drukmano/quent/releases/tag/v5.3.0
 [5.2.0]: https://github.com/drukmano/quent/releases/tag/v5.2.0
 [5.1.0]: https://github.com/drukmano/quent/releases/tag/v5.1.0

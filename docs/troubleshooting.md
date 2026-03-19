@@ -60,7 +60,7 @@ quent.QuentException: Q.break_() cannot be used outside of an iteration context 
 
 ### Cause
 
-`Q.break_()` is only valid inside callbacks passed to `.foreach()` or `.foreach_do()`. If you call it from a `.then()` or `.do()` step, the `_Break` signal has no iteration loop to catch it, so it escapes to `run()` and is wrapped in `QuentException`.
+`Q.break_()` is only valid inside callbacks passed to `.foreach()`, `.foreach_do()`, `.while_()`, or an iteration context (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`). If you call it from a `.then()` or `.do()` step, the `_Break` signal has no iteration loop to catch it, so it escapes to `run()` and is wrapped in `QuentException`.
 
 ```python
 from quent import Q

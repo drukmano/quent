@@ -43,7 +43,7 @@
 
 ## 1. Identity
 
-**quent** is a computation builder that transparently bridges synchronous and asynchronous Python execution. Pure Python, zero dependencies.
+**quent** is a computation builder that transparently bridges synchronous and asynchronous Python execution. Pure Python, zero dependencies (Python 3.11+; Python 3.10 requires `typing_extensions` for stdlib backports).
 
 ### The Fundamental Promise
 
@@ -1671,26 +1671,20 @@ Q.on_step = my_callback  # Enable
 Q.on_step = None          # Disable (default)
 ```
 
-**Signature (6-argument form, preferred):**
+**Signature (6 arguments, required):**
 
 ```python
 def on_step(q: Q, step_name: str, input_value: Any, result: Any, elapsed_ns: int, exception: BaseException | None) -> None
 ```
-
-**Backward-compatible 5-argument form:**
-
-```python
-def on_step(q: Q, step_name: str, input_value: Any, result: Any, elapsed_ns: int) -> None
-```
-
-The engine auto-detects callback arity via `inspect.signature` (cached on first call). Callbacks accepting 5 positional parameters are called without the `exception` argument. Callbacks accepting 6 or more positional parameters (including `*args`) receive the `exception` argument.
 
 - `q` — the `Q` instance being executed.
 - `step_name` — the name of the step that just completed. For the root value, this is `'root'`. For pipeline steps, this is the method name that registered the step: `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'while_'`, `'drive_gen'`, `'except_'`, or `'finally_'`. The `'if_'` step name covers the entire conditional operation — `on_step` fires with `step_name='if_'` regardless of which branch was taken (truthy or falsy). The `'else_'` and `'else_do'` names appear in pipeline visualization but are not reported as separate `on_step` events; they are part of the `if_` operation.
 - `input_value` — the current pipeline value that was passed to the step, normalized to `None` if absent (the internal `Null` sentinel is never exposed). For the root step, this is the run value (or `None` if no run value was provided). For `except_` steps, this is the `QuentExcInfo` that was passed to the handler. For `finally_` steps, this is the root value (or `None`). For all other steps, it is the current pipeline value before the step executed.
 - `result` — the value produced by the step. On failure (`exception` is not `None`), `result` is `None`.
 - `elapsed_ns` — wall-clock nanoseconds elapsed for this step, measured via `time.perf_counter_ns()`.
-- `exception` — the exception raised by the step, or `None` on success. When a step raises an exception, `on_step` fires with `exception` set to the exception instance and `result=None`. The callback fires *before* the pipeline's `except_` handler runs (if any), so the raw exception is visible. 5-argument callbacks do not receive this parameter and are not called on step failure.
+- `exception` — the exception raised by the step, or `None` on success. When a step raises an exception, `on_step` fires with `exception` set to the exception instance and `result=None`. The callback fires *before* the pipeline's `except_` handler runs (if any), so the raw exception is visible.
+
+**Control flow signals:** `on_step` does not fire for steps that raise control flow signals (`return_()`, `break_()`). These are intentional control flow, not step completions or failures.
 
 ### 14.2 Zero Overhead When Disabled
 

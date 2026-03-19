@@ -290,7 +290,7 @@ def fetch_cached(key):
 Key points:
 
 - **`.if_(predicate).then(fn)`** evaluates the predicate. If truthy, `fn` runs and its result replaces the current value.
-- **`.else_()` must immediately follow `.if_()`** with no operations in between.
+- **`.else_()` must immediately follow the truthy branch** (`.then()` or `.do()`) of `.if_()`, with no operations in between.
 - **Both predicate and branch functions** can be sync or async.
 
 ---
@@ -666,7 +666,7 @@ Wrap async operations with a timeout.
 import asyncio
 from quent import Q
 
-async def with_timeout(fn, timeout_seconds):
+def with_timeout(fn, timeout_seconds):
   """Wrap an async callable with a timeout."""
   async def wrapper(*args, **kwargs):
     return await asyncio.wait_for(fn(*args, **kwargs), timeout=timeout_seconds)

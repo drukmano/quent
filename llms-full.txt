@@ -276,7 +276,7 @@ Cleanup handler. One per pipeline. Always runs. Uses STANDARD calling convention
 
 **Async finally in sync pipelines:** When a sync pipeline's finally handler returns a coroutine, `run()` returns a coroutine (async transition). The handler is awaited, then the result is returned or exception re-raised.
 
-**Async finally in sync iteration:** When `for` loop is used and finally handler returns a coroutine, the coroutine is closed and a RuntimeWarning is issued. Use `async for` for async finally handlers.
+**Async finally in sync iteration:** When `for` loop is used and finally handler returns a coroutine, the coroutine is closed and a `TypeError` is raised. Use `async for` for async finally handlers.
 
 ### Execution Methods
 
@@ -492,8 +492,6 @@ Q(fetch_data)
 
 **Environment variables:** `QUENT_NO_TRACEBACK=1` disables all modifications. `QUENT_TRACEBACK_VALUES=0` suppresses values (sensitive data) -- type-name placeholders shown instead.
 
-**Uninstall:** `quent.uninstall_hooks()` restores originals. Thread-safe, idempotent.
-
 **`__repr__` via visualization:** `repr(q)` uses same format without `<----` marker. Same limits apply.
 
 ### Exception Notes (Python 3.11+)
@@ -662,7 +660,7 @@ class Q:
 26. `on_step` 5-arg callbacks not called on failure. 6-arg callbacks called on both success and failure. Arity auto-detected and cached.
 27. `break_()` in `gather()` raises QuentException (break is scoped to iteration, not gather).
 28. `StopIteration` from `fn` in `foreach` propagates out as regular exception (not silently consumed).
-29. Nesting depth limit: 50 (configurable). Tracked via contextvars, propagated to threads.
+29. Nesting depth limit: 50. Applies to visualization only (traceback rendering and `__repr__`); nested pipelines beyond depth 50 are truncated with a `Q(...<truncated at depth 50>...)` message. Not tracked at runtime.
 30. Dual-protocol objects: async protocol preferred when event loop running (asyncio, trio, curio).
 
 ## Testing Infrastructure
