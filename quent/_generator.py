@@ -155,6 +155,122 @@ async def _cm_exc_exit_async(cm: Any, use_async: bool) -> bool:
   return False
 
 
+# ---- Shared helpers for sync/async generator deduplication ----
+
+
+def _build_run_kwargs(
+  deferred: list[Any] | None,
+  deferred_with: tuple[Link, bool] | None,
+) -> dict[str, Any] | None:
+  """Build keyword arguments for the pipeline run call.
+
+  Returns ``None`` when no extra kwargs are needed (the common fast path),
+  otherwise returns a dict with ``deferred_finally`` and/or ``deferred_with``
+  entries.
+  """
+  if deferred is None and deferred_with is None:
+    return None
+  kw: dict[str, Any] = {}
+  if deferred is not None:
+    kw['deferred_finally'] = deferred
+  if deferred_with is not None:
+    kw['deferred_with'] = True
+  return kw
+
+
+def _run_pipeline(
+  q_run: Callable[..., Any],
+  run_args: tuple[Any, ...],
+  run_kw: dict[str, Any] | None,
+) -> Any:
+  """Execute the pipeline run callable with optional keyword arguments.
+
+  Returns the raw result (may be awaitable -- caller handles that).
+  """
+  if run_kw is not None:
+    return q_run(*run_args, **run_kw)
+  return q_run(*run_args)
+
+
+def _call_fn_sync(
+  fn: Callable[[Any], Any],
+  item: Any,
+  link: Link | None,
+  q: Q[Any] | None,
+  ignore_result: bool,
+  idx: int,
+) -> Any:
+  """Call the iteration callback synchronously, with error handling.
+
+  Raises TypeError if the callback returns a coroutine.
+  Attaches traceback metadata on non-control-flow exceptions.
+  """
+  __tracebackhide__ = True
+  try:
+    fn_result = fn(item)
+    if _isawaitable(fn_result):
+      if hasattr(fn_result, 'close'):
+        fn_result.close()
+      msg = (
+        f'iterate() callback {fn!r} returned a coroutine. '
+        f'Use "async for" with __aiter__ instead of "for" with __iter__.'
+      )
+      raise TypeError(msg)
+    return fn_result
+  except _ControlFlowSignal:  # Must propagate — not a regular exception.
+    raise
+  except BaseException as exc:
+    _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
+    raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+
+
+async def _call_fn_async(
+  fn: Callable[[Any], Any],
+  item: Any,
+  link: Link | None,
+  q: Q[Any] | None,
+  ignore_result: bool,
+  idx: int,
+) -> Any:
+  """Call the iteration callback with async support and error handling.
+
+  If the callback returns an awaitable, it is awaited.
+  Attaches traceback metadata on non-control-flow exceptions.
+  """
+  __tracebackhide__ = True
+  try:
+    result = fn(item)
+    if _isawaitable(result):
+      result = await result
+    return result
+  except _ControlFlowSignal:  # Must propagate — not a regular exception.
+    raise
+  except BaseException as exc:
+    _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
+    raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+
+
+def _flush_sync(flush: Callable[[], Any]) -> Any:
+  """Call the flush callable synchronously, raising TypeError if it returns a coroutine."""
+  __tracebackhide__ = True
+  flush_result = flush()
+  if _isawaitable(flush_result):
+    if hasattr(flush_result, 'close'):
+      flush_result.close()
+    msg = "iterate(): flush callable returned a coroutine. Use 'async for' with __aiter__ instead."
+    raise TypeError(msg)
+  return flush_result
+
+
+async def _flush_async(flush: Callable[[], Any]) -> Any:
+  """Call the flush callable with async support."""
+  __tracebackhide__ = True
+  flush_result = flush()
+  if _isawaitable(flush_result):
+    flush_result = await flush_result
+  return flush_result
+
+
 # Module-level functions (not methods) to avoid binding `self` in the generator closure.
 
 
@@ -181,16 +297,7 @@ def _sync_generator(
 
   try:
     # Run the pipeline
-    _has_kw = _deferred is not None or deferred_with is not None
-    if _has_kw:
-      _kw: dict[str, Any] = {}
-      if _deferred is not None:
-        _kw['deferred_finally'] = _deferred
-      if deferred_with is not None:
-        _kw['deferred_with'] = True
-      result = q_run(*run_args, **_kw)
-    else:
-      result = q_run(*run_args)
+    result = _run_pipeline(q_run, run_args, _build_run_kwargs(_deferred, deferred_with))
 
     if _isawaitable(result):
       # Coroutines have .close(); Tasks/Futures have .cancel().
@@ -205,6 +312,9 @@ def _sync_generator(
     if deferred_with is not None:
       _dw_inner_link, _dw_ignore_result = deferred_with
       cm = result
+      if not hasattr(cm, '__enter__'):
+        msg = "Context manager does not support sync protocol; use 'async for' instead."
+        raise TypeError(msg)
       ctx = cm.__enter__()
       _with_cm = cm
       inner_result = _evaluate_value(_dw_inner_link, ctx)
@@ -230,21 +340,7 @@ def _sync_generator(
           else:
             yield item
         else:
-          try:
-            fn_result = fn(item)
-            if _isawaitable(fn_result):
-              if hasattr(fn_result, 'close'):
-                fn_result.close()
-              msg = (
-                f'iterate() callback {fn!r} returned a coroutine. '
-                f'Use "async for" with __aiter__ instead of "for" with __iter__.'
-              )
-              raise TypeError(msg)
-          except _ControlFlowSignal:  # Must propagate — not a regular exception.
-            raise
-          except BaseException as exc:
-            _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
-            raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+          fn_result = _call_fn_sync(fn, item, link, q, ignore_result, idx)
           if flat:
             if ignore_result:
               for _unused in fn_result:
@@ -259,13 +355,7 @@ def _sync_generator(
 
       # flush after source exhaustion (flat mode only)
       if flush is not None:
-        flush_result = flush()
-        if _isawaitable(flush_result):
-          if hasattr(flush_result, 'close'):
-            flush_result.close()
-          msg = "iterate(): flush callable returned a coroutine. Use 'async for' with __aiter__ instead."
-          raise TypeError(msg)
-        for sub in flush_result:
+        for sub in _flush_sync(flush):
           yield sub
 
     except (_Break, _Return) as exc:
@@ -327,16 +417,7 @@ async def _async_generator(
 
   try:
     # Run the pipeline
-    _has_kw = _deferred is not None or deferred_with is not None
-    if _has_kw:
-      _kw: dict[str, Any] = {}
-      if _deferred is not None:
-        _kw['deferred_finally'] = _deferred
-      if deferred_with is not None:
-        _kw['deferred_with'] = True
-      iterator = q_run(*run_args, **_kw)
-    else:
-      iterator = q_run(*run_args)
+    iterator = _run_pipeline(q_run, run_args, _build_run_kwargs(_deferred, deferred_with))
     if _isawaitable(iterator):
       iterator = await iterator
 
@@ -385,15 +466,7 @@ async def _async_generator(
           else:
             yield item
         else:
-          try:
-            result = fn(item)
-            if _isawaitable(result):
-              result = await result
-          except _ControlFlowSignal:  # Must propagate — not a regular exception.
-            raise
-          except BaseException as exc:
-            _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
-            raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+          result = await _call_fn_async(fn, item, link, q, ignore_result, idx)
           if flat:
             if ignore_result:
               if hasattr(result, '__aiter__'):
@@ -416,9 +489,7 @@ async def _async_generator(
 
       # flush after source exhaustion
       if flush is not None:
-        flush_result = flush()
-        if _isawaitable(flush_result):
-          flush_result = await flush_result
+        flush_result = await _flush_async(flush)
         if hasattr(flush_result, '__aiter__'):
           async for sub in flush_result:
             yield sub
