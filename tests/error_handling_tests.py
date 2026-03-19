@@ -2005,14 +2005,15 @@ class StopIterationExceptTest(SymmetricTestCase):
     """
     received = {}
 
+    def raise_stop(x):
+      raise StopIteration('stop')
+
     def handler(info):
       received['exc_type'] = type(info.exc).__name__
       received['root_value'] = info.root_value
       return 'handled'
 
-    result = (
-      Q(42).then(lambda x: (_ for _ in ()).throw(StopIteration('stop'))).except_(handler, exceptions=Exception).run()
-    )
+    result = Q(42).then(raise_stop).except_(handler, exceptions=Exception).run()
     self.assertEqual(result, 'handled')
     self.assertEqual(received['exc_type'], 'StopIteration')
     self.assertEqual(received['root_value'], 42)
