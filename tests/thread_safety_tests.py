@@ -305,7 +305,7 @@ class OnStepConcurrentTest(TestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     with self._lock:
       self._log.append((step_name, result, elapsed_ns))
 

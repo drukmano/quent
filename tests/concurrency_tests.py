@@ -81,7 +81,7 @@ class ConcurrencyParamValidationTest(TestCase):
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
-      'foreach() concurrency must be a positive integer or -1 (unbounded), got bool',
+      'foreach() concurrency must be -1 (unbounded) or a positive integer, got bool',
     )
 
   def test_concurrency_false_raises(self):
@@ -91,7 +91,7 @@ class ConcurrencyParamValidationTest(TestCase):
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
-      'foreach() concurrency must be a positive integer or -1 (unbounded), got bool',
+      'foreach() concurrency must be -1 (unbounded) or a positive integer, got bool',
     )
 
   def test_concurrency_float_raises(self):
@@ -101,7 +101,7 @@ class ConcurrencyParamValidationTest(TestCase):
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
-      'foreach() concurrency must be a positive integer or -1 (unbounded), got float',
+      'foreach() concurrency must be -1 (unbounded) or a positive integer, got float',
     )
 
   def test_concurrency_string_raises(self):
@@ -111,7 +111,7 @@ class ConcurrencyParamValidationTest(TestCase):
     self.assertIn('concurrency', str(ctx.exception))
     self.assertEqual(
       str(ctx.exception),
-      'foreach() concurrency must be a positive integer or -1 (unbounded), got str',
+      'foreach() concurrency must be -1 (unbounded) or a positive integer, got str',
     )
 
   def test_concurrency_minus_one_on_foreach_do(self):
@@ -137,7 +137,7 @@ class ConcurrencyParamValidationTest(TestCase):
       Q([1]).foreach_do(lambda x: x, concurrency=True)
     self.assertEqual(
       str(ctx.exception),
-      'foreach_do() concurrency must be a positive integer or -1 (unbounded), got bool',
+      'foreach_do() concurrency must be -1 (unbounded) or a positive integer, got bool',
     )
 
   def test_concurrency_validation_on_gather(self):
@@ -146,7 +146,7 @@ class ConcurrencyParamValidationTest(TestCase):
       Q(1).gather(lambda x: x, concurrency=2.5)
     self.assertEqual(
       str(ctx.exception),
-      'gather() concurrency must be a positive integer or -1 (unbounded), got float',
+      'gather() concurrency must be -1 (unbounded) or a positive integer, got float',
     )
 
   def test_concurrency_minus_two_on_gather_raises(self):
@@ -605,7 +605,7 @@ class ExecutorParameterTest(TestCase):
 
 
 class GatherBaseExceptionTest(IsolatedAsyncioTestCase):
-  """§5.6: BaseException handling in gather triage."""
+  """§5.5: BaseException handling in gather triage."""
 
   async def test_async_base_exception_in_gather(self) -> None:
     """§5.5: Async gather with BaseException raises it directly."""
@@ -897,3 +897,101 @@ class UserExecutorIdentityTest(TestCase):
     self.assertEqual(result, (6, 7, 8))
     # fn[0] is probed inline, fn[1] and fn[2] are submitted
     self.assertEqual(submit_count, 2)
+
+
+# --- §11.2.1: Pipeline name suffix in concurrency validation errors ---
+
+
+class ConcurrencyPipelineNameSuffixTest(TestCase):
+  """§11.2.1: Validation errors include '(in pipeline 'name')' when pipeline has a name."""
+
+  def test_value_error_includes_pipeline_name(self):
+    """concurrency=0 on named pipeline: ValueError includes '(in pipeline 'my_pipeline')'."""
+    with self.assertRaises(ValueError) as ctx:
+      Q().name('my_pipeline').foreach(lambda x: x, concurrency=0)
+    msg = str(ctx.exception)
+    self.assertIn("(in pipeline 'my_pipeline')", msg)
+    self.assertIn('concurrency', msg)
+
+  def test_type_error_includes_pipeline_name(self):
+    """concurrency=2.5 on named pipeline: TypeError includes '(in pipeline 'my_pipeline')'."""
+    with self.assertRaises(TypeError) as ctx:
+      Q().name('my_pipeline').foreach(lambda x: x, concurrency=2.5)
+    msg = str(ctx.exception)
+    self.assertIn("(in pipeline 'my_pipeline')", msg)
+    self.assertIn('concurrency', msg)
+
+  def test_gather_value_error_includes_pipeline_name(self):
+    """gather concurrency=-2 on named pipeline: ValueError includes pipeline name."""
+    with self.assertRaises(ValueError) as ctx:
+      Q().name('my_pipeline').gather(lambda x: x, concurrency=-2)
+    msg = str(ctx.exception)
+    self.assertIn("(in pipeline 'my_pipeline')", msg)
+
+  def test_no_name_no_suffix(self):
+    """Pipeline without name: error message does NOT include '(in pipeline'."""
+    with self.assertRaises(ValueError) as ctx:
+      Q().foreach(lambda x: x, concurrency=0)
+    msg = str(ctx.exception)
+    self.assertNotIn('(in pipeline', msg)
+
+
+# --- §11.4: Python 3.10 async concurrent fallback path (asyncio.gather) ---
+
+
+class Py310AsyncGatherFallbackTest(IsolatedAsyncioTestCase):
+  """§11.4: Mock _HAS_TASK_GROUP=False to force the asyncio.gather() fallback path."""
+
+  async def test_py310_fallback_all_succeed(self):
+    """All tasks succeed via asyncio.gather() fallback path."""
+    from unittest.mock import patch
+
+    async def async_double(x):
+      return x * 2
+
+    with patch('quent._gather_ops._HAS_TASK_GROUP', False):
+      result = (
+        await Q(5)
+        .gather(
+          lambda x: async_double(x),
+          lambda x: async_double(x + 1),
+          lambda x: async_double(x + 2),
+        )
+        .run()
+      )
+    self.assertEqual(result, (10, 12, 14))
+
+  async def test_py310_fallback_single_failure(self):
+    """One task fails mid-flight via asyncio.gather() fallback — single exception propagates."""
+    from unittest.mock import patch
+
+    async def ok(x):
+      return x
+
+    async def fail(x):
+      raise ValueError('py310 fail')
+
+    with patch('quent._gather_ops._HAS_TASK_GROUP', False):
+      with self.assertRaises(ValueError) as ctx:
+        await Q(1).gather(ok, fail).run()
+      self.assertIn('py310 fail', str(ctx.exception))
+
+  async def test_py310_fallback_multiple_failures(self):
+    """Multiple tasks fail via asyncio.gather() fallback — ExceptionGroup raised."""
+    from unittest.mock import patch
+
+    async def ok(x):
+      return x
+
+    async def fail1(x):
+      raise ValueError('py310 fail1')
+
+    async def fail2(x):
+      raise TypeError('py310 fail2')
+
+    with patch('quent._gather_ops._HAS_TASK_GROUP', False):
+      with self.assertRaises(BaseException) as ctx:
+        await Q(1).gather(ok, fail1, fail2).run()
+      exc = ctx.exception
+      self.assertTrue(hasattr(exc, 'exceptions'), f'Expected ExceptionGroup, got {type(exc).__name__}')
+      self.assertGreaterEqual(len(exc.exceptions), 2)

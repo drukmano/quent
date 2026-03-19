@@ -248,6 +248,18 @@ class ForeachTests(SymmetricTestCase):
     result = Q([None, None, None]).foreach().run()
     self.assertEqual(result, [None, None, None])
 
+  async def test_identity_preserves_object_identity(self) -> None:
+    """foreach() without fn preserves object identity, not just equality.
+
+    SPEC §5.3: "elements are collected as-is" — mutable objects must be
+    the exact same objects (assertIs), not copies.
+    """
+    items = [{'a': 1}, {'b': 2}, {'c': 3}]
+    result = Q(items).foreach().run()
+    self.assertEqual(len(result), 3)
+    for i, item in enumerate(items):
+      self.assertIs(result[i], item, f'Element {i} should be the same object, not a copy')
+
 
 # ---------------------------------------------------------------------------
 # §5.4 foreach_do()

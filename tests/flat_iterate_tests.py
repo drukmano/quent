@@ -342,5 +342,160 @@ class FlatIteratePendingIfTest(unittest.TestCase):
     self.assertIn('if_() must be followed by .then() or .do()', str(ctx.exception))
 
 
+# ---------------------------------------------------------------------------
+# §9.5 — flat_iterate with async sub-iterables
+# ---------------------------------------------------------------------------
+
+
+class FlatIterateAsyncSubIterableTests(IsolatedAsyncioTestCase):
+  """§9.5: flat_iterate fn returns async iterable whose items are individually yielded.
+
+  From _async_generator lines 409-415:
+    When fn returns a result and flat mode is active, if the result has __aiter__,
+    it is consumed via 'async for sub in result: yield sub'.
+  """
+
+  async def test_flat_iterate_fn_returns_async_iterable(self) -> None:
+    """flat_iterate(fn) where fn returns an async iterable — items yielded individually."""
+
+    async def async_expand(x: int):
+      yield x
+      yield x * 10
+
+    result: list[int] = []
+    async for item in Q(range(3)).flat_iterate(async_expand):
+      result.append(item)
+    self.assertEqual(result, [0, 0, 1, 10, 2, 20])
+
+  async def test_flat_iterate_fn_returns_mixed_iterables(self) -> None:
+    """flat_iterate(fn) where fn alternates between sync and async iterables."""
+
+    async def async_pair(x: int):
+      yield x
+      yield x + 100
+
+    def sync_or_async_expand(x: int):
+      if x % 2 == 0:
+        return [x, x * 10]  # sync iterable
+      return async_pair(x)  # async iterable
+
+    result: list[int] = []
+    async for item in Q(range(4)).flat_iterate(sync_or_async_expand):
+      result.append(item)
+    # x=0 (even): [0, 0], x=1 (odd): [1, 101], x=2 (even): [2, 20], x=3 (odd): [3, 103]
+    self.assertEqual(result, [0, 0, 1, 101, 2, 20, 3, 103])
+
+  async def test_flat_iterate_no_fn_async_sub_iterables(self) -> None:
+    """flat_iterate() with no fn — source items are async iterables, flattened one level.
+
+    From _async_generator: when fn is None and flat is True:
+      'if hasattr(item, "__aiter__"): async for sub in item: yield sub'
+    """
+
+    async def async_items(values: list[int]):
+      for v in values:
+        yield v
+
+    source = [async_items([1, 2]), async_items([3]), async_items([4, 5])]
+    result: list[int] = []
+    async for item in Q(source).flat_iterate():
+      result.append(item)
+    self.assertEqual(result, [1, 2, 3, 4, 5])
+
+
+# ---------------------------------------------------------------------------
+# §9.6 — flat_iterate_do internal paths
+# ---------------------------------------------------------------------------
+
+
+class FlatIterateDoInternalPathTests(IsolatedAsyncioTestCase):
+  """§9.6: flat_iterate_do internal paths — mid-transition, error, empty sub-iterables.
+
+  §9.6:
+    'fn is invoked for each element. Its returned iterable is fully consumed
+    (executing side-effects), but the sub-items are discarded.
+    The original source element is yielded for each iteration step.'
+  """
+
+  async def test_flat_iterate_do_sync_fn_async_sub_iterable(self) -> None:
+    """flat_iterate_do with sync fn returning async sub-iterable (mid-transition).
+
+    From _async_generator lines 401-408:
+      When ignore_result is True and fn returns a result with __aiter__,
+      the result is consumed via 'async for _unused in result: pass'
+      and the original item is yielded.
+    """
+    consumed: list[int] = []
+
+    async def async_side_effect_iter(x: int):
+      consumed.append(x * 10)
+      yield x * 10
+      consumed.append(x * 100)
+      yield x * 100
+
+    def sync_fn_returning_async(x: int):
+      return async_side_effect_iter(x)
+
+    result: list[int] = []
+    async for item in Q([1, 2, 3]).flat_iterate_do(sync_fn_returning_async):
+      result.append(item)
+    # Original items yielded, fn results discarded but consumed
+    self.assertEqual(result, [1, 2, 3])
+    self.assertEqual(consumed, [10, 100, 20, 200, 30, 300])
+
+  async def test_flat_iterate_do_error_during_sub_iterable(self) -> None:
+    """flat_iterate_do: error during sub-iterable iteration propagates to caller.
+
+    §9.5/§9.6 Error behavior:
+      'Exceptions from fn propagate to the caller at the iteration point.'
+    """
+
+    def error_fn(x: int) -> list[int]:
+      if x == 2:
+        raise ValueError('sub-iter error at 2')
+      return [x * 10]
+
+    result: list[int] = []
+    with self.assertRaises(ValueError) as ctx:
+      async for item in Q([1, 2, 3]).flat_iterate_do(error_fn):
+        result.append(item)
+    self.assertIn('sub-iter error at 2', str(ctx.exception))
+    # Item 1 was successfully yielded before the error on item 2
+    self.assertEqual(result, [1])
+
+  async def test_flat_iterate_do_fn_returns_empty_sub_iterables(self) -> None:
+    """flat_iterate_do with fn returning empty sub-iterables.
+
+    §9.6: 'fn is invoked for each element. Its returned iterable is fully consumed
+    (executing side-effects), but the sub-items are discarded.'
+    Even with empty iterables, the original source elements must still be yielded.
+    """
+    call_count = {'n': 0}
+
+    def empty_side_effect(x: int) -> list[int]:
+      call_count['n'] += 1
+      return []  # Empty sub-iterable
+
+    result: list[int] = []
+    async for item in Q([10, 20, 30]).flat_iterate_do(empty_side_effect):
+      result.append(item)
+    # All original items yielded despite empty sub-iterables
+    self.assertEqual(result, [10, 20, 30])
+    # fn was called for each item
+    self.assertEqual(call_count['n'], 3)
+
+  async def test_flat_iterate_do_fn_returns_empty_sync(self) -> None:
+    """Sync: flat_iterate_do with fn returning empty sub-iterables."""
+    call_count = {'n': 0}
+
+    def empty_fn(x: int) -> list[int]:
+      call_count['n'] += 1
+      return []
+
+    result = list(Q([5, 10, 15]).flat_iterate_do(empty_fn))
+    self.assertEqual(result, [5, 10, 15])
+    self.assertEqual(call_count['n'], 3)
+
+
 if __name__ == '__main__':
   unittest.main()

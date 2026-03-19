@@ -983,6 +983,138 @@ class SetExplicitAsyncTest(SymmetricTestCase):
     )
 
 
+# ---------------------------------------------------------------------------
+# §15.4 — Async concurrent worker context isolation
+# ---------------------------------------------------------------------------
+
+
+class AsyncConcurrentWorkerContextIsolationTest(IsolatedAsyncioTestCase):
+  """§15.4: Async concurrent workers inherit context snapshot; set() does not propagate back.
+
+  §15.4:
+    'Async concurrent tasks: Async tasks inherit context naturally through
+    Python's asyncio task creation mechanism, which copies the current context
+    into the new task. The same isolation guarantees apply — a task's set()
+    does not affect the parent or siblings.'
+  """
+
+  def setUp(self) -> None:
+    _reset_context()
+
+  def tearDown(self) -> None:
+    _reset_context()
+
+  async def test_async_foreach_workers_inherit_but_writes_isolated(self) -> None:
+    """Async workers via foreach(async_fn, concurrency=N) inherit context snapshot.
+
+    Workers can read parent context values, but set() from a worker does NOT
+    propagate back to the parent.
+    """
+    Q.set('parent_val', 'visible')
+
+    async def async_worker(x: Any) -> Any:
+      # Worker can read parent context
+      parent = Q.get('parent_val')
+      # Worker sets its own key — should NOT propagate to parent
+      Q.set(f'worker_{x}', f'set_by_{x}')
+      return (x, parent)
+
+    result = await Q([1, 2, 3]).foreach(async_worker, concurrency=2).run()
+    # All workers see the parent's context value
+    for item in result:
+      self.assertEqual(item[1], 'visible')
+
+    # Parent still has its original value
+    self.assertEqual(Q.get('parent_val'), 'visible')
+
+    # Worker writes should NOT be visible in parent context
+    for i in [1, 2, 3]:
+      self.assertEqual(Q.get(f'worker_{i}', 'missing'), 'missing')
+
+  async def test_async_gather_workers_inherit_but_writes_isolated(self) -> None:
+    """Async gather workers inherit context but writes are isolated."""
+    Q.set('shared_key', 'original')
+
+    async def worker_a(x: Any) -> Any:
+      Q.set('shared_key', 'from_worker_a')
+      Q.set('a_only', 'a_val')
+      return Q.get('shared_key')
+
+    async def worker_b(x: Any) -> Any:
+      Q.set('shared_key', 'from_worker_b')
+      Q.set('b_only', 'b_val')
+      return Q.get('shared_key')
+
+    result = await Q(1).gather(worker_a, worker_b, concurrency=2).run()
+    # Each worker sees its own writes
+    self.assertEqual(result[0], 'from_worker_a')
+    self.assertEqual(result[1], 'from_worker_b')
+
+    # Parent context is unchanged
+    self.assertEqual(Q.get('shared_key'), 'original')
+    # Worker-only keys are not visible to parent
+    self.assertEqual(Q.get('a_only', 'missing'), 'missing')
+    self.assertEqual(Q.get('b_only', 'missing'), 'missing')
+
+
+# ---------------------------------------------------------------------------
+# §15.1/§15.3 — Conditional workaround patterns
+# ---------------------------------------------------------------------------
+
+
+class ConditionalContextPatternsTest(TestCase):
+  """§15.1/§15.3: Spec-suggested conditional workaround patterns.
+
+  §15.1: '.set() does not consume a pending if_() or while_(). For conditional
+  storage, use .if_(pred).do(lambda cv: Q.set("key", cv)).'
+  §15.3: 'For conditional retrieval, use .if_(pred).then(Q.get, "key").'
+  """
+
+  def setUp(self) -> None:
+    _reset_context()
+
+  def tearDown(self) -> None:
+    _reset_context()
+
+  def test_conditional_get_pattern(self) -> None:
+    """if_(pred).then(Q.get, 'key') — conditional retrieval.
+
+    §15.3: 'For conditional retrieval, use .if_(pred).then(Q.get, "key").'
+    When the predicate is true, Q.get('key') is called with Rule 1
+    (explicit args: key is passed, current value is NOT passed).
+    """
+    Q.set('fallback_key', 'fallback_value')
+    # When predicate is true, the get replaces current value
+    result = Q(42).if_(lambda x: x > 10).then(Q.get, 'fallback_key').run()
+    self.assertEqual(result, 'fallback_value')
+
+  def test_conditional_get_pattern_false(self) -> None:
+    """if_(pred).then(Q.get, 'key') when predicate is false — current value passes through."""
+    Q.set('fallback_key', 'fallback_value')
+    # When predicate is false, the then branch is skipped; CV passes through
+    result = Q(42).if_(lambda x: x < 10).then(Q.get, 'fallback_key').run()
+    self.assertEqual(result, 42)
+
+  def test_conditional_set_pattern(self) -> None:
+    """if_(pred).do(lambda cv: Q.set('key', cv)) — conditional storage.
+
+    §15.1: 'For conditional storage, use .if_(pred).do(lambda cv: Q.set("key", cv)).'
+    The lambda receives CV as its argument (Rule 2) and calls Q.set class-level
+    method to store it immediately.
+    """
+    result = Q(99).if_(lambda x: x > 50).do(lambda cv: Q.set('stored', cv)).run()
+    self.assertEqual(result, 99)  # .do() preserves CV
+    self.assertEqual(Q.get('stored'), 99)
+
+  def test_conditional_set_pattern_false(self) -> None:
+    """if_(pred).do(lambda cv: Q.set('key', cv)) when predicate is false — no store."""
+    result = Q(5).if_(lambda x: x > 50).do(lambda cv: Q.set('stored2', cv)).run()
+    self.assertEqual(result, 5)
+    # Key was not stored because predicate was false
+    with self.assertRaises(KeyError):
+      Q.get('stored2')
+
+
 if __name__ == '__main__':
   import unittest
 

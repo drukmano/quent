@@ -464,12 +464,12 @@ class IterationControlFlowTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §17.7 — break_ semantics differ between map() and iterate()
+# §7.2 — break_ semantics differ between map() and iterate()
 # ---------------------------------------------------------------------------
 
 
 class BreakSemanticsTests(SymmetricTestCase):
-  """§17.7 — break_(value) appends in both map and iterate."""
+  """§7.2 — break_(value) appends in both map and iterate."""
 
   async def test_map_break_with_value_appends(self) -> None:
     """In map(), break_(value) appends to partial results."""
@@ -543,12 +543,12 @@ class BreakSemanticsTests(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §17.8 — return_ semantics differ between pipeline and iterate
+# §17.3 — return_ semantics differ between pipeline and iterate
 # ---------------------------------------------------------------------------
 
 
 class ReturnSemanticsTests(SymmetricTestCase):
-  """§17.8 — return_(value) replaces in pipeline, appends in iterate."""
+  """§17.3 — return_(value) replaces in pipeline, appends in iterate."""
 
   async def test_pipeline_return_replaces_result(self) -> None:
     """In normal pipeline execution, return_(value) replaces entire result."""

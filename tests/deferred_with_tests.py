@@ -632,5 +632,181 @@ class WithIdentityFnTests(SymmetricTestCase):
     self.assertTrue(cm.exited)
 
 
+# ---------------------------------------------------------------------------
+# §9.7 — CM __exit__ suppresses exception during deferred with_
+# ---------------------------------------------------------------------------
+
+
+class DeferredWithExitSuppressesTest(SymmetricTestCase):
+  """§9.7: CM.__exit__ returns truthy during deferred with_ — exception suppressed, iteration stops cleanly."""
+
+  async def test_sync_exit_suppresses_exception(self) -> None:
+    """Sync CM.__exit__ returns True → exception suppressed, iteration stops cleanly.
+
+    §9.7 CM exit semantics:
+      'Exception during iteration: __exit__(*sys.exc_info()) — the CM receives
+      the exception. If __exit__ returns truthy, the exception is suppressed and
+      the generator stops cleanly. If falsy, the exception propagates.'
+    """
+    items = [1, 2, 3, 4]
+    cm = TrackingSuppressCM(items)
+
+    def boom(x: int) -> int:
+      if x == 3:
+        raise ValueError('boom at 3')
+      return x
+
+    # CM suppresses the exception — no error raised, iteration stops cleanly
+    result = list(Q(cm).with_(lambda ctx: ctx).iterate(boom))
+    # Items yielded before the exception: [1, 2] (item 3 raised)
+    self.assertEqual(result, [1, 2])
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
+    # __exit__ received the exception info
+    assert cm.exit_args is not None
+    self.assertIs(cm.exit_args[0], ValueError)
+
+  async def test_async_exit_suppresses_exception(self) -> None:
+    """Async CM.__aexit__ returns True → exception suppressed in async iteration.
+
+    §9.7 CM exit semantics apply equally to async CMs.
+    """
+    items = [10, 20, 30, 40]
+    cm = AsyncTrackingSuppressCM(items)
+
+    def boom(x: int) -> int:
+      if x == 30:
+        raise RuntimeError('boom at 30')
+      return x
+
+    result: list[int] = []
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate(boom):
+      result.append(item)
+    # Items yielded before the exception: [10, 20]
+    self.assertEqual(result, [10, 20])
+    self.assertTrue(cm.entered)
+    self.assertTrue(cm.exited)
+    assert cm.exit_args is not None
+    self.assertIs(cm.exit_args[0], RuntimeError)
+
+
+# ---------------------------------------------------------------------------
+# §9.7 — CM __exit__ raises during deferred with_
+# ---------------------------------------------------------------------------
+
+
+class DeferredWithExitRaisesTest(SymmetricTestCase):
+  """§9.7: CM.__exit__ raises during deferred with_ — new exception replaces original."""
+
+  async def test_sync_exit_raises_replaces_original(self) -> None:
+    """Sync CM.__exit__ raises → new exception replaces the original.
+
+    §9.7 CM exit semantics:
+      '__exit__ itself raises: The new exception replaces the original (if any),
+      matching Python's native with statement behavior.'
+    """
+    items = [1, 2, 3]
+
+    class ExitRaisesCM:
+      def __init__(self, value: Any) -> None:
+        self.value = value
+        self.entered = False
+
+      def __enter__(self) -> Any:
+        self.entered = True
+        return self.value
+
+      def __exit__(self, *args: Any) -> bool:
+        raise RuntimeError('exit exploded')
+
+    cm = ExitRaisesCM(items)
+
+    def boom(x: int) -> int:
+      if x == 2:
+        raise ValueError('original error')
+      return x
+
+    # The CM's __exit__ raises RuntimeError, which replaces the original ValueError
+    with self.assertRaises(RuntimeError) as ctx:
+      list(Q(cm).with_(lambda ctx_val: ctx_val).iterate(boom))
+    self.assertIn('exit exploded', str(ctx.exception))
+    self.assertTrue(cm.entered)
+
+  async def test_async_exit_raises_replaces_original(self) -> None:
+    """Async CM.__aexit__ raises → new exception replaces the original.
+
+    Same contract as sync: '__exit__ itself raises: The new exception replaces
+    the original'.
+    """
+    items = [10, 20, 30]
+
+    class AsyncExitRaisesCM:
+      def __init__(self, value: Any) -> None:
+        self.value = value
+        self.entered = False
+
+      async def __aenter__(self) -> Any:
+        self.entered = True
+        return self.value
+
+      async def __aexit__(self, *args: Any) -> bool:
+        raise RuntimeError('async exit exploded')
+
+    cm = AsyncExitRaisesCM(items)
+
+    def boom(x: int) -> int:
+      if x == 20:
+        raise ValueError('async original error')
+      return x
+
+    with self.assertRaises(RuntimeError) as ctx:
+      async for _ in Q(cm).with_(lambda ctx_val: ctx_val).iterate(boom):
+        pass
+    self.assertIn('async exit exploded', str(ctx.exception))
+    self.assertTrue(cm.entered)
+
+
+# ---------------------------------------------------------------------------
+# §9.7 — Dual-protocol CM prefers async in async iteration
+# ---------------------------------------------------------------------------
+
+
+class DeferredWithDualProtocolAsyncIterationTest(IsolatedAsyncioTestCase):
+  """§9.7: Dual-protocol CM uses __aenter__/__aexit__ in async for.
+
+  §9.7 Protocol selection:
+    'For dual-protocol CMs (supporting both __enter__/__exit__ and
+    __aenter__/__aexit__), the async protocol is preferred when an
+    async event loop is running (asyncio, trio, or curio), matching §16.10.'
+  """
+
+  async def test_dual_protocol_cm_uses_async_in_async_iteration(self) -> None:
+    """Dual-protocol CM in deferred with_ + async for uses __aenter__/__aexit__."""
+    items = [1, 2, 3]
+    cm = DualProtocolTrackingCM(items)
+    result: list[int] = []
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate():
+      result.append(item)
+    self.assertEqual(result, [1, 2, 3])
+    # In async context (asyncio event loop running), the async protocol must be preferred
+    self.assertTrue(cm.async_entered)
+    self.assertTrue(cm.async_exited)
+    self.assertFalse(cm.sync_entered)
+    self.assertFalse(cm.sync_exited)
+
+  async def test_dual_protocol_cm_uses_async_with_fn(self) -> None:
+    """Dual-protocol CM + deferred with_ + iterate(fn) in async for uses async protocol."""
+    items = [10, 20]
+    cm = DualProtocolTrackingCM(items)
+    result: list[int] = []
+    async for item in Q(cm).with_(lambda ctx: ctx).iterate(lambda x: x * 2):
+      result.append(item)
+    self.assertEqual(result, [20, 40])
+    self.assertTrue(cm.async_entered)
+    self.assertTrue(cm.async_exited)
+    self.assertFalse(cm.sync_entered)
+    self.assertFalse(cm.sync_exited)
+
+
 if __name__ == '__main__':
   unittest.main()

@@ -704,7 +704,7 @@ class WhileOnStepTest(IsolatedAsyncioTestCase):
     self._original_on_step = Q.on_step
     self.step_log: list[tuple[str, object, object]] = []
 
-    def on_step(q, step_name, input_value, result, elapsed_ns):
+    def on_step(q, step_name, input_value, result, elapsed_ns, exception):
       self.step_log.append((step_name, input_value, result))
 
     Q.on_step = on_step
@@ -994,6 +994,129 @@ class WhileSymmetricBridgeTest(SymmetricTestCase):
       expected='stopped',
       fn=[('sync', sync_body), ('async', async_body)],
     )
+
+
+# ---------------------------------------------------------------------------
+# §5.10 — Async while-loop break paths
+# ---------------------------------------------------------------------------
+
+
+class WhileAsyncBreakPredicateTest(IsolatedAsyncioTestCase):
+  """§5.10: break_() in async while-loop predicate evaluation.
+
+  §5.10:
+    'break_() can be raised from either the body or the predicate. In a while_
+    predicate, break_() exits the loop.'
+  The async path is exercised when the predicate is an async callable.
+  """
+
+  async def test_break_in_async_predicate_no_value(self) -> None:
+    """Async predicate raises break_() with no value → loop stops, current loop value returned."""
+    counter = {'n': 0}
+
+    async def async_pred(x):
+      counter['n'] += 1
+      if counter['n'] > 3:
+        return Q.break_()
+      return True
+
+    result = await Q(10).while_(async_pred).then(lambda x: x + 1).run()
+    # pred(10): True, body: 11. pred(11): True, body: 12. pred(12): True, body: 13.
+    # pred(13): break_() => returns current_value = 13
+    self.assertEqual(result, 13)
+
+  async def test_break_in_async_predicate_with_value(self) -> None:
+    """Async predicate raises break_(value) → break value becomes result."""
+    counter = {'n': 0}
+
+    async def async_pred(x):
+      counter['n'] += 1
+      if counter['n'] > 2:
+        return Q.break_('async_pred_stopped')
+      return True
+
+    result = await Q(0).while_(async_pred).then(lambda x: x + 1).run()
+    self.assertEqual(result, 'async_pred_stopped')
+
+
+class WhileAsyncBreakBodyTest(IsolatedAsyncioTestCase):
+  """§5.10: break_() in async while-loop body evaluation.
+
+  §5.10:
+    'break_() can be raised from either the body or the predicate.'
+  The async body path transitions via _async_from_body → _full_async.
+  """
+
+  async def test_break_in_async_body_no_value(self) -> None:
+    """Async body raises break_() with no value → current loop value returned."""
+
+    async def async_body(x):
+      if x >= 5:
+        return Q.break_()
+      return x + 1
+
+    result = await Q(0).while_(True).then(async_body).run()
+    # 0→1→2→3→4→5: at x=5, break_() is raised. Current loop value is 5.
+    self.assertEqual(result, 5)
+
+  async def test_break_in_async_body_with_value(self) -> None:
+    """Async body raises break_(value) → break value becomes result."""
+
+    async def async_body(x):
+      if x >= 3:
+        return Q.break_(x * 100)
+      return x + 1
+
+    result = await Q(0).while_(True).then(async_body).run()
+    # 0→1→2→3: at x=3, break_(300). The break value (300) is the result.
+    self.assertEqual(result, 300)
+
+
+class WhileAsyncBreakAwaitableValueTest(IsolatedAsyncioTestCase):
+  """§5.10: break_(awaitable_value) where break value needs to be awaited.
+
+  §5.10 + §7.1: break_() value is lazily evaluated. When the value is
+  callable, it is invoked when the signal is caught. If the result
+  is an awaitable, the engine awaits it via _await_break_value.
+  """
+
+  async def test_break_with_awaitable_value(self) -> None:
+    """break_(async_fn) where async_fn returns a coroutine → value is awaited."""
+
+    async def compute_value():
+      return 'async_result'
+
+    result = await Q(0).while_(True).then(lambda x: Q.break_(compute_value) if x >= 2 else x + 1).run()
+    # 0→1→2: at x=2, break_(compute_value). compute_value() is called, returns
+    # a coroutine, which is awaited. Result is 'async_result'.
+    self.assertEqual(result, 'async_result')
+
+  async def test_break_with_awaitable_value_with_args(self) -> None:
+    """break_(async_fn, *args) where the callable is async → awaited."""
+
+    async def async_add(a, b):
+      return a + b
+
+    result = await Q(0).while_(True).then(lambda x: Q.break_(async_add, 10, 20) if x >= 1 else x + 1).run()
+    # 0→1: at x=1, break_(async_add, 10, 20). async_add(10, 20) is called, awaited.
+    self.assertEqual(result, 30)
+
+  async def test_break_in_async_predicate_with_awaitable_value(self) -> None:
+    """break_ in async predicate with awaitable value → value is awaited."""
+
+    async def compute_break_val():
+      return 'pred_async_break'
+
+    counter = {'n': 0}
+
+    async def async_pred(x):
+      counter['n'] += 1
+      if counter['n'] > 2:
+        return Q.break_(compute_break_val)
+      return True
+
+    result = await Q(0).while_(async_pred).then(lambda x: x + 1).run()
+    self.assertEqual(result, 'pred_async_break')
 
 
 if __name__ == '__main__':

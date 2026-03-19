@@ -399,12 +399,12 @@ class AsyncReturnTest(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §5.6 break_() in gather → QuentException
+# §5.5 break_() in gather → QuentException
 # ---------------------------------------------------------------------------
 
 
 class BreakInGatherTest(SymmetricTestCase):
-  """SPEC §5.6: break_() signals are not allowed in gather operations."""
+  """SPEC §5.5: break_() signals are not allowed in gather operations."""
 
   async def test_break_in_gather_raises_quent_exception(self) -> None:
     """break_() in gather raises QuentException with exact message (§5.5)."""

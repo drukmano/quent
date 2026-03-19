@@ -13,6 +13,7 @@ returns the correct protocol choice under each runtime.
 
 from __future__ import annotations
 
+import sys
 import unittest
 
 from quent._eval import _has_running_loop, _should_use_async_protocol
@@ -464,6 +465,148 @@ class CurioPipelineTests(unittest.TestCase):
     self.assertTrue(iterable.used_async, 'Expected __aiter__ to be called under curio')
     self.assertFalse(iterable.used_sync, 'Expected __iter__ NOT to be called under curio')
     self.assertEqual(result_holder, [[]])
+
+
+# ---------------------------------------------------------------------------
+# §16.10 — Mock-based trio/curio detection (no actual install needed)
+# ---------------------------------------------------------------------------
+
+
+class MockTrioDetectionTest(unittest.TestCase):
+  """Mock-based test for trio event loop detection in _has_running_loop().
+
+  §16.10:
+    'Loop detection covers asyncio, trio, and curio without importing them —
+    detection uses sys.modules lookups (~50ns dict get when a library is
+    not loaded).'
+
+  From _eval.py lines 46-52:
+    _trio_lowlevel = sys.modules.get('trio.lowlevel')
+    if _trio_lowlevel is not None:
+      try:
+        _trio_lowlevel.current_trio_token()
+        return True
+      except RuntimeError:
+        pass
+  """
+
+  def test_mock_trio_loop_running(self) -> None:
+    """Mock trio.lowlevel in sys.modules with current_trio_token() succeeding → detected."""
+    import types
+
+    mock_module = types.ModuleType('trio.lowlevel')
+    mock_module.current_trio_token = lambda: 'fake_token'  # type: ignore[attr-defined]
+
+    # Temporarily inject the mock module
+    original = sys.modules.get('trio.lowlevel')
+    sys.modules['trio.lowlevel'] = mock_module
+    try:
+      # Ensure asyncio loop is not running (we're in a sync test)
+      result = _has_running_loop()
+      self.assertTrue(result)
+    finally:
+      if original is not None:
+        sys.modules['trio.lowlevel'] = original
+      else:
+        sys.modules.pop('trio.lowlevel', None)
+
+  def test_mock_trio_loop_not_running(self) -> None:
+    """Mock trio.lowlevel with current_trio_token() raising RuntimeError → not detected."""
+    import types
+
+    mock_module = types.ModuleType('trio.lowlevel')
+
+    def no_loop():
+      raise RuntimeError('must be called from async context')
+
+    mock_module.current_trio_token = no_loop  # type: ignore[attr-defined]
+
+    original = sys.modules.get('trio.lowlevel')
+    sys.modules['trio.lowlevel'] = mock_module
+    try:
+      result = _has_running_loop()
+      self.assertFalse(result)
+    finally:
+      if original is not None:
+        sys.modules['trio.lowlevel'] = original
+      else:
+        sys.modules.pop('trio.lowlevel', None)
+
+
+class MockCurioDetectionTest(unittest.TestCase):
+  """Mock-based test for curio event loop detection in _has_running_loop().
+
+  From _eval.py lines 55-61:
+    _curio_meta = sys.modules.get('curio.meta')
+    if _curio_meta is not None:
+      try:
+        if _curio_meta.curio_running():
+          return True
+      except Exception:
+        pass
+  """
+
+  def test_mock_curio_loop_running(self) -> None:
+    """Mock curio.meta with curio_running() returning True → detected."""
+    import types
+
+    mock_module = types.ModuleType('curio.meta')
+    mock_module.curio_running = lambda: True  # type: ignore[attr-defined]
+
+    original = sys.modules.get('curio.meta')
+    sys.modules['curio.meta'] = mock_module
+    try:
+      result = _has_running_loop()
+      self.assertTrue(result)
+    finally:
+      if original is not None:
+        sys.modules['curio.meta'] = original
+      else:
+        sys.modules.pop('curio.meta', None)
+
+  def test_mock_curio_loop_not_running(self) -> None:
+    """Mock curio.meta with curio_running() returning False → not detected."""
+    import types
+
+    mock_module = types.ModuleType('curio.meta')
+    mock_module.curio_running = lambda: False  # type: ignore[attr-defined]
+
+    original = sys.modules.get('curio.meta')
+    sys.modules['curio.meta'] = mock_module
+    try:
+      result = _has_running_loop()
+      self.assertFalse(result)
+    finally:
+      if original is not None:
+        sys.modules['curio.meta'] = original
+      else:
+        sys.modules.pop('curio.meta', None)
+
+  def test_mock_curio_running_raises(self) -> None:
+    """Mock curio.meta with curio_running() raising Exception → not detected.
+
+    From _eval.py: 'except Exception: pass' — exceptions from curio_running()
+    are silently caught.
+    """
+    import types
+
+    mock_module = types.ModuleType('curio.meta')
+
+    def failing_check():
+      raise Exception('curio internal error')
+
+    mock_module.curio_running = failing_check  # type: ignore[attr-defined]
+
+    original = sys.modules.get('curio.meta')
+    sys.modules['curio.meta'] = mock_module
+    try:
+      result = _has_running_loop()
+      self.assertFalse(result)
+    finally:
+      if original is not None:
+        sys.modules['curio.meta'] = original
+      else:
+        sys.modules.pop('curio.meta', None)
 
 
 if __name__ == '__main__':

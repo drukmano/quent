@@ -278,23 +278,31 @@ class AwaitableDetectionTest(SymmetricTestCase):
     self.assertEqual(result, 'ok')
 
   async def test_custom_awaitable_with_dunder_await(self) -> None:
-    """Object with __await__ method is recognized as awaitable.
+    """Object with __await__ method is recognized as awaitable and awaited by the engine.
 
-    Covers _eval.py line 64: the getattr __await__ path.
+    Covers _eval.py line 93-96: the getattr __await__ path.
+    A custom class with __await__ (NOT a CoroutineType) is detected by
+    _isawaitable and properly awaited during pipeline execution.
     """
     import asyncio
 
     class CustomAwaitable:
+      """Awaitable via __await__ protocol — NOT a CoroutineType."""
+
       def __init__(self, value):
         self._value = value
 
       def __await__(self):
-        return asyncio.coroutine(lambda: self._value)().__await__()
+        # Delegate to a Future so the event loop can resolve it.
+        fut = asyncio.get_event_loop().create_future()
+        fut.set_result(self._value)
+        return fut.__await__()
 
-    async def step_returning_awaitable(x):
-      return x + 1
+    def step_returning_custom_awaitable(x):
+      """Sync function that returns a CustomAwaitable — exercises __await__ detection."""
+      return CustomAwaitable(x + 1)
 
-    result = await Q(5).then(step_returning_awaitable).run()
+    result = await Q(5).then(step_returning_custom_awaitable).run()
     self.assertEqual(result, 6)
 
 
@@ -543,3 +551,79 @@ class DoCallingConventionTest(SymmetricTestCase):
     """do() requires a callable — non-callable raises TypeError at build time."""
     with self.assertRaises(TypeError):
       Q(5).do(42)
+
+
+# ---------------------------------------------------------------------------
+# §4: Async Rule 1 — Explicit Args + Kwargs on standard step
+# ---------------------------------------------------------------------------
+
+
+class AsyncExplicitArgsKwargsTest(SymmetricTestCase):
+  """SPEC §4 Rule 1: Async step with explicit args+kwargs — current value NOT passed."""
+
+  async def test_async_step_explicit_args_and_kwargs(self) -> None:
+    """Q(v).then(async_fn, arg1, key=val) → async_fn(arg1, key=val), cv NOT passed.
+
+    Per SPEC §4 Rule 1: when args/kwargs are provided, the current pipeline
+    value is NOT implicitly passed. This is the async variant.
+    """
+    received = []
+
+    async def async_fn(a, *, key):
+      received.append((a, key))
+      return f'{a}-{key}'
+
+    result = await Q(999).then(async_fn, 'X', key='Y').run()
+    self.assertEqual(result, 'X-Y')
+    self.assertEqual(received, [('X', 'Y')])
+
+
+# ---------------------------------------------------------------------------
+# §4: Except handler with kwargs-only
+# ---------------------------------------------------------------------------
+
+
+class ExceptKwargsOnlyTest(SymmetricTestCase):
+  """SPEC §4: except handler with kwargs-only — QuentExcInfo NOT passed."""
+
+  async def test_except_kwargs_only(self) -> None:
+    """except_(handler, key=val) → handler(key=val), QuentExcInfo NOT passed.
+
+    Per SPEC §4 Rule 1: when kwargs are provided (even without positional args),
+    the current value (QuentExcInfo) is NOT passed to the handler.
+    """
+    received = []
+
+    def handler(*, key):
+      received.append(key)
+      return 'handled'
+
+    result = Q(42).then(lambda x: 1 / 0).except_(handler, key='recover').run()
+    self.assertEqual(result, 'handled')
+    self.assertEqual(received, ['recover'])
+
+
+# ---------------------------------------------------------------------------
+# §4: Finally handler with kwargs-only
+# ---------------------------------------------------------------------------
+
+
+class FinallyKwargsOnlyTest(SymmetricTestCase):
+  """SPEC §4: finally handler with kwargs-only — root value NOT passed."""
+
+  async def test_finally_kwargs_only(self) -> None:
+    """finally_(cleanup, key=val) → cleanup(key=val), root value NOT passed.
+
+    Per SPEC §4 Rule 1: when kwargs are provided (even without positional args),
+    the current value (root value) is NOT passed to the handler.
+    The return value of finally is always discarded.
+    """
+    received = []
+
+    def cleanup(*, key):
+      received.append(key)
+
+    result = Q(42).then(sync_fn).finally_(cleanup, key='done').run()
+    # sync_fn(42) = 43, finally return discarded
+    self.assertEqual(result, 43)
+    self.assertEqual(received, ['done'])

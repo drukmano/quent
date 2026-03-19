@@ -720,5 +720,154 @@ class BufferReuseSymmetricTest(SymmetricTestCase):
     )
 
 
+# ---------------------------------------------------------------------------
+# S9.8 buffer(n) — error path coverage
+# ---------------------------------------------------------------------------
+
+
+class BufferProducerExceptionMidStreamTests(IsolatedAsyncioTestCase):
+  """S9.8: Producer iterable raises exception mid-stream → error propagates to consumer.
+
+  §9.8 Error behavior:
+    'If the producer raises an exception, it is propagated to the consumer
+    at the next get().'
+  """
+
+  async def test_sync_producer_generator_raises_mid_stream(self) -> None:
+    """Sync: Producer generator raises mid-stream → consumer gets error."""
+
+    def failing_generator():
+      for i in range(10):
+        if i == 4:
+          raise RuntimeError('producer gen failed at 4')
+        yield i
+
+    collected: list[int] = []
+    with self.assertRaises(RuntimeError) as ctx:
+      for item in Q(failing_generator).buffer(3).iterate():
+        collected.append(item)
+    self.assertIn('producer gen failed at 4', str(ctx.exception))
+    # Items before the error should have been received
+    self.assertTrue(len(collected) >= 4)
+    self.assertEqual(collected[:4], [0, 1, 2, 3])
+
+  async def test_async_producer_generator_raises_mid_stream(self) -> None:
+    """Async: Producer generator raises mid-stream → consumer gets error through asyncio.Queue."""
+
+    def failing_generator():
+      for i in range(10):
+        if i == 3:
+          raise RuntimeError('async producer gen failed at 3')
+        yield i
+
+    collected: list[int] = []
+    with self.assertRaises(RuntimeError) as ctx:
+      async for item in Q(failing_generator).buffer(2).iterate():
+        collected.append(item)
+    self.assertIn('async producer gen failed at 3', str(ctx.exception))
+    self.assertTrue(len(collected) >= 3)
+    self.assertEqual(collected[:3], [0, 1, 2])
+
+
+class BufferConsumerEarlyBreakCleanupTests(IsolatedAsyncioTestCase):
+  """S9.8: Consumer breaks out early → producer cleaned up.
+
+  §9.8 Error behavior:
+    'If the consumer exits early (e.g., break, GeneratorExit), the producer
+    is signaled to stop:
+      - Sync: a threading.Event is set; the producer checks it periodically.
+      - Async: the producer task is cancelled.'
+  """
+
+  async def test_sync_consumer_break_stops_producer(self) -> None:
+    """Sync consumer break → producer thread cleaned up."""
+    produced_count = {'n': 0}
+
+    def tracking_generator():
+      for i in range(1000):
+        produced_count['n'] += 1
+        yield i
+
+    collected: list[int] = []
+    for item in Q(tracking_generator).buffer(5).iterate():
+      collected.append(item)
+      if item >= 2:
+        break
+
+    self.assertEqual(collected, [0, 1, 2])
+    # Producer should not have iterated all 1000 items (it was stopped)
+    # Allow some margin since the producer may have buffered ahead
+    self.assertLess(produced_count['n'], 100)
+
+  async def test_async_consumer_break_cancels_producer(self) -> None:
+    """Async consumer break → producer task cancelled."""
+    produced_count = {'n': 0}
+
+    def tracking_generator():
+      for i in range(1000):
+        produced_count['n'] += 1
+        yield i
+
+    collected: list[int] = []
+    async for item in Q(tracking_generator).buffer(5).iterate():
+      collected.append(item)
+      if item >= 2:
+        break
+
+    self.assertEqual(collected, [0, 1, 2])
+    # Give a moment for cleanup
+    await asyncio.sleep(0.1)
+    # Producer should not have iterated all 1000 items
+    self.assertLess(produced_count['n'], 100)
+
+  async def test_sync_consumer_close_generator(self) -> None:
+    """Sync: Close generator explicitly → producer cleaned up."""
+    collected: list[int] = []
+    gen = iter(Q(range(100)).buffer(3).iterate())
+    collected.append(next(gen))
+    collected.append(next(gen))
+    gen.close()  # Triggers GeneratorExit cleanup
+    self.assertEqual(collected, [0, 1])
+
+
+class BufferAsyncProducerErrorTests(IsolatedAsyncioTestCase):
+  """S9.8: Async buffer producer raises → error propagates through asyncio.Queue.
+
+  §9.8 Error behavior:
+    'If the producer raises an exception, it is propagated to the consumer
+    at the next get().'
+
+  The async path in _async_buffer_iter catches BaseException and puts a
+  _ProducerError into the queue.
+  """
+
+  async def test_async_producer_error_propagates(self) -> None:
+    """Async producer raises mid-stream → error propagates to async consumer."""
+
+    def error_iterable():
+      yield 1
+      yield 2
+      raise ValueError('async producer error mid-stream')
+
+    collected: list[int] = []
+    with self.assertRaises(ValueError) as ctx:
+      async for item in Q(error_iterable).buffer(2).iterate():
+        collected.append(item)
+    self.assertIn('async producer error mid-stream', str(ctx.exception))
+    # At least items 1 and 2 should have been received
+    self.assertEqual(collected[:2], [1, 2])
+
+  async def test_async_producer_immediate_error(self) -> None:
+    """Async producer raises immediately → error propagates to consumer."""
+
+    def immediate_failure():
+      raise RuntimeError('immediate async failure')
+
+    with self.assertRaises(RuntimeError) as ctx:
+      async for _ in Q(immediate_failure).buffer(5).iterate():
+        pass
+    self.assertIn('immediate async failure', str(ctx.exception))
+
+
 if __name__ == '__main__':
   unittest.main()

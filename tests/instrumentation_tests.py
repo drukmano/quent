@@ -45,7 +45,7 @@ class OnStepBasicTest(TestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(
       {
         'chain': q,
@@ -53,6 +53,7 @@ class OnStepBasicTest(TestCase):
         'input_value': input_value,
         'result': result,
         'elapsed_ns': elapsed_ns,
+        'exception': exception,
       }
     )
 
@@ -242,7 +243,7 @@ class OnStepErrorHandlingTest(TestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _failing_callback(self, q, step_name, input_value, result, elapsed_ns):
+  def _failing_callback(self, q, step_name, input_value, result, elapsed_ns, exception):
     raise self.callback_error
 
   def test_chain_continues_on_callback_error(self):
@@ -285,9 +286,11 @@ class OnStepSubclassTest(TestCase):
     child_calls = []
 
     class MyQ(Q):
-      on_step = staticmethod(lambda q, step_name, input_value, result, elapsed_ns: child_calls.append(step_name))
+      on_step = staticmethod(
+        lambda q, step_name, input_value, result, elapsed_ns, exception: child_calls.append(step_name)
+      )
 
-    Q.on_step = lambda q, step_name, input_value, result, elapsed_ns: parent_calls.append(step_name)
+    Q.on_step = lambda q, step_name, input_value, result, elapsed_ns, exception: parent_calls.append(step_name)
 
     # Parent Q class uses parent callback
     Q(1).run()
@@ -312,13 +315,14 @@ class OnStepAsyncTest(IsolatedAsyncioTestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(
       {
         'step_name': step_name,
         'input_value': input_value,
         'result': result,
         'elapsed_ns': elapsed_ns,
+        'exception': exception,
       }
     )
 
@@ -466,7 +470,7 @@ class OnStepOperationNamesTest(TestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(step_name)
 
   def test_foreach_do_step_name(self):
@@ -574,13 +578,14 @@ class OnStepAsyncExceptTest(IsolatedAsyncioTestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(
       {
         'step_name': step_name,
         'input_value': input_value,
         'result': result,
         'elapsed_ns': elapsed_ns,
+        'exception': exception,
       }
     )
 
@@ -677,13 +682,14 @@ class OnStepAsyncFinallyTest(IsolatedAsyncioTestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(
       {
         'step_name': step_name,
         'input_value': input_value,
         'result': result,
         'elapsed_ns': elapsed_ns,
+        'exception': exception,
       }
     )
 
@@ -724,13 +730,14 @@ class OnStepInputValueTest(TestCase):
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder(self, q, step_name, input_value, result, elapsed_ns):
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(
       {
         'step_name': step_name,
         'input_value': input_value,
         'result': result,
         'elapsed_ns': elapsed_ns,
+        'exception': exception,
       }
     )
 
@@ -877,50 +884,50 @@ class OnStepExceptionParameterTest(TestCase):
     self.assertIsInstance(failure_thens[0]['exception'], ZeroDivisionError)
 
 
-class OnStepBackwardCompatTest(TestCase):
-  """§14.1: 5-arg callbacks still work (backward compatibility)."""
+class OnStepSixArgOnlyTest(TestCase):
+  """§14.1: Only the 6-arg form of on_step is supported."""
 
   def setUp(self):
     self.calls = []
-    Q.on_step = self._recorder_5arg
+    Q.on_step = self._recorder
 
   def tearDown(self):
     Q.on_step = None
 
-  def _recorder_5arg(self, q, step_name, input_value, result, elapsed_ns):
-    """Classic 5-arg callback — no exception parameter."""
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
     self.calls.append(
       {
         'step_name': step_name,
         'input_value': input_value,
         'result': result,
         'elapsed_ns': elapsed_ns,
+        'exception': exception,
       }
     )
 
-  def test_5arg_callback_success(self):
-    """§14.1: 5-arg on_step callback works for successful steps."""
+  def test_6arg_callback_success(self):
+    """§14.1: 6-arg on_step callback works for successful steps."""
     Q(42).then(lambda x: x + 1).run()
     step_names = [c['step_name'] for c in self.calls]
     self.assertIn('root', step_names)
     self.assertIn('then', step_names)
     root_call = self.calls[0]
     self.assertEqual(root_call['result'], 42)
+    self.assertIsNone(root_call['exception'])
 
-  def test_5arg_callback_not_called_on_failure(self):
-    """§14.1: 5-arg on_step callback is NOT called for failing steps."""
+  def test_6arg_callback_called_on_failure(self):
+    """§14.1: 6-arg on_step callback IS called for failing steps with exception set."""
     with self.assertRaises(ZeroDivisionError):
       Q(1).then(lambda x: 1 / 0).run()
-    # Root should be recorded, but failing then step should not
-    # (5-arg callbacks don't receive the exception parameter).
+    # Root should be recorded, and failing then step should also be recorded
     step_names = [c['step_name'] for c in self.calls]
     self.assertIn('root', step_names)
-    # The failing then step should NOT be in calls for a 5-arg callback
     then_calls = [c for c in self.calls if c['step_name'] == 'then']
-    self.assertEqual(len(then_calls), 0)
+    self.assertEqual(len(then_calls), 1)
+    self.assertIsInstance(then_calls[0]['exception'], ZeroDivisionError)
 
-  def test_5arg_callback_with_except_handler(self):
-    """§14.1: 5-arg on_step works with except_ handler present."""
+  def test_6arg_callback_with_except_handler(self):
+    """§14.1: 6-arg on_step works with except_ handler present."""
     result = Q(1).then(lambda x: 1 / 0).except_(lambda _: 'handled').run()
     self.assertEqual(result, 'handled')
     step_names = [c['step_name'] for c in self.calls]
@@ -928,8 +935,8 @@ class OnStepBackwardCompatTest(TestCase):
     # except_ handler itself fires on_step (it's a success step)
     self.assertIn('except_', step_names)
 
-  def test_5arg_callback_with_varargs(self):
-    """§14.1: Callback with *args is treated as 6-arg compatible."""
+  def test_varargs_callback_receives_6_args(self):
+    """§14.1: Callback with *args receives all 6 arguments."""
     vararg_calls = []
 
     def vararg_recorder(q, step_name, *args):

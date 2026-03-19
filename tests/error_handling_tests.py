@@ -226,7 +226,10 @@ class ExceptHandlerFailureRaiseTrueTest(SymmetricTestCase):
       with self.assertRaises(ZeroDivisionError) as ctx:
         c.run()
     self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
-    self.assertTrue(ctx.exception.__suppress_context__)
+    # After fix: save/restore original __suppress_context__ instead of unconditionally
+    # setting True.  The original ZeroDivisionError had no pre-existing context chain,
+    # so __suppress_context__ is restored to False.
+    self.assertFalse(ctx.exception.__suppress_context__)
 
   async def test_exception_subclass_handler_failure_note_attached(self) -> None:
     """On Python 3.11+, a note is attached to the original exception."""
@@ -1861,7 +1864,10 @@ class AsyncExceptHandlerSuppressContextTest(IsolatedAsyncioTestCase):
       warnings.simplefilter('always')
       with self.assertRaises(ValueError) as ctx:
         await c.run()
-    self.assertTrue(ctx.exception.__suppress_context__)
+    # After fix: save/restore original __suppress_context__ instead of unconditionally
+    # setting True.  The original ValueError had no pre-existing context chain,
+    # so __suppress_context__ is restored to False.
+    self.assertFalse(ctx.exception.__suppress_context__)
     self.assertTrue(any(issubclass(x.category, RuntimeWarning) for x in w))
 
 
@@ -1932,3 +1938,102 @@ class ExceptReraiseBaseExceptionVariantsTest(IsolatedAsyncioTestCase):
     c = Q(1).then(lambda x: 1 / 0).except_(bad_handler, reraise=True)
     with self.assertRaises(CustomBaseExc):
       c.run()
+
+
+# ---------------------------------------------------------------------------
+# §6.2.4: Async except handler failure with reraise=True — full coverage
+# ---------------------------------------------------------------------------
+
+
+class AsyncExceptHandlerFailureReraseTrueTest(IsolatedAsyncioTestCase):
+  """SPEC §6.2.4: Async pipeline with async except handler that raises while reraise=True.
+
+  Verifies: (1) original exception re-raised, (2) RuntimeWarning emitted,
+  (3) __suppress_context__ behavior.
+  """
+
+  async def test_async_except_handler_failure_reraise_true(self) -> None:
+    """Async pipeline: async handler raises with reraise=True.
+
+    Per SPEC §6.2.4: when reraise=True and the handler raises an Exception,
+    the handler's exception is discarded, a RuntimeWarning is emitted, and
+    the original exception is re-raised.
+    """
+
+    async def async_step(x):
+      raise ValueError('original async error')
+
+    async def async_bad_handler(info):
+      raise RuntimeError('async handler boom')
+
+    c = Q(1).then(async_step).except_(async_bad_handler, reraise=True)
+    with warnings.catch_warnings(record=True) as w:
+      warnings.simplefilter('always')
+      with self.assertRaises(ValueError) as ctx:
+        await c.run()
+    # (1) Original exception re-raised
+    self.assertIn('original async error', str(ctx.exception))
+    # (2) RuntimeWarning emitted about discarded handler exception
+    warning_msgs = [str(x.message) for x in w if issubclass(x.category, RuntimeWarning)]
+    self.assertTrue(
+      any('handler boom' in msg for msg in warning_msgs),
+      f'Expected RuntimeWarning mentioning handler failure, got: {warning_msgs}',
+    )
+    # (3) __suppress_context__: the engine saves and restores the original value.
+    # A fresh ValueError has __suppress_context__ = False.
+    self.assertFalse(ctx.exception.__suppress_context__)
+
+
+# ---------------------------------------------------------------------------
+# §5.3 / §6: StopIteration propagation through except_()
+# ---------------------------------------------------------------------------
+
+
+class StopIterationExceptTest(SymmetricTestCase):
+  """SPEC §5.3: StopIteration is treated as a regular exception — reaches except_() handler.
+
+  Per SPEC §5.3 error behavior: "StopIteration raised by a user callback propagates
+  out — quent does not intercept or reinterpret it. It is treated as a regular
+  exception that propagates through error handling."
+  """
+
+  async def test_stop_iteration_reaches_except_handler(self) -> None:
+    """StopIteration from a step reaches except_(handler, exceptions=Exception).
+
+    The handler receives QuentExcInfo with exc=StopIteration, and the handler's
+    return value becomes the pipeline result.
+    """
+    received = {}
+
+    def handler(info):
+      received['exc_type'] = type(info.exc).__name__
+      received['root_value'] = info.root_value
+      return 'handled'
+
+    result = (
+      Q(42).then(lambda x: (_ for _ in ()).throw(StopIteration('stop'))).except_(handler, exceptions=Exception).run()
+    )
+    self.assertEqual(result, 'handled')
+    self.assertEqual(received['exc_type'], 'StopIteration')
+    self.assertEqual(received['root_value'], 42)
+
+  async def test_stop_iteration_in_foreach_reaches_except(self) -> None:
+    """StopIteration from a foreach callback propagates to except_() handler.
+
+    Sequential foreach: StopIteration is not silently consumed — it propagates
+    through error handling just like any other exception.
+    """
+    received = {}
+
+    def fn(x):
+      if x == 2:
+        raise StopIteration('stop at 2')
+      return x
+
+    def handler(info):
+      received['exc_type'] = type(info.exc).__name__
+      return 'caught'
+
+    result = Q([0, 1, 2, 3]).foreach(fn).except_(handler, exceptions=Exception).run()
+    self.assertEqual(result, 'caught')
+    self.assertEqual(received['exc_type'], 'StopIteration')
