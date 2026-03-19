@@ -7,6 +7,7 @@ import asyncio
 import io
 import sys
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
@@ -191,19 +192,16 @@ def _make_debug_q(q: Any) -> Any:
   return dc
 
 
-def _debug_run(q: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+def _debug_run(
+  q: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
+) -> DebugResult[Any] | Coroutine[Any, Any, DebugResult[Any]]:
   """Execute a debug pipeline and wrap the result in DebugResult.
 
   Handles both sync and async execution transparently.
   """
-  from ._types import Null
-
   t0 = time.perf_counter_ns()
 
-  if v is not Null:
-    raw = q.run(v, *args, **kwargs)
-  else:
-    raw = q.run()
+  raw = q.run(v, *args, **kwargs)
 
   if asyncio.iscoroutine(raw):
 
