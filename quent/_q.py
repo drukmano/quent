@@ -8,9 +8,9 @@ import sys
 import warnings
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from concurrent.futures import Executor
-from typing import Any, ClassVar, Generic, Literal, NoReturn, ParamSpec, TypeVar, overload
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NoReturn, ParamSpec, TypeVar, overload
 
-from ._context import _MISSING, _ctx_get, _ctx_set
+from ._context import _GetDescriptor, _SetDescriptor
 from ._drive_gen_ops import _DriveGenOp
 from ._engine import _run
 from ._gather_ops import _make_gather
@@ -37,91 +37,13 @@ if sys.version_info >= (3, 11):
 else:
   from typing_extensions import Self
 
+if TYPE_CHECKING:
+  from ._debug import DebugResult
+
 _P = ParamSpec('_P')
 _R = TypeVar('_R')
 _T = TypeVar('_T')
 _U = TypeVar('_U')
-
-
-class _SetDescriptor:
-  """Descriptor enabling dual-mode Q.set().
-
-  Instance access -- ``q.set(key)`` or ``q.set(key, value)``:
-    Appends a pipeline step that stores a value under *key* in the
-    execution context.  With one arg, stores the current pipeline value;
-    with two, stores the explicit *value*.  Current value is unchanged
-    (like ``.do()``).  Returns the pipeline for fluent chaining.
-
-  Class access -- ``Q.set(key, value)``:
-    Stores an explicit *value* under *key* in the execution context.
-    Not a pipeline step -- takes effect immediately. Returns ``None``.
-  """
-
-  @overload
-  def __get__(self, obj: Q[Any], objtype: type | None = None) -> Callable[..., Q[Any]]: ...
-  @overload
-  def __get__(self, obj: None, objtype: type) -> Callable[[str, Any], None]: ...
-
-  def __get__(self, obj: Any, objtype: Any = None) -> Any:
-    if obj is not None:
-      # Instance access: q.set('key') or q.set('key', value) -> pipeline step
-      def instance_set(key: str, value: Any = _MISSING) -> Any:
-        if value is _MISSING:
-
-          def _store(cv: Any = None) -> None:
-            _ctx_set(key, cv)
-
-          _store.__qualname__ = _store.__name__ = f'set({key!r})'
-        else:
-
-          def _store(cv: Any = None) -> None:
-            _ctx_set(key, value)
-
-          _store.__qualname__ = _store.__name__ = f'set({key!r}, ...)'
-
-        return obj._then(_store, (), {}, ignore_result=True)
-
-      return instance_set
-    else:
-      # Class access: Q.set('key', value) -> immediate store
-      def static_set(key: str, value: Any) -> None:
-        _ctx_set(key, value)
-
-      return static_set
-
-
-class _GetDescriptor:
-  """Descriptor enabling dual-mode Q.get().
-
-  Instance access -- ``q.get(key)`` or ``q.get(key, default)``:
-    Appends a pipeline step that retrieves the value stored under *key*
-    from the execution context. The retrieved value replaces the current
-    value (like ``.then()``). Returns the pipeline for fluent chaining.
-
-  Class access -- ``Q.get(key)`` or ``Q.get(key, default)``:
-    Retrieves a value from the execution context immediately.
-    Not a pipeline step.
-  """
-
-  @overload
-  def __get__(self, obj: Q[Any], objtype: type | None = None) -> Callable[..., Q[Any]]: ...
-  @overload
-  def __get__(self, obj: None, objtype: type) -> Callable[..., Any]: ...
-
-  def __get__(self, obj: Any, objtype: Any = None) -> Any:
-    if obj is not None:
-      # Instance access: q.get('key') -> pipeline step
-      def instance_get(key: str, default: Any = _MISSING) -> Any:
-        def _retrieve(cv: Any = None) -> Any:
-          return _ctx_get(key, default)
-
-        _retrieve.__qualname__ = _retrieve.__name__ = f'get({key!r})'
-        return obj._then(_retrieve, (), {})
-
-      return instance_get
-    else:
-      # Class access: Q.get('key') -> immediate retrieval
-      return _ctx_get
 
 
 class Q(Generic[_T], _UncopyableMixin):
@@ -167,14 +89,14 @@ class Q(Generic[_T], _UncopyableMixin):
   _quent_is_q = True
 
   # Optional class-level callback for pipeline execution instrumentation.
-  # When set, called after each step with
+  # When set, called after each step with 6 arguments:
   # (q, step_name, input_value, result, elapsed_ns, exception).
-  # The 6th `exception` parameter is optional for backward compatibility:
-  # callbacks with 5 positional parameters are auto-detected via
-  # inspect.signature and called without the exception argument.
   # On success: exception=None.  On failure: exception=<the exception>, result=None.
   # Zero overhead when None.
   # Class-level only (intentional): use the q argument to dispatch per-instance.
+  #
+  # on_step does not fire for steps that raise control flow signals (return_(),
+  # break_()).  These are intentional control flow, not step completions or failures.
   #
   # Error handling: if the callback raises, the exception is logged at WARNING
   # level and emitted as a RuntimeWarning, then swallowed — pipeline execution
@@ -185,11 +107,7 @@ class Q(Generic[_T], _UncopyableMixin):
   # Thread safety: ``on_step`` must be set *before* any pipeline execution begins
   # (i.e., at initialization time).  Mutating ``on_step`` while pipelines are
   # running concurrently is a data race under free-threaded Python (PEP 703).
-  on_step: ClassVar[
-    Callable[[Q[Any], str, Any, Any, int, BaseException | None], None]
-    | Callable[[Q[Any], str, Any, Any, int], None]
-    | None
-  ] = None
+  on_step: ClassVar[Callable[[Q[Any], str, Any, Any, int, BaseException | None], None] | None] = None
 
   set = _SetDescriptor()
   get = _GetDescriptor()
@@ -570,15 +488,14 @@ class Q(Generic[_T], _UncopyableMixin):
   ) -> Q[tuple[Any, ...]]:
     """Run multiple functions concurrently on the current value.
 
-    Each function receives the current pipeline value. If any function
-    returns an awaitable, all awaitables are gathered via
-    ``asyncio.gather``. Results are returned in the same order as *fns*.
+    Each function receives the current pipeline value. All functions are
+    always executed concurrently: sync callables run in a
+    ``ThreadPoolExecutor``; async callables run as semaphore-limited tasks
+    (``asyncio.TaskGroup`` on Python 3.11+, ``asyncio.gather`` on 3.10).
+    Results are returned in the same order as *fns*.
 
     When multiple gathered tasks fail, exceptions are wrapped in an
     ``ExceptionGroup``. Single failures propagate directly.
-
-    Sync callables execute sequentially in order; concurrency only applies
-    when one or more functions return awaitables (via ``asyncio.gather``).
 
     Args:
       *fns: Callables to run concurrently.
@@ -663,7 +580,7 @@ class Q(Generic[_T], _UncopyableMixin):
   @overload
   def with_(self, fn: Callable[..., _U], /, *args: Any, **kwargs: Any) -> Q[_U]: ...
 
-  def with_(self, fn: Any, /, *args: Any, **kwargs: Any) -> Q[Any]:
+  def with_(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Q[Any]:
     """Enter the current value as a context manager and run *fn* with it.
 
     The current pipeline value is used as the context manager. *fn* is called
@@ -1167,7 +1084,9 @@ class Q(Generic[_T], _UncopyableMixin):
     except _ControlFlowSignal as signal:
       raise self._wrap_escaped_signal(signal, 'run') from None
 
-  def debug(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> Any:
+  def debug(
+    self, v: Any = Null, /, *args: Any, **kwargs: Any
+  ) -> DebugResult[Any] | Coroutine[Any, Any, DebugResult[Any]]:
     """Execute the pipeline with debug tracing and return a DebugResult.
 
     Clones the pipeline (the original is not modified) and runs the clone
