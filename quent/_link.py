@@ -144,7 +144,8 @@ def _clone_link(link: Link) -> Link:
     new.v = link.v._clone()
   # Verify all slots are initialized — catches new slots added to Link
   # without corresponding updates to _clone_link.
-  for _s in Link.__slots__:
-    if getattr(new, _s, _CLONE_SENTINEL) is _CLONE_SENTINEL:
-      raise QuentException(f'_clone_link: slot {_s!r} not initialized in cloned Link')
+  if __debug__:
+    for _s in Link.__slots__:
+      if getattr(new, _s, _CLONE_SENTINEL) is _CLONE_SENTINEL:
+        raise QuentException(f'_clone_link: slot {_s!r} not initialized in cloned Link')
   return new

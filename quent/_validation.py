@@ -30,7 +30,7 @@ def _validate_concurrency(concurrency: int | None, method: str, q: Any = None) -
     suffix = _q_suffix(q)
     if isinstance(concurrency, bool) or not isinstance(concurrency, int):
       msg = (
-        f'{method}() concurrency must be a positive integer or -1 (unbounded), got {type(concurrency).__name__}{suffix}'
+        f'{method}() concurrency must be -1 (unbounded) or a positive integer, got {type(concurrency).__name__}{suffix}'
       )
       raise TypeError(msg)
     if concurrency != -1 and concurrency < 1:

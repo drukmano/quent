@@ -254,6 +254,8 @@ class _PipelineOp(Protocol):
 
   _link_name: str
 
+  def _clone(self) -> _PipelineOp: ...
+
 
 # ---- Copy prevention ----
 

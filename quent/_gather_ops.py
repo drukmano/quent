@@ -76,7 +76,7 @@ def _triage_gather_exceptions(raw_exceptions: list[BaseException]) -> _GatherTri
   first_base_idx: int = -1
   for exc in raw_exceptions:
     if isinstance(exc, _Break):
-      # Per spec §5.6: break_() signals are not allowed in gather operations.
+      # Per spec §5.5: break_() signals are not allowed in gather operations.
       # Catch and wrap in QuentException.
       raise QuentException('break_() signals are not allowed in gather operations.') from exc
     if isinstance(exc, _ControlFlowSignal):

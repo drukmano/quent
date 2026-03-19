@@ -96,7 +96,7 @@ class _IfOp:
         return self._to_async_pred(pred_result, current_value)
     else:
       # When predicate is None, use current_value as the predicate result.
-      # Null sentinel is always falsy for predicate purposes (SPEC §5.9).
+      # Null sentinel is always falsy for predicate purposes (SPEC §5.8).
       pred_result = False if current_value is Null else current_value
     return self._eval_branch(pred_result, current_value)
 
