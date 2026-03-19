@@ -14,8 +14,11 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+import warnings
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
+
+from ._concurrency import _create_task_fn
 
 # Sentinel signalling that the producer has finished (normally or with error).
 _END = object()
@@ -65,7 +68,13 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
             continue
       buf.put(_END)
     except BaseException as exc:
-      buf.put(_ProducerError(exc))
+      try:
+        buf.put(_ProducerError(exc), timeout=1.0)
+      except queue.Full:
+        # Queue is full and consumer is gone -- re-raise system exceptions
+        # (KeyboardInterrupt, SystemExit) so they are never silently dropped.
+        if not isinstance(exc, Exception):
+          raise
 
   t = threading.Thread(target=_producer, daemon=True)
   t.start()
@@ -86,6 +95,12 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
     except queue.Empty:
       pass
     t.join(timeout=5.0)
+    if t.is_alive():
+      warnings.warn(
+        'quent: buffer producer thread did not terminate within 5s; it will continue as a daemon thread.',
+        RuntimeWarning,
+        stacklevel=2,
+      )
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +139,7 @@ async def _async_buffer_iter(iterable: Any, maxsize: int) -> AsyncIterator[Any]:
     except BaseException as exc:
       await buf.put(_ProducerError(exc))
 
-  task = asyncio.ensure_future(_producer())
+  task = _create_task_fn(_producer())
   try:
     while True:
       item = await buf.get()
