@@ -179,8 +179,6 @@ class _IterOp:
   def __init__(self, link: Link, mode: Literal['foreach', 'foreach_do']) -> None:
     if mode not in ('foreach', 'foreach_do'):  # pragma: no cover
       raise ValueError(f'invalid _IterOp mode: {mode!r}')  # pragma: no cover
-    if __debug__:
-      assert link.is_callable, f'_IterOp received a non-callable link: {link.v!r}'
     self._fn = link.v
     self._link = link
     if mode == 'foreach_do':

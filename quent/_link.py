@@ -60,18 +60,14 @@ class Link(_UncopyableMixin):
       original_value: The original user-provided value, stored for traceback
         display when ``v`` has been wrapped by an operation factory.
     """
-    # Duck-typing pipeline detection: Q sets a class attribute `_quent_is_q = True`.
-    # Using getattr() instead of isinstance() avoids a circular import between
-    # _link and _q.  The except handles exotic descriptors that raise.
-    try:
-      is_q = getattr(v, '_quent_is_q', False)
-      if is_q and not callable(getattr(v, '_run', None)):
-        is_q = False
-      self.is_q = is_q
-    except Exception:
-      self.is_q = False
+    # Duck-typing pipeline detection: Q sets `_quent_is_q = True` and is always
+    # callable (has __call__).  Using getattr() avoids a circular import.
+    # The callable() check is reused for is_callable to avoid a redundant call.
     self.v = v
-    self.is_callable = callable(v)  # cached: avoids repeated callable() in hot path
+    _is_callable = callable(v)
+    _is_q = _is_callable and getattr(v, '_quent_is_q', False)
+    self.is_q = _is_q
+    self.is_callable = _is_callable and not _is_q
     # Build-time enforcement: non-callable values cannot receive args/kwargs.
     # Pipelines (is_q) are excluded — they have their own args dispatch (Rule 1).
     if (args or kwargs) and not self.is_callable and not self.is_q:

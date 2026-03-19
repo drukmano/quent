@@ -356,9 +356,11 @@ class Q(Generic[_T], _UncopyableMixin):
     *,
     ignore_result: bool = False,
     original_value: Any | None = None,
+    _skip_validation: bool = False,
   ) -> Self:
     """Construct a Link from the given arguments and append it to the pipeline. O(1) via tail pointer."""
-    self._ensure_if_consumed()
+    if not _skip_validation:
+      self._ensure_if_consumed()
     link = Link(v, args, kwargs, ignore_result=ignore_result, original_value=original_value)
     if self._current_link is not None:  # 3+ links: append to tail
       self._current_link.next_link = link
@@ -411,7 +413,8 @@ class Q(Generic[_T], _UncopyableMixin):
       return self._build_while_step(v, args, kwargs, ignore_result=False)
     if self._pending_if:
       return self._build_if_step(v, args, kwargs, ignore_result=False)
-    return self._then(v, args, kwargs)
+    # Both flags guaranteed False — skip redundant _ensure_if_consumed.
+    return self._then(v, args, kwargs, _skip_validation=True)
 
   def do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
     """Append a side-effect step whose result is discarded.
@@ -446,7 +449,8 @@ class Q(Generic[_T], _UncopyableMixin):
       return self._build_while_step(fn, args, kwargs, ignore_result=True)
     if self._pending_if:
       return self._build_if_step(fn, args, kwargs, ignore_result=True)
-    return self._then(fn, args, kwargs, ignore_result=True)
+    # Both flags guaranteed False — skip redundant _ensure_if_consumed.
+    return self._then(fn, args, kwargs, ignore_result=True, _skip_validation=True)
 
   # ---- Pipeline building: iteration and concurrency ----
 
