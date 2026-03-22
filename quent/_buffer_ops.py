@@ -21,6 +21,7 @@ from typing import Any
 from ._concurrency import _create_task_fn
 
 # Sentinel signalling that the producer has finished (normally or with error).
+# See _types.py for the full sentinel landscape.
 _END = object()
 
 

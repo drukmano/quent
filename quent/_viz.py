@@ -156,8 +156,6 @@ def _get_obj_name(obj: Any, _depth: int = 0) -> str:
 
 def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> str:
   """Format positional and keyword arguments for display in a pipeline visualization."""
-  if not _show_traceback_values:  # pragma: no cover  # tested via subprocess in traceback_tests
-    return ''
   parts: list[str] = []
   if args:
     parts.extend(_get_obj_name(a) for a in args)
@@ -283,7 +281,7 @@ def _stringify_q(
   while link is not None:
     links.append((link, _get_link_name(link)))
     if getattr(link.v, '_else_link', None) is not None:
-      links.append((link.v._else_link, 'else_'))
+      links.append((link.v._else_link, 'else_do' if link.v._else_link.ignore_result else 'else_'))
     link = link.next_link
   if q._on_except_link is not None:
     links.append((q._on_except_link, 'except_'))

@@ -27,7 +27,13 @@ from ._types import (
   _Return,
   _UncopyableMixin,
 )
-from ._validation import _normalize_exception_types, _require_callable, _validate_concurrency, _validate_executor
+from ._validation import (
+  _normalize_exception_types,
+  _q_suffix,
+  _require_callable,
+  _validate_concurrency,
+  _validate_executor,
+)
 from ._viz import _stringify_q, _VizContext
 from ._while_ops import _WhileOp
 from ._with_ops import _WithOp
@@ -523,7 +529,7 @@ class Q(Generic[_T], _UncopyableMixin):
     for fn in fns:
       _require_callable(fn, 'gather', self)
     if concurrency is None:
-      raise TypeError('gather() concurrency must be -1 or a positive integer, not None')
+      raise TypeError(f'gather() concurrency must be -1 or a positive integer, got None{_q_suffix(self)}')
     _validate_concurrency(concurrency, 'gather', self)
     _validate_executor(executor, 'gather')
     return self._then(_make_gather(fns, concurrency, executor))  # type: ignore[return-value]

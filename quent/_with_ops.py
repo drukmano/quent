@@ -12,7 +12,8 @@ from ._types import _ControlFlowSignal
 
 # Private sentinel for _full_async's uninitialized result state.
 # Using Null would conflate "no result yet" with a body callable that
-# explicitly returns the Null sentinel.
+# explicitly returns the Null sentinel.  See _types.py for the full
+# sentinel landscape.
 _WITH_UNSET: Any = object()
 
 

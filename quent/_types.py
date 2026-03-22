@@ -99,7 +99,27 @@ class QuentExcInfo(NamedTuple):
   root_value: Any
 
 
-# ---- Sentinel ----
+# ---- Sentinels ----
+#
+# The codebase uses four sentinel objects, each in the narrowest scope that
+# needs it.  They are distinct objects because each guards a different
+# "no value yet" boundary — conflating any two would introduce subtle bugs.
+#
+#   Null          (_types.py)      — "no value was provided" for pipeline semantics.
+#                                    Q() vs Q(None).  The foundational sentinel;
+#                                    never exposed to user code.
+#
+#   _UNPROCESSED  (_types.py)      — "slot not yet filled" in concurrent result arrays.
+#                                    Distinct from Null because user code could
+#                                    theoretically return a value equal to Null.
+#
+#   _WITH_UNSET   (_with_ops.py)   — "body result not yet available" inside _WithOp.
+#                                    Distinct from Null because a body callable
+#                                    could legitimately return Null (internally).
+#
+#   _END          (_buffer_ops.py) — "producer finished" queue protocol marker.
+#                                    Distinct from Null because buffered iteration
+#                                    items are arbitrary user values.
 
 _null_instance_created = False
 
@@ -112,7 +132,7 @@ class _Null:
   creates a pipeline with no root value at all.
 
   This class is a singleton — use ``quent.Null`` directly.  Attempting to
-  instantiate ``NullType()`` after the singleton has been created raises
+  instantiate ``_Null()`` after the singleton has been created raises
   ``TypeError``.
   """
 
@@ -139,7 +159,7 @@ class _Null:
 
 # Bypass _Null.__new__ entirely so the singleton flag check is not triggered
 # during initial creation.  After Null is created, set the flag so that any
-# subsequent _Null() / NullType() call raises TypeError.
+# subsequent _Null() call raises TypeError.
 Null: _Null = object.__new__(_Null)
 _null_instance_created = True
 
@@ -150,10 +170,7 @@ def _get_null() -> _Null:
 
 
 # ---- Concurrent operation sentinel ----
-
-# Sentinel for unprocessed slots in concurrent result arrays (_iter_ops, _gather_ops).
-# Using Null would cause a double-invocation bug if user code ever
-# returned the Null sentinel (even though it is not part of the public API).
+# See "Sentinels" section above for the full landscape.
 _UNPROCESSED: object = object()
 
 
@@ -171,7 +188,7 @@ class QuentException(Exception):
   - **Duplicate handler registration**: calling ``except_()`` or ``finally_()``
     more than once on the same pipeline.
   - **Invalid break context**: ``Q.break_()`` used outside of a
-    ``foreach``/``foreach_do`` iteration.
+    loop or iteration operation.
   """
 
   __slots__ = ()
@@ -181,7 +198,7 @@ class _ControlFlowSignal(BaseException):
   """Base for non-local control flow within pipelines.
 
   ``Q.return_()`` raises ``_Return`` to exit a pipeline early.
-  ``Q.break_()`` raises ``_Break`` to exit a foreach/foreach_do loop.
+  ``Q.break_()`` raises ``_Break`` to exit a loop or iteration operation.
   Both carry an optional value (with args/kwargs) that is lazily evaluated
   when the signal is caught — this avoids unnecessary work if the signal
   propagates through multiple nested pipelines before being handled.
@@ -219,7 +236,7 @@ class _Return(_ControlFlowSignal):
 
 
 class _Break(_ControlFlowSignal):
-  """Signal break from foreach/foreach_do iteration with an optional value."""
+  """Signal break from a loop or iteration operation with an optional value."""
 
   __slots__ = ()
 

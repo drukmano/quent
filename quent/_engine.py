@@ -954,7 +954,10 @@ def _run(
   except _Return as exc:
     if _debug:
       _log.debug('[exec:%06x] pipeline %r: early return', _exec_id, q)
-    _sync_result = _handle_return_exc(exc, is_nested)
+    if is_nested:
+      _exc_to_propagate = exc
+    else:
+      _sync_result = _handle_return_exc(exc, False)
 
   except _Break as exc:
     if _debug:
@@ -963,8 +966,8 @@ def _run(
       _exc_to_propagate = exc
     else:
       msg = (
-        'Q.break_() cannot be used outside of an iteration context'
-        ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
+        'Q.break_() cannot be used outside of a loop or iteration context'
+        ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do, while_).'
       )
       _q_exc = QuentException(msg)
       _q_exc.__suppress_context__ = True

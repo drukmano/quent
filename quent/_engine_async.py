@@ -437,8 +437,8 @@ async def _run_async(
     if is_nested:
       raise
     msg = (
-      'Q.break_() cannot be used outside of an iteration context'
-      ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
+      'Q.break_() cannot be used outside of a loop or iteration context'
+      ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do, while_).'
     )
     raise QuentException(msg) from None
 

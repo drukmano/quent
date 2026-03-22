@@ -136,7 +136,7 @@ def _on_step_recorder(
   input_value: Any,
   result: Any,
   elapsed_ns: int,
-  exception: BaseException | None = None,
+  exception: BaseException | None,
 ) -> None:
   """on_step callback that appends StepRecords to the pipeline's capture list."""
   q._debug_steps.append(
