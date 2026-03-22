@@ -144,8 +144,8 @@ if $RUN_BENCHMARKS; then
 
   echo ""
   echo "==> pyperf: chain size benchmarks"
-  python benchmarks/bench_chain_sizes.py -o "$RESULTS_DIR/bench_chain_sizes_${TIMESTAMP}.json"
-  RAN+=("pyperf bench_chain_sizes")
+  python benchmarks/bench_q_sizes.py -o "$RESULTS_DIR/bench_q_sizes_${TIMESTAMP}.json"
+  RAN+=("pyperf bench_q_sizes")
 
   echo ""
   echo "==> pyperf: async benchmarks"
