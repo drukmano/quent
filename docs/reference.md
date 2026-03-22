@@ -359,7 +359,7 @@ Q(value).if_(
 ```
 
 !!! warning
-    `else_()` must be called **immediately** after `.then()`/`.do()` on an `if_()` (or after `if_()` itself if no branch is given) with no other operations in between. Any intervening operation raises `QuentException`.
+    `else_()` must be called **immediately** after `.then()`/`.do()` on an `if_()` with no other operations in between. Calling `else_()` while `if_()` is still pending (no `.then()`/`.do()` registered) raises `QuentException`.
 
 ---
 
@@ -516,6 +516,9 @@ The `concurrency` parameter is available on `.foreach()`, `.foreach_do()`, and `
 
 !!! note "Unbounded concurrency"
     Use `concurrency=-1` for unbounded concurrent execution. The effective concurrency equals the number of items at runtime.
+
+!!! note "gather() concurrency default"
+    `None` applies only to `foreach()`/`foreach_do()`. `gather()` does not accept `None`; its default is `-1` (unbounded).
 
 ---
 
@@ -1391,7 +1394,7 @@ Subclass of `Exception` raised for quent API misuse. Never raised for errors in 
 | `else_()` without `if_()` | No immediately preceding `if_()` |
 | Pending `if_()` | `run()` called while `if_()` is pending (no `.then()`/`.do()` consumed it) |
 | Control flow in handlers | `return_()`/`break_()` in `except_`/`finally_` |
-| Nesting depth exceeded | Exceeded depth limit (default 50) |
+| Visualization depth truncated | Nested pipeline visualization truncated at depth 50 (visualization-only, not an execution limit) |
 
 ---
 

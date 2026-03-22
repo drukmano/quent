@@ -153,7 +153,7 @@ debug_result = await Q(fetch_data).then(process).debug()
 debug_result.print_trace()
 ```
 
-**Exception behavior:** If the pipeline raises during `debug()`, the exception propagates normally -- `debug()` does not suppress errors. Steps that executed before the failure are captured in the `DebugResult`'s `.steps` list (accessible if you catch the exception and inspect the debug pipeline's state).
+**Exception behavior:** If the pipeline raises during `debug()`, the exception propagates normally -- `debug()` does not suppress errors and does **not** return a `DebugResult` on failure. Steps that executed before the failure are captured internally but are not accessible to the caller since the exception replaces the return value.
 
 !!! note
     `DebugResult` and `StepRecord` are not exported from `quent.__all__`. They are accessible as return types from `debug()` or from `quent._debug`.
@@ -276,7 +276,7 @@ result = Q(5).then(inner).run()
 
 **Edge cases:**
 
-- Nested pipelines have a depth limit (default: 50) to prevent unbounded recursion. Exceeding the limit raises `QuentException`.
+- Nested pipeline *visualization* is truncated at depth 50. There is no execution depth limit.
 - When a pipeline is used as a step in another pipeline, control flow signals propagate through to the outer pipeline.
 - When a pipeline is executed directly via `.run()`, escaped control flow signals are caught and wrapped in `QuentException`.
 
@@ -293,9 +293,9 @@ result = Q(5).then(inner).run()
 
 These methods operate on the **elements** of the current pipeline value (which must be iterable).
 
-### `.foreach(fn, *, concurrency=None, executor=None)` -- Transform Each Element
+### `.foreach(fn=None, *, concurrency=None, executor=None)` -- Transform Each Element
 
-Apply `fn` to each element and collect the results into a list:
+Apply `fn` to each element and collect the results into a list. When `fn` is omitted, elements are collected unchanged (identity mode):
 
 ```python
 from quent import Q

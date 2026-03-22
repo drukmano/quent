@@ -348,21 +348,21 @@ Q(urls).foreach(fetch, concurrency=-1)     # unbounded
 
 ---
 
-## 9. Pipeline Nesting Depth Exceeded
+## 9. Pipeline Nesting Depth Exceeded (Visualization Limit)
 
 ### Error
 
 ```
-quent.QuentException: Maximum pipeline nesting depth (50) exceeded.
+Q(...<truncated at depth 50>...)
 ```
 
 ### Cause
 
-Nested pipeline execution is capped at depth 50 to prevent stack overflow from circular or deeply recursive compositions.
+Nested pipeline *visualization* is truncated at depth 50. This is a rendering limit only — there is no execution depth limit. Deeply nested pipelines execute without restriction; only the traceback/repr visualization is truncated.
 
 ### Fix
 
-Flatten your pipeline instead of nesting deeply:
+If the truncated visualization is unhelpful, flatten your pipeline instead of nesting deeply:
 
 ```python
 from quent import Q

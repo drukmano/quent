@@ -86,7 +86,7 @@ All methods return `self` for fluent chaining.
 
 - [.then(v, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#then) -- Append step; result replaces current value.
 - [.do(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#do) -- Side-effect step; result discarded. `fn` must be callable.
-- [.foreach(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach) -- Apply fn to each element, collect results.
+- [.foreach(fn=None, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach) -- Apply fn to each element, collect results. When fn is omitted, elements are collected unchanged (identity mode).
 - [.foreach_do(fn, *, concurrency=None, executor=None)](https://quent.readthedocs.io/en/latest/reference/#foreach_do) -- Side-effect per element, keep originals.
 - [.gather(*fns, concurrency=-1, executor=None)](https://quent.readthedocs.io/en/latest/reference/#gather) -- Run multiple fns concurrently on current value. Always concurrent.
 - [.with_(fn, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#with_) -- Enter current value as context manager, call fn. Result replaces current value.
@@ -129,10 +129,7 @@ All methods return `self` for fluent chaining.
 
 ### Instrumentation
 
-- [Q.on_step](https://quent.readthedocs.io/en/latest/reference/#on_step) -- Class-level step instrumentation callback. Supports two signatures:
-  - 5 args: `(q, step_name, input_value, result, elapsed_ns)` -- backward-compatible, not called on failure.
-  - 6 args: `(q, step_name, input_value, result, elapsed_ns, exception)` -- preferred, called on both success and failure.
-  - Arity auto-detected via `inspect.signature` (cached). Zero overhead when `None`.
+- [Q.on_step](https://quent.readthedocs.io/en/latest/reference/#on_step) -- Class-level step instrumentation callback. Signature: `(q, step_name, input_value, result, elapsed_ns, exception)`. Called on both success and failure. Zero overhead when `None`.
 
 ### Debugging
 

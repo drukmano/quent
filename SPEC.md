@@ -43,7 +43,7 @@
 
 ## 1. Identity
 
-**quent** is a computation builder that transparently bridges synchronous and asynchronous Python execution. Pure Python, zero dependencies (Python 3.11+; Python 3.10 requires `typing_extensions` for stdlib backports).
+**quent** is a computation builder that transparently bridges synchronous and asynchronous Python execution. Pure Python, Python 3.10+. Zero runtime dependencies on Python 3.11+; Python 3.10 requires `typing_extensions` for stdlib backports.
 
 ### The Fundamental Promise
 
@@ -477,7 +477,7 @@ All operations participate in the transparent sync/async bridge: if any operatio
 
 **Exception suppression:** If `fn` raises and `__exit__` returns a truthy value (suppressing the exception), the pipeline continues. The current value becomes `None` in this case (since the body's result is unavailable). If `__exit__` returns falsy, the exception propagates.
 
-**Exit handler failure:** If `__exit__` itself raises an exception, that exception propagates and **replaces** the original body exception, matching Python's native `with` statement behavior. The original body exception is preserved as `__context__` on the new exception.
+**Exit handler failure:** If `__exit__` itself raises an exception, that exception propagates and **replaces** the original body exception. The implementation uses explicit chaining (`raise exit_exc from exc`), which sets `__cause__` on the new exception and marks it as a direct cause. This provides a clearer causal relationship in tracebacks ("direct cause of") compared to Python's native `with` statement, which uses implicit chaining. The original body exception is preserved as both `__cause__` and `__context__` on the new exception.
 
 **Control flow signals:** If `fn` raises a control flow signal (`return_()` or `break_()`), `__exit__` is called with no exception info (clean exit), and the signal propagates to the outer pipeline.
 
@@ -855,7 +855,7 @@ Key behaviors:
 
 When the handler itself raises an exception while `reraise=True`:
 
-- If the handler raises an `Exception` subclass: the handler's exception is **discarded**. A `RuntimeWarning` is emitted, a note is attached to the original exception (Python 3.11+), `__suppress_context__` is set to `True` on the original exception (to prevent the handler's exception from appearing in the implicit exception context chain), and the original exception is re-raised. This ensures the caller always sees the original failure, even if the error-reporting handler is broken.
+- If the handler raises an `Exception` subclass: the handler's exception is **discarded**. A `RuntimeWarning` is emitted, a note is attached to the original exception (Python 3.11+), `__context__` and `__suppress_context__` are restored to their pre-handler values on the original exception (preventing the handler's exception from permanently mutating the original exception's context chain), and the original exception is re-raised. This ensures the caller always sees the original failure, even if the error-reporting handler is broken.
 - If the handler raises a `BaseException` subclass (e.g., `KeyboardInterrupt`, `SystemExit`): the handler's exception propagates naturally — system signals are never suppressed.
 
 #### 6.2.5 Handler Failure with `reraise=False`
@@ -1230,7 +1230,7 @@ Each call to the iterator returns a fresh iterator instance. The original iterat
 **Validation:**
 - `n` must be a positive integer. `bool` values are rejected (even though `bool` is a subclass of `int`).
 - `buffer(0)`, `buffer(-1)`, or non-integer values raise `ValueError` or `TypeError`.
-- `buffer()` called with a pending `if_()` (not yet consumed by `then()`/`do()`) raises `QuentException`.
+- `buffer()` called with a pending `if_()` or `while_()` (not yet consumed by `then()`/`do()`) raises `QuentException`.
 
 **Interaction with other features:**
 - **`clone()`**: The buffer size is preserved across `clone()`. The cloned pipeline's buffer setting is independent (modifying one does not affect the other).
@@ -1291,6 +1291,17 @@ async for item in Q(async_produce).buffer(10).iterate():
 - When the decorated function is called, its arguments are forwarded to the original function, and the function's return value is used as the run value for the cloned pipeline.
 - The pipeline's steps are then applied to the function's return value.
 - The pipeline always executes as a top-level pipeline (independent of the original pipeline's execution context), ensuring thread-safe concurrent calls to the decorated function.
+
+**Async decorated functions:** When the decorated function is `async def`, calling it returns a coroutine. The pipeline treats this coroutine as the root value. Since the coroutine is an awaitable, the engine's standard awaitable detection (§2) triggers an async transition: the coroutine is awaited, its resolved value becomes the root value, and subsequent steps execute in async mode. The decorated wrapper function itself is always sync (returns either a plain value or a coroutine from `run()`), so the caller must `await` the result when the pipeline transitions to async.
+
+```python
+@Q().then(lambda profile: profile['name']).as_decorator()
+async def fetch_profile(user_id):
+  return await db.get_profile(user_id)
+
+# Caller must await because the pipeline transitions to async:
+name = await fetch_profile(42)
+```
 
 **Example:**
 ```python
@@ -1763,7 +1774,7 @@ When `QUENT_TRACEBACK_VALUES=0` is set, `repr()` output in debug logs is replace
 
 **Build-time constraint:** Calling `debug()` while an `if_()` or `while_()` is pending raises `QuentException`, consistent with §5.8.
 
-**Note:** `DebugResult` and `StepRecord` are not exported in `__all__`. They are returned types accessible from the `quent._debug` module or via the return value of `debug()`.
+**Note:** `DebugResult` and `StepRecord` are exported in `__all__` and can be imported directly from the `quent` package.
 
 ---
 
@@ -2076,6 +2087,26 @@ When a pipeline value implements both sync and async protocols (e.g., both `__it
 
 The `while_` operation follows the standard two-tier execution model (§2) and introduces no additional sync/async asymmetries beyond those already documented. The loop starts synchronous; if the predicate or body returns an awaitable, the loop transitions to async and stays async for remaining iterations.
 
+### 17.8 Edge Cases and Clarifications
+
+The following behaviors are implied by the architecture but worth making explicit:
+
+**Re-entrancy:** A pipeline step that calls `q.run()` on the same pipeline instance works correctly. Execution uses only function-local state (§3), so re-entrant calls each get their own execution context. No deadlock or shared-state corruption occurs.
+
+**`from_steps()` with zero arguments:** `Q.from_steps()` returns an empty pipeline. `Q.from_steps().run()` returns `None`, consistent with the behavior of `Q().run()`.
+
+**`from_steps()` single-list/tuple unpacking:** When a single `list` or `tuple` argument is passed, it is unpacked as individual steps: `Q.from_steps([a, b, c])` is equivalent to `Q.from_steps(a, b, c)`. To use a tuple as a literal step value, wrap it: `Q.from_steps(Q().then((1, 2, 3)))`.
+
+**`while_` with immediately-falsy predicate:** When the predicate is falsy on the very first evaluation (body never executes), the current pipeline value before the `while_` passes through unchanged.
+
+**`drive_gen()` with nested `Q` as `fn`:** When `fn` is a `Q` pipeline, it receives the yielded value as its run value (since `Q` is callable and `fn(yielded_value)` invokes `Q.__call__(yielded_value)` which is `Q.run(yielded_value)`). Standard calling conventions do NOT apply to `drive_gen`'s `fn` — it is always called as `fn(yielded_value)`.
+
+**`drive_gen()` when generator's `close()` raises:** If the generator ignores `GeneratorExit` (continues executing instead of raising `GeneratorExit` or `StopIteration`), Python raises `RuntimeError`. This exception propagates from `drive_gen`'s cleanup and is not caught by quent.
+
+**`iterate()` on a pipeline with no steps:** `Q(some_iterable).iterate()` returns a `QuentIterator` that yields elements of `some_iterable`. The pipeline result IS the iterable, and the iteration terminal yields its elements.
+
+**`set()`/`get()` with pending `if_()`/`while_()`:** Raises `QuentException`. For conditional context storage, compose with nested pipelines: `.if_(pred).do(Q().set('key'))`.
+
 ---
 
 ## 18. Patterns
@@ -2221,4 +2252,6 @@ All public symbols are exported from the `quent` package via `__all__`. These ar
 | `QuentExcInfo` | NamedTuple passed to `except_()` handlers as the current value. Fields: `exc` (the caught exception) and `root_value` (the pipeline's evaluated root value, normalized to `None` if absent). |
 | `QuentIterator` | Dual sync/async iterator returned by `iterate()`, `iterate_do()`, `flat_iterate()`, and `flat_iterate_do()`. Supports both `__iter__` (for `for` loops) and `__aiter__` (for `async for` loops). Callable to create new iterators with different run arguments. |
 | `QuentException` | Base exception type for quent-specific runtime errors (escaped control flow signals, duplicate handler registration, invalid break context). |
+| `DebugResult` | Result object returned by `Q.debug()`. Contains `value` (pipeline result), `steps` (list of `StepRecord`), `elapsed_ns` (total execution time in nanoseconds), and properties `succeeded`/`failed`. Has a `print_trace(file)` method for formatted output. |
+| `StepRecord` | Frozen dataclass representing one step's execution in a `debug()` trace. Fields: `step_name`, `input_value`, `result`, `elapsed_ns`, `exception`. Has an `ok` property (True when `exception is None`). |
 | `__version__` | Package version string (PEP 440). Resolved from installed package metadata; falls back to `'0.0.0-dev'` when not installed. |

@@ -278,7 +278,7 @@ result = (
 Both work transparently with both sync and async callables.
 
 !!! note
-    `.foreach()` and `.foreach_do()` both require their argument to be callable, just like `.do()`. Passing a non-callable raises `TypeError`.
+    `.foreach()` and `.foreach_do()` accept an optional callable `fn`. When `fn` is omitted, elements are collected unchanged (identity mode). When provided, `fn` must be callable; passing a non-callable raises `TypeError`.
 
 ---
 

@@ -481,9 +481,9 @@ All methods return `self` for fluent chaining.
 
 | Method | Description |
 |:-------|:------------|
-| `.run(v=Null, /, *args, **kwargs)` | Execute the pipeline; returns value or coroutine |
+| `.run(v=<no value>, /, *args, **kwargs)` | Execute the pipeline; returns value or coroutine |
 | `q(...)` | Alias for `.run()` |
-| `.debug(v=Null, /, *args, **kwargs)` | Execute with step-level tracing; returns `DebugResult` |
+| `.debug(v=<no value>, /, *args, **kwargs)` | Execute with step-level tracing; returns `DebugResult` |
 
 ### Reuse and Iteration
 
@@ -504,8 +504,8 @@ All methods return `self` for fluent chaining.
 
 | Method | Description |
 |:-------|:------------|
-| `Q.return_(v=Null, /, *args, **kwargs)` | Signal early return from pipeline |
-| `Q.break_(v=Null, /, *args, **kwargs)` | Signal break from iteration or `while_` loop |
+| `Q.return_(v=<no value>, /, *args, **kwargs)` | Signal early return from pipeline |
+| `Q.break_(v=<no value>, /, *args, **kwargs)` | Signal break from iteration or `while_` loop |
 
 ### Context API (Class-Level)
 

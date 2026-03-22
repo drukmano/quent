@@ -287,7 +287,7 @@ pip install quent
 
     ---
 
-    Complete reference for `Q`, `Null`, `QuentException`, and every pipeline method.
+    Complete reference for `Q`, `QuentExcInfo`, `QuentException`, and every pipeline method.
 
     [API Reference](reference.md){ .md-button }
 
