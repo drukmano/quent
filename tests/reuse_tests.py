@@ -176,6 +176,34 @@ class CloneTests(SymmetricTestCase):
     self.assertEqual(original.run(), 10)
     self.assertEqual(cloned.run(), 11)
 
+  async def test_clone_while_deep_copied(self) -> None:
+    """§10.1: Clone with while_() — while operations are deep-copied (mutable state)."""
+    original = Q(10).while_().then(lambda x: x - 1)
+    cloned = original.clone()
+
+    # Both produce the same result
+    self.assertEqual(original.run(), 0)
+    self.assertEqual(cloned.run(), 0)
+
+    # Extending clone doesn't affect original
+    cloned.then(lambda x: x + 100)
+    self.assertEqual(original.run(), 0)
+    self.assertEqual(cloned.run(), 100)
+
+  async def test_clone_while_with_predicate_deep_copied(self) -> None:
+    """§10.1: Clone with while_(predicate) — predicate and body links independently copied."""
+    original = Q(100).while_(lambda x: x > 1).then(lambda x: x // 2)
+    cloned = original.clone()
+
+    # Both produce the same result
+    self.assertEqual(original.run(), 1)
+    self.assertEqual(cloned.run(), 1)
+
+    # Extending clone doesn't affect original
+    cloned.then(lambda x: x + 999)
+    self.assertEqual(original.run(), 1)
+    self.assertEqual(cloned.run(), 1000)
+
   async def test_clone_multiple_steps(self) -> None:
     """Clone with multiple steps."""
     original = Q(1).then(lambda x: x + 1).then(lambda x: x * 2).then(lambda x: x + 10)

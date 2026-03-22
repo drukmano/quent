@@ -3,13 +3,13 @@
 
 Tests cover:
 - §17.1: Sync iterate TypeError on async pipeline
-- §17.2: Async transition for sync handler returning coroutine
-- §17.2a: except_(reraise=True) async transition
+- §6.3.5: Async transition for sync handler returning coroutine
+- §11.6: except_(reraise=True) async transition
 - Sync with_() __exit__ returning coroutine triggers async transition
 - §17.4: Concurrent sync workers detecting awaitable results
 - §17.4: Awaitable closure in concurrent sync workers
-- §17.5: break_(value) semantics — uniform append behavior in foreach() and iterate()
-- §17.6: return_(value) semantics differ between pipeline and iterate()
+- §7.3.1: break_(value) semantics — uniform append behavior in foreach() and iterate()
+- §17.3: return_(value) semantics differ between pipeline and iterate()
 """
 
 from __future__ import annotations
@@ -85,11 +85,11 @@ class AsyncIterateWorksTest(IsolatedAsyncioTestCase):
     self.assertEqual(results, [2, 4, 6])
 
 
-# --- §17.2: Async transition for sync handlers ---
+# --- §6.3.5: Async transition for sync handlers ---
 
 
 class AsyncFinallyTransitionTest(IsolatedAsyncioTestCase):
-  """§17.2: sync pipeline finally returning coroutine → async transition."""
+  """§6.3.5: sync pipeline finally returning coroutine → async transition."""
 
   async def test_finally_coroutine_async_transition(self):
     """Sync pipeline's finally_ returning coroutine triggers async transition."""
@@ -112,7 +112,7 @@ class AsyncFinallyTransitionTest(IsolatedAsyncioTestCase):
 
 
 class AsyncFinallyTransitionNoLoopTest(TestCase):
-  """§17.2: sync pipeline with async finally returns a coroutine (not QuentException)."""
+  """§6.3.5: sync pipeline with async finally returns a coroutine (not QuentException)."""
 
   def test_finally_coroutine_returns_coroutine(self):
     """Sync pipeline's finally_ returning coroutine: run() returns a coroutine."""
@@ -129,11 +129,11 @@ class AsyncFinallyTransitionNoLoopTest(TestCase):
     result.close()
 
 
-# --- §17.2a: except_(reraise=True) async transition ---
+# --- §11.6: except_(reraise=True) async transition ---
 
 
 class ExceptRaiseTrueAsyncTransitionTest(IsolatedAsyncioTestCase):
-  """§17.2a: except_(reraise=True) with async handler → async transition."""
+  """§11.6: except_(reraise=True) with async handler → async transition."""
 
   async def test_except_raise_true_coroutine_async_transition(self):
     """except_(reraise=True) with async handler causes async transition; await re-raises."""
@@ -150,7 +150,7 @@ class ExceptRaiseTrueAsyncTransitionTest(IsolatedAsyncioTestCase):
     self.assertTrue(handler_ran.is_set())
 
   async def test_except_reraise_true_async_handler_returns_coroutine(self):
-    """§17.2a: except_(reraise=True) with async handler causes async transition."""
+    """§11.6: except_(reraise=True) with async handler causes async transition."""
     handler_ran = asyncio.Event()
 
     async def async_handler(info):
@@ -285,29 +285,26 @@ class AwaitableClosureTest(TestCase):
     self.assertTrue(len(closed) > 0, 'Awaitable should have been closed')
 
 
-# --- §17.5: break_(value) semantics — uniform append behavior ---
+# --- §7.3.1: break_(value) semantics — uniform append behavior ---
 
 
 class BreakValueMapVsIterateTest(TestCase):
-  """§17.5: break_(value) appends value to partial results in both foreach() and iterate()."""
+  """§7.3.1: break_(value) appends value to partial results in both foreach() and iterate()."""
 
   def test_map_break_with_value_appends_to_partial_results(self):
-    """§17.5: In map(), break_(value) appends value to partial results."""
-    result = Q([1, 2, 3, 4]).foreach(lambda x: Q.return_(42) if x == 3 else x).run()
-    # break_ in map appends to partial results.
-    # Let's use break_ properly:
+    """§7.3.1: In map(), break_(value) appends value to partial results."""
     result = Q([1, 2, 3, 4]).foreach(lambda x: Q.break_(42) if x == 3 else x).run()
     # break_(42) appends 42 to partial results [1, 2]
     self.assertEqual(result, [1, 2, 42])
 
   def test_map_break_without_value_returns_partial(self):
-    """§17.5: In map(), break_() returns partial results as-is."""
+    """§7.3.1: In map(), break_() returns partial results as-is."""
     result = Q([1, 2, 3, 4]).foreach(lambda x: Q.break_() if x == 3 else x * 10).run()
     # break_() at x==3 returns partial results [10, 20]
     self.assertEqual(result, [10, 20])
 
   def test_iterate_break_with_value_yields_additional_item(self):
-    """§17.5: In iterate(), break_(value) yields value as one additional item."""
+    """§7.3.1: In iterate(), break_(value) yields value as one additional item."""
     items = []
     for item in Q([1, 2, 3, 4]).iterate(lambda x: Q.break_(99) if x == 3 else x * 10):
       items.append(item)
@@ -315,7 +312,7 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(items, [10, 20, 99])
 
   def test_iterate_break_without_value_stops_immediately(self):
-    """§17.5: In iterate(), break_() stops immediately with no additional item."""
+    """§7.3.1: In iterate(), break_() stops immediately with no additional item."""
     items = []
     for item in Q([1, 2, 3, 4]).iterate(lambda x: Q.break_() if x == 3 else x * 10):
       items.append(item)
@@ -323,7 +320,7 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(items, [10, 20])
 
   def test_uniform_break_value_map_and_iterate(self):
-    """§17.5: break_(value) appends uniformly in both foreach() and iterate()."""
+    """§7.3.1: break_(value) appends uniformly in both foreach() and iterate()."""
 
     def fn(x):
       if x == 3:
@@ -339,7 +336,7 @@ class BreakValueMapVsIterateTest(TestCase):
     self.assertEqual(iterate_result, [10, 20, 'STOP'])
 
   def test_contrast_break_no_value_map_vs_iterate(self):
-    """§17.5: Side-by-side contrast of break_() (no value) in map vs iterate."""
+    """§7.3.1: Side-by-side contrast of break_() (no value) in map vs iterate."""
 
     def fn(x):
       if x == 3:
@@ -356,10 +353,10 @@ class BreakValueMapVsIterateTest(TestCase):
 
 
 class BreakValueMapVsIterateAsyncTest(IsolatedAsyncioTestCase):
-  """§17.5: Async variants of break_(value) uniform append behavior."""
+  """§7.3.1: Async variants of break_(value) uniform append behavior."""
 
   async def test_async_map_break_with_value_appends(self):
-    """§17.5: async map() break_(value) appends value to partial results."""
+    """§7.3.1: async map() break_(value) appends value to partial results."""
 
     async def fn(x):
       if x == 3:
@@ -370,7 +367,7 @@ class BreakValueMapVsIterateAsyncTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, [10, 20, 'replaced'])
 
   async def test_async_iterate_break_with_value_yields(self):
-    """§17.5: async iterate() break_(value) yields as additional item."""
+    """§7.3.1: async iterate() break_(value) yields as additional item."""
 
     async def fn(x):
       if x == 3:
@@ -412,19 +409,19 @@ class AsyncFinallyRaisesDuringAwaitTest(IsolatedAsyncioTestCase):
     self.assertEqual(str(ctx.exception.__context__), 'original async error')
 
 
-# --- §17.6: return_(value) semantics differ between pipeline and iterate() ---
+# --- §17.3: return_(value) semantics differ between pipeline and iterate() ---
 
 
 class ReturnValuePipelineVsIterateTest(TestCase):
-  """§17.6: return_(value) replaces result in pipeline, yields final item in iterate."""
+  """§17.3: return_(value) replaces result in pipeline, yields final item in iterate."""
 
   def test_pipeline_return_replaces_entire_result(self):
-    """§17.6: In pipeline execution, return_(value) replaces the entire result."""
+    """§17.3: In pipeline execution, return_(value) replaces the entire result."""
     result = Q(1).then(lambda x: x + 1).then(lambda x: Q.return_('early')).then(lambda x: x * 100).run()
     self.assertEqual(result, 'early')
 
   def test_iterate_return_yields_final_item(self):
-    """§17.6: In iterate(), return_(value) yields value as final item."""
+    """§17.3: In iterate(), return_(value) yields value as final item."""
     items = []
     for item in Q([1, 2, 3, 4]).iterate(lambda x: Q.return_('done') if x == 3 else x * 10):
       items.append(item)
@@ -432,7 +429,7 @@ class ReturnValuePipelineVsIterateTest(TestCase):
     self.assertEqual(items, [10, 20, 'done'])
 
   def test_contrast_return_value_pipeline_vs_iterate(self):
-    """§17.6: Side-by-side contrast of return_(value) in pipeline vs iterate."""
+    """§17.3: Side-by-side contrast of return_(value) in pipeline vs iterate."""
 
     def fn(x):
       if x == 3:
@@ -449,7 +446,7 @@ class ReturnValuePipelineVsIterateTest(TestCase):
     self.assertEqual(iterate_result, [10, 20, 'final'])
 
   def test_iterate_return_no_value_stops(self):
-    """§17.6: In iterate(), return_() with no value stops without extra yield."""
+    """§17.3: In iterate(), return_() with no value stops without extra yield."""
     items = []
     for item in Q([1, 2, 3, 4]).iterate(lambda x: Q.return_() if x == 3 else x * 10):
       items.append(item)
@@ -458,10 +455,10 @@ class ReturnValuePipelineVsIterateTest(TestCase):
 
 
 class ReturnValuePipelineVsIterateAsyncTest(IsolatedAsyncioTestCase):
-  """§17.6: Async variants of return_(value) asymmetry."""
+  """§17.3: Async variants of return_(value) asymmetry."""
 
   async def test_async_pipeline_return_replaces_result(self):
-    """§17.6: async pipeline return_(value) replaces entire result."""
+    """§17.3: async pipeline return_(value) replaces entire result."""
 
     async def fn(x):
       return x + 1
@@ -470,7 +467,7 @@ class ReturnValuePipelineVsIterateAsyncTest(IsolatedAsyncioTestCase):
     self.assertEqual(result, 'early')
 
   async def test_async_iterate_return_yields_final_item(self):
-    """§17.6: async iterate() return_(value) yields as final item."""
+    """§17.3: async iterate() return_(value) yields as final item."""
 
     async def fn(x):
       if x == 3:

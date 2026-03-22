@@ -1011,3 +1011,161 @@ class OnStepExceptionAsyncTest(IsolatedAsyncioTestCase):
     except_calls = [c for c in self.calls if c['step_name'] == 'except_']
     self.assertEqual(len(except_calls), 1)
     self.assertIsNone(except_calls[0]['exception'])
+
+
+class OnStepWhileDriveGenTest(TestCase):
+  """§14.1: on_step fires with step_name='while_' and step_name='drive_gen'."""
+
+  def setUp(self):
+    self.calls = []
+    Q.on_step = self._recorder
+
+  def tearDown(self):
+    Q.on_step = None
+
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
+    self.calls.append(
+      {
+        'step_name': step_name,
+        'input_value': input_value,
+        'result': result,
+        'elapsed_ns': elapsed_ns,
+        'exception': exception,
+      }
+    )
+
+  def test_while_step_name(self):
+    """§14.1: while_() step calls on_step with step_name='while_'."""
+    result = Q(10).while_().then(lambda x: x - 1).run()
+    self.assertEqual(result, 0)
+    while_calls = [c for c in self.calls if c['step_name'] == 'while_']
+    self.assertEqual(len(while_calls), 1)
+    self.assertEqual(while_calls[0]['input_value'], 10)
+    self.assertEqual(while_calls[0]['result'], 0)
+    self.assertIsNone(while_calls[0]['exception'])
+    self.assertIsInstance(while_calls[0]['elapsed_ns'], int)
+    self.assertGreaterEqual(while_calls[0]['elapsed_ns'], 0)
+
+  def test_while_with_predicate_step_name(self):
+    """§14.1: while_(predicate) step calls on_step with step_name='while_'."""
+    result = Q(100).while_(lambda x: x > 1).then(lambda x: x // 2).run()
+    self.assertEqual(result, 1)
+    while_calls = [c for c in self.calls if c['step_name'] == 'while_']
+    self.assertEqual(len(while_calls), 1)
+    self.assertEqual(while_calls[0]['input_value'], 100)
+    self.assertEqual(while_calls[0]['result'], 1)
+
+  def test_drive_gen_step_name(self):
+    """§14.1: drive_gen() step calls on_step with step_name='drive_gen'."""
+
+    def gen():
+      x = yield 1
+      x = yield x + 1
+      yield x + 1
+
+    result = Q(gen).drive_gen(lambda x: x * 2).run()
+    # gen yields 1, fn returns 2, gen yields 2+1=3, fn returns 6, gen yields 6+1=7, fn returns 14
+    # Last fn result is the pipeline value
+    self.assertEqual(result, 14)
+    dg_calls = [c for c in self.calls if c['step_name'] == 'drive_gen']
+    self.assertEqual(len(dg_calls), 1)
+    self.assertIsNone(dg_calls[0]['exception'])
+    self.assertIsInstance(dg_calls[0]['elapsed_ns'], int)
+    self.assertGreaterEqual(dg_calls[0]['elapsed_ns'], 0)
+
+
+class OnStepWhileDriveGenAsyncTest(IsolatedAsyncioTestCase):
+  """§14.1: on_step fires with step_name='while_' and 'drive_gen' in async pipelines."""
+
+  def setUp(self):
+    self.calls = []
+    Q.on_step = self._recorder
+
+  def tearDown(self):
+    Q.on_step = None
+
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
+    self.calls.append(
+      {
+        'step_name': step_name,
+        'input_value': input_value,
+        'result': result,
+        'elapsed_ns': elapsed_ns,
+        'exception': exception,
+      }
+    )
+
+  async def test_async_while_step_name(self):
+    """§14.1: while_() with async body calls on_step with step_name='while_'."""
+
+    async def dec(x):
+      return x - 1
+
+    result = await Q(5).while_().then(dec).run()
+    self.assertEqual(result, 0)
+    while_calls = [c for c in self.calls if c['step_name'] == 'while_']
+    self.assertEqual(len(while_calls), 1)
+    self.assertEqual(while_calls[0]['input_value'], 5)
+    self.assertEqual(while_calls[0]['result'], 0)
+
+  async def test_async_drive_gen_step_name(self):
+    """§14.1: drive_gen() with async fn calls on_step with step_name='drive_gen'."""
+
+    def gen():
+      x = yield 10
+      yield x + 1
+
+    async def async_double(x):
+      return x * 2
+
+    await Q(gen).drive_gen(async_double).run()
+    dg_calls = [c for c in self.calls if c['step_name'] == 'drive_gen']
+    self.assertEqual(len(dg_calls), 1)
+    self.assertIsNone(dg_calls[0]['exception'])
+
+
+class OnStepControlFlowSignalNonFiringTest(TestCase):
+  """§14.1: on_step does NOT fire for steps that raise control flow signals."""
+
+  def setUp(self):
+    self.calls = []
+    Q.on_step = self._recorder
+
+  def tearDown(self):
+    Q.on_step = None
+
+  def _recorder(self, q, step_name, input_value, result, elapsed_ns, exception):
+    self.calls.append(
+      {
+        'step_name': step_name,
+        'input_value': input_value,
+        'result': result,
+        'elapsed_ns': elapsed_ns,
+        'exception': exception,
+      }
+    )
+
+  def test_return_signal_step_not_recorded(self):
+    """§14.1: on_step does NOT fire for the step that raises return_()."""
+    result = Q(5).then(lambda x: x + 1).then(lambda x: Q.return_(x * 10)).then(lambda x: x + 999).run()
+    self.assertEqual(result, 60)
+    step_names = [c['step_name'] for c in self.calls]
+    # root and first then should fire, but the return_() step should NOT fire
+    self.assertIn('root', step_names)
+    # Count how many 'then' steps actually fired
+    then_calls = [c for c in self.calls if c['step_name'] == 'then']
+    # Only the first then (x+1) should fire. The second then raises return_()
+    # which is a control flow signal — on_step should NOT fire for it.
+    # The third then never executes.
+    self.assertEqual(len(then_calls), 1)
+    self.assertEqual(then_calls[0]['result'], 6)
+
+  def test_break_signal_step_not_recorded_in_foreach(self):
+    """§14.1: on_step does NOT fire for the step that raises break_() in foreach."""
+    result = Q([1, 2, 3, 4]).foreach(lambda x: Q.break_(99) if x == 3 else x * 10).run()
+    self.assertEqual(result, [10, 20, 99])
+    step_names = [c['step_name'] for c in self.calls]
+    # foreach step should fire (it completes with partial results)
+    self.assertIn('foreach', step_names)
+    # No 'then' step should fire for the break_() — it's internal to foreach
+    # The break is handled within the foreach operation itself

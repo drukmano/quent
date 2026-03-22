@@ -928,6 +928,25 @@ class ConcurrencyPipelineNameSuffixTest(TestCase):
     msg = str(ctx.exception)
     self.assertIn("(in pipeline 'my_pipeline')", msg)
 
+  def test_foreach_do_value_error_includes_pipeline_name(self):
+    """foreach_do concurrency=0 on named pipeline: ValueError includes pipeline name suffix."""
+    with self.assertRaises(ValueError) as ctx:
+      Q().name('my_pipeline').foreach_do(lambda x: x, concurrency=0)
+    msg = str(ctx.exception)
+    self.assertIn("(in pipeline 'my_pipeline')", msg)
+    self.assertEqual(
+      msg,
+      "foreach_do() concurrency must be -1 (unbounded) or a positive integer, got 0 (in pipeline 'my_pipeline')",
+    )
+
+  def test_gather_type_error_includes_pipeline_name(self):
+    """gather concurrency=True on named pipeline: TypeError includes pipeline name suffix."""
+    with self.assertRaises(TypeError) as ctx:
+      Q().name('my_pipeline').gather(lambda x: x, concurrency=True)
+    msg = str(ctx.exception)
+    self.assertIn("(in pipeline 'my_pipeline')", msg)
+    self.assertIn('concurrency', msg)
+
   def test_no_name_no_suffix(self):
     """Pipeline without name: error message does NOT include '(in pipeline'."""
     with self.assertRaises(ValueError) as ctx:

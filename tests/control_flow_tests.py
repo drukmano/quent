@@ -217,8 +217,8 @@ class BreakOutsideIterationTest(TestCase):
     with self.assertRaises(QuentException) as ctx:
       c.run()
     expected = (
-      'Q.break_() cannot be used outside of an iteration context'
-      ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).'
+      'Q.break_() cannot be used outside of a loop or iteration context'
+      ' (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do, while_).'
     )
     self.assertEqual(str(ctx.exception), expected)
 

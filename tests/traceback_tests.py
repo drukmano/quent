@@ -479,7 +479,7 @@ class VisualizationLimitsTest(TestCase):
       self.fail('Expected ZeroDivisionError')
 
   def test_nesting_depth_truncated(self):
-    """Deeply nested chains are truncated at depth 50."""
+    """§13.10: Deeply nested chains are truncated at depth 50."""
     # Build a pipeline nested 55 levels
     inner = Q().then(lambda x: 1 / 0)
     for _ in range(54):
@@ -493,6 +493,15 @@ class VisualizationLimitsTest(TestCase):
       tb_text = ''.join(tb_lines)
       # The visualization should include truncation indicator
       self.assertIn('<quent>', tb_text)
+      # §13.10: Verify some form of truncation occurs.
+      # Either depth truncation ("truncated at depth") or length
+      # truncation ("... <truncated>") kicks in first depending
+      # on the rendering budget.
+      has_truncation = 'truncated' in tb_text.lower()
+      self.assertTrue(
+        has_truncation,
+        'Expected truncation indicator in traceback visualization',
+      )
 
 
 # --- §13.12: Graceful degradation ---

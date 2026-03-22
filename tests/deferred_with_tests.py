@@ -492,6 +492,31 @@ class DeferredWithProtocolTests(IsolatedAsyncioTestCase):
     self.assertFalse(cm.async_entered)
     self.assertFalse(cm.async_exited)
 
+  async def test_async_only_cm_sync_iteration_raises_typeerror(self) -> None:
+    """§9.7: Async-only CM with sync iteration raises TypeError.
+
+    Sync iteration (`for`): only `__enter__`/`__exit__` is used.
+    If the CM only supports async protocol, a TypeError is raised
+    directing the user to use `async for`.
+    """
+
+    class AsyncOnlyCM:
+      """CM that only supports async protocol — no __enter__/__exit__."""
+
+      def __init__(self, value: Any) -> None:
+        self.value = value
+
+      async def __aenter__(self) -> Any:
+        return self.value
+
+      async def __aexit__(self, *args: Any) -> bool:
+        return False
+
+    cm = AsyncOnlyCM([1, 2, 3])
+    with self.assertRaises(TypeError) as ctx:
+      list(Q(cm).with_(lambda val: val).iterate())
+    self.assertIn('async for', str(ctx.exception))
+
 
 # ---------------------------------------------------------------------------
 # Integration: deferred with_ + flat_iterate

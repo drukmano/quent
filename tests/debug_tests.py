@@ -7,7 +7,7 @@ import asyncio
 import io
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-from quent import Q
+from quent import Q, QuentException
 from quent._debug import DebugResult, StepRecord
 from tests.fixtures import (
   V_DOUBLE,
@@ -570,3 +570,135 @@ class DebugFullResultSymmetryTest(SymmetricTestCase):
         False,
       ),
     )
+
+
+# ---------------------------------------------------------------------------
+# §14.6: debug() build-time constraints — pending if_/while_ rejection
+# ---------------------------------------------------------------------------
+
+
+class DebugPendingIfWhileTest(TestCase):
+  """§14.6: debug() while if_() or while_() is pending raises QuentException."""
+
+  def test_debug_pending_if_raises(self):
+    """§14.6: debug() while if_() is pending raises QuentException."""
+    with self.assertRaises(QuentException):
+      Q(5).if_(lambda x: x > 0).debug()
+
+  def test_debug_pending_while_raises(self):
+    """§14.6: debug() while while_() is pending raises QuentException."""
+    with self.assertRaises(QuentException):
+      Q(5).while_(lambda x: x > 0).debug()
+
+
+# ---------------------------------------------------------------------------
+# §14.6: debug() captures step records for while_ and drive_gen
+# ---------------------------------------------------------------------------
+
+
+class DebugWhileStepCaptureTest(TestCase):
+  """§14.6: debug() captures while_ step records correctly."""
+
+  def test_debug_while_step_present(self):
+    """while_() step appears with step_name='while_' in debug output."""
+    dr = Q(10).while_().then(lambda x: x - 1).debug()
+    self.assertIsInstance(dr, DebugResult)
+    self.assertEqual(dr.value, 0)
+    step_names = [s.step_name for s in dr.steps]
+    self.assertIn('root', step_names)
+    self.assertIn('while_', step_names)
+    while_steps = [s for s in dr.steps if s.step_name == 'while_']
+    self.assertEqual(len(while_steps), 1)
+    self.assertEqual(while_steps[0].input_value, 10)
+    self.assertEqual(while_steps[0].result, 0)
+    self.assertTrue(while_steps[0].ok)
+
+  def test_debug_while_with_predicate(self):
+    """while_(predicate) step captured correctly in debug output."""
+    dr = Q(100).while_(lambda x: x > 1).then(lambda x: x // 2).debug()
+    self.assertIsInstance(dr, DebugResult)
+    self.assertEqual(dr.value, 1)
+    while_steps = [s for s in dr.steps if s.step_name == 'while_']
+    self.assertEqual(len(while_steps), 1)
+    self.assertEqual(while_steps[0].result, 1)
+
+  def test_debug_while_succeeded(self):
+    """debug() with while_: succeeded=True, failed=False."""
+    dr = Q(3).while_().then(lambda x: x - 1).debug()
+    self.assertTrue(dr.succeeded)
+    self.assertFalse(dr.failed)
+
+
+class DebugDriveGenStepCaptureTest(TestCase):
+  """§14.6: debug() captures drive_gen step records correctly."""
+
+  def test_debug_drive_gen_step_present(self):
+    """drive_gen() step appears with step_name='drive_gen' in debug output."""
+
+    def gen():
+      x = yield 1
+      yield x + 1
+
+    dr = Q(gen).drive_gen(lambda x: x * 2).debug()
+    self.assertIsInstance(dr, DebugResult)
+    step_names = [s.step_name for s in dr.steps]
+    self.assertIn('drive_gen', step_names)
+    dg_steps = [s for s in dr.steps if s.step_name == 'drive_gen']
+    self.assertEqual(len(dg_steps), 1)
+    self.assertTrue(dg_steps[0].ok)
+
+  def test_debug_drive_gen_value_correct(self):
+    """drive_gen() debug value matches normal run() result."""
+
+    def gen():
+      x = yield 42
+      yield x
+
+    c = Q(gen).drive_gen(lambda x: x * 2)
+    dr = c.debug()
+    self.assertEqual(dr.value, c.run())
+
+  def test_debug_drive_gen_succeeded(self):
+    """debug() with drive_gen: succeeded=True, failed=False."""
+
+    def gen():
+      yield 5
+
+    dr = Q(gen).drive_gen(lambda x: x + 1).debug()
+    self.assertTrue(dr.succeeded)
+    self.assertFalse(dr.failed)
+
+
+class DebugWhileAsyncTest(IsolatedAsyncioTestCase):
+  """§14.6: debug() captures while_ step records in async pipelines."""
+
+  async def test_async_debug_while_step(self):
+    """Async while_ step captured correctly in debug output."""
+
+    async def dec(x):
+      return x - 1
+
+    dr = await Q(5).while_().then(dec).debug()
+    self.assertIsInstance(dr, DebugResult)
+    self.assertEqual(dr.value, 0)
+    step_names = [s.step_name for s in dr.steps]
+    self.assertIn('while_', step_names)
+
+
+class DebugDriveGenAsyncTest(IsolatedAsyncioTestCase):
+  """§14.6: debug() captures drive_gen step records in async pipelines."""
+
+  async def test_async_debug_drive_gen_step(self):
+    """Async drive_gen step captured correctly in debug output."""
+
+    def gen():
+      x = yield 10
+      yield x + 1
+
+    async def async_double(x):
+      return x * 2
+
+    dr = await Q(gen).drive_gen(async_double).debug()
+    self.assertIsInstance(dr, DebugResult)
+    step_names = [s.step_name for s in dr.steps]
+    self.assertIn('drive_gen', step_names)

@@ -307,7 +307,7 @@ class BufferValidationTests(IsolatedAsyncioTestCase):
 
   async def test_buffer_with_run_raises(self) -> None:
     """buffer() + run() raises QuentException — must use iterate terminal."""
-    with self.assertRaises(QuentException, msg='buffer.*iteration terminal'):
+    with self.assertRaisesRegex(QuentException, r'buffer.*iteration terminal'):
       Q(range(5)).buffer(3).run()
 
 

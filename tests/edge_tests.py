@@ -1295,3 +1295,148 @@ class GatherTriageBehaviorTest(IsolatedAsyncioTestCase):
     with self.assertRaises(Base1) as ctx:
       _dispatch_gather_triage(triage)
     self.assertEqual(str(ctx.exception), 'first')
+
+
+# ---------------------------------------------------------------------------
+# _types.py — Null Sentinel Pickle Round-Trip
+# ---------------------------------------------------------------------------
+
+
+class NullPickleTest(TestCase):
+  """Pickle and copy round-trip tests for the Null sentinel."""
+
+  def test_pickle_roundtrip_preserves_singleton(self) -> None:
+    """pickle.loads(pickle.dumps(Null)) must return the exact singleton object."""
+    import pickle
+
+    from quent._types import Null
+
+    restored = pickle.loads(pickle.dumps(Null))
+    self.assertIs(restored, Null)
+
+  def test_pickle_protocols(self) -> None:
+    """Round-trip identity must hold across all pickle protocols (0 .. HIGHEST_PROTOCOL)."""
+    import pickle
+
+    from quent._types import Null
+
+    for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
+      with self.subTest(protocol=protocol):
+        restored = pickle.loads(pickle.dumps(Null, protocol=protocol))
+        self.assertIs(restored, Null)
+
+  def test_copy_returns_same(self) -> None:
+    """copy.copy(Null) must return the exact singleton."""
+    import copy
+
+    from quent._types import Null
+
+    self.assertIs(copy.copy(Null), Null)
+
+  def test_deepcopy_returns_same(self) -> None:
+    """copy.deepcopy(Null) must return the exact singleton."""
+    import copy
+
+    from quent._types import Null
+
+    self.assertIs(copy.deepcopy(Null), Null)
+
+
+# ---------------------------------------------------------------------------
+# _exc_meta.py — Exception Metadata Cleanup Verification
+# ---------------------------------------------------------------------------
+
+
+class ExcMetaCleanupTest(TestCase):
+  """Tests for exception metadata cleanup after except_() handlers."""
+
+  def test_except_handler_cleans_heavy_metadata(self) -> None:
+    """After except_ handler consumes exception (reraise=False), heavy metadata keys are removed."""
+    captured: list[BaseException] = []
+
+    def handler(exc_info: object) -> str:
+      captured.append(exc_info.exc)  # type: ignore[attr-defined]
+      return 'recovered'
+
+    result = Q(lambda: 1 / 0).except_(handler).run()
+    self.assertEqual(result, 'recovered')
+    self.assertEqual(len(captured), 1)
+    exc = captured[0]
+    meta = getattr(exc, '__quent_meta__', {})
+    # Heavy keys must be cleaned after except_ handler consumes the exception
+    self.assertNotIn('source_link', meta)
+    self.assertNotIn('link_temp_args', meta)
+
+  def test_except_reraise_also_cleans_metadata(self) -> None:
+    """With reraise=True, _clean_exc_meta still runs — heavy keys are removed."""
+    captured: list[BaseException] = []
+
+    def handler(exc_info: object) -> str:
+      captured.append(exc_info.exc)  # type: ignore[attr-defined]
+      return 'ignored'
+
+    with self.assertRaises(ZeroDivisionError):
+      Q(lambda: 1 / 0).except_(handler, reraise=True).run()
+    self.assertEqual(len(captured), 1)
+    exc = captured[0]
+    meta = getattr(exc, '__quent_meta__', {})
+    # _except_handler_succeeded always calls _clean_exc_meta regardless of reraise
+    self.assertNotIn('source_link', meta)
+    self.assertNotIn('link_temp_args', meta)
+
+  def test_gather_meta_first_write_wins(self) -> None:
+    """_set_gather_meta uses first-write-wins: second call is ignored."""
+    from quent._exc_meta import META_GATHER_FN, META_GATHER_INDEX, _set_gather_meta
+
+    exc = ValueError('test')
+    _set_gather_meta(exc, 0, 'fn_a')
+    _set_gather_meta(exc, 1, 'fn_b')  # should be ignored
+    meta = exc.__quent_meta__  # type: ignore[attr-defined]
+    self.assertEqual(meta[META_GATHER_INDEX], 0)
+    self.assertEqual(meta[META_GATHER_FN], 'fn_a')
+
+
+# ---------------------------------------------------------------------------
+# _buffer_ops.py — Buffer Producer Thread Cleanup
+# ---------------------------------------------------------------------------
+
+
+class BufferProducerCleanupTest(TestCase):
+  """Tests for sync buffer producer cleanup on early consumer exit and producer errors."""
+
+  def test_early_break_terminates_producer(self) -> None:
+    """Consumer break should signal the producer to stop and the thread should terminate."""
+    import threading
+    import time
+
+    initial_threads = threading.active_count()
+
+    def slow_range(n: int) -> object:
+      yield from range(n)
+
+    collected: list[int] = []
+    for item in Q(slow_range(1000)).buffer(5).iterate():
+      collected.append(item)
+      if len(collected) >= 3:
+        break
+
+    self.assertEqual(len(collected), 3)
+    # Give the producer thread time to notice the stop event and exit
+    time.sleep(0.3)
+    # Verify no leaked daemon threads from the buffer
+    self.assertLessEqual(threading.active_count(), initial_threads + 1)
+
+  def test_producer_error_propagated_to_consumer(self) -> None:
+    """Producer exceptions should reach the consumer via the buffer queue."""
+
+    def failing_iter() -> object:
+      yield 1
+      yield 2
+      raise RuntimeError('producer failed')
+
+    collected: list[int] = []
+    with self.assertRaises(RuntimeError) as ctx:
+      for item in Q(failing_iter()).buffer(5).iterate():
+        collected.append(item)
+    self.assertEqual(str(ctx.exception), 'producer failed')
+    self.assertEqual(collected, [1, 2])

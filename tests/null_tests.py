@@ -284,7 +284,7 @@ class NullBoundaryIntegrationTest(SymmetricTestCase):
     self.assertEqual(result, [True, True])
 
   async def test_if_null_predicate_is_falsy(self) -> None:
-    """SPEC §5.9: When predicate is None and pipeline has no current value
+    """SPEC §5.8: When predicate is None and pipeline has no current value
     (Null sentinel), the predicate evaluates to falsy. The then branch
     should NOT execute."""
     called = []
@@ -300,6 +300,6 @@ class NullBoundaryIntegrationTest(SymmetricTestCase):
     self.assertEqual(called, [])  # then branch NOT called
 
   async def test_if_null_predicate_with_else(self) -> None:
-    """SPEC §5.9: Null predicate triggers else branch when registered."""
+    """SPEC §5.8: Null predicate triggers else branch when registered."""
     result = Q().if_().then(lambda x: 'then').else_(lambda: 'else').run()
     self.assertEqual(result, 'else')

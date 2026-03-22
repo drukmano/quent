@@ -99,50 +99,50 @@ class CallingConventionDispatchTest(TestCase):
 
   @given(value=values)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule3_default_callable_with_current_value(self, value):
-    """SPEC section 4 Rule 3: fn(current_value) when callable has no explicit args and cv exists."""
+  def test_rule2_default_callable_with_current_value(self, value):
+    """SPEC section 4 Rule 2: fn(current_value) when callable has no explicit args and cv exists."""
     result = Q(value).then(lambda x: x).run()
     self.assertEqual(result, value)
 
   @given(value=values)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule3_default_callable_no_current_value(self, value):
-    """SPEC section 4 Rule 3: fn() when callable has no explicit args and no cv."""
+  def test_rule2_default_callable_no_current_value(self, value):
+    """SPEC section 4 Rule 2: fn() when callable has no explicit args and no cv."""
     result = Q().then(lambda: value).run()
     self.assertEqual(result, value)
 
   @given(old=values, new=values)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule3_default_non_callable_replaces_value(self, old, new):
-    """SPEC section 4 Rule 3: non-callable value replaces current value as-is."""
+  def test_rule2_default_non_callable_replaces_value(self, old, new):
+    """SPEC section 4 Rule 2: non-callable value replaces current value as-is."""
     result = Q(old).then(new).run()
     self.assertEqual(result, new)
 
   @given(value=values, arg=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule2_explicit_args_suppress_current_value(self, value, arg):
-    """SPEC section 4 Rule 2: explicit args suppress current value, fn(*args)."""
+  def test_rule1_explicit_args_suppress_current_value(self, value, arg):
+    """SPEC section 4 Rule 1: explicit args suppress current value, fn(*args)."""
     result = Q(value).then(lambda a: a, arg).run()
     self.assertEqual(result, arg)
 
   @given(a=small_ints, b=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule2_explicit_kwargs_suppress_current_value(self, a, b):
-    """SPEC section 4 Rule 2: explicit kwargs suppress current value."""
+  def test_rule1_explicit_kwargs_suppress_current_value(self, a, b):
+    """SPEC section 4 Rule 1: explicit kwargs suppress current value."""
     result = Q(a).then(lambda x=0: x, x=b).run()
     self.assertEqual(result, b)
 
   @given(a=small_ints, b=small_ints, c=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule2_explicit_args_and_kwargs(self, a, b, c):
-    """SPEC section 4 Rule 2: explicit args + kwargs, cv NOT passed."""
+  def test_rule1_explicit_args_and_kwargs(self, a, b, c):
+    """SPEC section 4 Rule 1: explicit args + kwargs, cv NOT passed."""
     result = Q(a).then(lambda x, y=0: x + y, b, y=c).run()
     self.assertEqual(result, b + c)
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule1_nested_pipeline_receives_current_value(self, value):
-    """SPEC section 4 Rule 1: nested pipeline runs with current_value as input."""
+  def test_rule2_nested_pipeline_receives_current_value(self, value):
+    """SPEC section 4 Rule 2: nested pipeline runs with current_value as input (default passthrough)."""
     inner = Q().then(lambda x: x + 1)
     result = Q(value).then(inner).run()
     self.assertEqual(result, value + 1)
@@ -150,51 +150,51 @@ class CallingConventionDispatchTest(TestCase):
   @given(value=small_ints, arg=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
   def test_rule1_nested_pipeline_with_explicit_args(self, value, arg):
-    """SPEC section 4 Rule 1: nested pipeline with explicit args; first arg becomes input."""
+    """SPEC section 4 Rule 1: nested pipeline with explicit args; first arg becomes run value."""
     inner = Q().then(lambda x: x * 2)
     result = Q(value).then(inner, arg).run()
     self.assertEqual(result, arg * 2)
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule1_priority_over_rule3(self, value):
-    """SPEC section 4: Rule 1 (nested pipeline) takes priority over Rule 3 (default)."""
+  def test_rule2_nested_pipeline_default_passthrough(self, value):
+    """SPEC section 4: Rule 2 (default passthrough) — nested pipeline receives current value."""
     inner = Q().then(lambda x: x + 10)
     result = Q(value).then(inner).run()
     self.assertEqual(result, value + 10)
 
   @given(value=small_ints, arg=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_rule2_priority_over_rule3(self, value, arg):
-    """SPEC section 4: Rule 2 (explicit args) takes priority over Rule 3 (default)."""
+  def test_rule1_priority_over_rule2(self, value, arg):
+    """SPEC section 4: Rule 1 (explicit args) takes priority over Rule 2 (default)."""
     result = Q(value).then(lambda x: x * 3, arg).run()
     self.assertEqual(result, arg * 3)
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
   def test_do_requires_callable(self, value):
-    """SPEC section 3: do() requires callable, raises TypeError for non-callable."""
+    """SPEC section 5.2: do() requires callable, raises TypeError for non-callable."""
     with self.assertRaises(TypeError):
       Q(value).do(42)
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
   def test_do_discards_result(self, value):
-    """SPEC section 3: do() discards fn return value, preserves current value."""
+    """SPEC section 5.2: do() discards fn return value, preserves current value."""
     result = Q(value).do(lambda x: x * 999).run()
     self.assertEqual(result, value)
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
   def test_non_callable_with_args_raises_type_error(self, value):
-    """SPEC section 4 Rule 2: non-callable with explicit args raises TypeError."""
+    """SPEC section 4 Rule 1: non-callable with explicit args raises TypeError."""
     with self.assertRaises(TypeError):
       Q(value).then(42, 'some_arg')
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
   def test_nested_pipeline_with_positional_and_kwargs(self, value):
-    """SPEC section 4 Rule 1: nested pipeline with positional arg; first arg becomes input."""
+    """SPEC section 4 Rule 1: nested pipeline with positional arg; first arg becomes run value."""
     inner = Q().then(lambda x: x + 10)
     result = Q(value).then(inner, value * 2).run()
     self.assertEqual(result, value * 2 + 10)
