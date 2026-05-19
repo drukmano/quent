@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: MIT
 """Tests for SPEC §7 — Control Flow.
 
-Covers: Q.return_() value semantics, nested q propagation,
-restrictions; Q.break_() value semantics, outside iteration,
-concurrent iteration break, priority.
+Covers:
+- §7.1 Q.return_() — exits the **current** Q only (like Python `return`).
+- §7.2 Q.break_() — propagates to nearest iteration scope (like labeled break).
+- §7.5 Q.exit_() — propagates through ALL nesting/carve-outs to outermost run() (like sys.exit()).
+- §7.3/7.4 priority + restrictions.
 """
 
 from __future__ import annotations
@@ -74,31 +76,95 @@ class ReturnWithValueTest(SymmetricTestCase):
 
 
 # ---------------------------------------------------------------------------
-# §7.2.2 Nested Q Pipeline Propagation
+# §7.1 Nested Q — return_() is absorbed at each Q boundary (NEW SEMANTIC)
 # ---------------------------------------------------------------------------
 
 
-class ReturnNestedPropagationTest(SymmetricTestCase):
-  """SPEC §7.2.2: return_() propagates to outermost chain."""
+class ReturnNestedLocalTest(SymmetricTestCase):
+  """SPEC §7.1: return_() returns from the current Q only.
 
-  async def test_return_exits_outermost_chain(self) -> None:
-    """return_() in nested chain exits the outermost chain."""
+  Each Q boundary absorbs its own Q.return_(). The nested Q's return value
+  flows to the outer pipeline as the nested step's result; the outer chain
+  continues. (Like Python's `return` exits the current function, not its caller.)
+  """
+
+  async def test_return_in_nested_q_stays_local(self) -> None:
+    """return_() in nested Q exits the nested Q only; value flows to outer chain which continues."""
     inner = Q().then(lambda x: Q.return_('early') if x > 3 else x)
-    result = Q(5).then(inner).then(lambda x: 'should not reach').run()
-    self.assertEqual(result, 'early')
+    # Outer chain continues with 'early' as the nested step's result.
+    result = Q(5).then(inner).then(lambda x: f'outer_saw:{x}').run()
+    self.assertEqual(result, 'outer_saw:early')
 
-  async def test_return_in_deep_nesting(self) -> None:
-    """return_() propagates through multiple nesting levels."""
+  async def test_return_in_deep_nesting_each_boundary_absorbs(self) -> None:
+    """In deep nesting, return_() only exits the innermost Q.
+
+    inner2 raises return_; inner2 absorbs it (its result becomes 'deep');
+    inner1 receives 'deep' as inner2's step result and passes it through;
+    outer receives 'deep' and the .then(lambda) continues.
+    """
     inner2 = Q().then(lambda x: Q.return_('deep'))
     inner1 = Q().then(inner2)
-    result = Q(1).then(inner1).then(lambda x: 'unreachable').run()
-    self.assertEqual(result, 'deep')
+    result = Q(1).then(inner1).then(lambda x: f'outer:{x}').run()
+    self.assertEqual(result, 'outer:deep')
 
   async def test_return_in_nested_no_match_passes_through(self) -> None:
     """When return_() condition not met, value passes through normally."""
     inner = Q().then(lambda x: Q.return_('early') if x > 10 else x * 2)
     result = Q(3).then(inner).then(lambda x: x + 1).run()
     self.assertEqual(result, 7)  # 3*2=6, 6+1=7
+
+  async def test_return_in_nested_chain_value_consumed_by_outer(self) -> None:
+    """return_() in nested Q with a value: outer step receives the returned value as its input."""
+    inner = Q().then(lambda x: x * 10).then(lambda x: Q.return_(x + 1))
+    # inner: 5 * 10 = 50, return_(51).  inner.run() = 51.  Outer receives 51 → 51 * 2 = 102.
+    result = Q(5).then(inner).then(lambda x: x * 2).run()
+    self.assertEqual(result, 102)
+
+
+# ---------------------------------------------------------------------------
+# §7.5 Q.exit_() — hard exit through ALL nesting and carve-outs
+# ---------------------------------------------------------------------------
+
+
+class ExitFromNestingTest(SymmetricTestCase):
+  """SPEC §7.5: Q.exit_() propagates through every Q boundary; absorbed only at outermost run()."""
+
+  async def test_exit_exits_outermost_chain(self) -> None:
+    """exit_() in nested chain exits the outermost chain."""
+    inner = Q().then(lambda x: Q.exit_('early') if x > 3 else x)
+    result = Q(5).then(inner).then(lambda x: 'should not reach').run()
+    self.assertEqual(result, 'early')
+
+  async def test_exit_in_deep_nesting(self) -> None:
+    """exit_() propagates through multiple nesting levels straight to outermost run()."""
+    inner2 = Q().then(lambda x: Q.exit_('deep'))
+    inner1 = Q().then(inner2)
+    result = Q(1).then(inner1).then(lambda x: 'unreachable').run()
+    self.assertEqual(result, 'deep')
+
+  async def test_exit_no_value(self) -> None:
+    """exit_() with no value produces None at the outermost run()."""
+    inner = Q().then(lambda x: Q.exit_())
+    result = Q(5).then(inner).then(lambda x: 'unreachable').run()
+    self.assertIsNone(result)
+
+  async def test_exit_non_callable_value(self) -> None:
+    """exit_(42) — non-callable value returned as-is."""
+    inner = Q().then(lambda x: Q.exit_(42))
+    result = Q(5).then(inner).then(lambda x: 'never').run()
+    self.assertEqual(result, 42)
+
+  async def test_exit_callable_value(self) -> None:
+    """exit_(callable) — callable invoked at outermost run() catch frame; return value becomes result."""
+    inner = Q().then(lambda x: Q.exit_(lambda: 'lazy_exit'))
+    result = Q(5).then(inner).then(lambda x: 'never').run()
+    self.assertEqual(result, 'lazy_exit')
+
+  async def test_exit_callable_with_args(self) -> None:
+    """exit_(callable, *args) — args passed explicitly (calling convention)."""
+    inner = Q().then(lambda x: Q.exit_(lambda a, b: a + b, 10, 20))
+    result = Q(5).then(inner).then(lambda x: 'never').run()
+    self.assertEqual(result, 30)
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +435,7 @@ class AsyncReturnTest(SymmetricTestCase):
   """Async return_() behavior."""
 
   async def test_async_return_in_then(self) -> None:
-    """Async step with return_() exits chain."""
+    """Async step with return_() exits the (top-level) chain — current Q is the only Q."""
 
     async def step(x):
       return Q.return_(x * 10)
@@ -377,15 +443,16 @@ class AsyncReturnTest(SymmetricTestCase):
     result = await Q(5).then(step).then(lambda x: 'never').run()
     self.assertEqual(result, 50)
 
-  async def test_async_return_propagates_through_nesting(self) -> None:
-    """Async return_() propagates through nested chains."""
+  async def test_async_return_in_nested_q_stays_local(self) -> None:
+    """Async return_() in nested Q exits the nested Q only; outer chain continues."""
 
     async def inner_step(x):
       return Q.return_('async early')
 
     inner = Q().then(inner_step)
-    result = await Q(1).then(inner).then(lambda x: 'unreachable').run()
-    self.assertEqual(result, 'async early')
+    # Outer chain receives 'async early' as nested step's result and continues.
+    result = await Q(1).then(inner).then(lambda x: f'outer:{x}').run()
+    self.assertEqual(result, 'outer:async early')
 
   async def test_async_break_outside_iteration(self) -> None:
     """Async break_() outside iteration raises QuentException."""
@@ -438,13 +505,33 @@ class BreakInGatherTest(SymmetricTestCase):
 
 
 class AsyncReturnFromNestedChainTest(SymmetricTestCase):
-  """Async return_() through nested chain propagation."""
+  """Async return_() in deeply nested chains — each Q absorbs its own return_() (§7.1)."""
 
-  async def test_async_return_from_deeply_nested_chain(self) -> None:
-    """Async return_() propagates through deeply nested chains."""
+  async def test_async_return_from_deeply_nested_chain_stays_local(self) -> None:
+    """Async return_() in innermost Q only ends inner; the value flows outward step-by-step.
+
+    Per §7.1: each Q absorbs its own _Return.  inner2.run() returns 'deep_async';
+    inner1 receives 'deep_async' as inner2's step result and passes it through;
+    outer receives 'deep_async' and continues to the .then(lambda).
+    """
 
     async def deep_step(x):
       return Q.return_('deep_async')
+
+    inner2 = Q().then(deep_step)
+    inner1 = Q().then(inner2)
+    result = await Q(1).then(inner1).then(lambda x: f'outer:{x}').run()
+    self.assertEqual(result, 'outer:deep_async')
+
+
+class AsyncExitFromNestedChainTest(IsolatedAsyncioTestCase):
+  """SPEC §7.5: Async Q.exit_() in deeply nested chains propagates to outermost run()."""
+
+  async def test_async_exit_from_deeply_nested_chain(self) -> None:
+    """Async Q.exit_() propagates through deeply nested chains to outermost run()."""
+
+    async def deep_step(x):
+      return Q.exit_('deep_async')
 
     inner2 = Q().then(deep_step)
     inner1 = Q().then(inner2)
@@ -543,13 +630,11 @@ class ReturnInForeachTest(SymmetricTestCase):
 
 
 class ReturnInNestedChainWithinForeachTest(SymmetricTestCase):
-  """return_() in nested chain used as foreach callback.
+  """SPEC §7.1: return_() in nested Q used as foreach callback stays local.
 
-  When a pipeline is used as a foreach callback, _IterOp calls q(item)
-  which goes through q.run(). The nested q's own _run() catches
-  _Return and extracts the value, so return_() does NOT propagate to the
-  outer q. Instead, the return value becomes the result for that
-  element in the foreach.
+  Each Q boundary absorbs its own return_().  The nested q.run() catches
+  _Return and yields the value as the element's foreach result; the outer
+  foreach continues iterating.
   """
 
   async def test_return_in_nested_chain_within_foreach_sync(self) -> None:
@@ -569,6 +654,74 @@ class ReturnInNestedChainWithinForeachTest(SymmetricTestCase):
     inner = Q().then(inner_step)
     result = await Q([1, 2, 3, 4, 5]).foreach(inner).run()
     self.assertEqual(result, [2, 4, 'async_nested_return', 8, 10])
+
+
+class ExitInForeachTest(SymmetricTestCase):
+  """SPEC §7.5: Q.exit_() inside foreach bypasses iteration scope and exits outermost run()."""
+
+  async def test_exit_in_foreach_mapper_exits_outermost(self) -> None:
+    """Sync: exit_() in foreach mapper exits the outermost run() — not just the loop."""
+
+    def mapper(x):
+      if x == 3:
+        return Q.exit_('full_exit')
+      return x * 2
+
+    # .then() after foreach is NEVER reached — exit_ bypasses everything.
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'should not reach').run()
+    self.assertEqual(result, 'full_exit')
+
+  async def test_exit_in_plain_fn_inside_foreach_exits_outermost(self) -> None:
+    """A plain (non-Q) callback raising Q.exit_() propagates all the way to outermost run()."""
+
+    def mapper(x):
+      return Q.exit_('full_exit') if x == 3 else x * 2
+
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'should not reach').run()
+    self.assertEqual(result, 'full_exit')
+
+  async def test_exit_in_direct_q_foreach_callback_absorbed_at_inner_run(self) -> None:
+    """Direct-Q callback acts like §4.2 lambda-wrapping case.
+
+    When foreach receives a Q directly, it invokes ``inner(item)`` which is
+    ``inner.run(item)`` — the outermost run() from inner's perspective.
+    ``inner.run()`` absorbs Q.exit_() locally. Use a plain function or
+    `.then(inner)` registration to propagate Q.exit_() across nesting.
+    """
+    inner = Q().then(lambda x: Q.exit_('local_exit') if x == 3 else x * 2)
+    result = Q([1, 2, 3, 4, 5]).foreach(inner).run()
+    # foreach gets ['local_exit'] returned by inner.run() at x=3.
+    self.assertEqual(result, [2, 4, 'local_exit', 8, 10])
+
+
+class ExitWithCarveOutsTest(SymmetricTestCase):
+  """SPEC §7.5/7.4: Q.exit_() bypasses except_/finally_ traps and gather carve-out."""
+
+  async def test_exit_runs_finally_during_propagation(self) -> None:
+    """exit_() triggers all finally_ handlers as it propagates outward."""
+    log: list[str] = []
+
+    def finally_inner(_rv):
+      log.append('inner_finally')
+
+    def finally_outer(_rv):
+      log.append('outer_finally')
+
+    inner = Q().then(lambda x: Q.exit_('done')).finally_(finally_inner)
+    result = Q(1).then(inner).then(lambda x: 'never').finally_(finally_outer).run()
+    self.assertEqual(result, 'done')
+    # Both finally handlers ran — inner first (closer to signal site), then outer.
+    self.assertEqual(log, ['inner_finally', 'outer_finally'])
+
+  async def test_exit_bypasses_except_(self) -> None:
+    """exit_() is NOT trapped by an outer except_() — it propagates through."""
+
+    def handler(_info):
+      # Should NEVER be called for exit_ — it bypasses except.
+      return 'handler_ran'
+
+    result = Q(1).then(lambda x: Q.exit_('exit_value')).except_(handler).then(lambda x: 'never').run()
+    self.assertEqual(result, 'exit_value')
 
 
 class ControlFlowInConcurrentForeachTest(SymmetricTestCase):
@@ -683,16 +836,45 @@ class AsyncReturnAwaitableValueTest(IsolatedAsyncioTestCase):
 class ReturnLazyEvaluationTest(SymmetricTestCase):
   """SPEC §7.1: Signal values are lazily evaluated — callable only invoked when caught."""
 
-  async def test_return_callable_not_called_during_propagation(self) -> None:
-    """return_(callable) in nested chain: callable NOT called during propagation, only when caught."""
+  async def test_return_callable_evaluated_at_current_q_boundary(self) -> None:
+    """return_(callable) in nested Q: callable invoked at the **inner Q's** catch frame.
+
+    Under new semantic (§7.1), return_() is absorbed at the **innermost** Q boundary.
+    The lazy callable is evaluated once, there, and the resulting value flows to the
+    outer pipeline as the nested step's result.
+    """
     call_log: list[str] = []
 
     def tracked_callable():
       call_log.append('evaluated')
       return 'lazy_result'
 
-    # Build 3-level nesting: inner2 raises return_, inner1 wraps it, outer catches it.
-    inner2 = Q().then(lambda x: Q.return_(tracked_callable))
+    inner = Q().then(lambda x: Q.return_(tracked_callable))
+
+    # Before running, callable not called
+    self.assertEqual(call_log, [])
+
+    result = Q(1).then(inner).then(lambda x: f'outer:{x}').run()
+
+    # Callable invoked exactly once at the inner Q's _Return catch frame.
+    self.assertEqual(call_log, ['evaluated'])
+    # The value flows to the outer pipeline as inner's step result; outer continues.
+    self.assertEqual(result, 'outer:lazy_result')
+
+  async def test_exit_callable_not_called_during_propagation(self) -> None:
+    """exit_(callable) in nested chain: callable NOT called during propagation, only when caught.
+
+    Per §7.5, Q.exit_() propagates through every Q boundary to the outermost run()'s
+    catch frame, where the lazy callable is evaluated exactly once.
+    """
+    call_log: list[str] = []
+
+    def tracked_callable():
+      call_log.append('evaluated')
+      return 'lazy_result'
+
+    # Build 3-level nesting: inner2 raises exit_, inner1 wraps it, outer catches it.
+    inner2 = Q().then(lambda x: Q.exit_(tracked_callable))
     inner1 = Q().then(inner2)
 
     # Before running, callable not called
@@ -763,3 +945,135 @@ class UnawaitedCoroutineFinallySkippedTest(TestCase):
 
     # Confirm the finally handler still hasn't run
     self.assertEqual(finally_called, [])
+
+
+class ConcurrentExitRegressionTest(SymmetricTestCase):
+  """SPEC §7.5 + §7.4: Q.exit_() bypasses every iteration carve-out, including concurrent foreach/foreach_do.
+
+  Regression for previously-unimplemented behavior: ``_triage_iter_exceptions`` was
+  wrapping unknown ``_ControlFlowSignal`` subclasses as ``QuentException``, which
+  swallowed ``_Exit``.  The spec mandates propagation through every level.
+  """
+
+  async def test_concurrent_foreach_exit_propagates_to_outermost(self) -> None:
+    def mapper(x):
+      return Q.exit_('exit_from_concurrent') if x == 3 else x * 2
+
+    result = Q([1, 2, 3, 4, 5]).foreach(mapper, concurrency=2).then(lambda x: 'unreached').run()
+    self.assertEqual(result, 'exit_from_concurrent')
+
+  async def test_concurrent_foreach_do_exit_propagates_to_outermost(self) -> None:
+    def effect(x):
+      if x == 3:
+        return Q.exit_('exit_from_do')
+      return None
+
+    result = Q([1, 2, 3, 4, 5]).foreach_do(effect, concurrency=2).then(lambda x: 'unreached').run()
+    self.assertEqual(result, 'exit_from_do')
+
+
+class SyncPipelineAsyncFinallyAbsorbedReturnRegressionTest(TestCase):
+  """SPEC §6.2 + §7.1: sync pipeline + async finally_ + absorbed Q.return_().
+
+  Regression: ``_run_sync_finally_dispatch`` was treating ``_active_exc != None``
+  as "re-raise after finally", which incorrectly re-raised an *absorbed* _Return.
+  Fix: dispatch now distinguishes "pipeline_result set ⇒ chain-only" from
+  "pipeline_result is Null ⇒ re-raise" (the §6.2 finally-context-chain semantic).
+  """
+
+  def test_sync_return_with_async_finally_returns_absorbed_value(self) -> None:
+    import asyncio
+
+    log: list[str] = []
+
+    async def async_finally(_rv: object) -> None:
+      log.append('finally_ran')
+
+    def early(_x: object) -> object:
+      return Q.return_('absorbed')
+
+    coro = Q(1).then(early).then(lambda x: 'unreached').finally_(async_finally).run()
+    self.assertTrue(asyncio.iscoroutine(coro))
+    result = asyncio.run(coro)
+    self.assertEqual(result, 'absorbed')
+    self.assertEqual(log, ['finally_ran'])
+
+
+class LazyValueSignalMisuseTest(SymmetricTestCase):
+  """SPEC §7.1 / §7.2 / §7.5: control-flow signals raised inside a lazy value are misuse → QuentException.
+
+  Regression: ``_handle_*_exc`` helpers were not catching ``_ControlFlowSignal`` from
+  the lazy callable, so a raw ``_Return``/``_Break``/``_Exit`` could leak past the catch frame.
+  """
+
+  async def test_return_lazy_callable_raising_signal_wraps_as_quent_exception(self) -> None:
+    def evil() -> object:
+      return Q.return_('evil')
+
+    with self.assertRaises(QuentException) as ctx:
+      Q(1).then(lambda x: Q.return_(evil)).run()
+    self.assertIn('lazy value raised', str(ctx.exception))
+
+  async def test_break_lazy_callable_raising_signal_wraps_as_quent_exception(self) -> None:
+    def evil() -> object:
+      return Q.return_('evil')
+
+    with self.assertRaises(QuentException) as ctx:
+      Q([1, 2, 3]).foreach(lambda x: Q.break_(evil) if x == 2 else x).run()
+    self.assertIn('lazy value raised', str(ctx.exception))
+
+  async def test_exit_lazy_callable_raising_signal_wraps_as_quent_exception(self) -> None:
+    def evil() -> object:
+      return Q.return_('evil')
+
+    with self.assertRaises(QuentException) as ctx:
+      Q(1).then(lambda x: Q.exit_(evil)).run()
+    self.assertIn('lazy value raised', str(ctx.exception))
+
+
+class ExitInIterateRegressionTest(SymmetricTestCase):
+  """SPEC §17.3: Q.exit_() during deferred iteration yields the value as one final item, then stops.
+
+  Same semantic as Q.return_() in iterate (§17.3) — there's no outermost run()
+  during deferred iteration to absorb the exit.  The user-friendly interpretation
+  is "yield and stop", consistent with how Q.return_() is handled.
+
+  Regression: ``_generator.py`` previously caught only ``(_Break, _Return)``
+  and let raw ``_Exit`` leak out of ``__iter__``/``__aiter__``.
+  """
+
+  async def test_exit_in_iterate_yields_value_and_stops(self) -> None:
+    def step(x):
+      return Q.exit_('end_value') if x == 3 else x * 10
+
+    result = []
+    async for item in Q([1, 2, 3, 4, 5]).iterate(step):
+      result.append(item)
+    self.assertEqual(result, [10, 20, 'end_value'])
+
+  async def test_exit_no_value_in_iterate_stops_without_yield(self) -> None:
+    def step(x):
+      if x == 2:
+        return Q.exit_()
+      return x
+
+    result = []
+    async for item in Q([1, 2, 3, 4]).iterate(step):
+      result.append(item)
+    self.assertEqual(result, [1])
+
+  async def test_exit_in_iterate_do_yields_value_and_stops(self) -> None:
+    seen: list[int] = []
+
+    def effect(x):
+      seen.append(x)
+      if x == 3:
+        return Q.exit_('do_end')
+      return None
+
+    result = []
+    async for item in Q([1, 2, 3, 4, 5]).iterate_do(effect):
+      result.append(item)
+    # iterate_do yields original items; exit value is the final yielded element.
+    self.assertEqual(result, [1, 2, 'do_end'])
+    self.assertEqual(seen, [1, 2, 3])

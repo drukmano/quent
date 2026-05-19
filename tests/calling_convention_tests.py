@@ -28,11 +28,29 @@ from tests.symmetric import SymmetricTestCase
 class NestedChainTest(SymmetricTestCase):
   """SPEC §4: Nested chain is callable — follows standard rules."""
 
-  async def test_nested_chain_signal_propagation(self) -> None:
-    """Control flow signals propagate from nested chain to outer chain."""
+  async def test_nested_chain_return_absorbed_at_boundary(self) -> None:
+    """SPEC §7.1, §4.2: Q.return_() in nested Q is absorbed at the nested boundary.
+
+    Nested Q's value becomes the nested step's result; outer chain continues.
+    """
     inner = Q().then(lambda x: Q.return_('early'))
+    result = Q(5).then(inner).then(lambda x: f'after-{x}').run()
+    self.assertEqual(result, 'after-early')
+
+  async def test_nested_chain_exit_propagates_to_outer_run(self) -> None:
+    """SPEC §7.5: Q.exit_() propagates through nested Q boundaries to outermost run().
+
+    Unlike Q.return_(), Q.exit_() does not get absorbed at nested Q boundaries.
+    """
+    inner = Q().then(lambda x: Q.exit_('early'))
     result = Q(5).then(inner).then(lambda x: 'not reached').run()
     self.assertEqual(result, 'early')
+
+  async def test_nested_chain_exit_lazy_callable(self) -> None:
+    """SPEC §7.5: Q.exit_(fn) evaluates fn lazily at outermost run() catch frame."""
+    inner = Q().then(lambda x: Q.exit_(lambda: 'lazy-val'))
+    result = Q(5).then(inner).then(lambda x: 'not reached').run()
+    self.assertEqual(result, 'lazy-val')
 
 
 # ---------------------------------------------------------------------------

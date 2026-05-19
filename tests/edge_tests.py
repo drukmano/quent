@@ -551,8 +551,19 @@ class IterOpsEdgeTest(IsolatedAsyncioTestCase):
 class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
   """Edge cases for _gather_ops.py."""
 
-  async def test_return_signal_with_regular_exceptions(self) -> None:
-    """§7.3.5: return_ signal alongside regular exceptions — warning logged."""
+  async def test_return_signal_in_worker_becomes_tuple_position(self) -> None:
+    """SPEC §7.4: _Return in a gather worker returns from that worker.
+
+    fn1 raises _Return(99): caught by the worker → results[0] = 99.
+    fn2 raises ValueError: propagates to triage → single regular exception →
+    raises ValueError (gather is not iteration; one exception in the triage list
+    is raised directly, not wrapped in ExceptionGroup).
+
+    (Old behavior: _Return won priority over regular exceptions and exited
+    the pipeline with 99.  New model: _Return is absorbed at the worker;
+    co-occurring regular exceptions are no longer "discarded" — they decide
+    the gather's outcome.)
+    """
 
     async def fn1(x: int) -> int:
       raise _Return(99, (), {})
@@ -561,11 +572,11 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
       raise ValueError('regular')
 
     c = Q(1).gather(fn1, fn2)
-    result = c.run()
-    if asyncio.iscoroutine(result):
-      result = await result
-    # _Return takes priority; result should be 99
-    self.assertEqual(result, 99)
+    with self.assertRaises(ValueError) as ctx:
+      result = c.run()
+      if asyncio.iscoroutine(result):
+        await result
+    self.assertIn('regular', str(ctx.exception))
 
   def test_base_exception_in_gather_triage(self) -> None:
     """§5.5, §6.5: BaseException (not Exception) in gather triage."""
@@ -598,10 +609,24 @@ class GatherTriageEdgeTest(IsolatedAsyncioTestCase):
     self.assertEqual(len(eg.exceptions), 2)
 
   def test_sync_gather_control_flow_signal_on_probe(self) -> None:
-    """§5.5, §7.2: sync gather where first fn raises ControlFlowSignal (_Return) on probe."""
+    """SPEC §5.5, §7.4: sync gather probe where first fn raises Q.return_().
+
+    Per §7.4, Q.return_() inside a gather worker returns from the worker —
+    the value becomes that gather position's tuple element.  With a single
+    function, gather returns a 1-tuple (99,), not the scalar 99.
+    """
     c = Q(1).gather(lambda x: Q.return_(99))
     result = c.run()
-    self.assertEqual(result, 99)
+    self.assertEqual(result, (99,))
+
+  def test_sync_gather_exit_signal_on_probe(self) -> None:
+    """SPEC §7.5, §7.4: Q.exit_() in a gather worker propagates past gather.
+
+    Sibling work cancels; the exit value becomes the pipeline's result.
+    """
+    c = Q(1).gather(lambda x: Q.exit_('exited'))
+    result = c.run()
+    self.assertEqual(result, 'exited')
 
 
 # ---------------------------------------------------------------------------

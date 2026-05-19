@@ -24,6 +24,7 @@ from ._types import (
   QuentException,
   _Break,
   _ControlFlowSignal,
+  _Exit,
   _Return,
   _UncopyableMixin,
 )
@@ -90,29 +91,15 @@ class Q(Generic[_T], _UncopyableMixin):
     result = Q(fetch_data, url).then(validate).do(log).run()
   """
 
-  # Duck-typing marker used by Link.__init__ to detect Q instances
-  # without circular imports.
+  # Duck-typing marker for Link.__init__ — detects Q without circular imports.
   _quent_is_q = True
 
-  # Optional class-level callback for pipeline execution instrumentation.
-  # When set, called after each step with 6 arguments:
-  # (q, step_name, input_value, result, elapsed_ns, exception).
-  # On success: exception=None.  On failure: exception=<the exception>, result=None.
-  # Zero overhead when None.
-  # Class-level only (intentional): use the q argument to dispatch per-instance.
-  #
-  # on_step does not fire for steps that raise control flow signals (return_(),
-  # break_()).  These are intentional control flow, not step completions or failures.
-  #
-  # Error handling: if the callback raises, the exception is logged at WARNING
-  # level and emitted as a RuntimeWarning, then swallowed — pipeline execution
-  # continues uninterrupted.  This ensures instrumentation bugs never break
-  # the pipeline.  Monitor the 'quent' logger at WARNING level to detect
-  # callback failures.
-  #
-  # Thread safety: ``on_step`` must be set *before* any pipeline execution begins
-  # (i.e., at initialization time).  Mutating ``on_step`` while pipelines are
-  # running concurrently is a data race under free-threaded Python (PEP 703).
+  # Class-level instrumentation callback. Signature:
+  #   (q, step_name, input_value, result, elapsed_ns, exception)
+  # On success exception=None; on failure exception=<exc>, result=None.
+  # Zero overhead when None. Does not fire for control flow signals.
+  # Callback failures are logged + warned then swallowed.
+  # Must be set before execution starts (data race under PEP 703 otherwise).
   on_step: ClassVar[Callable[[Q[Any], str, Any, Any, int, BaseException | None], None] | None] = None
 
   set = _SetDescriptor()
@@ -147,8 +134,6 @@ class Q(Generic[_T], _UncopyableMixin):
   _on_finally_link: Link | None
   _root_link: Link | None
   _while_predicate_link: Link | None
-
-  # ---- Construction ----
 
   @overload
   def __init__(self, v: Callable[..., Awaitable[_T]], /, *args: Any, **kwargs: Any) -> None: ...
@@ -190,8 +175,6 @@ class Q(Generic[_T], _UncopyableMixin):
     self._while_predicate_link = None
     self._buffer_size = None
 
-  # ---- Dunder methods ----
-
   def __repr__(self) -> str:
     ctx = _VizContext(source_link=None, link_temp_args=None)
     return _stringify_q(self, nest_lvl=0, root_link=None, ctx=ctx)
@@ -203,8 +186,6 @@ class Q(Generic[_T], _UncopyableMixin):
   def __call__(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> _T | Coroutine[Any, Any, _T]:
     """Alias for .run(). Allows calling the pipeline directly."""
     return self.run(v, *args, **kwargs)
-
-  # ---- Control flow (class methods) ----
 
   @classmethod
   def return_(cls, v: Any = Null, /, *args: Any, **kwargs: Any) -> NoReturn:
@@ -246,7 +227,35 @@ class Q(Generic[_T], _UncopyableMixin):
     """
     raise _Break(v, args, kwargs)
 
-  # ---- Labeling ----
+  @classmethod
+  def exit_(cls, v: Any = Null, /, *args: Any, **kwargs: Any) -> NoReturn:
+    """Signal a hard exit from the **entire** pipeline regardless of nesting depth.
+
+    Unlike ``Q.return_()`` (returns from the current ``Q`` only) and ``Q.break_()``
+    (exits the nearest iteration scope), ``Q.exit_()`` propagates through every
+    ``Q`` boundary, every ``except_``/``finally_`` trap, every ``gather`` worker
+    carve-out, and every ``drive_gen`` carve-out — absorbed only at the outermost
+    ``run()``.  Like Python's ``sys.exit()``: break out of everything.
+
+    Resource cleanup respects standard ``try/finally`` semantics: ``finally_``
+    handlers run, CM ``__exit__`` is called, generators close, and async tasks
+    cancel as the signal propagates outward.
+
+    Args:
+      v: Optional exit value (lazy if callable). Follows the standard
+        calling conventions.
+
+    Raises:
+      _Exit: Always (this is the mechanism, not an error).
+
+    Example::
+
+        # Inside a deeply nested operation, terminate the whole pipeline:
+        inner = Q().foreach(lambda x: Q.exit_('done') if x == 5 else x)
+        result = Q([1, 2, 3, 4, 5, 6, 7]).then(inner).then(lambda r: 'unreached').run()
+        # result = 'done' — the outermost run() absorbs the exit.
+    """
+    raise _Exit(v, args, kwargs)
 
   def name(self, label: str, /) -> Self:
     """Assign a user-provided label for traceback identification.
@@ -269,9 +278,7 @@ class Q(Generic[_T], _UncopyableMixin):
     self._name = label
     return self
 
-  # ---- Pipeline building: core ----
-
-  # Linked list structure: _root_link -> _first_link -> ... -> _current_link (tail)
+  # Linked list: _root_link → _first_link → ... → _current_link (tail).
   def _then(
     self,
     v: Any,
@@ -282,21 +289,21 @@ class Q(Generic[_T], _UncopyableMixin):
     original_value: Any | None = None,
     _skip_validation: bool = False,
   ) -> Self:
-    """Construct a Link from the given arguments and append it to the pipeline. O(1) via tail pointer."""
+    """Construct a Link and append it to the pipeline. O(1) via tail pointer."""
     if not _skip_validation:
       self._ensure_if_consumed()
     link = Link(v, args, kwargs, ignore_result=ignore_result, original_value=original_value)
     if self._current_link is not None:  # 3+ links: append to tail
       self._current_link.next_link = link
       self._current_link = link
-    elif self._first_link is not None:  # 2nd link: _first_link exists, establish tail pointer
+    elif self._first_link is not None:  # 2nd link: establish tail pointer
       self._first_link.next_link = link
       self._current_link = link
     else:  # 1st link: set _first_link (and wire from root if present)
       self._first_link = link
       if self._root_link is not None:
         self._root_link.next_link = link
-    return self  # fluent
+    return self
 
   @overload
   def then(self, v: Q[_U], /) -> Q[_U]: ...
@@ -337,7 +344,7 @@ class Q(Generic[_T], _UncopyableMixin):
       return self._build_while_step(v, args, kwargs, ignore_result=False)
     if self._pending_if:
       return self._build_if_step(v, args, kwargs, ignore_result=False)
-    # Both flags guaranteed False — skip redundant _ensure_if_consumed.
+    # Both pending flags False here — skip _ensure_if_consumed.
     return self._then(v, args, kwargs, _skip_validation=True)
 
   def do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
@@ -373,10 +380,7 @@ class Q(Generic[_T], _UncopyableMixin):
       return self._build_while_step(fn, args, kwargs, ignore_result=True)
     if self._pending_if:
       return self._build_if_step(fn, args, kwargs, ignore_result=True)
-    # Both flags guaranteed False — skip redundant _ensure_if_consumed.
     return self._then(fn, args, kwargs, ignore_result=True, _skip_validation=True)
-
-  # ---- Pipeline building: iteration and concurrency ----
 
   @overload
   def foreach(self, /, *, concurrency: int | None = None, executor: Executor | None = None) -> Q[list[Any]]: ...
@@ -482,10 +486,9 @@ class Q(Generic[_T], _UncopyableMixin):
     concurrency: int | None,
     executor: Executor | None,
   ) -> Self:
-    """Shared implementation for foreach() and foreach_do()."""
     _validate_concurrency(concurrency, method_name, self)
     _validate_executor(executor, method_name)
-    # Inner Link is stored for traceback drill-through and temp arg display.
+    # Inner Link stored for traceback drill-through + temp arg display.
     inner = Link(fn)
     return self._then(_make_iter_op(inner, method_name, concurrency, executor), original_value=inner)
 
@@ -579,8 +582,6 @@ class Q(Generic[_T], _UncopyableMixin):
     self._buffer_size = n
     return self
 
-  # ---- Pipeline building: context managers ----
-
   @overload
   def with_(self, fn: Callable[..., Awaitable[_U]], /, *args: Any, **kwargs: Any) -> Q[_U]: ...
   @overload
@@ -633,8 +634,6 @@ class Q(Generic[_T], _UncopyableMixin):
     inner = Link(fn, args, kwargs)
     return self._then(_WithOp(inner, True), ignore_result=True, original_value=inner)
 
-  # ---- Pipeline building: conditionals ----
-
   def if_(self, predicate: Any = None, /, *args: Any, **kwargs: Any) -> Self:
     """Begin a conditional branch. Must be followed by ``.then()`` or ``.do()``.
 
@@ -682,10 +681,7 @@ class Q(Generic[_T], _UncopyableMixin):
     *,
     ignore_result: bool,
   ) -> Self:
-    """Consume a pending ``if_()`` and build the conditional step.
-
-    Called by ``then()`` / ``do()`` when ``_pending_if`` is True.
-    """
+    """Consume a pending if_() (called by then/do when _pending_if is True)."""
     self._pending_if = False
     predicate_link = self._if_predicate_link
     self._if_predicate_link = None
@@ -693,7 +689,6 @@ class Q(Generic[_T], _UncopyableMixin):
     return self._then(_IfOp(predicate_link, fn_link), original_value=fn_link)
 
   def _validate_else_precondition(self, method: str) -> Link:
-    """Validate and return the last link for else_() / else_do()."""
     if self._pending_if:
       msg = (
         f'{method}() called while if_() is still pending — '
@@ -743,7 +738,7 @@ class Q(Generic[_T], _UncopyableMixin):
     last = self._validate_else_precondition('else_')
     else_link = Link(v, args, kwargs)
     last.v.set_else(else_link)
-    return self  # fluent
+    return self
 
   def else_do(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
     """Register a side-effect else branch for the preceding ``.if_().then()`` step.
@@ -777,9 +772,7 @@ class Q(Generic[_T], _UncopyableMixin):
     last = self._validate_else_precondition('else_do')
     else_link = Link(fn, args, kwargs, ignore_result=True)
     last.v.set_else(else_link)
-    return self  # fluent
-
-  # ---- Pipeline building: looping ----
+    return self
 
   def while_(self, predicate: Any = None, /, *args: Any, **kwargs: Any) -> Self:
     """Begin a while loop. Must be followed by ``.then()`` or ``.do()``.
@@ -835,17 +828,12 @@ class Q(Generic[_T], _UncopyableMixin):
     *,
     ignore_result: bool,
   ) -> Self:
-    """Consume a pending ``while_()`` and build the loop step.
-
-    Called by ``then()`` / ``do()`` when ``_pending_while`` is True.
-    """
+    """Consume a pending while_() (called by then/do when _pending_while is True)."""
     self._pending_while = False
     predicate_link = self._while_predicate_link
     self._while_predicate_link = None
     body_link = Link(v, args, kwargs, ignore_result=ignore_result)
     return self._then(_WhileOp(predicate_link, body_link, ignore_result), original_value=body_link)
-
-  # ---- Pipeline building: generator driving ----
 
   def drive_gen(self, fn: Callable[[Any], Any], /) -> Self:
     """Drive a sync/async generator with a step function.
@@ -883,8 +871,6 @@ class Q(Generic[_T], _UncopyableMixin):
     _require_callable(fn, 'drive_gen', self)
     inner = Link(fn)
     return self._then(_DriveGenOp(inner), original_value=inner)
-
-  # ---- Exception handling ----
 
   def except_(
     self,
@@ -959,7 +945,7 @@ class Q(Generic[_T], _UncopyableMixin):
         break
     self._on_except_link = Link(fn, args, kwargs)
     self._on_except_reraise = reraise
-    return self  # fluent
+    return self
 
   def finally_(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Self:
     """Register a cleanup handler. At most one per pipeline.
@@ -1000,22 +986,18 @@ class Q(Generic[_T], _UncopyableMixin):
       msg = "You can only register one 'finally' callback."
       raise QuentException(msg)
     self._on_finally_link = Link(fn, args, kwargs)
-    return self  # fluent
+    return self
 
   @staticmethod
   def _wrap_escaped_signal(signal: _ControlFlowSignal, source: str) -> QuentException:
-    """Wrap a control flow signal that escaped the pipeline into a QuentException."""
     msg = f'A {type(signal).__name__} signal escaped the pipeline via {source}().'
     return QuentException(msg)
 
   def _ensure_if_consumed(self) -> None:
-    """Raise if an if_() or while_() is pending without a matching then()/do()."""
     if self._pending_if:
       raise QuentException('if_() must be followed by .then() or .do() to register the conditional branch.')
     if self._pending_while:
       raise QuentException('while_() must be followed by .then() or .do() to register the loop body.')
-
-  # ---- Execution ----
 
   def _run(
     self,
@@ -1024,17 +1006,10 @@ class Q(Generic[_T], _UncopyableMixin):
     kwargs: dict[str, Any] | None,
     is_nested: bool = False,
   ) -> Any:
-    """Delegate to the module-level execution engine.
+    """Thin wrapper around _engine._run so _eval can call v._run() without importing _engine.
 
-    This thin wrapper exists so that ``_evaluate_value`` in ``_eval.py``
-    can call ``v._run()`` on nested Q instances without knowing about
-    the ``_engine`` module.  All logic lives in ``_engine._run()``.
-
-    *is_nested* controls whether ``_Return``/``_Break`` signals propagate
-    up (nested) or get caught as errors (top-level).  Callers pass
-    ``is_nested=True`` (from ``_evaluate_value`` for nested pipelines) or
-    ``is_nested=False`` (from ``run()`` and ``as_decorator()`` for top-level
-    execution).
+    is_nested=True (from _evaluate_value) lets _Return/_Break propagate up;
+    False (from run/as_decorator) catches them as errors.
     """
     return _run(self, v, args, kwargs, is_nested)
 
@@ -1086,7 +1061,38 @@ class Q(Generic[_T], _UncopyableMixin):
       msg = f'run() received arguments but v is not callable (got {type(v).__name__})'
       raise TypeError(msg)
     try:
-      return self._run(v, args, kwargs, is_nested=False)  # type: ignore[no-any-return]
+      result = self._run(v, args, kwargs, is_nested=False)
+    except _Exit as exit_exc:
+      # Q.exit_() absorbed at outermost run(). Value may be lazy/awaitable;
+      # caller awaits, same semantics as a coroutine return from run().
+      from ._eval import _handle_exit_exc
+
+      return _handle_exit_exc(exit_exc)  # type: ignore[no-any-return]
+    except _ControlFlowSignal as signal:
+      raise self._wrap_escaped_signal(signal, 'run') from None
+    # Async transition: the returned coroutine may itself raise _Exit or escape
+    # signals on await — wrap so absorption happens at await-time too.
+    from ._eval import _isawaitable
+
+    if _isawaitable(result):
+      return self._await_outermost(result)
+    return result  # type: ignore[no-any-return]
+
+  async def _await_outermost(self, coro: Any) -> Any:
+    """Async counterpart to run()'s top-level signal handling.
+
+    Absorbs Q.exit_() at outermost run; wraps escaped signals as QuentException.
+    """
+    __tracebackhide__ = True
+    from ._eval import _handle_exit_exc, _isawaitable
+
+    try:
+      return await coro
+    except _Exit as exit_exc:
+      result = _handle_exit_exc(exit_exc)
+      if _isawaitable(result):
+        return await result
+      return result
     except _ControlFlowSignal as signal:
       raise self._wrap_escaped_signal(signal, 'run') from None
 
@@ -1122,8 +1128,6 @@ class Q(Generic[_T], _UncopyableMixin):
     debug_q = _make_debug_q(self)
     return _debug_run(debug_q, v, args, kwargs)
 
-  # ---- Utilities and iteration ----
-
   def as_decorator(self) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Wrap the pipeline as a function decorator.
 
@@ -1147,13 +1151,21 @@ class Q(Generic[_T], _UncopyableMixin):
       @functools.wraps(fn)
       def _wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         __tracebackhide__ = True
+        from ._eval import _isawaitable
+
         try:
-          # Thread safety: is_nested=False is passed explicitly as a parameter
-          # rather than as pipeline state.  This avoids shared mutable state when
-          # the cloned pipeline is invoked concurrently from multiple threads.
-          return q._run(fn, args, kwargs, is_nested=False)  # type: ignore[no-any-return]  # _run returns Any; decorator signature provides narrower _R for callers
+          # is_nested=False passed as a parameter, not pipeline state — avoids
+          # shared mutable state when invoked concurrently from multiple threads.
+          result = q._run(fn, args, kwargs, is_nested=False)
+        except _Exit as exit_exc:
+          from ._eval import _handle_exit_exc
+
+          return _handle_exit_exc(exit_exc)  # type: ignore[no-any-return]
         except _ControlFlowSignal as signal:
           raise Q._wrap_escaped_signal(signal, 'as_decorator') from None
+        if _isawaitable(result):
+          return q._await_outermost(result)  # type: ignore[return-value]
+        return result  # type: ignore[no-any-return]
 
       return _wrapper
 

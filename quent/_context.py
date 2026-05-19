@@ -16,14 +16,8 @@ _ctx_store: ContextVar[dict[str, Any]] = ContextVar('quent_context')
 
 
 def _ctx_set(key: str, value: Any) -> None:
-  """Store a value in the pipeline execution context.
-
-  Uses copy-on-write semantics: each set() creates a new dict rather than
-  mutating in place. This ensures proper isolation when contextvars are
-  copied to concurrent workers via copy_context().run() -- a worker that
-  calls set() gets its own dict copy without affecting the parent or
-  sibling workers.
-  """
+  # Copy-on-write: each set() builds a new dict so concurrent workers (via
+  # copy_context().run()) get isolation without leaking writes upward.
   try:
     old = _ctx_store.get()
     new = {**old, key: value}
@@ -33,7 +27,6 @@ def _ctx_set(key: str, value: Any) -> None:
 
 
 def _ctx_get(key: str, default: Any = _MISSING) -> Any:
-  """Retrieve a value from the pipeline execution context."""
   try:
     store = _ctx_store.get()
   except LookupError:
@@ -69,7 +62,7 @@ class _SetDescriptor:
 
   def __get__(self, obj: Any, objtype: Any = None) -> Any:
     if obj is not None:
-      # Instance access: q.set('key') or q.set('key', value) -> pipeline step
+
       def instance_set(key: str, value: Any = _MISSING) -> Any:
         if value is _MISSING:
 
@@ -88,7 +81,7 @@ class _SetDescriptor:
 
       return instance_set
     else:
-      # Class access: Q.set('key', value) -> immediate store
+
       def static_set(key: str, value: Any) -> None:
         _ctx_set(key, value)
 
@@ -115,7 +108,7 @@ class _GetDescriptor:
 
   def __get__(self, obj: Any, objtype: Any = None) -> Any:
     if obj is not None:
-      # Instance access: q.get('key') -> pipeline step
+
       def instance_get(key: str, default: Any = _MISSING) -> Any:
         def _retrieve(cv: Any = None) -> Any:
           return _ctx_get(key, default)
@@ -125,5 +118,4 @@ class _GetDescriptor:
 
       return instance_get
     else:
-      # Class access: Q.get('key') -> immediate retrieval
       return _ctx_get

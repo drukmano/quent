@@ -5,6 +5,74 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [7.0.0] - 2026-05-19
+
+Control-flow model redesigned to mirror Python semantics. **Breaking** for code that relied on `Q.return_()` propagating to the outermost `run()` from nested pipelines.
+
+See `BREAKING-CHANGES-from-6.1.1.md` for the full migration guide.
+
+### Added
+
+- **`Q.exit_()`** — new control-flow signal. Like Python's `sys.exit()`: propagates through every `Q` boundary and every signal carve-out (`except_`/`finally_`/`gather`/`drive_gen`); absorbed only at the outermost `run()`. Standard `try/finally` semantics apply during propagation (finally_ handlers run, CM `__exit__` runs, generators close). Same lazy callable forms as `Q.return_()`: `Q.exit_()`, `Q.exit_(value)`, `Q.exit_(fn)`, `Q.exit_(fn, *args, **kwargs)`.
+- **§7.5** spec section defining `Q.exit_()`.
+- **§7.4** carve-out table listing the only places where signal propagation is overridden, with explicit rationale for each.
+- **§3.1** recursion / depth limits clause (quent imposes none; subject to Python's `sys.getrecursionlimit()` for nested pipelines).
+- **§2.5** awaitable-detection performance contract (tiered check, exact-type frozenset, `~10×` faster than `inspect.isawaitable()`).
+- **§17.5** PEP-479 path-dependent table (foreach uses `while next()` — no wrap; iterate* uses generator frame — wraps).
+- **§17.7** drive_gen calling-convention asymmetry (the sole exception to §4.1's universality).
+- New regression tests for the bug fixes below (concurrent foreach + exit_, sync-pipeline + async-finally + return_, lazy-value signal misuse, exit_ in iterate*).
+- TDD audit pass (`spec-audit/tdd-audit-*.md`) verifying tests assert spec-mandated behavior, not code-observed behavior.
+
+### Changed — Breaking
+
+- **`Q.return_()` semantic redesign.** Now returns from the **current `Q` only** (like Python's `return`), not the outermost. If used inside a nested `Q`, only that nested `Q` returns — its value flows to the outer pipeline as the nested step's result. Use `Q.exit_()` for the old "exit entire pipeline" behavior.
+- **`Q.return_()` in `gather()` worker** returns from the worker — the value becomes that gather position's tuple element (was: pipeline exit).
+- **`Q.return_()` in `drive_gen` `fn`** returns from `fn` — the value becomes the pipeline CV; subsequent steps run (was: pipeline exit).
+- **`Q.return_()` inside a nested-`Q` `except_`/`finally_` handler** — the nested `Q` absorbs the signal locally; the handler returns the value normally (was: `QuentException`). Plain callable handlers raising `Q.return_()` still raise `QuentException` (the handler trap applies to direct invocation).
+- **`Q.break_()` in `if_()` predicate** now propagates outward to the nearest enclosing iteration scope (was: `QuentException("break_() cannot be used inside an if_() predicate")`). At top level (no enclosing iteration), still wraps as `QuentException` but with the generic *"outside of a loop or iteration context"* message.
+- **`Q.break_()` propagates through more boundaries** — `if_()`/`with_`/`with_do`/`drive_gen`/nested-`Q` registered as a step no longer trap. Still trapped only in `except_`/`finally_` handlers and `gather()` workers.
+
+### Changed — Non-breaking
+
+- **§7 Control Flow** rewritten end-to-end around the three-signal model (`Q.return_()`, `Q.break_()`, `Q.exit_()`).
+- **§4.2 Nested Pipelines** spec rewritten with signal-semantics-by-type table; "lambda wrapping breaks signal propagation" note clarified to apply specifically to `Q.break_()` (return_ is unaffected; exit_ propagates regardless).
+- **§5.5 `gather`** spec: `Q.return_()` worker carve-out, `Q.break_()` rejection, `Q.exit_()` propagation.
+- **§5.10 `while_`** spec: pre-tested-loop semantics pinned; predicate forms enumerated with explicit nested-`Q` predicate signal semantics.
+- **§5.11 `drive_gen`** spec: mid-transition blocking note, `Q.return_()`/`Q.exit_()` carve-outs.
+- **§5.6 `with_`** spec: Rule 1 drops the context value (footgun documented); `__exit__` failure chain semantics with `__cause__` / `__context__` / `__suppress_context__` made explicit.
+- **§5.4 `foreach_do`** spec: heterogeneous break-value result documented (previously silent).
+- **§6.1 `except_`** spec: filter-enforcement clarification; restoration mechanism (snapshot before handler) explicit.
+- **§6.2 `finally_`** spec: now mandates signal preservation as `__context__` when finally raises during signal propagation; failure table extended.
+- **§6.4 ExceptionGroup polyfill** spec: `.derive()` chain attribute list aligned with source (`__traceback__`/`__cause__`/`__context__`/`__notes__`; `__suppress_context__` not copied).
+- **§7.2 `Q.break_()`** spec: `__suppress_context__ = True` and `__cause__ = None` pinned on the `QuentException`-wrapped form.
+- **§7.3 priority** spec: explicit `Q.return_() > Q.break_() > BaseException > regular` ordering; discard-logging asymmetry (return_ logs regulars; BaseException-over-regulars does not).
+- **§11.3 PEP 703 happens-before** spec: visibility narrowed to the returned value (not shared external state).
+- **§11.4 TaskGroup unwrapping** spec: quent re-triages TaskGroup's `ExceptionGroup`; user-visible exception is quent-specific.
+- **§11.5 probe-once** spec: pinned (fn0 invoked exactly once; result reused).
+- **§11.6 async-transition mechanism** spec: documented.
+- **§11.7 isolation guarantee** spec: two-mechanism layering (`copy_context().run` + copy-on-write dict).
+- **§13.1 traceback implementation note** spec: code-object replacement hack documented.
+- **§13.10 `repr(q)` stability** spec: pinned as non-stable (debugging only).
+- **§14.1 `on_step` `step_name` enumeration** spec corrected: `q.set` reports as `'do'`, `q.get` reports as `'then'`; iteration terminals and `buffer()` do not fire `on_step`.
+- **§16.3 build-vs-run-time enforcement** table revised: signal-misuse rows split per signal type.
+- **§17.1 sync-iteration on awaitable** expanded to a 5-row table covering pipeline result, callback fn, `flat_iterate.fn`/`flush`, deferred `with_`, and async-finally during sync iteration.
+- **§17.3** extended to cover `Q.exit_()` during deferred iteration (yield-as-final-item semantic, same as `Q.return_()`).
+
+### Fixed
+
+- **`except_(reraise=True)` async pipeline + sync handler** — when a sync handler with `reraise=True` raised an `Exception`, the handler's exception propagated instead of the original. This was a bridge-contract violation. Original is now re-raised with `RuntimeWarning`, note attached, and `__context__`/`__suppress_context__` properly restored.
+- **`except_(reraise=True)` async pipeline + async handler** — Python's automatic `except` chaining was re-overwriting `exc.__context__` to the handler's exception immediately after `_except_handler_failed` restored it. Restoration now happens outside the active except block.
+- **`finally_` raising during signal propagation** — `__context__` now correctly preserves the in-flight `Q.return_()`/`Q.break_()` signal (was being lost). Honors Python `try/finally` semantics.
+- **`_triage_iter_exceptions` missing discard log** — concurrent `foreach`/`foreach_do` was silently dropping co-occurring regular exceptions when `Q.return_()` won. Now logs `RuntimeWarning` on the `'quent'` logger per §7.3, matching gather behavior.
+- **`_triage_gather_exceptions` incorrect warning** — was logging a warning when `BaseException` won over regulars; spec §7.3 says "other discard paths do not warn". Warning removed.
+- **`_triage_gather_exceptions` `_Break`/`_Return` priority** — was raising `QuentException` on first `_Break` encountered, preventing `_Return` at a later position from winning. Now scans the full exception list before applying priority.
+- **`Q.exit_()` in concurrent `foreach`/`foreach_do`** — was wrapped as `QuentException("Unknown control flow signal: _Exit")`. Now propagates correctly per §7.5.
+- **Sync pipeline + async `finally_` + absorbed `Q.return_()`** — `_run_sync_finally_dispatch` was treating `_active_exc != None` as "re-raise after finally", incorrectly re-raising the absorbed `_Return`. Dispatch now distinguishes "pipeline_result set ⇒ chain-only" from "no pipeline_result ⇒ re-raise".
+- **Lazy callable raising a signal** — `_handle_return_exc`/`_handle_break_exc`/`_handle_exit_exc` now catch `_ControlFlowSignal` from the lazy callable and wrap as `QuentException` per §7.1/§7.2/§7.5 ("signals inside lazy values are misuse").
+- **`Q.exit_()` in `iterate*`/`flat_iterate*`** terminals — raw `_Exit` was leaking from `__iter__`/`__aiter__`. Now yields the value as one final item and stops, mirroring `Q.return_()` per §17.3.
+- **Async drive_gen `_Return` raised on awaited fn result** — the `await last_result` was outside the `try/except _Return` block, so async `fn`s raising `Q.return_()` leaked the raw signal. The await is now inside the try/except.
+- **Async `Q.exit_()` outermost absorption** — `Q.run()`'s sync `except _Exit` only caught synchronously-raised `_Exit`; async transitions returned a coroutine whose `_Exit` escaped. Outermost `run()` now wraps the coroutine in `_await_outermost` for await-time absorption.
+
 ## [6.1.1] - 2026-03-22
 
 ### Added
@@ -94,6 +162,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Python 3.10 through 3.14** support, including free-threaded builds. Zero runtime dependencies on Python 3.11+ (`typing_extensions` required only on 3.10).
 - **Build-time validation** -- non-callable values with args raise `TypeError`, duplicate `except_`/`finally_` raise `QuentException`, pending `if_()` without `.then()`/`.do()` caught at `run()`/`as_decorator()`/`iterate()`.
 
+[7.0.0]: https://github.com/drukmano/quent/releases/tag/v7.0.0
+[6.1.1]: https://github.com/drukmano/quent/releases/tag/v6.1.1
 [6.1.0]: https://github.com/drukmano/quent/releases/tag/v6.1.0
 [6.0.0]: https://github.com/drukmano/quent/releases/tag/v6.0.0
 [5.3.0]: https://github.com/drukmano/quent/releases/tag/v5.3.0

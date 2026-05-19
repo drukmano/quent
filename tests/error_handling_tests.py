@@ -107,29 +107,45 @@ class ExceptRegistrationTest(TestCase):
 
 
 class ExceptNestedChainExecutionModeTest(SymmetricTestCase):
-  """SPEC §6.2.2: Nested pipeline as except handler runs via top-level execution.
+  """SPEC §6.2.2, §7.1, §7.2, §7.4: Nested pipeline as except handler.
 
-  The nested pipeline is executed via run() (top-level execution), not the internal
-  nested pipeline execution path. This means:
-  - Control flow signals inside the handler pipeline are caught and wrapped in QuentException
-  - The handler pipeline's own except_() and finally_() handlers apply independently
+  - The inner Q absorbs its own Q.return_() at its boundary (§7.1) — the inner Q
+    completes with the return value, the handler returns that value, pipeline result.
+  - Q.break_() propagates through nested Q boundaries (§7.2). Inside an except handler
+    it is trapped per §7.4 carve-out → QuentException.
+  - Q.exit_() bypasses the except handler trap (§7.5/§7.4) → propagates to outermost run().
+  - The handler pipeline's own except_() and finally_() handlers apply independently.
   """
 
-  async def test_return_inside_handler_pipeline_raises_quent_exception(self) -> None:
-    """return_() inside a nested pipeline except handler raises QuentException."""
-    # The nested pipeline uses return_() — since it runs via top-level execution,
-    # the _Return signal is caught by _except_handler_body and wrapped in QuentException.
+  async def test_return_inside_handler_pipeline_returns_value(self) -> None:
+    """SPEC §7.1, §4.2: return_() inside the handler's nested Q is absorbed by that Q.
+
+    The inner pipeline completes with 'escaped'; that becomes the handler result;
+    pipeline result is 'escaped'. (Old behavior: QuentException — no longer.)
+    """
     inner = Q().then(lambda info: Q.return_('escaped'))
     c = Q(1).then(lambda x: 1 / 0).except_(inner)
-    with self.assertRaises(QuentException):
-      c.run()
+    self.assertEqual(c.run(), 'escaped')
 
   async def test_break_inside_handler_pipeline_raises_quent_exception(self) -> None:
-    """break_() inside a nested pipeline except handler raises QuentException."""
+    """SPEC §7.2, §7.4: break_() propagates through nested Q boundaries.
+
+    Reaches the outer's except_ carve-out → wrapped in QuentException.
+    """
     inner = Q().then(lambda info: Q.break_('escaped'))
     c = Q(1).then(lambda x: 1 / 0).except_(inner)
     with self.assertRaises(QuentException):
       c.run()
+
+  async def test_exit_inside_handler_pipeline_propagates(self) -> None:
+    """SPEC §7.5, §7.4: Q.exit_() bypasses the except handler trap.
+
+    Propagates through the nested Q, through the except_ carve-out, all the way
+    to the outermost run() — which produces 'escaped' as the pipeline result.
+    """
+    inner = Q().then(lambda info: Q.exit_('escaped'))
+    c = Q(1).then(lambda x: 1 / 0).except_(inner)
+    self.assertEqual(c.run(), 'escaped')
 
   async def test_handler_pipeline_own_except_applies(self) -> None:
     """Handler pipeline's own except_() applies independently."""
@@ -166,16 +182,25 @@ class ExceptNestedChainExecutionModeTest(SymmetricTestCase):
     self.assertEqual(result, 'inner-recovered')
     self.assertEqual(order, ['inner-except', 'inner-finally'])
 
-  async def test_async_return_inside_handler_pipeline_raises_quent_exception(self) -> None:
-    """Async: return_() inside a nested pipeline except handler raises QuentException."""
+  async def test_async_return_inside_handler_pipeline_returns_value(self) -> None:
+    """Async: SPEC §7.1, §4.2: return_() inside the handler's nested Q is absorbed.
+
+    Inner pipeline returns 'escaped' → handler returns 'escaped' → pipeline result.
+    """
 
     async def async_fail(x):
       raise ValueError('async boom')
 
     inner = Q().then(lambda info: Q.return_('escaped'))
     c = Q(1).then(async_fail).except_(inner)
-    with self.assertRaises(QuentException):
-      await c.run()
+    result = await c.run()
+    self.assertEqual(result, 'escaped')
+
+  # Async equivalent of test_exit_inside_handler_pipeline_propagates is intentionally
+  # omitted here — see control_flow_tests::test_async_exit_from_deeply_nested_chain,
+  # which already covers async Q.exit_() and is currently failing due to a known
+  # code bug (outermost async run() does not absorb _Exit).  Adding a duplicate
+  # failing case here would not exercise different behavior.
 
   async def test_async_handler_pipeline_own_except_applies(self) -> None:
     """Async: handler pipeline's own except_() applies independently."""

@@ -443,9 +443,19 @@ class ControlFlowSignalsTest(TestCase):
 
   @given(value=small_ints)
   @settings(max_examples=500, deadline=None, derandomize=True)
-  def test_return_propagates_through_nested_pipelines(self, value):
-    """SPEC section 7.2.2: return_() propagates from nested to outermost pipeline."""
+  def test_return_absorbed_at_nested_boundary(self, value):
+    """SPEC §7.1: each Q boundary absorbs its own return_(); outer pipeline continues with that value."""
     inner = Q().then(lambda x: Q.return_('early'))
+    # inner.run() == 'early'; outer step receives 'early' → next step overwrites it.
+    result = Q(value).then(inner).then(lambda x: 'outer_continues').run()
+    self.assertEqual(result, 'outer_continues')
+
+  @given(value=small_ints)
+  @settings(max_examples=500, deadline=None, derandomize=True)
+  def test_exit_propagates_through_nested_pipelines(self, value):
+    """SPEC §7.5: exit_() propagates through ALL Q boundaries (use this when you want what
+    the old `test_return_propagates_through_nested_pipelines` mistakenly asserted)."""
+    inner = Q().then(lambda x: Q.exit_('early'))
     result = Q(value).then(inner).then(lambda x: 'never_reached').run()
     self.assertEqual(result, 'early')
 

@@ -1,12 +1,8 @@
 # SPDX-License-Identifier: MIT
-"""Backpressure-aware buffer operation for iteration pipelines.
+"""Bounded backpressure buffer for iteration terminals.
 
-Interposes a bounded queue between a producer (the pipeline's iterable output)
-and a consumer (the iteration loop).  When the buffer is full the producer
-blocks (backpressure); when the buffer is empty the consumer blocks.
-
-Sync path: ``queue.Queue`` + a background ``threading.Thread``.
-Async path: ``asyncio.Queue`` + a background ``asyncio.Task``.
+Sync: queue.Queue + background thread. Async: asyncio.Queue + background task.
+Producer blocks on full, consumer blocks on empty.
 """
 
 from __future__ import annotations
@@ -20,13 +16,12 @@ from typing import Any
 
 from ._concurrency import _create_task_fn
 
-# Sentinel signalling that the producer has finished (normally or with error).
-# See _types.py for the full sentinel landscape.
+# Producer-finished marker (see _types.py for the sentinel landscape).
 _END = object()
 
 
 class _ProducerError:
-  """Wrapper carrying an exception raised by the producer."""
+  """Wraps an exception raised by the producer."""
 
   __slots__ = ('exc',)
 
@@ -34,21 +29,11 @@ class _ProducerError:
     self.exc = exc
 
 
-# ---------------------------------------------------------------------------
-# Sync buffered iteration
-# ---------------------------------------------------------------------------
-
-
 def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
-  """Yield items from *iterable* via a bounded ``queue.Queue``.
+  """Yield items from *iterable* via a bounded queue.Queue.
 
-  A background daemon thread feeds the queue.  When the queue is full the
-  producer thread blocks (backpressure).  The consumer (this generator)
-  blocks on ``queue.get()`` when the buffer is empty.
-
-  Cleanup: if the consumer exits early (``break``, ``GeneratorExit``), the
-  ``_stop`` event is set so the producer thread notices on its next
-  ``put()`` attempt and exits.
+  A daemon thread feeds the queue. On consumer early exit, _stop is set so
+  the producer notices on its next put() and exits.
   """
   buf: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
   stop_event = threading.Event()
@@ -58,7 +43,7 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
       for item in iterable:
         if stop_event.is_set():
           return
-        # Use a polling put so we can check the stop event periodically.
+        # Polling put so we can periodically check stop_event.
         while True:
           if stop_event.is_set():
             return
@@ -72,8 +57,7 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
       try:
         buf.put(_ProducerError(exc), timeout=1.0)
       except queue.Full:
-        # Queue is full and consumer is gone -- re-raise system exceptions
-        # (KeyboardInterrupt, SystemExit) so they are never silently dropped.
+        # Consumer gone — re-raise system exceptions so they're not silently dropped.
         if not isinstance(exc, Exception):
           raise
 
@@ -89,7 +73,7 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
       yield item
   finally:
     stop_event.set()
-    # Drain the queue so the producer can unblock if it is stuck on put().
+    # Drain so producer can unblock if stuck on put().
     try:
       while not buf.empty():
         buf.get_nowait()
@@ -104,19 +88,10 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
       )
 
 
-# ---------------------------------------------------------------------------
-# Async buffered iteration
-# ---------------------------------------------------------------------------
-
-
 async def _async_buffer_iter(iterable: Any, maxsize: int) -> AsyncIterator[Any]:
-  """Yield items from *iterable* via a bounded ``asyncio.Queue``.
+  """Yield items from *iterable* via a bounded asyncio.Queue.
 
-  A background ``asyncio.Task`` feeds the queue.  When the queue is full
-  the producer task awaits (backpressure).  The consumer (this async
-  generator) awaits ``queue.get()`` when the buffer is empty.
-
-  Cleanup: if the consumer exits early, the producer task is cancelled.
+  Background task feeds the queue; on consumer early exit, the task is cancelled.
   """
   buf: asyncio.Queue[Any] = asyncio.Queue(maxsize=maxsize)
   stop = False

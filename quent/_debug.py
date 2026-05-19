@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Debug infrastructure -- execution tracing via Q.debug()."""
+"""Debug infrastructure — execution tracing via Q.debug()."""
 
 from __future__ import annotations
 
@@ -13,8 +13,7 @@ from typing import Any, Generic, TypeVar
 
 _T = TypeVar('_T')
 
-# The _DebugQ subclass is created lazily on first use to avoid
-# circular imports (_debug -> _q -> _debug).
+# Lazily created on first use to avoid circular import (_debug → _q → _debug).
 _DebugQ: type | None = None
 
 
@@ -30,7 +29,6 @@ class StepRecord:
 
   @property
   def ok(self) -> bool:
-    """True if the step completed without error."""
     return self.exception is None
 
 
@@ -44,20 +42,14 @@ class DebugResult(Generic[_T]):
 
   @property
   def succeeded(self) -> bool:
-    """True if all steps completed without error."""
     return all(s.ok for s in self.steps)
 
   @property
   def failed(self) -> bool:
-    """True if any step raised an exception."""
     return any(not s.ok for s in self.steps)
 
   def print_trace(self, file: Any = None) -> None:
-    """Print a formatted execution trace table.
-
-    Args:
-      file: Output stream (defaults to sys.stderr).
-    """
+    """Print the trace table. file defaults to sys.stderr."""
     if file is None:
       file = sys.stderr
     buf = io.StringIO()
@@ -66,7 +58,6 @@ class DebugResult(Generic[_T]):
 
 
 def _truncate(value: Any, max_len: int = 60) -> str:
-  """Truncate a repr to max_len characters."""
   try:
     s = repr(value)
   except Exception:
@@ -77,7 +68,6 @@ def _truncate(value: Any, max_len: int = 60) -> str:
 
 
 def _format_elapsed(ns: int) -> str:
-  """Format nanoseconds as a human-readable duration."""
   if ns < 1_000:
     return f'{ns}ns'
   if ns < 1_000_000:
@@ -88,7 +78,6 @@ def _format_elapsed(ns: int) -> str:
 
 
 def _render_trace(buf: io.StringIO, steps: list[StepRecord], total_ns: int) -> None:
-  """Render the step trace table into a StringIO buffer."""
   headers = ('#', 'Step', 'Input', 'Result', 'Elapsed', 'Status')
 
   rows: list[tuple[str, ...]] = []
@@ -138,7 +127,6 @@ def _on_step_recorder(
   elapsed_ns: int,
   exception: BaseException | None,
 ) -> None:
-  """on_step callback that appends StepRecords to the pipeline's capture list."""
   q._debug_steps.append(
     StepRecord(
       step_name=step_name,
@@ -151,7 +139,6 @@ def _on_step_recorder(
 
 
 def _get_debug_q_cls() -> type:
-  """Return the _DebugQ subclass, creating it on first call."""
   global _DebugQ
   if _DebugQ is not None:
     return _DebugQ
@@ -159,11 +146,7 @@ def _get_debug_q_cls() -> type:
   from ._q import Q
 
   class _DC(Q):  # type: ignore[type-arg]
-    """Q subclass with independent on_step for debug capture.
-
-    The engine reads on_step via type(q).on_step, so this subclass
-    gets its own instrumentation without affecting Q.on_step.
-    """
+    """Q subclass with independent on_step — engine reads type(q).on_step."""
 
     __slots__ = ('_debug_steps',)
     on_step = staticmethod(_on_step_recorder)  # type: ignore[assignment]
@@ -173,18 +156,11 @@ def _get_debug_q_cls() -> type:
 
 
 def _make_debug_q(q: Any) -> Any:
-  """Clone a pipeline into a _DebugQ with built-in step capture.
-
-  The original pipeline is NOT modified -- clone() creates an independent copy.
-  A _DebugQ instance is constructed and all slot values from the clone
-  are transferred, so the engine reads _DebugQ.on_step instead of
-  Q.on_step.
-  """
+  """Clone into a _DebugQ with built-in step capture; original is not modified."""
   from ._q import Q
 
   dc_cls = _get_debug_q_cls()
   cloned = q.clone()
-  # Build a _DebugQ instance and copy all Q slots from the clone.
   dc: Any = object.__new__(dc_cls)
   for slot in Q.__slots__:
     setattr(dc, slot, getattr(cloned, slot))
@@ -195,10 +171,7 @@ def _make_debug_q(q: Any) -> Any:
 def _debug_run(
   q: Any, v: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
 ) -> DebugResult[Any] | Coroutine[Any, Any, DebugResult[Any]]:
-  """Execute a debug pipeline and wrap the result in DebugResult.
-
-  Handles both sync and async execution transparently.
-  """
+  """Run a debug pipeline; wraps the result (sync or async) in DebugResult."""
   t0 = time.perf_counter_ns()
 
   raw = q.run(v, *args, **kwargs)

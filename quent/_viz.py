@@ -46,24 +46,13 @@ _show_traceback_values: bool = os.environ.get('QUENT_TRACEBACK_VALUES', '').stri
 
 
 def _sanitize_repr(s: str) -> str:
-  """Strip ANSI escape sequences and Unicode control characters from a string.
-
-  Defense-in-depth measure (CWE-117): prevents malicious ``__repr__``
-  implementations from injecting terminal-manipulating or log-confusing
-  content into pipeline visualizations and debug output.
-  """
+  """Strip ANSI escapes + Unicode control chars (CWE-117 defense)."""
   s = s.replace('\t', '\\t').replace('\n', '\\n').replace('\r', '\\r')
   s = _ANSI_ESCAPE_RE.sub('', s)
   return _CONTROL_CHAR_RE.sub('', s)
 
 
-# ---------------------------------------------------------------------------
-# All code in this module runs on the cold path only (error tracebacks,
-# __repr__ calls).  Clarity is prioritized over performance throughout.
-# ---------------------------------------------------------------------------
-
-
-# ---- Stringification context ----
+# Cold path only (tracebacks, __repr__). Clarity > performance throughout.
 
 
 class _VizContext:
@@ -78,47 +67,23 @@ class _VizContext:
     self.total_calls = 0
 
   def mark_found(self, link: Link) -> None:
-    """Record that the source link has been found; idempotent, first match only."""
     if not self.found and link is self.source_link:
       self.found = True
 
   def increment_and_check(self) -> bool:
-    """Increment total call count and return True if limit exceeded."""
     self.total_calls += 1
     return self.total_calls > _VIZ_MAX_TOTAL_CALLS
 
 
-# ---- Formatting helpers ----
-
-
 def _make_indent(nest_lvl: int) -> str:
-  """Create a newline followed by indentation for the given nesting level."""
   return '\n' + ' ' * _VIZ_INDENT_WIDTH * nest_lvl
 
 
 def _get_link_name(link: Link) -> str:
-  """Reconstruct the user-facing method name from a link's operation metadata.
+  """User-facing method name from a link.
 
-  Operation objects expose ``_link_name`` as a slot attribute so that this
-  function — and ``_engine._record_exception_source`` — can recover the original
-  method name without importing or isinstance-checking against each concrete
-  operation class.
-
-  Writers (operation classes conforming to ``_PipelineOp``):
-    - ``_IfOp`` / ``_if_ops.py``      → ``'if_'``
-    - ``_IterOp``, ``_ConcurrentIterOp`` / ``_iter_ops.py``
-                                       → ``'foreach'`` or ``'foreach_do'``
-    - ``_WithOp`` / ``_with_ops.py``   → ``'with_'`` or ``'with_do'``
-    - ``_ConcurrentGatherOp`` / ``_gather_ops.py``
-                                       → ``'gather'``
-
-  Readers:
-    - ``_viz._get_link_name()``              (this function)
-    - ``_engine._record_exception_source()`` (checks the same attribute)
-
-  Fallback: when ``link.v`` does not carry ``_link_name`` (i.e. it is a plain
-  callable or value added via ``.then()`` / ``.do()``), the method name is
-  inferred from ``link.ignore_result``: ``'do'`` when True, ``'then'`` otherwise.
+  Op classes expose _link_name as a slot attr; fallback is 'do'/'then' based
+  on ignore_result. Co-read by _engine._record_exception_source.
   """
   op: _PipelineOp | Any = link.v
   link_name: str | None = getattr(op, '_link_name', None)
@@ -128,7 +93,6 @@ def _get_link_name(link: Link) -> str:
 
 
 def _get_obj_name(obj: Any, _depth: int = 0) -> str:
-  """Return a human-readable display name for an arbitrary object."""
   if getattr(obj, '_quent_is_q', False):
     base = type(obj).__name__
     q_name = getattr(obj, '_name', None)
@@ -142,10 +106,10 @@ def _get_obj_name(obj: Any, _depth: int = 0) -> str:
   except Exception:
     pass
   if hasattr(obj, 'func'):
-    if _depth >= 10:  # pragma: no cover  # requires 10+ nested functools.partial wrappers
+    if _depth >= 10:  # pragma: no cover
       return 'partial(<...>)'
     return f'partial({_get_obj_name(obj.func, _depth + 1)})'
-  if not _show_traceback_values:  # pragma: no cover  # tested via subprocess in traceback_tests
+  if not _show_traceback_values:  # pragma: no cover  # tested via subprocess
     return f'<{type(obj).__name__}>'
   try:
     r = _sanitize_repr(repr(obj))
@@ -155,7 +119,6 @@ def _get_obj_name(obj: Any, _depth: int = 0) -> str:
 
 
 def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> str:
-  """Format positional and keyword arguments for display in a pipeline visualization."""
   parts: list[str] = []
   if args:
     parts.extend(_get_obj_name(a) for a in args)
@@ -165,14 +128,11 @@ def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | Non
   return result[:_MAX_CALL_ARGS_LEN] + '...' if len(result) > _MAX_CALL_ARGS_LEN else result
 
 
-# ---- Source link resolution ----
-
-
 def _get_true_source_link(
   source_link: Link | None, root_link: Link | None, max_depth: int = _VIZ_MAX_NESTING_DEPTH
 ) -> Link | None:
-  """Drill through nested pipelines to find the actual callable that caused the exception."""
-  # Defensive: prevents infinite loops if pipelines reference each other (DAG invariant).
+  """Drill through nested pipelines to find the actual failing callable."""
+  # `seen` guards against infinite loops if pipelines reference each other.
   seen = set()
   depth = 0
   while source_link is not None and id(source_link) not in seen and depth < max_depth:
@@ -195,9 +155,6 @@ def _get_true_source_link(
   return source_link
 
 
-# ---- Nested pipeline handling ----
-
-
 def _resolve_nested_chain(
   link: Link,
   args: tuple[Any, ...] | None,
@@ -206,15 +163,11 @@ def _resolve_nested_chain(
   ctx: _VizContext,
   max_depth: int = _VIZ_MAX_NESTING_DEPTH,
 ) -> str:
-  """Resolve a nested pipeline link into its indented string representation.
+  """Resolve a nested pipeline link to its indented string repr.
 
-  A fresh ``_VizContext`` is created rather than sharing the parent context
-  because ``total_calls`` must be isolated per nesting level — each nested
-  pipeline gets its own budget of ``_VIZ_MAX_TOTAL_CALLS`` to prevent a single
-  deeply-nested pipeline from exhausting the limit and truncating sibling
-  pipelines.  Only the ``found`` flag (whether the error-source link has been
-  located) is synced bidirectionally, since it is a global concern that
-  affects error-marker placement across all nesting levels.
+  Fresh _VizContext per level — total_calls is isolated so one deep pipeline
+  can't exhaust the budget and truncate siblings. The `found` flag is synced
+  bidirectionally since it affects error-marker placement globally.
   """
   original_value = link.original_value if link.original_value is not None else link.v
   nested_root_link = None
@@ -241,9 +194,6 @@ def _resolve_nested_chain(
   return result
 
 
-# ---- Pipeline stringification ----
-
-
 def _stringify_q(
   q: Q[Any],
   nest_lvl: int = 0,
@@ -253,11 +203,8 @@ def _stringify_q(
   extra_links: list[tuple[Link, str]] | None = None,
   max_depth: int = _VIZ_MAX_NESTING_DEPTH,
 ) -> str:
-  """Build the full string visualization of a pipeline.
-
-  The ``<----`` marker points to the link that raised the exception.
-  """
-  # Depth limit prevents infinite recursion in pathologically nested pipelines.
+  """Full string viz of a pipeline; ``<----`` marks the failing link."""
+  # max_depth guards against infinite recursion in pathological nesting.
   if nest_lvl >= max_depth or ctx.increment_and_check():
     return f'{_make_indent(nest_lvl)}Q(...<truncated at depth {max_depth}>...)'
   output = ''
@@ -316,21 +263,14 @@ def _stringify_q(
 def _format_link(
   link: Link, nest_lvl: int, ctx: _VizContext, method_name: str | None = None, max_depth: int = _VIZ_MAX_NESTING_DEPTH
 ) -> str:
-  """Format a single link, including nested pipelines and operation-specific rendering.
+  """Format a single link (including nested pipelines and op-specific rendering).
 
-  ``op_link`` is the operation wrapper link (the Link as it appears in the pipeline's
-  linked list — its ``v`` may be an operation class conforming to ``_PipelineOp``
-  (e.g. ``_IterOp``, ``_ConcurrentGatherOp``) that exposes ``_link_name``).
-  ``user_link`` is the user-provided callable's link (drilled through ``original_value``
-  when an operation wraps the original user callable in a new Link).
+  op_link: the Link as it appears in the list — its v may be an op class
+  exposing _link_name. user_link: the user callable's link (drilled through
+  original_value when an op wraps the user's callable in a new Link).
   """
   op_link = link
-  # ``op`` may be an operation class conforming to ``_PipelineOp`` (exposing
-  # ``_link_name``), or a plain callable / value.  ``getattr`` is used to
-  # read ``_link_name`` and ``_fns``/``_concurrency`` safely regardless of
-  # the concrete type.
   op: _PipelineOp | Any = op_link.v
-  # Resolve the user link (drill through original_value if it's a Link).
   user_link = link
   if isinstance(user_link.original_value, Link):
     user_link = user_link.original_value
@@ -341,13 +281,11 @@ def _format_link(
   output = ''
   is_q = False
 
-  # Merge runtime temp args for visualization.
   if not ctx.found and ctx.link_temp_args is not None and id(user_link) in ctx.link_temp_args:
     temp_kwargs = ctx.link_temp_args[id(user_link)]
     if temp_kwargs:
       kwargs = {**(kwargs or {}), **temp_kwargs}
 
-  # Determine the display value for this link.
   if original_value is None:
     original_value = user_link.v
   if user_link.is_q or getattr(original_value, '_quent_is_q', False):
@@ -361,7 +299,6 @@ def _format_link(
     else:
       link_v = _get_obj_name(original_value)
 
-  # Build the output string with method name and arguments.
   if method_name is not None:
     output += f'.{method_name}'
 
@@ -382,12 +319,6 @@ def _format_link(
   else:
     output += f'({link_v})'
 
-  # Append error marker if this is the failing link.
-  # The `<----` marker visually points to the link that raised the exception
-  # in the pipeline visualization, e.g.:
-  #   Q(fetch)
-  #   .then(parse) <----
-  #   .do(log)
   if not ctx.found and op_link is ctx.source_link:
     output += _ERROR_MARKER
 

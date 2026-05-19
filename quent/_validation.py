@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Validation helpers for pipeline builder methods."""
+"""Build-time validation for pipeline builder methods."""
 
 from __future__ import annotations
 
@@ -11,21 +11,18 @@ from ._types import QuentException
 
 
 def _q_suffix(q: Any) -> str:
-  """Format a pipeline name suffix for error messages."""
   if q is not None and getattr(q, '_name', None) is not None:
     return f' (in pipeline {q._name!r})'
   return ''
 
 
 def _require_callable(v: Any, method: str, q: Any = None) -> None:
-  """Raise TypeError if *v* is not callable."""
   if not callable(v):
     msg = f'{method}() requires a callable, got {type(v).__name__}{_q_suffix(q)}'
     raise TypeError(msg)
 
 
 def _validate_concurrency(concurrency: int | None, method: str, q: Any = None) -> None:
-  """Validate the concurrency parameter for iteration and gather operations."""
   if concurrency is not None:
     suffix = _q_suffix(q)
     if isinstance(concurrency, bool) or not isinstance(concurrency, int):
@@ -39,7 +36,6 @@ def _validate_concurrency(concurrency: int | None, method: str, q: Any = None) -
 
 
 def _validate_executor(executor: Executor | None, method: str) -> None:
-  """Validate the executor parameter for concurrent operations."""
   if executor is not None and not isinstance(executor, Executor):
     msg = f'{method}() executor must be a concurrent.futures.Executor instance, got {type(executor).__name__}'
     raise TypeError(msg)
@@ -50,7 +46,6 @@ def _normalize_exception_types(
   method: str,
   default: tuple[type[BaseException], ...] | None = None,
 ) -> tuple[type[BaseException], ...]:
-  """Validate and normalize exception types to a tuple of BaseException subclasses."""
   if exc_types is None:
     if default is not None:
       return default

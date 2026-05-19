@@ -773,13 +773,14 @@ class IfTests(SymmetricTestCase):
     result = Q(5).if_(lambda x: x > 10).then(lambda x: x).else_(kw_fn, key=7).run()
     self.assertEqual(result, 14)
 
-  async def test_nested_pipeline_predicate_propagates_control_flow(self) -> None:
-    """Nested pipeline predicates run via the internal execution path,
-    so return_() signals propagate through to the outermost pipeline.
-    Per spec §7.2.2: return_() in nested pipeline propagates to outermost pipeline."""
-    pred_q = Q().then(lambda x: Q.return_('escaped'))
-    # The predicate pipeline runs via internal execution, return_() propagates
-    # through the outer pipeline, becoming the final result.
+  async def test_nested_pipeline_predicate_exit_escapes_outermost(self) -> None:
+    """Nested pipeline predicates run via the internal execution path.
+    Per spec §7.5: Q.exit_() bypasses every Q boundary and the if_() carve-out,
+    propagating to the outermost run() — use this where you actually want
+    "abort everything from deep inside" semantics.
+    Sync-only: async Q.exit_() is currently not absorbed at the outermost async run()."""
+    pred_q = Q().then(lambda x: Q.exit_('escaped'))
+    # exit_ punches through nested Q + if_() predicate carve-out + outer chain.
     result = Q(5).if_(pred_q).then(lambda x: x * 2).run()
     self.assertEqual(result, 'escaped')
 
@@ -1081,54 +1082,91 @@ class IfAsyncSideEffectTest(IsolatedAsyncioTestCase):
 # ---------------------------------------------------------------------------
 
 
-class IfPredicateReturnPropagationTest(SymmetricTestCase):
-  """§5.8: return_() in if_() predicate pipeline propagates to outer pipeline."""
+class IfPredicateReturnAbsorptionTest(SymmetricTestCase):
+  """§7.1 + §4.2: return_() inside a nested-Q predicate is ABSORBED at the
+  nested Q's boundary.  The nested Q's value becomes the predicate result;
+  if_/then/else then dispatches on its truthiness.  (Old behavior was
+  "propagates to outermost"; that semantic now lives on Q.exit_(), §7.5.)"""
 
-  async def test_sync_return_in_predicate_pipeline_propagates(self) -> None:
-    """Sync: return_() in predicate pipeline exits outer pipeline with the return value."""
+  async def test_sync_return_in_predicate_becomes_predicate_value_truthy(self) -> None:
+    """Sync: Q.return_('escaped') inside nested-Q predicate ends the nested Q
+    with 'escaped' (truthy) — outer if_ runs the then branch."""
     pred_q = Q().then(lambda x: Q.return_('escaped'))
     result = Q(5).if_(pred_q).then(lambda x: x * 2).run()
-    self.assertEqual(result, 'escaped')
+    # 'escaped' is truthy -> then branch fires on the outer CV (5) -> 10
+    self.assertEqual(result, 10)
 
-  async def test_async_return_in_predicate_pipeline_propagates(self) -> None:
-    """Async: return_() in async predicate pipeline exits outer pipeline."""
+  async def test_async_return_in_predicate_becomes_predicate_value_truthy(self) -> None:
+    """Async: same as sync — nested async Q absorbs the return signal."""
 
     async def async_step(x):
       return Q.return_('async_escaped')
 
     pred_q = Q().then(async_step)
     result = await Q(5).if_(pred_q).then(lambda x: x * 2).run()
-    self.assertEqual(result, 'async_escaped')
+    self.assertEqual(result, 10)
 
-  async def test_return_in_predicate_skips_then_and_else(self) -> None:
-    """return_() in predicate bypasses both then and else branches."""
-    then_called = []
-    else_called = []
-    pred_q = Q().then(lambda x: Q.return_('early'))
+  async def test_return_in_predicate_falsy_dispatches_else(self) -> None:
+    """return_(0) makes predicate falsy -> else branch runs, then branch does not."""
+    then_called: list[bool] = []
+    else_called: list[bool] = []
+    pred_q = Q().then(lambda x: Q.return_(0))
     result = (
       Q(5)
       .if_(pred_q)
-      .then(lambda x: then_called.append(True) or x)
-      .else_(lambda x: else_called.append(True) or x)
+      .then(lambda x: then_called.append(True) or 'then-result')
+      .else_(lambda x: else_called.append(True) or 'else-result')
       .run()
     )
-    self.assertEqual(result, 'early')
+    self.assertEqual(result, 'else-result')
     self.assertEqual(then_called, [])
+    self.assertEqual(else_called, [True])
+
+  async def test_return_in_predicate_truthy_dispatches_then(self) -> None:
+    """return_('truthy') makes predicate truthy -> then runs, else skipped."""
+    then_called: list[bool] = []
+    else_called: list[bool] = []
+    pred_q = Q().then(lambda x: Q.return_('truthy'))
+    result = (
+      Q(5)
+      .if_(pred_q)
+      .then(lambda x: then_called.append(True) or 'then-result')
+      .else_(lambda x: else_called.append(True) or 'else-result')
+      .run()
+    )
+    self.assertEqual(result, 'then-result')
+    self.assertEqual(then_called, [True])
     self.assertEqual(else_called, [])
 
+  async def test_return_in_nested_step_absorbed_at_nested_q(self) -> None:
+    """§4.2: return_() inside a nested-Q step (.then(inner)) is absorbed at
+    the inner boundary; its value becomes the inner step's result and the
+    outer pipeline keeps going."""
+    inner = Q().then(lambda x: Q.return_(99))
+    # inner.run(5) would yield 99; nested via .then() does the same and outer continues.
+    result = Q(5).then(inner).then(lambda v: v + 1).run()
+    self.assertEqual(result, 100)
 
-class IfPredicateBreakTrappedTest(SymmetricTestCase):
-  """§5.8: break_() in if_() predicate pipeline raises QuentException."""
 
-  async def test_sync_break_in_predicate_pipeline_raises(self) -> None:
-    """Sync: break_() in predicate pipeline raises QuentException."""
+class IfPredicateBreakPropagatesTest(SymmetricTestCase):
+  """§7.2 + §7.4: break_() is NOT trapped by if_().  It propagates outward
+  toward the nearest enclosing iteration scope.  At top level with no enclosing
+  iteration, it escapes the outermost run() and is wrapped as QuentException
+  with the 'outside of a loop or iteration context' message."""
+
+  # The message the engine produces when _Break escapes the outermost run().
+  _OUT_OF_ITER_MSG = 'outside of a loop or iteration context'
+
+  async def test_sync_break_in_predicate_escapes_as_quent_exception(self) -> None:
+    """Sync: break_() in predicate propagates through if_, escapes run() ->
+    wrapped as QuentException with the 'outside iteration' message."""
     pred_q = Q().then(lambda x: Q.break_())
     with self.assertRaises(QuentException) as ctx:
       Q(5).if_(pred_q).then(lambda x: x * 2).run()
-    self.assertIn('break_() cannot be used inside an if_() predicate', str(ctx.exception))
+    self.assertIn(self._OUT_OF_ITER_MSG, str(ctx.exception))
 
-  async def test_async_break_in_predicate_pipeline_raises(self) -> None:
-    """Async: break_() in async predicate chain raises QuentException."""
+  async def test_async_break_in_predicate_escapes_as_quent_exception(self) -> None:
+    """Async: same wrapping path as sync."""
 
     async def async_step(x):
       return Q.break_()
@@ -1136,35 +1174,102 @@ class IfPredicateBreakTrappedTest(SymmetricTestCase):
     pred_q = Q().then(async_step)
     with self.assertRaises(QuentException) as ctx:
       await Q(5).if_(pred_q).then(lambda x: x * 2).run()
-    self.assertIn('break_() cannot be used inside an if_() predicate', str(ctx.exception))
+    self.assertIn(self._OUT_OF_ITER_MSG, str(ctx.exception))
 
-  async def test_break_with_value_in_predicate_pipeline_raises(self) -> None:
-    """break_(value) in predicate pipeline also raises QuentException."""
+  async def test_break_with_value_in_predicate_escapes(self) -> None:
+    """break_(value) follows the same escape path — value is discarded since
+    there's no iteration to catch it."""
     pred_q = Q().then(lambda x: Q.break_('some_value'))
     with self.assertRaises(QuentException) as ctx:
       Q(5).if_(pred_q).then(lambda x: x * 2).run()
-    self.assertIn('break_() cannot be used inside an if_() predicate', str(ctx.exception))
+    self.assertIn(self._OUT_OF_ITER_MSG, str(ctx.exception))
 
-  async def test_break_in_deep_nested_predicate_raises(self) -> None:
-    """break_() in deeply nested predicate pipeline raises QuentException."""
+  async def test_break_in_deep_nested_predicate_escapes(self) -> None:
+    """Deeply nested predicate — break_() climbs through every Q boundary."""
     inner = Q().then(lambda x: Q.break_())
     pred_q = Q().then(inner)
     with self.assertRaises(QuentException) as ctx:
       Q(5).if_(pred_q).then(lambda x: x * 2).run()
-    self.assertIn('break_() cannot be used inside an if_() predicate', str(ctx.exception))
+    self.assertIn(self._OUT_OF_ITER_MSG, str(ctx.exception))
 
-  async def test_break_cause_preserved(self) -> None:
-    """The original _Break is preserved as __cause__ of the QuentException."""
+  async def test_break_escaping_quent_exception_suppresses_context(self) -> None:
+    """The wrapped QuentException has __suppress_context__ = True so the
+    internal _Break does not show up in the user-visible traceback chain."""
     pred_q = Q().then(lambda x: Q.break_())
     try:
       Q(5).if_(pred_q).then(lambda x: x * 2).run()
       self.fail('Expected QuentException')
     except QuentException as exc:
-      # The __cause__ should be the original _Break signal
-      self.assertIsNotNone(exc.__cause__)
-      from quent._types import _Break
+      self.assertTrue(exc.__suppress_context__)
+      # __cause__ is intentionally None — the wrapping is implementation detail.
+      self.assertIsNone(exc.__cause__)
 
-      self.assertIsInstance(exc.__cause__, _Break)
+  async def test_break_in_then_branch_at_top_level_escapes(self) -> None:
+    """Companion: break_() raised inside if_().then(...) (not predicate) also
+    propagates through if_() and escapes as QuentException at top level.
+    This is the 'if_ no longer traps break_' invariant from the other side."""
+    with self.assertRaises(QuentException) as ctx:
+      Q(5).if_(lambda x: True).then(lambda x: Q.break_()).run()
+    self.assertIn(self._OUT_OF_ITER_MSG, str(ctx.exception))
+
+
+class IfBreakInIterationScopeTest(SymmetricTestCase):
+  """§7.2: when break_() does have an enclosing iteration scope, it terminates
+  THAT scope instead of escaping.  if_() in the chain does not trap it."""
+
+  async def test_break_inside_foreach_step_stops_iteration(self) -> None:
+    """Sanity check the new propagation: break_() raised inside a foreach
+    step (no if_) terminates foreach with results collected so far."""
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_() if x == 3 else x * 10).run()
+    self.assertEqual(result, [10, 20])
+
+  async def test_break_with_value_inside_foreach_step_appends(self) -> None:
+    """break_(value) inside foreach appends value before stopping."""
+    result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_('hit') if x == 3 else x * 10).run()
+    self.assertEqual(result, [10, 20, 'hit'])
+
+
+class QExitSignalTest(SymmetricTestCase):
+  """§7.5: Q.exit_() propagates through every Q boundary, every signal
+  carve-out (if_/with_/except_/finally_), and every level of nesting —
+  absorbed only at the outermost run().  Sync-only here: the async outermost
+  run() does not currently absorb _Exit (see report)."""
+
+  async def test_exit_from_nested_q_step_escapes_to_outermost(self) -> None:
+    """Q.exit_() from a step inside a nested Q reaches the outermost run().
+    The chain after the nested step never runs."""
+    inner = Q().then(lambda x: Q.exit_('deep'))
+    result = Q(5).then(inner).then(lambda v: 'unreached').run()
+    self.assertEqual(result, 'deep')
+
+  async def test_exit_from_if_predicate_pipeline_escapes(self) -> None:
+    """Q.exit_() inside an if_() predicate pipeline escapes — neither then
+    nor else runs, predicate carve-out is bypassed."""
+    then_called: list[bool] = []
+    else_called: list[bool] = []
+    pred_q = Q().then(lambda x: Q.exit_('escaped'))
+    result = (
+      Q(5)
+      .if_(pred_q)
+      .then(lambda x: then_called.append(True) or x)
+      .else_(lambda x: else_called.append(True) or x)
+      .run()
+    )
+    self.assertEqual(result, 'escaped')
+    self.assertEqual(then_called, [])
+    self.assertEqual(else_called, [])
+
+  async def test_exit_no_value_yields_none(self) -> None:
+    """Bare Q.exit_() with no value -> None at the outermost run()."""
+    inner = Q().then(lambda x: Q.exit_())
+    result = Q(5).then(inner).then(lambda v: 'unreached').run()
+    self.assertIsNone(result)
+
+  async def test_exit_with_callable_lazy(self) -> None:
+    """Q.exit_(fn) calls fn() lazily at the outermost catch frame."""
+    inner = Q().then(lambda x: Q.exit_(lambda: 'lazy-value'))
+    result = Q(5).then(inner).run()
+    self.assertEqual(result, 'lazy-value')
 
 
 # ---------------------------------------------------------------------------

@@ -268,22 +268,27 @@ def _make_bricks() -> list[Brick]:
   )
 
   # ---- then (nested pipeline -- standard rules apply) ----
-  # Nested pipeline receives current_value, applies fn
+  # Nested pipeline receives current_value, applies fn.
+  # error_oracle: inner Q absorbs return_() per SPEC §7.1 — inner.run() == v*100, that
+  # value flows to the outer step. Same shape as then_decorator_chain below.
   bricks.append(
     Brick(
       name='then_nested_chain',
       op='then',
       calling_convention='nested_chain',
+      error_oracle=lambda v, err: Result(success=True, value=v * 100) if err == 'return_signal' else None,
       apply=lambda c, fn: c.then(Q().then(fn)),
       oracle=lambda v, fn: fn(v),
     )
   )
-  # Nested pipeline with explicit args (explicit args -> Rule 1)
+  # Nested pipeline with explicit args (explicit args -> Rule 1).
+  # Same absorption: inner Q absorbs return_(fn_input*100) = return_(4200).
   bricks.append(
     Brick(
       name='then_nested_chain_args',
       op='then',
       calling_convention='nested_chain_args',
+      error_oracle=lambda v, err: Result(success=True, value=v * 100) if err == 'return_signal' else None,
       apply=lambda c, fn: c.then(Q().then(fn), 42),
       oracle=lambda v, fn: fn(42),
       fn_input=lambda v: 42,

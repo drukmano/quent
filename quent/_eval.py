@@ -9,27 +9,18 @@ from types import CoroutineType, GeneratorType
 from typing import Any
 
 from ._link import Link
-from ._types import _EMPTY_TUPLE, Null, _Break, _Return
+from ._types import _EMPTY_TUPLE, Null, _Break, _ControlFlowSignal, _Exit, _Return
 
-# Cache the private C-level function for zero-overhead event loop detection.
-# Returns None instead of raising RuntimeError — avoids ~1-2μs exception overhead
-# on the sync path. Stable across Python 3.10+ (used by uvloop, anyio, etc.).
+# Private C-level fn for zero-overhead loop detection. Returns None instead of
+# raising RuntimeError — avoids ~1-2μs exception overhead on the sync path.
 _get_running_loop = getattr(asyncio, '_get_running_loop', None)
 
 
 def _has_running_loop() -> bool:
-  """Check if any async event loop is currently running.
+  """True if asyncio/trio/curio has a running loop.
 
-  Detects asyncio, trio, and curio without importing them — uses
-  ``sys.modules`` to check if they are already loaded, then probes
-  their running-loop APIs. Zero overhead when a library is not loaded
-  (~50ns dict lookup returning None).
-
-  asyncio is checked first via the private C-level
-  ``asyncio._get_running_loop()`` for performance. Falls back to
-  ``asyncio.get_running_loop()`` if the private API is unavailable.
+  sys.modules check is ~50ns dict lookup when the library isn't loaded.
   """
-  # asyncio (common case — fast path)
   if _get_running_loop is not None:
     if _get_running_loop() is not None:
       return True
@@ -40,9 +31,6 @@ def _has_running_loop() -> bool:
     except RuntimeError:
       pass
 
-  # trio — sys.modules lookup is a ~50ns dict get when trio is not loaded.
-  # trio.lowlevel is imported during normal trio operation; if trio's loop
-  # is running, this submodule will be present.
   _trio_lowlevel = sys.modules.get('trio.lowlevel')
   if _trio_lowlevel is not None:
     try:
@@ -51,7 +39,6 @@ def _has_running_loop() -> bool:
     except RuntimeError:
       pass
 
-  # curio
   _curio_meta = sys.modules.get('curio.meta')
   if _curio_meta is not None:
     try:
@@ -63,28 +50,15 @@ def _has_running_loop() -> bool:
   return False
 
 
-# CPython CO_ITERABLE_COROUTINE flag, stable since 3.5. Verified through 3.14.
+# CPython CO_ITERABLE_COROUTINE flag, stable since 3.5.
 _CO_ITERABLE_COROUTINE = 0x100
 
 
-# ---- Evaluation dispatch ----
-
-
 def _isawaitable(value: Any) -> bool:
-  """Fast awaitable check, replacing inspect.isawaitable().
+  """Fast awaitable check, replacing inspect.isawaitable() (~30ns vs ~380ns).
 
-  Short-circuits on the first isinstance check for the common sync case
-  (~30ns vs ~380ns for inspect.isawaitable with ABC machinery).
-
-  Handles all three awaitable types:
-  1. Native coroutines (CoroutineType) — most common async case
-  2. Generator-based coroutines decorated with @types.coroutine — have
-     _CO_ITERABLE_COROUTINE flag but lack __await__
-  3. Objects with __await__ method — Future, Task, custom awaitables
-
-  The ``hasattr`` check is wrapped in try/except because objects with a
-  ``__getattr__`` that raises non-AttributeError exceptions would otherwise
-  propagate unexpectedly.
+  Covers native coroutines, @types.coroutine generator coroutines, and
+  __await__-bearing objects (Future/Task/custom).
   """
   if isinstance(value, CoroutineType):
     return True
@@ -99,33 +73,20 @@ def _isawaitable(value: Any) -> bool:
 def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
   """Resolve a link's value against the current pipeline state.
 
-  This is the central dispatch that implements quent's **universal** calling
-  conventions -- used by all pipeline steps (then, do, map, foreach_do,
-  gather, with_, if_, finally_) and also by except handlers (where ``exc``
-  is passed as the current value).  There are **2 rules**, applied in strict
-  priority order (first match wins):
+  Central dispatch implementing the universal calling convention — used by
+  every pipeline step and by except handlers (with exc as current value).
+  Two rules, first match wins:
 
-  1. **Explicit args/kwargs** — ``v(*args, **kwargs)``.  The current value
-     is NOT implicitly passed.
-  2. **Default passthrough** — ``v(current_value)`` if callable and
-     current_value is not Null; ``v()`` if callable and Null; ``v`` as-is
-     if not callable.
+  1. Explicit args/kwargs → v(*args, **kwargs). Current value NOT passed.
+  2. Default → v(current_value) if callable and CV not Null; v() if Null;
+     v as-is if not callable.
 
-  A ``Q`` instance is callable and therefore follows these same 2 rules.
-  Internally, when ``link.is_q`` is True, we call ``v._run()`` directly
-  instead of ``v.run()`` so that ``_Return``/``_Break`` signals propagate to
-  the outer pipeline rather than being trapped.  This is an implementation
-  detail -- the user-visible calling convention is unchanged.
+  Q instances are callable and follow the same rules; we call v._run() so
+  _Return/_Break propagate to the outer pipeline instead of being trapped.
 
-  The function is structured to front-load the hot common path: ~90% of
-  pipeline steps are simple callables with no explicit args, no kwargs, and
-  not nested pipelines.  Checking ``args``/``kwargs`` first (almost always
-  None) quickly enters the no-args branch, avoiding the upfront tuple unpack
-  and minimizing attribute lookups before the call.
+  Hot path first: ~90% of steps are simple callables with no args/kwargs.
   """
-  # Hot path: no explicit args/kwargs (~90% of calls).
-  # link.args and link.kwargs are None for most steps — the truthiness check
-  # on a None slot is ~2ns, so this rejects the uncommon path very cheaply.
+  # ~90% of calls: no explicit args/kwargs. None-slot truthiness check is ~2ns.
   if not link.args and not link.kwargs:
     if link.is_callable:
       return link.v(current_value) if current_value is not Null else link.v()
@@ -133,10 +94,8 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
       return link.v._run(current_value, None, None, is_nested=True)
     return link.v
 
-  # Slow path: explicit args/kwargs provided.
   v = link.v
 
-  # Nested pipeline with explicit args — dispatch to _run().
   if link.is_q:
     args = link.args
     run_value = args[0] if args else Null
@@ -149,11 +108,8 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
   return v(*(link.args or _EMPTY_TUPLE), **link.kwargs) if link.kwargs else v(*(link.args or _EMPTY_TUPLE))
 
 
-# ---- Control flow handlers ----
-
-
 def _eval_signal_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> Any:
-  """Evaluate a control flow signal's value per the args calling conventions."""
+  """Evaluate a control flow signal's value per the args calling convention."""
   args = args or _EMPTY_TUPLE
   if args or kwargs:
     return v(*args, **kwargs) if kwargs else v(*args)
@@ -161,11 +117,22 @@ def _eval_signal_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, A
 
 
 def _handle_break_exc(exc: _Break, fallback: Any) -> Any:
-  """Append the break value to fallback if one was provided, otherwise return fallback as-is."""
+  """Append the break value to fallback if one was provided.
+
+  Per spec §7.2: if the lazy callable raises a control-flow signal, wrap as
+  QuentException (signals inside lazy values are misuse).
+  """
+  from ._types import QuentException as _QE
+
   if exc.value is Null:
     return fallback
   try:
-    result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+    try:
+      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+    except _ControlFlowSignal as signal:
+      raise _QE(
+        f"Q.break_()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §7.2)."
+      ) from signal
   finally:
     exc.value = Null
     exc.signal_args = _EMPTY_TUPLE
@@ -177,26 +144,16 @@ def _handle_break_exc(exc: _Break, fallback: Any) -> Any:
 
 
 async def _append_break_value_async(result: Any, fallback: list[Any]) -> list[Any]:
-  """Await an async break value and append it to the partial results list."""
   resolved = await result
   fallback.append(resolved)
   return fallback
 
 
 def _should_use_async_protocol(value: Any, sync_attr: str, async_attr: str) -> bool | None:
-  """Determine whether to use the async or sync protocol for a dual-protocol object.
+  """For dual-protocol objects, decide sync vs async.
 
-  Returns:
-    True  — use async protocol (``async_attr`` present; use it)
-    False — use sync protocol (only ``sync_attr`` present)
-    None  — neither protocol found
-
-  Logic:
-  - Both protocols present: check ``_has_running_loop()``.  Running loop → True (async);
-    no loop → False (sync).
-  - Only async protocol present: return True.
-  - Only sync protocol present: return False.
-  - Neither present: return None.
+  Returns True=use async, False=use sync, None=neither protocol present.
+  Both present + running loop → async; both present + no loop → sync.
   """
   has_sync = hasattr(value, sync_attr)
   has_async = hasattr(value, async_attr)
@@ -209,18 +166,52 @@ def _should_use_async_protocol(value: Any, sync_attr: str, async_attr: str) -> b
   return None
 
 
-def _handle_return_exc(exc: _Return, propagate: bool) -> Any:
-  """Handle a _Return signal: re-raise if nested, otherwise extract the value."""
-  if propagate:
-    raise exc
+def _handle_return_exc(exc: _Return) -> Any:
+  """Extract and evaluate a _Return signal's value.
+
+  Each Q boundary absorbs its own _Return; callers extract value via this
+  helper and return it — the signal is not re-raised.
+
+  Per spec §7.1: if the lazy callable itself raises a control-flow signal,
+  wrap as QuentException (signals inside lazy values are misuse).
+  """
+  # Local import to avoid circular dependency at module load.
+  from ._types import QuentException as _QE
+
   if exc.value is Null:
     return None
   try:
-    result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+    try:
+      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+    except _ControlFlowSignal as signal:
+      raise _QE(
+        f"Q.return_()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §7.1)."
+      ) from signal
   finally:
-    # Release references eagerly — the signal's value/args may hold large
-    # callables or data objects that are no longer needed after evaluation.
-    # Using finally ensures cleanup on both success and exception paths.
+    # Release eagerly — value/args may hold large callables/data.
+    exc.value = Null
+    exc.signal_args = _EMPTY_TUPLE
+    exc.signal_kwargs = None
+  return result
+
+
+def _handle_exit_exc(exc: _Exit) -> Any:
+  """Extract and evaluate a _Exit signal's value (caught at outermost run()).
+
+  Per spec §7.5: signal inside lazy value is misuse → QuentException.
+  """
+  from ._types import QuentException as _QE
+
+  if exc.value is Null:
+    return None
+  try:
+    try:
+      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+    except _ControlFlowSignal as signal:
+      raise _QE(
+        f"Q.exit_()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §7.5)."
+      ) from signal
+  finally:
     exc.value = Null
     exc.signal_args = _EMPTY_TUPLE
     exc.signal_kwargs = None

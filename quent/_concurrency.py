@@ -1,11 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Shared concurrency helpers for iteration and gather operations.
-
-Extracts the TaskGroup wrapper, task cancellation patterns, and
-ThreadPoolExecutor lifecycle that are common to both ``_iter_ops``
-and ``_gather_ops``, eliminating code duplication while keeping
-domain-specific triage logic in each module.
-"""
+"""Shared concurrency helpers for iteration and gather operations."""
 
 from __future__ import annotations
 
@@ -22,12 +16,7 @@ from ._eval import _isawaitable
 
 _HAS_TASK_GROUP = sys.version_info >= (3, 11)
 
-# Shared task creation utility.  Used by _iter_ops.py and _gather_ops.py
-# for structured concurrency (NOT registered in any global registry;
-# these tasks are awaited via asyncio.gather or TaskGroup).
-#
-# Python 3.14 added eager_start to create_task, which avoids a round trip
-# through the event loop scheduler.
+# Python 3.14 added eager_start to create_task — avoids a scheduler round trip.
 if sys.version_info >= (3, 14):
   _create_task_fn = functools.partial(asyncio.create_task, eager_start=True)
 else:
@@ -35,11 +24,10 @@ else:
 
 
 async def _run_taskgroup(n: int, worker_fn: Callable[[int], Coroutine[Any, Any, None]]) -> list[BaseException] | None:
-  """Run *n* workers via ``asyncio.TaskGroup``.
+  """Run *n* workers via asyncio.TaskGroup.
 
-  Returns ``None`` on success, or a list of sub-exceptions extracted from
-  the ``ExceptionGroup`` on failure.  Non-group exceptions (e.g. a bare
-  ``BaseException`` without ``.exceptions``) are re-raised immediately.
+  Returns None on success, or a list of sub-exceptions from the ExceptionGroup.
+  Non-group exceptions re-raise immediately.
   """
   __tracebackhide__ = True
   try:
@@ -48,11 +36,8 @@ async def _run_taskgroup(n: int, worker_fn: Callable[[int], Coroutine[Any, Any, 
         tg.create_task(worker_fn(idx))
     return None
   except BaseException as eg:
-    # On Python 3.11+, TaskGroup wraps task failures in ExceptionGroup.
-    # _run_taskgroup is only called when _HAS_TASK_GROUP is True (Python 3.11+),
-    # and TaskGroup always raises ExceptionGroup/BaseExceptionGroup.
-    # Use duck-typing (hasattr 'exceptions') for robust detection that handles
-    # subclasses and avoids F821 on Python 3.10.
+    # TaskGroup always raises ExceptionGroup/BaseExceptionGroup on 3.11+.
+    # Duck-type via hasattr to handle subclasses and avoid F821 on 3.10.
     sub_exceptions = getattr(eg, 'exceptions', None)
     if sub_exceptions is not None:
       return list(sub_exceptions)
@@ -64,12 +49,7 @@ def _make_dispatch(
   concurrency: int,
   n: int,
 ) -> Callable[[int], Coroutine[Any, Any, None]]:
-  """Wrap *worker_fn* with an ``asyncio.Semaphore`` when concurrency is bounded.
-
-  When ``concurrency >= n`` (unbounded), returns *worker_fn* directly —
-  no semaphore overhead.  Otherwise, returns a wrapper that acquires the
-  semaphore before delegating to *worker_fn*.
-  """
+  """Wrap *worker_fn* with a Semaphore when concurrency < n; otherwise return as-is."""
   if concurrency >= n:
     return worker_fn
 
@@ -87,12 +67,7 @@ async def _create_tasks_py310(
   n: int,
   dispatch: Callable[[int], Coroutine[Any, Any, None]],
 ) -> list[asyncio.Task[None]]:
-  """Create *n* tasks using the Python 3.10 fallback path.
-
-  Handles partial creation failure: if ``_create_task_fn`` raises for
-  task *i*, closes that coroutine, cancels and awaits tasks 0..i-1,
-  then re-raises.
-  """
+  """Create *n* tasks (3.10 fallback). On partial creation failure, cancel and await."""
   __tracebackhide__ = True
   tasks: list[asyncio.Task[None]] = []
   try:
@@ -104,8 +79,7 @@ async def _create_tasks_py310(
         coro.close()
         raise
   except BaseException:
-    # Partial task creation failure: cancel already-created tasks and
-    # await them to avoid "Task was destroyed but it is pending" warnings.
+    # Avoid "Task was destroyed but it is pending" warnings.
     if tasks:
       for t in tasks:
         t.cancel()
@@ -115,14 +89,7 @@ async def _create_tasks_py310(
 
 
 async def _cancel_pending_tasks(tasks: Sequence[asyncio.Future[Any]], *, timeout: float | None = None) -> None:
-  """Cancel unfinished tasks and wait for all to complete.
-
-  Args:
-    timeout: Maximum seconds to wait for tasks to finish after cancellation.
-      ``None`` (default) means wait indefinitely.  When used internally
-      by gather/iteration operations, there is no timeout since tasks
-      must settle before results can be returned.
-  """
+  """Cancel unfinished tasks and wait for completion."""
   __tracebackhide__ = True
   for t in tasks:
     if not t.done():
@@ -140,39 +107,10 @@ def _run_threadpool_sync(
   awaitable_msg: Callable[[int], str],
   executor: Executor | None = None,
 ) -> tuple[list[BaseException], TypeError | None]:
-  """Run indices ``1..n-1`` in a ``ThreadPoolExecutor`` and collect results.
+  """Run indices 1..n-1 in a ThreadPoolExecutor; index 0 is probed by the caller.
 
-  This is the shared sync-concurrent lifecycle used by both
-  ``_ConcurrentIterOp`` and ``_ConcurrentGatherOp``.  Index 0 is
-  assumed to have been probed by the caller already.
-
-  .. note:: **contextvars propagation**
-
-    This helper does **not** propagate ``contextvars`` automatically.
-    Callers are responsible for wrapping submissions with
-    ``copy_context().run(...)`` to ensure context variables propagate to
-    worker threads.  See usage in ``_ConcurrentIterOp.__call__`` and
-    ``_ConcurrentGatherOp.__call__``.
-
-  Args:
-    n: Total number of items/fns (caller handles index 0).
-    concurrency: ``max_workers`` for the executor.
-    results: Pre-allocated list; successful results are stored at
-      ``results[idx]``.
-    submit: Caller-provided function that calls
-      ``executor.submit(...)`` and returns the ``Future``.
-    on_exc: Caller-provided function that stamps exception metadata.
-    awaitable_msg: Returns the ``TypeError`` message string for
-      awaitable-in-sync detection at a given index.
-    executor: Optional user-provided executor. When provided, it is used
-      instead of creating a new ``ThreadPoolExecutor`` and is NOT shut
-      down after use — lifecycle is the caller's responsibility. When
-      ``None`` (default), a new ``ThreadPoolExecutor`` is created and
-      shut down automatically.
-
-  Returns:
-    ``(exceptions, awaitable_type_error)`` — the caller handles
-    triage and result collection.
+  Caller-provided executor: NOT shut down after use. Default: new pool, auto shutdown.
+  Callers must wrap submissions with copy_context().run(...) to propagate contextvars.
   """
   __tracebackhide__ = True
   if n <= 1:
@@ -185,8 +123,7 @@ def _run_threadpool_sync(
       for idx in range(1, n):
         futures.append(submit(pool, idx))
     except BaseException as submit_exc:
-      # Partial submission failure: cancel already-submitted futures to
-      # avoid blocking in the `with` block's shutdown(wait=True).
+      # Cancel already-submitted futures so shutdown(wait=True) doesn't block.
       for f in futures:
         f.cancel()
       if hasattr(submit_exc, 'add_note'):
@@ -194,11 +131,9 @@ def _run_threadpool_sync(
           f'quent: submission failed at index {idx}; {len(futures)} of {n - 1} futures submitted before failure'
         )
       raise
-    # Memory ordering: wait() blocks until all futures reach FINISHED state.
-    # Internally, Future uses a threading.Condition (Future._condition) whose
-    # lock acquire/release establishes a happens-before edge between each
-    # worker's writes (including results[idx]) and this thread's subsequent
-    # reads.  This is safe under both GIL and free-threaded (PEP 703) Python.
+    # wait() blocks until all futures FINISHED. Future's internal Condition lock
+    # establishes happens-before between worker writes (results[idx]) and our reads —
+    # safe under GIL and free-threaded (PEP 703) Python.
     concurrent.futures.wait(futures)
     awaitable_type_error: TypeError | None = None
     for i, future in enumerate(futures):

@@ -10,19 +10,13 @@ from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._types import _ControlFlowSignal
 
-# Private sentinel for _full_async's uninitialized result state.
-# Using Null would conflate "no result yet" with a body callable that
-# explicitly returns the Null sentinel.  See _types.py for the full
-# sentinel landscape.
+# "No result yet" — distinct from Null because a body callable could legitimately
+# return Null. See _types.py for the sentinel landscape.
 _WITH_UNSET: Any = object()
 
 
 async def _async_cm_exit(cm: Any, is_async_cm: bool, *args: Any) -> Any:
-  """Call the appropriate CM exit method and await the result.
-
-  Dispatches to ``__aexit__`` for async CMs, or ``__exit__`` for sync CMs
-  (awaiting the result if it turns out to be awaitable).
-  """
+  """Call __aexit__ (async CM) or __exit__ (sync CM, awaiting if awaitable)."""
   if is_async_cm:
     return await cm.__aexit__(*args)
   result = cm.__exit__(*args)
@@ -32,22 +26,9 @@ async def _async_cm_exit(cm: Any, is_async_cm: bool, *args: Any) -> Any:
 
 
 class _WithOp:
-  """Context manager operation: enter value as CM, call fn with context.
+  """Enter pipeline value as a CM, call fn with the context, handle exit.
 
-  Enters the current pipeline value as a context manager, calls the link's
-  callable with the context value, and handles exit properly.  When
-  ``ignore_result`` is True, the original value passes through (side-effect mode).
-
-  Execution scenarios and method map::
-
-    Scenario                          Entry point    Helpers used
-    --------------------------------  -------------  ----------------------------------
-    Sync CM, sync body                __call__       → _sync_cm, _suppressed_result
-    Sync CM, async body transition    __call__       → _sync_cm → _to_async, _suppressed_result
-    Sync CM, async __exit__           __call__       → _sync_cm → _await_exit_suppress /
-                                                       _await_exit_success / _await_exit_signal
-    Async CM (or dual-protocol CM     __call__       → _full_async, _suppressed_result
-      with running event loop)
+  When ignore_result is True, the original value passes through (side-effect mode).
   """
 
   __slots__ = ('_ignore_result', '_link', '_link_name')
@@ -62,11 +43,10 @@ class _WithOp:
     self._link_name = 'with_do' if ignore_result else 'with_'
 
   def _suppressed_result(self, outer_value: Any) -> Any:
-    """Return the appropriate value when an exception is suppressed by __exit__."""
     return outer_value if self._ignore_result else None
 
   async def _to_async(self, current_value: Any, body_result: Any, outer_value: Any, ctx: Any) -> Any:
-    """Await the body result and handle sync __exit__ that may return awaitables."""
+    """Await body result; handle sync __exit__ that may return awaitables."""
     __tracebackhide__ = True
     try:
       body_result = await body_result
@@ -92,7 +72,7 @@ class _WithOp:
       return body_result
 
   async def _full_async(self, current_value: Any) -> Any:
-    """Handle a native async context manager (has __aenter__/__aexit__)."""
+    """Native async CM (has __aenter__/__aexit__)."""
     __tracebackhide__ = True
     outer_value = current_value
     result = _WITH_UNSET
@@ -130,7 +110,6 @@ class _WithOp:
     return result
 
   async def _await_exit_suppress(self, suppress: Any, exc: BaseException, outer_value: Any) -> Any:
-    """Await an async __exit__ that may suppress the exception."""
     __tracebackhide__ = True
     try:
       if await suppress:
@@ -140,7 +119,6 @@ class _WithOp:
     raise exc
 
   async def _await_exit_success(self, exit_result: Any, outer_value: Any, result: Any) -> Any:
-    """Await an async __exit__ on the success path."""
     __tracebackhide__ = True
     await exit_result
     if self._ignore_result:
@@ -148,7 +126,6 @@ class _WithOp:
     return result
 
   async def _await_exit_signal(self, exit_result: Any, signal: _ControlFlowSignal) -> Any:
-    """Await an async __exit__ on the control flow signal path, then re-raise."""
     __tracebackhide__ = True
     try:
       await exit_result
@@ -157,16 +134,7 @@ class _WithOp:
     raise signal
 
   def _sync_cm(self, cm: Any, outer_value: Any) -> Any:
-    """Execute the sync context manager lifecycle: __enter__ -> body -> __exit__.
-
-    Handles all 6 exit scenarios:
-      a. ControlFlowSignal + __exit__(None, None, None)
-      b. Exception + __exit__ suppresses
-      c. Exception + __exit__ does not suppress
-      d. Exception + async __exit__
-      e. Success + sync __exit__
-      f. Success + async __exit__
-    """
+    """Sync CM lifecycle: __enter__ → body → __exit__. Handles 6 exit paths."""
     __tracebackhide__ = True
     try:
       ctx = cm.__enter__()
@@ -205,13 +173,6 @@ class _WithOp:
       return result
 
   def __call__(self, current_value: Any) -> Any:
-    """Enter current_value as a context manager, call fn with context value.
-
-    Detects the CM protocol and dispatches:
-    - Async (or dual-protocol with running loop) -> _full_async
-    - Sync -> _sync_cm
-    - Neither protocol -> TypeError
-    """
     __tracebackhide__ = True
     _use_async = _should_use_async_protocol(current_value, '__enter__', '__aenter__')
     if _use_async is True:

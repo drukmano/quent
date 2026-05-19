@@ -14,14 +14,14 @@ from ._eval import _eval_signal_value, _evaluate_value, _isawaitable, _should_us
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._traceback import _modify_traceback
-from ._types import Null, _Break, _ControlFlowSignal, _Return, _UncopyableMixin
+from ._types import Null, _Break, _ControlFlowSignal, _Exit, _Return, _UncopyableMixin
 
 _T = TypeVar('_T')
 
 if TYPE_CHECKING:
   from ._q import Q
 
-# Sentinel returned by _resolve_signal_value when exc.value is Null (no value to yield).
+# Returned by _resolve_signal_value when exc.value is Null.
 _NO_VALUE = object()
 
 
@@ -43,13 +43,7 @@ def _resolve_signal_value(
   ignore_result: bool,
   idx: int,
 ) -> Any:
-  """Evaluate a control flow signal's value, attaching traceback metadata on failure.
-
-  Returns ``_NO_VALUE`` when the signal carries no value (``exc.value is Null``).
-  Otherwise returns the resolved value (which may be an awaitable — the caller
-  is responsible for handling that).  Raises on evaluation failure after
-  attaching iteration metadata to the exception.
-  """
+  """Evaluate a signal's value; returns _NO_VALUE if Null. Caller handles awaitables."""
   __tracebackhide__ = True
   if exc.value is Null:
     return _NO_VALUE
@@ -57,11 +51,10 @@ def _resolve_signal_value(
     return _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
   except BaseException as eval_exc:
     _handle_iterate_exc(eval_exc, link, q, ignore_result, exc.value, idx)
-    raise eval_exc  # explicit raise for modified __traceback__ on Python <3.11
+    raise eval_exc  # explicit so modified __traceback__ is respected on Python <3.11
 
 
 def _close_and_raise_sync(awaitable: Any, signal_name: str) -> None:
-  """Close an awaitable that cannot be consumed synchronously, then raise TypeError."""
   __tracebackhide__ = True
   if hasattr(awaitable, 'close'):
     awaitable.close()
@@ -73,7 +66,6 @@ def _close_and_raise_sync(awaitable: Any, signal_name: str) -> None:
 
 
 def _run_deferred_finally_sync(q: Q[Any], deferred: list[Any]) -> None:
-  """Run a deferred finally handler synchronously after iteration ends."""
   __tracebackhide__ = True
   root_value, root_link, exec_id = deferred[0], deferred[1], deferred[2]
   active_exc = sys.exc_info()[1]
@@ -81,7 +73,6 @@ def _run_deferred_finally_sync(q: Q[Any], deferred: list[Any]) -> None:
     active_exc = None
   result = _run_sync_finally(q, root_value, root_link, active_exc, exec_id=exec_id)
   if result is not None:
-    # Handler returned a coroutine — can't await in sync context.
     if hasattr(result, 'close'):
       result.close()
     msg = "Sync iteration pipeline's finally_() handler returned a coroutine; use 'async for' instead of 'for'."
@@ -89,7 +80,6 @@ def _run_deferred_finally_sync(q: Q[Any], deferred: list[Any]) -> None:
 
 
 async def _run_deferred_finally_async(q: Q[Any], deferred: list[Any]) -> None:
-  """Run a deferred finally handler asynchronously after async iteration ends."""
   __tracebackhide__ = True
   root_value, root_link, exec_id = deferred[0], deferred[1], deferred[2]
   active_exc = sys.exc_info()[1]
@@ -99,7 +89,7 @@ async def _run_deferred_finally_async(q: Q[Any], deferred: list[Any]) -> None:
 
 
 def _sync_cm_exit_clean(cm: Any) -> None:
-  """Exit a sync CM on the success/signal path. Warns if __exit__ returns a coroutine."""
+  """Exit sync CM cleanly; warns if __exit__ returns a coroutine."""
   __tracebackhide__ = True
   exit_result = cm.__exit__(None, None, None)
   if _isawaitable(exit_result):
@@ -114,7 +104,6 @@ def _sync_cm_exit_clean(cm: Any) -> None:
 
 
 async def _async_cm_exit_clean(cm: Any, use_async: bool) -> None:
-  """Exit a CM (async or sync) on the success/signal path."""
   __tracebackhide__ = True
   if use_async:
     await cm.__aexit__(None, None, None)
@@ -125,7 +114,7 @@ async def _async_cm_exit_clean(cm: Any, use_async: bool) -> None:
 
 
 def _cm_exc_exit_sync(cm: Any) -> bool:
-  """Call sync CM __exit__ with active exception info. Returns True if exception was suppressed."""
+  """Sync CM __exit__ with active exception info. Returns True if suppressed."""
   __tracebackhide__ = True
   exc_info = sys.exc_info()
   if not isinstance(exc_info[1], (GeneratorExit, _ControlFlowSignal)):
@@ -140,7 +129,7 @@ def _cm_exc_exit_sync(cm: Any) -> bool:
 
 
 async def _cm_exc_exit_async(cm: Any, use_async: bool) -> bool:
-  """Call CM __exit__/__aexit__ with active exception info. Returns True if exception was suppressed."""
+  """CM __exit__/__aexit__ with active exception info. Returns True if suppressed."""
   __tracebackhide__ = True
   exc_info = sys.exc_info()
   if not isinstance(exc_info[1], (GeneratorExit, _ControlFlowSignal)):
@@ -155,19 +144,11 @@ async def _cm_exc_exit_async(cm: Any, use_async: bool) -> bool:
   return False
 
 
-# ---- Shared helpers for sync/async generator deduplication ----
-
-
 def _build_run_kwargs(
   deferred: list[Any] | None,
   deferred_with: tuple[Link, bool] | None,
 ) -> dict[str, Any] | None:
-  """Build keyword arguments for the pipeline run call.
-
-  Returns ``None`` when no extra kwargs are needed (the common fast path),
-  otherwise returns a dict with ``deferred_finally`` and/or ``deferred_with``
-  entries.
-  """
+  """Returns None on fast path; otherwise dict with deferred_finally/deferred_with."""
   if deferred is None and deferred_with is None:
     return None
   kw: dict[str, Any] = {}
@@ -183,10 +164,6 @@ def _run_pipeline(
   run_args: tuple[Any, ...],
   run_kw: dict[str, Any] | None,
 ) -> Any:
-  """Execute the pipeline run callable with optional keyword arguments.
-
-  Returns the raw result (may be awaitable -- caller handles that).
-  """
   if run_kw is not None:
     return q_run(*run_args, **run_kw)
   return q_run(*run_args)
@@ -200,11 +177,7 @@ def _call_fn_sync(
   ignore_result: bool,
   idx: int,
 ) -> Any:
-  """Call the iteration callback synchronously, with error handling.
-
-  Raises TypeError if the callback returns a coroutine.
-  Attaches traceback metadata on non-control-flow exceptions.
-  """
+  """Call iteration callback; raises TypeError if it returns a coroutine."""
   __tracebackhide__ = True
   try:
     fn_result = fn(item)
@@ -217,11 +190,11 @@ def _call_fn_sync(
       )
       raise TypeError(msg)
     return fn_result
-  except _ControlFlowSignal:  # Must propagate — not a regular exception.
+  except _ControlFlowSignal:
     raise
   except BaseException as exc:
     _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
-    raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+    raise exc  # `raise exc` (not bare `raise`) so modified __traceback__ is respected on Python <3.11.
 
 
 async def _call_fn_async(
@@ -232,26 +205,21 @@ async def _call_fn_async(
   ignore_result: bool,
   idx: int,
 ) -> Any:
-  """Call the iteration callback with async support and error handling.
-
-  If the callback returns an awaitable, it is awaited.
-  Attaches traceback metadata on non-control-flow exceptions.
-  """
+  """Call iteration callback; awaits awaitable results."""
   __tracebackhide__ = True
   try:
     result = fn(item)
     if _isawaitable(result):
       result = await result
     return result
-  except _ControlFlowSignal:  # Must propagate — not a regular exception.
+  except _ControlFlowSignal:
     raise
   except BaseException as exc:
     _handle_iterate_exc(exc, link, q, ignore_result, item, idx)
-    raise exc  # Use `raise exc` (not bare `raise`) so the modified __traceback__ is respected on Python <3.11.
+    raise exc
 
 
 def _flush_sync(flush: Callable[[], Any]) -> Any:
-  """Call the flush callable synchronously, raising TypeError if it returns a coroutine."""
   __tracebackhide__ = True
   flush_result = flush()
   if _isawaitable(flush_result):
@@ -263,7 +231,6 @@ def _flush_sync(flush: Callable[[], Any]) -> Any:
 
 
 async def _flush_async(flush: Callable[[], Any]) -> Any:
-  """Call the flush callable with async support."""
   __tracebackhide__ = True
   flush_result = flush()
   if _isawaitable(flush_result):
@@ -271,7 +238,7 @@ async def _flush_async(flush: Callable[[], Any]) -> Any:
   return flush_result
 
 
-# Module-level functions (not methods) to avoid binding `self` in the generator closure.
+# Module-level so we don't bind `self` in the generator closure.
 
 
 def _sync_generator(
@@ -288,15 +255,13 @@ def _sync_generator(
 ) -> Iterator[Any]:
   # SYNC MIRROR of _async_generator — keep both in sync when modifying.
   # Intentional divergences: sync closes awaitables + raises TypeError; async awaits them.
-  """Synchronous generator that yields each element of the pipeline's output."""
   __tracebackhide__ = True
   _has_deferred = q is not None and q._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
-  _with_cm: Any = None  # Tracks entered CM for cleanup
+  _with_cm: Any = None
   _cm_exited = False
 
   try:
-    # Run the pipeline
     result = _run_pipeline(q_run, run_args, _build_run_kwargs(_deferred, deferred_with))
 
     if _isawaitable(result):
@@ -308,7 +273,6 @@ def _sync_generator(
       msg = "Cannot use sync iteration on an async pipeline; use 'async for' instead"
       raise TypeError(msg)
 
-    # Enter deferred CM if active
     if deferred_with is not None:
       _dw_inner_link, _dw_ignore_result = deferred_with
       cm = result
@@ -325,11 +289,9 @@ def _sync_generator(
         raise TypeError(msg)
       result = cm if _dw_ignore_result else inner_result
 
-    # Wrap with buffer if requested
     if buffer_size is not None:
       result = _sync_buffer_iter(result, buffer_size)
 
-    # Iteration loop
     idx = 0
     try:
       for item in result:
@@ -353,12 +315,11 @@ def _sync_generator(
             yield item if ignore_result else fn_result
         idx += 1
 
-      # flush after source exhaustion (flat mode only)
       if flush is not None:
         for sub in _flush_sync(flush):
           yield sub
 
-    except (_Break, _Return) as exc:
+    except (_Break, _Return, _Exit) as exc:
       resolved = _resolve_signal_value(exc, link, q, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
@@ -367,16 +328,15 @@ def _sync_generator(
       return
 
   except BaseException:
-    # CM exception-path exit — handles __exit__(exc) and suppression.
     if _with_cm is not None:
       _cm_exited = True
       if _cm_exc_exit_sync(_with_cm):
-        return  # CM suppressed the exception.
+        return  # CM suppressed.
     raise
 
   finally:
-    # Cleanup: CM clean-exit (non-exception paths) + deferred finally.
-    # Exception-path CM exit is handled in except above; _cm_exited prevents double-exit.
+    # Clean-exit (non-exception paths) + deferred finally.
+    # Exception-path CM exit handled in except above; _cm_exited prevents double-exit.
     try:
       if _with_cm is not None and not _cm_exited:
         _sync_cm_exit_clean(_with_cm)
@@ -387,7 +347,6 @@ def _sync_generator(
 
 
 async def _aiter_wrap(sync_iter: Iterator[Any]) -> AsyncIterator[Any]:
-  """Wrap a synchronous iterator as an async iterator."""
   __tracebackhide__ = True
   for item in sync_iter:
     yield item
@@ -406,8 +365,6 @@ async def _async_generator(
   buffer_size: int | None = None,
 ) -> AsyncIterator[Any]:
   # ASYNC MIRROR of _sync_generator — keep both in sync when modifying.
-  # Intentional divergences: async awaits awaitables; sync closes them + raises TypeError.
-  """Asynchronous generator that yields each element of the pipeline's output."""
   __tracebackhide__ = True
   _has_deferred = q is not None and q._on_finally_link is not None
   _deferred: list[Any] | None = [Null, None, 0] if _has_deferred else None
@@ -416,12 +373,10 @@ async def _async_generator(
   _cm_exited = False
 
   try:
-    # Run the pipeline
     iterator = _run_pipeline(q_run, run_args, _build_run_kwargs(_deferred, deferred_with))
     if _isawaitable(iterator):
       iterator = await iterator
 
-    # Enter deferred CM if active
     if deferred_with is not None:
       _dw_inner_link, _dw_ignore_result = deferred_with
       cm = iterator
@@ -444,14 +399,12 @@ async def _async_generator(
         inner_result = await inner_result
       iterator = cm if _dw_ignore_result else inner_result
 
-    # Wrap with buffer if requested
     if buffer_size is not None:
       iterator = _async_buffer_iter(iterator, buffer_size)
 
     if not hasattr(iterator, '__aiter__'):
       iterator = _aiter_wrap(iterator)
 
-    # Iteration loop
     idx = 0
     try:
       async for item in iterator:
@@ -487,7 +440,6 @@ async def _async_generator(
             yield item if ignore_result else result
         idx += 1
 
-      # flush after source exhaustion
       if flush is not None:
         flush_result = await _flush_async(flush)
         if hasattr(flush_result, '__aiter__'):
@@ -497,7 +449,7 @@ async def _async_generator(
           for sub in flush_result:
             yield sub
 
-    except (_Break, _Return) as exc:
+    except (_Break, _Return, _Exit) as exc:
       resolved = _resolve_signal_value(exc, link, q, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
@@ -510,16 +462,13 @@ async def _async_generator(
       return
 
   except BaseException:
-    # CM exception-path exit — handles __exit__(exc) / __aexit__(exc) and suppression.
     if _with_cm is not None:
       _cm_exited = True
       if await _cm_exc_exit_async(_with_cm, _use_async_cm):
-        return  # CM suppressed the exception.
+        return  # CM suppressed.
     raise
 
   finally:
-    # Cleanup: CM clean-exit (non-exception paths) + deferred finally.
-    # Exception-path CM exit is handled in except above; _cm_exited prevents double-exit.
     try:
       if _with_cm is not None and not _cm_exited:
         await _async_cm_exit_clean(_with_cm, _use_async_cm)
@@ -530,17 +479,11 @@ async def _async_generator(
 
 
 class QuentIterator(_UncopyableMixin, Generic[_T]):
-  """Wraps pipeline output as a dual sync/async iterable.
+  """Dual sync/async iterable over pipeline output.
 
-  Created by ``Q.iterate()``. Supports both ``__iter__`` and
-  ``__aiter__``, choosing the appropriate generator at iteration time.
-  Calling the instance returns a new ``QuentIterator`` with updated run args,
-  making generators reusable with different inputs.
-
-  Generic over ``_T``, the element type yielded during iteration.
-  Currently ``_T`` is ``Any`` (the element type cannot be statically
-  inferred from ``Q[T]``), but the parameter is in place for future
-  refinement.
+  Created by Q.iterate(). Supports both __iter__ and __aiter__. Calling the
+  instance returns a new QuentIterator with updated run args (reusable).
+  _T is the yielded element type (currently always Any).
   """
 
   __slots__ = (
@@ -591,7 +534,6 @@ class QuentIterator(_UncopyableMixin, Generic[_T]):
     self._run_args: tuple[Any, tuple[Any, ...], dict[str, Any]] = (Null, (), {})
 
   def __call__(self, v: Any = Null, *args: Any, **kwargs: Any) -> QuentIterator[_T]:
-    """Return a new ``QuentIterator`` with updated ``_run_args``, enabling reuse with different inputs."""
     g: QuentIterator[_T] = QuentIterator(
       self._q_run,
       self._fn,
@@ -607,7 +549,6 @@ class QuentIterator(_UncopyableMixin, Generic[_T]):
     return g
 
   def __iter__(self) -> Iterator[_T]:
-    """Delegate to the module-level ``_sync_generator`` function."""
     return _sync_generator(
       self._q_run,
       self._run_args,
@@ -622,7 +563,6 @@ class QuentIterator(_UncopyableMixin, Generic[_T]):
     )
 
   def __aiter__(self) -> AsyncIterator[_T]:
-    """Delegate to the module-level ``_async_generator`` function."""
     return _async_generator(
       self._q_run,
       self._run_args,

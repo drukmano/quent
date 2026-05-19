@@ -393,8 +393,13 @@ class ConcurrentErrorHandlingTest(SymmetricTestCase):
       Q(1).gather(ok, fail).run()
     self.assertIn('gather fail', str(ctx.exception))
 
-  async def test_return_signal_priority_in_gather(self):
-    """Q.return_() takes priority in gather."""
+  async def test_return_in_gather_worker_becomes_tuple_element(self):
+    """SPEC §7.4: Q.return_() in a gather worker returns from that worker only.
+
+    The return value becomes that worker's tuple position element; other workers
+    complete normally.  (Old behavior: return_ won priority and exited the
+    pipeline.  New model: Q.return_() returns from the worker, not the pipeline.)
+    """
 
     def do_return(x):
       return Q.return_('returned')
@@ -403,7 +408,23 @@ class ConcurrentErrorHandlingTest(SymmetricTestCase):
       return x
 
     result = Q(1).gather(ok, do_return).run()
-    self.assertEqual(result, 'returned')
+    self.assertEqual(result, (1, 'returned'))
+
+  async def test_exit_in_gather_worker_propagates_to_pipeline(self):
+    """SPEC §7.5, §7.4: Q.exit_() in a gather worker propagates past gather.
+
+    Sibling tasks are cancelled per asyncio/threadpool semantics; the exit value
+    becomes the entire pipeline's result.
+    """
+
+    def do_exit(x):
+      return Q.exit_('exited')
+
+    def ok(x):
+      return x
+
+    result = Q(1).gather(ok, do_exit).run()
+    self.assertEqual(result, 'exited')
 
   async def test_break_in_concurrent_map(self):
     """Q.break_() in concurrent map appends break value to partial results."""

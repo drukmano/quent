@@ -1,6 +1,6 @@
 # quent — Behavioral Specification
 
-**Version:** 6.1.2 | **Date:** 2026-05-19
+**Version:** 7.0.0 | **Date:** 2026-05-19
 
 > Source of truth. Implementation and tests derive from these contracts.
 
@@ -32,6 +32,8 @@
 
 **quent** is a sync/async-transparent pipeline builder for Python 3.10+. Pure Python; zero runtime deps on 3.11+ (3.10 needs `typing_extensions` for stdlib backports).
 
+**Problem.** Supporting both sync and async callers normally means writing the same pipeline logic twice — `def process_sync(...)` and `async def process_async(...)` — with duplicated structure, divergent bugs, and no shared mental model. quent eliminates that duplication.
+
 *Build once; run sync or async.* Any callable at any position is interchangeable with its async equivalent — observable result is identical. Caller selects no mode, wraps no coroutines, writes no conditional `await`. `run()` returns a plain value if all-sync, a coroutine if any step transitioned. The **bridge contract** (§2) is the load-bearing invariant; every behavior upholds it or is documented as an exception (§17).
 
 ---
@@ -43,6 +45,8 @@
 > For any pipeline `P` and step `i`, replacing step `i`'s callable with a functionally equivalent callable of the opposite sync/async kind produces the same observable result.
 
 **Functionally equivalent:** for the same input, sync returns `V`; async returns a coroutine resolving to `V`. Holds for every operation, handler, predicate, branch, body. Exceptions: §17.
+
+**Observable result** = `run()`'s return value; the type, value, and chain (`__cause__`/`__context__`) of any propagating exception; and the **sequence** of pipeline steps executed at the top level (linked-list order, sequential). Within a concurrent op (`gather`, `foreach`/`foreach_do` with concurrency), the relative ordering of sibling callables is **undefined** — they run concurrently and may interleave or execute in any order. Across the sync/async transition, Python's single-threaded semantics serialize side-effects of sequential steps. OS-level effects (file buffer flushing, network frame send timing, wall-clock between-step intervals) are not part of the bridge contract.
 
 ### 2.2 Two-Tier Engine
 
@@ -65,6 +69,18 @@ One API surface — no `async_mode=`, no `AsyncQ`, no coroutine/future wrapping,
 
 "Awaitable" ≡ `inspect.isawaitable(x)` — coroutine objects, `__await__` implementations, generator-based coroutines (`@asyncio.coroutine`). Checked after every step result.
 
+`concurrent.futures.Future` is **not** awaitable (no `__await__`). `asyncio.Future` is awaitable but resolves only under an asyncio loop — quent does not adapt cross-runtime awaitables (a trio/curio task that returns an `asyncio.Future` will block when awaited under that loop, per Python's normal semantics).
+
+### 2.5 Awaitable Detection (performance contract)
+
+Awaitable detection runs after every step. To keep all-sync pipelines paying zero async overhead, the engine uses a tiered check rather than calling `inspect.isawaitable()` directly:
+
+1. `type(result) is CoroutineType` — the common case (`async def fn(...)` returns), constant-time identity check.
+2. Short-circuit reject if `result is None` or `type(result)` is in a frozenset of common sync types (`int`, `str`, `float`, `bool`, `list`, `dict`, `tuple`, `set`, `bytes`). The check is **exact-type identity** (`type(x) in frozenset`), not `isinstance` — subclasses such as `numpy.int64`, `pathlib.Path`, `IntEnum` members fall through to step 3.
+3. Otherwise, a custom `_isawaitable(result)` that uses `isinstance(value, CoroutineType)` (handles subclasses), checks generator-based coroutines via the `CO_ITERABLE_COROUTINE` code flag, and falls back to `__await__` attribute probing.
+
+This is roughly an order of magnitude faster than `inspect.isawaitable()` on common sync return types. The optimization is part of the bridge contract's "zero async overhead" claim (§2.2) — implementations that fall back to the naive `inspect.isawaitable()` call may functionally conform but break the performance promise.
+
 ---
 
 ## 3. Pipeline Model
@@ -77,6 +93,8 @@ Append-only singly-linked list. Append O(1); walks head-to-tail; never mutated p
 
 **Thread safety:** building not thread-safe. A constructed pipeline executes safely from multiple threads (incl. PEP 703 free-threaded) — execution uses only function-local state.
 
+**Recursion / depth limits:** quent imposes no limit on pipeline length or nesting depth. Pipeline length is bounded only by available memory. Nested pipelines invoke the execution engine recursively at run time and are subject to Python's standard recursion limit (`sys.getrecursionlimit()`, default ~1000). Visualization rendering has its own independent limits (§13.8) that exist purely to bound traceback rendering — they do not constrain execution.
+
 ### 3.2 Root Value
 
 `Q(v=<no value>, /, *args, **kwargs)`:
@@ -88,6 +106,8 @@ Append-only singly-linked list. Append O(1); walks head-to-tail; never mutated p
 | `Q(v)`, `v` non-callable | `v` is root as-is. `args`/`kwargs` absent or build `TypeError`. |
 | `Q(None)` | Root is `None`. |
 | `Q(key=val)` (no positional) | Build `TypeError` — kwargs require root callable. |
+
+**Root dispatch:** The root is the first link in the pipeline; it is evaluated through the standard calling-convention machinery of §4 with starting `CV = Null`. The forms above are the four ways the root link is *constructed* — once constructed, no special root semantics apply. Rule 1 fires when build-time `args`/`kwargs` are present, Rule 2 otherwise. The root appears in `on_step` events with `step_name='root'` (§14.1).
 
 **Run-time root:** `q.run(v, ...)` replaces build-time root entirely. `Q(A).then(B).run(C)` ≡ `Q(C).then(B).run()`.
 
@@ -122,13 +142,13 @@ Strict priority, first match wins. Apply universally — steps, predicates, hand
 
 **Rule 1 constraint:** `fn` callable required; non-callable + args/kwargs → build `TypeError`. Rationale: auto-prepending CV would force every fn to handle an extra leading parameter; use a lambda to combine.
 
-**Rule 2 dispatch:**
+**Rule 2 dispatch** — Rule 2 collapses three operationally distinct sub-cases under one "default" header. The table below enumerates them; the umbrella name "Rule 2" refers to the union.
 
-| `fn` callable? | CV present? | Invocation |
-|---|---|---|
-| Yes | Yes | `fn(CV)` |
-| Yes | No (Null) | `fn()` |
-| No | — | `fn` itself becomes new CV (literal replacement) |
+| `fn` callable? | CV present? | Invocation | Sub-case |
+|---|---|---|---|
+| Yes | Yes | `fn(CV)` | 2a |
+| Yes | No (Null) | `fn()` | 2b |
+| No | — | `fn` itself becomes new CV (literal replacement) | 2c |
 
 ```python
 Q(5).then(format_number, 'USD', decimals=2)  # Rule 1: format_number('USD', decimals=2); 5 NOT passed
@@ -139,14 +159,21 @@ Q(5).then(42)                                 # Rule 2 non-callable: CV = 42
 
 ### 4.2 Nested Pipelines
 
-`Q.__call__` ≡ `run()`. A nested `Q` dispatches per §4.1. Caller-provided args/kwargs **replace** the inner's build-time root args/kwargs entirely (no merging); inner root callable is preserved.
+`Q.__call__` ≡ `run()` at the public-API level. **Internally**, when a `Q` is registered as a step (e.g. `.then(inner)`), the engine invokes it via a nested dispatch path — not via `run()` — so that `Q.break_()` raised inside the nested `Q` can propagate outward through the nested boundary to reach an enclosing iteration scope. A nested `Q` dispatches per §4.1. Caller-provided args/kwargs **replace** the inner's build-time root args/kwargs entirely (no merging); inner root callable is preserved.
 
 | Registration | Invocation |
 |---|---|
-| `.then(inner)` | `inner.run(CV)` |
-| `.then(inner, arg, key=val)` | `inner.run(arg, key=val)` — CV NOT passed |
+| `.then(inner)` | nested dispatch with `CV` |
+| `.then(inner, arg, key=val)` | nested dispatch with `arg, key=val` — CV NOT passed |
 
-**Signal propagation:** `Q.return_()`/`Q.break_()` inside nested → propagates to **outermost** pipeline. Escaping outermost `.run()` → wrapped in `QuentException`.
+**Signal semantics in nested `Q`s** (each `Q` is a function-like boundary in the Python analogy):
+
+| Signal | Behavior at the nested `Q` boundary |
+|---|---|
+| `Q.return_()` | **Absorbed.** The nested `Q`'s execution ends with the given value; that value flows to the outer pipeline as the nested step's result; the outer chain continues. (Like Python's `return` exits the current function.) |
+| `Q.break_()` | **Propagates through.** The nested `Q` does not catch it; it continues outward toward the nearest enclosing iteration scope. (Like Python's labeled break — a function boundary is not a loop boundary.) |
+
+**Lambda wrapping breaks `Q.break_()` propagation:** `.then(lambda cv: inner(cv))` invokes `inner.run(cv)` directly. `inner.run()` is the **outermost** `run()` from `inner`'s perspective, so a `Q.break_()` that escapes `inner` (without being caught by an iteration scope inside `inner`) is wrapped as `QuentException` at the lambda's call — it never reaches the outer pipeline's iteration scope. To preserve `Q.break_()` propagation across nesting, register the inner `Q` directly via `.then(inner)`. (`Q.return_()` is unaffected: each `run()` absorbs its own `Q.return_()` either way.)
 
 ### 4.3 CV By Context
 
@@ -181,7 +208,7 @@ Apply `fn` to each element of CV iterable; collect into list. `fn=None` is ident
 
 **Sequential** (`concurrency=None`): in iteration order; awaitable from `fn` → async transition. Sync (`__iter__`) and async (`__aiter__`) iterables both supported; dual-protocol prefers async under running loop (§16.2).
 
-**Concurrent** (`concurrency=-1` unbounded or positive int): input is **eagerly materialized** — not for infinite/very-large iterables. Sync vs async path probed on first element (§11.5). Mixed → `TypeError`. Results preserve **input order**. `-1` resolves to `len(items)`. Params: §11.
+**Concurrent** (`concurrency=-1` unbounded or positive int): input is **eagerly materialized** before dispatch — sync iterables via `list(iterable)`, async iterables via full `async for` drain into a list. Not for infinite/very-large iterables. Sync vs async path probed on first element (§11.5). Mixed → `TypeError`. Results preserve **input order**. `-1` resolves to `len(items)`. Params: §11.
 
 **Errors:**
 - Sequential: propagates immediately. `StopIteration` from callback propagates as regular exception; PEP 479 wraps it as `RuntimeError` in async (§17.5).
@@ -193,6 +220,8 @@ Apply `fn` to each element of CV iterable; collect into list. `fn=None` is ident
 
 Same as `foreach()` except: `fn`'s returns discarded; **original input elements** collected in input order. Error/break behavior matches `foreach()`.
 
+> `Q.break_(value)` appends `value` directly to the results list — even in `foreach_do` mode where the list otherwise contains original elements. The break value is not coerced or filtered; results may be heterogeneous (e.g., `Q([1,2,3]).foreach_do(lambda x: Q.break_('STOP') if x==2 else None).run()` yields `[1, 'STOP']`).
+
 ### 5.5 `gather(*fns, concurrency=-1, executor=None)`
 
 Run multiple fns on CV concurrently. Each `fn` receives CV. Result is **tuple** in positional order.
@@ -202,7 +231,7 @@ Run multiple fns on CV concurrently. Each `fn` receives CV. Result is **tuple** 
 - Sync/async probed on first fn (§11.5). Mixed → `TypeError`.
 - Each fn callable (build `TypeError`).
 
-**Errors:** single → propagates directly. Multiple → `ExceptionGroup("gather() encountered N exceptions")`. `BaseException` never wraps (earliest-position wins). `Q.return_()` absolute priority — co-occurring regular exceptions discarded with WARNING. `Q.break_()` inside gather → `QuentException` (gather is not an iteration scope).
+**Errors:** single → propagates directly. Multiple → `ExceptionGroup("gather() encountered N exceptions")`. `BaseException` never wraps (earliest-position wins). `Q.return_()` raised inside a `gather()` worker **returns from that worker** — the value becomes that gather position's tuple element (per §7.4; the worker is treated as its own scope, sibling workers continue). When a `_Return` signal is observed at the gather-level triage (e.g. a worker re-raised one from a deeper nested `Q.run()` whose signal had escaped its iteration scope), it wins with absolute priority over co-occurring exceptions; regular exceptions are discarded with a `RuntimeWarning`. `Q.break_()` inside any gather worker → `QuentException` (gather is concurrent fan-out, not iteration scope; see §7.4).
 
 ### 5.6 `with_(fn, /, *args, **kwargs)`
 
@@ -212,9 +241,11 @@ Enter CV as context manager; invoke `fn` per §4 with `__enter__`/`__aenter__` r
 - CV must support `__enter__`/`__exit__` or `__aenter__`/`__aexit__` else `TypeError`. Dual-protocol prefers async under running loop (§16.2).
 - Awaitable from `fn` → async transition.
 
+> **Rule 1 drops the context value:** when `args`/`kwargs` are provided, Rule 1 fires and `fn` does NOT receive the `__enter__`/`__aenter__` result — it is silently dropped. To combine the context value with extra arguments, use a lambda: `.with_(lambda ctx: fn(ctx, extra))`. Same caveat applies to `with_do()`.
+
 **Exception suppression:** `fn` raises + `__exit__` returns truthy → pipeline continues with CV `None` (body result unavailable). Falsy → propagates.
 
-**Exit handler failure:** `__exit__` raising replaces body exception via `raise exit_exc from exc` — `__cause__` set, `__context__` preserved (original reachable on both). Clearer than Python's native `with` (implicit-`__context__`-only).
+**Exit handler failure:** `__exit__` raising replaces body exception via `raise exit_exc from exc`. This sets `exit_exc.__cause__ = body_exc` (explicit) and, as a Python consequence of `raise from`, also sets `exit_exc.__suppress_context__ = True`. Default traceback formatters render the `__cause__` chain ("The above exception was the direct cause of..."). The body exception is also reachable as `__context__` on `exit_exc` (Python's implicit chaining set the moment exit_exc was raised inside the `except`), but suppressed for default display; access programmatically via `exit_exc.__context__`. Clearer than Python's native `with` where the equivalent is `__context__`-only without `__cause__`.
 
 **Control flow signals:** `Q.return_()`/`Q.break_()` inside `fn` → `__exit__` called with no exception info (clean exit); signal propagates.
 
@@ -233,7 +264,7 @@ Set pending conditional flag. Next `.then()`/`.do()` becomes truthy branch.
 **Predicate (positional-only):**
 - `None` — CV truthiness.
 - callable — per §4; return truthiness tested.
-- nested `Q` — `inner.run(CV)` (Rule 2); result tested. `Q.return_()` inside propagates (valid early exit). `Q.break_()` inside → `QuentException` (predicate is not iteration scope).
+- nested `Q` — nested-Q dispatch (§4.2) with `CV`; result tested. `Q.return_()` inside the predicate's nested `Q` returns from that `Q` with the given value; the value is used as the predicate result (truthy/falsy test). `Q.break_()` inside the predicate **propagates outward** through `if_` toward the nearest enclosing iteration scope (per §7.2/§4.2). If `if_` has no enclosing iteration, the break escapes and is wrapped as `QuentException` at the outermost `run()`.
 - other non-callable literal — its own truthiness; CV NOT examined. Args/kwargs with such a literal → build `TypeError` (Rule 1 requires callable).
 - `*args, **kwargs` forwarded to predicate per §4.
 
@@ -252,9 +283,13 @@ Alternative for preceding `if_()`. Evaluated when predicate was falsy.
 
 ### 5.10 `while_(predicate=None, /, *args, **kwargs)`
 
-Set pending loop flag. Next `.then()`/`.do()` becomes body; body repeats while predicate truthy.
+Set pending loop flag. Next `.then()`/`.do()` becomes body. **Pre-tested loop:** predicate evaluated before each iteration; if truthy, body runs and its result (or the unchanged loop value, for `.do()`) becomes the next iteration's loop value; if falsy, loop exits with the current loop value. The first iteration's predicate is evaluated against the pre-`while_` CV. Awaitable result from predicate or body triggers async transition; the remaining iterations run async.
 
-**Predicate:** same forms as `if_()`. `Null` always falsy. Args/kwargs with non-callable non-`None` literal → build `TypeError`.
+**Predicate forms:**
+- `while_()` or `while_(None)` (no predicate; `None` is the default and is treated identically): predicate is loop value's own truthiness. `Null` loop value → falsy → body never runs. `Q().while_().do(fn).run()` exits immediately.
+- `while_(callable)`: invoked per §4. Rule 1 if `args`/`kwargs` provided; Rule 2 otherwise. Return value tested for truthiness.
+- `while_(nested_q)`: nested-Q dispatch (§4.2). `Q.return_()` inside the predicate's nested `Q` returns from that `Q` with the value; the value is used as the predicate result. `Q.break_()` inside the predicate propagates outward through the nested boundary; `while_` catches it as a normal loop break (the `while_` is iteration scope; same semantics as a callable predicate raising `break_`).
+- `while_(literal)`: non-callable, non-`None` literal — its own truthiness used (constant). Args/kwargs with such a literal → build `TypeError`.
 
 **Constraints:** `while_` while `if_`/`while_` pending → `QuentException` (combine via nested pipeline). `if_` while `while_` pending → `QuentException`. Non-`.then()`/`.do()` while pending → `QuentException`. `else_*` after `while_().then()`/`.do()` → `QuentException`.
 
@@ -264,9 +299,9 @@ Set pending loop flag. Next `.then()`/`.do()` becomes body; body repeats while p
 
 > With `.do()` + predicate testing loop value (incl. default `None`), loop value never changes → infinite loop unless `break_()`.
 
-**`break_()`:** `Q.break_()` stops; result is current loop value. `Q.break_(value)` stops; break value becomes result. Valid from body or predicate. Distinct from `foreach` break (§5.3): `while_` preserves loop/break value; `foreach` preserves partial results (§7.2).
+**`break_()`:** `Q.break_()` stops the loop; result is the **current loop value**. `Q.break_(value)` stops; `value` **replaces** the loop value and becomes the loop's result — **not** appended (this differs from `foreach`/`iterate*` semantics in §7.2, which append/yield). Valid from body or predicate, including a nested-Q predicate (per §7.2 break propagates outward through `Q` boundaries until iteration catches; `while_` catches). Signal priority within a single iteration: if the predicate raises a signal, the body for that iteration never runs.
 
-**`return_()`:** propagates to enclosing pipeline — exits whole pipeline, not just loop.
+**`return_()`:** per §7.1 — returns from the **current `Q`** (the `Q` that contains the `while_`), not just the loop. The loop is one step of that `Q`; `Q.return_()` ends the entire `Q`. If the `Q` is nested in an outer pipeline, only the current `Q` returns and the outer chain continues with the returned value. (If you want to exit just the loop, use `break_()`.)
 
 **No iteration limit.** **Errors** propagate through pipeline error handling (§6). **Immediately-falsy predicate:** body never runs; pre-`while_` CV passes through. **Cloning:** deep-cloned (predicate and body links carry state). **Traceback:** `.while_(predicate_name)`.
 
@@ -293,7 +328,13 @@ Drive sync or async generator bidirectionally via send protocol. `fn` processes 
 
 Mid-transition (sync gen + async `fn`) is the primary motivating use case — e.g. httpx's auth flow.
 
-**Errors:** `fn` or send exception (not Stop) propagates; generator closed in cleanup. NOT injected (no `gen.throw()`). Control flow signals propagate; generator closed. Generator ignoring `GeneratorExit` on close → Python `RuntimeError`; propagates from cleanup.
+> **Mid-transition blocking:** in mid-transition mode the sync `next(gen)`/`gen.send()` calls run **on the event loop's thread**, not on a worker. A blocking generator step (long-running CPU work, blocking I/O, blocking `time.sleep`) blocks the loop until it yields. This is identical to running any synchronous code inside an `async def`. Use sync generators that are themselves quick between yields, or move to a fully-async generator.
+
+**Errors:** `fn` or send exception (not Stop) propagates; generator closed in cleanup. NOT injected (no `gen.throw()`). Generator ignoring `GeneratorExit` on close → Python `RuntimeError`; propagates from cleanup.
+
+**Control flow signals (per §7.4 carve-out):**
+- `Q.return_(value)` raised inside `fn` **returns from `fn`** — `value` becomes the pipeline's CV (drive_gen's normal "last `fn` return → CV" rule applies). Generator is closed in cleanup. The signal is **not** propagated to the outer pipeline.
+- `Q.break_()` raised inside `fn` propagates outward through drive_gen toward the nearest enclosing iteration scope (per §7.2). Generator is closed first via `close()`/`aclose()` in the cleanup `finally:`, then the signal propagates.
 
 **Cloning:** reference-copied (no mutable state). **Traceback:** `.drive_gen(fn_name)`.
 
@@ -319,6 +360,8 @@ At most one `except_()` and one `finally_()` per pipeline. Second → build `Que
   - String value → `TypeError` (common mistake: `"ValueError"` vs `ValueError`).
   - `BaseException` subtype not `Exception` (e.g. `KeyboardInterrupt`, `SystemExit`) → `RuntimeWarning` (catching system signals can suppress critical shutdown).
 
+**Filter enforcement:** The `exceptions` filter is engine-side, not handler-side. If a raised exception is not an instance of `exceptions`, the handler is **bypassed entirely** — it never sees out-of-filter exceptions, and the exception propagates as if no `except_()` were registered. `finally_()` still runs in failure-context.
+
 **Consumption vs re-raise:**
 
 | `reraise` | Effect |
@@ -330,6 +373,8 @@ At most one `except_()` and one `finally_()` per pipeline. Second → build `Que
 - `Exception` subclass → handler exception **discarded**; `RuntimeWarning` emitted; note attached (3.11+); `__context__`/`__suppress_context__` on original **restored** to pre-handler values (prevents handler from permanently mutating chain); original re-raised.
 - `BaseException` subclass → propagates naturally; system signals never suppressed.
 
+> **Restoration mechanism:** `original.__context__` and `original.__suppress_context__` are snapshotted **before** the handler is invoked. After a discardable `Exception` handler-failure, the snapshots are written back to `original` before re-raise. This protects against the handler intentionally mutating the original's chain (e.g., `original.__context__ = elsewhere`); Python's automatic `handler_exc.__context__ = original` chaining never touches `original`'s own attributes.
+
 **Handler failure with `reraise=False`:** handler exception propagates; original set as `__cause__` (`raise handler_exc from original_exc`).
 
 **Control flow:** `Q.return_()`/`Q.break_()` inside except → `QuentException`.
@@ -337,17 +382,18 @@ At most one `except_()` and one `finally_()` per pipeline. Second → build `Que
 ### 6.2 `finally_(fn, /, *args, **kwargs)`
 
 - `fn` callable (`TypeError`). CV per §4.3: root value (normalized `None`).
-- **Always runs** — success and failure paths.
+- **Always runs** — success path, exception path, **and** control-flow signal (`Q.return_()`/`Q.break_()`) propagation. `finally_()` executes **after** the lazy callable value of `Q.return_(fn, ...)` is evaluated (see §7.1).
 - **Return always discarded** — cannot alter result.
 
 **Failure:**
 - Finally raises while exception active → finally's exception **replaces** original (Python `try/finally`); original preserved as `__context__`; note attached.
 - Finally raises on success → finally's exception propagates as pipeline error.
 - Both `except_` and `finally_` raise → finally wins; except's exception preserved as `__context__`.
+- Finally raises while a control-flow signal (`Q.return_()`/`Q.break_()`) is propagating → finally's exception wins (Python `try/finally` semantics); the signal is preserved as `__context__` on finally's exception; finally's exception propagates as a regular pipeline error (NOT as a signal). The lazy callable of `Q.return_(fn)` / `Q.break_(fn)` has already been evaluated before finally runs (§7.1, §7.2), so its result is lost.
 
 **Control flow:** `Q.return_()`/`Q.break_()` inside finally → `QuentException`.
 
-**Async finally in sync pipeline:** coroutine return triggers **async transition** — `run()` returns coroutine; when awaited, finally awaited first, then result returned (success) or active exception re-raised (failure). Nothing discarded. For `iterate()`/`iterate_do()` during sync `for`: coroutine-returning finally → `TypeError` (sync generators cannot await; use `async for`).
+**Async finally in sync pipeline:** coroutine return triggers **async transition** — `run()` returns coroutine; when awaited, finally awaited first, then result returned (success) or active exception re-raised (failure). Nothing discarded. Also applies when `Q.return_()` is the active "result" — the sync pipeline transitions async, the awaited coroutine evaluates the (lazy) return value, awaits the async finally, and resolves to the return value. For `iterate()`/`iterate_do()` during sync `for`: coroutine-returning finally → `TypeError` (sync generators cannot await; use `async for`). See §11.6 for the same async-transition mechanism applied to `except_(reraise=True)`.
 
 ### 6.3 Execution Order
 
@@ -361,7 +407,7 @@ At most one `except_()` and one `finally_()` per pipeline. Second → build `Que
 
 ### 6.4 ExceptionGroup
 
-Concurrent ops wrap multiple failures. 3.11+: builtin. 3.10: polyfill — `ExceptionGroup(message, exceptions)` (non-empty list of `Exception`), `.exceptions`, `.subgroup(condition)`, `.split(condition)` → `(matching, rest)`, `.derive(excs)` (preserves traceback and cause/context chains). Single failure → not wrapped. Iteration messages: `"foreach()/foreach_do() encountered N exceptions"`.
+Concurrent ops wrap multiple failures. 3.11+: builtin. 3.10: polyfill — `ExceptionGroup(message, exceptions)` (non-empty list of `Exception`), `.exceptions`, `.subgroup(condition)`, `.split(condition)` → `(matching, rest)`, `.derive(excs)` — constructs a new group from `excs` (a non-empty sequence of `Exception` instances) and copies the original group's `__traceback__`, `__cause__`, `__context__`, and `__notes__` (if present) onto the new group; `subgroup`/`split` use `derive` internally so chain attributes and notes survive filtering. `__suppress_context__` is not copied (matches builtin `ExceptionGroup.derive` behavior). Single failure → not wrapped. Iteration messages: `"foreach()/foreach_do() encountered N exceptions"`.
 
 ---
 
@@ -369,44 +415,119 @@ Concurrent ops wrap multiple failures. 3.11+: builtin. 3.10: polyfill — `Excep
 
 `Q.return_()` and `Q.break_()` are classmethods raising internal `BaseException` subclasses — bypass user `except Exception`, including pipeline's own `except_()` (default `Exception`); see §16.4. User does not catch them directly.
 
-Values are **lazy** — callable values invoked only when caught, avoiding work on propagation through nested pipelines.
+quent's control-flow model mirrors Python's:
+
+- **`Q.return_()` ≈ Python `return`** — exits the **current `Q`** (the innermost `Q` whose pipeline contains the call). Like Python's `return` exits the current function, `Q.return_()` exits the current `Q` with a value. If you're inside a nested `Q`, only that nested `Q` returns — its value flows to the outer pipeline.
+- **`Q.break_()` ≈ Python labeled-`break`-to-nearest-loop** — propagates outward through `Q` boundaries until it reaches the **nearest enclosing iteration scope**, which catches it and exits with the break value. If no enclosing iteration scope exists when the signal escapes the outermost `run()`, it's wrapped as `QuentException`.
+- **`Q.exit_()` ≈ Python `sys.exit()`** — propagates through **all** nesting levels and all carve-outs (except_/finally_/gather/drive_gen); absorbed only at the outermost `run()`. Use to terminate the entire pipeline from arbitrary depth.
+
+The model is intentionally simple — there are no quent-specific control-flow rules to learn beyond the Python analogy and a small set of intentional traps (§7.4).
+
+Values are **lazy** — callable values invoked only when caught.
 
 Idiomatic: `return Q.return_(value)` / `return Q.break_(value)` — satisfies type checkers, avoids unreachable-code warnings (the mechanism does not require `return`).
 
 ### 7.1 `Q.return_(v=<no value>, /, *args, **kwargs)`
 
-Signal early termination of pipeline.
+Signal early return from the **current `Q`**.
 
-| Form | Pipeline result |
+The current `Q` is the innermost `Q` whose pipeline contains the call. When `Q.return_()` is caught at the current `Q`'s boundary, that `Q`'s execution ends with the given value. If the current `Q` is a nested step in an outer `Q`, the outer pipeline continues with that value as the nested step's result. If the current `Q` is the outermost `run()`, that value becomes `run()`'s return.
+
+| Form | Result of the current Q |
 |---|---|
 | `Q.return_()` | `None` |
 | `Q.return_(42)` | `42` (non-callable as-is) |
 | `Q.return_(fn)` | `fn()` lazily |
 | `Q.return_(fn, *args, **kwargs)` | `fn(*args, **kwargs)` lazily |
 
-**Nested:** propagates to **outermost** (§4.2). **Restrictions:** inside `except_`/`finally_` → `QuentException`; escaping outermost `run()` → `QuentException`.
+**Lazy evaluation:**
+- `fn(*args, **kwargs)` runs at the catch frame for the `_Return` signal — at the boundary of the current `Q`, **before** that `Q`'s registered `finally_()` runs (the finally sees the lazy fn's result, or its exception, as the active state).
+- If `fn` raises, the raised exception's `__context__` is the `_Return` signal (Python's automatic `except` chaining). The `_Return` instance's internal `value`/`args`/`kwargs` attributes are private quent state — users must not inspect them; they are cleared eagerly during unwind. `finally_()` still runs.
+- If `fn` returns an awaitable in a sync pipeline, the current `Q`'s execution returns a coroutine resolving to `fn`'s value (async transition; §11.6).
+- If `fn` raises a control-flow signal (`Q.return_`/`Q.break_`), it is wrapped in `QuentException` — signals inside lazy values are misuse.
+
+**Nested `Q`:** each `Q` boundary absorbs its own `Q.return_()`. See §4.2 for the propagation table.
+
+**Restrictions:** see §7.4.
 
 ### 7.2 `Q.break_(v=<no value>, /, *args, **kwargs)`
 
-Signal early termination of iteration.
+Signal early termination of the **nearest enclosing iteration scope**.
 
-| Form | Effect |
+`Q.break_()` propagates outward through `Q` boundaries (in contrast to `Q.return_()`, which is absorbed at each `Q` boundary). It continues outward until it is caught by the nearest enclosing iteration scope. Iteration scopes are: `foreach`, `foreach_do`, `iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`, `while_`.
+
+| Form | Effect at the catching iteration |
 |---|---|
-| `Q.break_()` | Returns results collected so far. |
-| `Q.break_(value)` | Value **appended** to results. |
-| `Q.break_(fn, ...)` | `fn(...)` lazy; result appended. |
+| `Q.break_()` | Stops iteration. `foreach`/`foreach_do`: returns results collected so far. `iterate*`: generator completes without further yields. `while_`: result is the current loop value. |
+| `Q.break_(value)` | As above, **plus**: `foreach`/`foreach_do` — `value` appended to results; `iterate*` — `value` yielded as one final item before stopping; `while_` — `value` **replaces** the loop value (not append/yield). |
+| `Q.break_(fn, ...)` | `fn(...)` lazy; resulting value handled per the row above. Awaitable result → async transition (§11.6); awaited before append/yield/replace. |
 
-Applies to `foreach`, `foreach_do`, `iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`. `while_` semantics: §5.10.
+**Where `Q.break_()` propagates freely (not trapped):**
+- Through `if_()`/`else_*` predicates and branches (if_ has no iteration scope; signal propagates to outer iteration).
+- Through `with_`/`with_do` (CM exits cleanly first via `__exit__(None, None, None)`, then signal propagates).
+- Through `drive_gen` (generator is closed first via `close()`/`aclose()`, then signal propagates).
+- Through nested `Q` boundaries (a `Q` is not itself an iteration scope; `Q.break_()` is not absorbed by `Q.run()` unless that `Q.run()` is the outermost — see §7.4).
 
-**Restrictions:** outside an iteration/loop scope, inside `except_`/`finally_`, inside `if_()` predicate, inside `gather()` → `QuentException`.
+**Restrictions:** see §7.4.
+
+**Wrapping form when escaping outermost `run()`:** the `QuentException` raised at the outermost boundary sets `__suppress_context__ = True` and leaves `__cause__ = None`. The internal `_Break` signal is intentionally hidden from default traceback rendering — it is an implementation type, not user data.
 
 ### 7.3 Priority in Concurrent Iteration
 
-1. **`Q.return_()`** — absolute, immediate propagation.
-2. **`Q.break_()`** — over regular exceptions; multiple → earliest **input index** wins.
-3. **Regular exceptions** — single propagates; multiple → `ExceptionGroup` (§6.4).
+1. **`Q.return_()`** — absolute, immediate propagation. Wins over `BaseException`, `Q.break_()`, and regular exceptions regardless of input index.
+2. **`Q.break_()`** — over regular exceptions; multiple → earliest **input index** wins. (Note: `Q.break_()` inside `gather()` → `QuentException` — gather is not an iteration scope; see §7.4.)
+3. **`BaseException`** (e.g. `KeyboardInterrupt`, `SystemExit`) — never wraps in `ExceptionGroup`; earliest input-index over regular exceptions; co-occurring regular exceptions discarded.
+4. **Regular exceptions** — single propagates; multiple → `ExceptionGroup` (§6.4) with op-specific message.
 
-`BaseException` (e.g. `KeyboardInterrupt`) never wraps; earliest-input-index over regular exceptions.
+**Discard logging:** when `Q.return_()` wins, co-occurring regular exceptions are logged via `RuntimeWarning` on the `'quent'` logger as discarded; co-occurring `BaseException` is silently dropped (no warning). Other discard paths (e.g., `BaseException` winning over regulars) do not warn.
+
+### 7.4 Restrictions and Carve-Outs
+
+The following are the **only** places where the §7.1 / §7.2 propagation model is overridden. **`Q.exit_()` (§7.5) bypasses every entry in this table** and propagates regardless.
+
+| Scope | `Q.return_()` | `Q.break_()` | `Q.exit_()` | Rationale |
+|---|---|---|---|---|
+| Inside `except_` handler | `QuentException` | `QuentException` | Propagates | (`exit_`) terminates pipeline regardless; (`return_`/`break_`) would skip handler invariants. |
+| Inside `finally_` handler | `QuentException` | `QuentException` | Propagates | (`exit_`) terminates pipeline regardless; (`return_`/`break_`) would skip finally's "always runs" guarantee. |
+| Inside `gather()` worker callable | **Returns from worker** — value becomes that gather position's tuple element. | `QuentException` (gather is concurrent fan-out, not iteration). | Propagates (sibling tasks cancelled per asyncio/threadpool semantics). | Workers are independent for `return_`; `exit_` is unconditional. |
+| Inside `drive_gen`'s `fn` | **Returns from `fn`** — value becomes pipeline CV (drive_gen's normal "last fn return → CV" rule). | Propagates outward to the nearest iteration scope (drive_gen does NOT trap; generator closed first). | Propagates (generator closed first via `gen.close()`/`aclose()`). | drive_gen's `fn` is treated as a step-result producer. |
+| Escaping outermost `run()` with no enclosing iteration scope (for `Q.break_()`) | n/a (each `Q` absorbs) | `QuentException` | n/a (absorbed at outermost `run()`) | No iteration target to break. |
+
+Anywhere else — including `if_`/`else_*` predicates and branches, `with_`/`with_do` bodies, `then`/`do` callables, `while_` predicate and body, iteration callbacks, nested `Q` steps — signals follow §7.1 / §7.2 / §7.5 without trap.
+
+### 7.5 `Q.exit_(v=<no value>, /, *args, **kwargs)`
+
+Signal hard exit from the **entire** pipeline regardless of nesting depth.
+
+Like Python's `sys.exit()`: propagates through every `Q` boundary, every signal carve-out (§7.4), every level of nesting. Absorbed only at the outermost `run()`, which produces the value as the entire pipeline's result.
+
+| Form | Pipeline result |
+|---|---|
+| `Q.exit_()` | `None` |
+| `Q.exit_(42)` | `42` (non-callable as-is) |
+| `Q.exit_(fn)` | `fn()` lazily, evaluated at the outermost `run()`'s catch frame |
+| `Q.exit_(fn, *args, **kwargs)` | `fn(*args, **kwargs)` lazily |
+
+**Cleanup respects Python `try/finally` semantics:** as `_Exit` propagates, every `finally_()` runs, every CM's `__exit__` runs, every `drive_gen` generator closes, every concurrent task cancels and awaits. Resources release. Only after all cleanup unwinds does `_Exit` reach the outermost `run()`.
+
+**Lazy evaluation:** same model as §7.1. `fn` runs at the outermost `run()` catch frame, **before** that pipeline's outermost `finally_()` (if any) would observe a successful completion — though by the time `fn` runs, all `finally_()` handlers at every nesting level have already executed (they ran during propagation). If `fn` raises a control-flow signal, it is wrapped in `QuentException` (signals inside lazy values are misuse).
+
+**Use when:**
+- Deep nested logic needs to terminate the entire pipeline (e.g., a fatal condition discovered five levels down).
+- An invariant violation should abort everything immediately.
+
+**Don't use when:**
+- Returning from the current `Q` suffices — use `Q.return_()`.
+- Exiting the nearest iteration suffices — use `Q.break_()`.
+
+### 7.3 Priority in Concurrent Iteration
+
+1. **`Q.return_()`** — absolute, immediate propagation. Wins over `BaseException`, `Q.break_()`, and regular exceptions regardless of input index.
+2. **`Q.break_()`** — over regular exceptions; multiple → earliest **input index** wins. (Note: `Q.break_()` inside `gather()` → `QuentException` — gather is not an iteration scope.)
+3. **`BaseException`** (e.g. `KeyboardInterrupt`, `SystemExit`) — never wraps in `ExceptionGroup`; earliest input-index over regular exceptions; co-occurring regular exceptions discarded.
+4. **Regular exceptions** — single propagates; multiple → `ExceptionGroup` (§6.4) with op-specific message.
+
+**Discard logging:** when `Q.return_()` wins, co-occurring regular exceptions are logged via `RuntimeWarning` on the `'quent'` logger as discarded; co-occurring `BaseException` is silently dropped (no warning). Other discard paths (e.g., `BaseException` winning over regulars) do not warn.
 
 ---
 
@@ -625,20 +746,20 @@ Selected when first item/fn returns non-awaitable.
 - `ThreadPoolExecutor` with `max_workers = min(concurrency, remaining_items)`. Shut down `wait=True` (unless user-provided).
 - **First item probed synchronously** in calling thread. Only subsequent items go to pool.
 - **Awaitable from thread worker** → `TypeError` (once sync chosen, all workers must be sync). Awaitable closed to avoid resource warnings.
-- **Memory ordering:** `concurrent.futures.wait()` establishes happens-before via `Future`'s `threading.Condition`. Safe under GIL and PEP 703 free-threaded.
+- **Memory ordering:** `concurrent.futures.wait()` establishes happens-before between the worker's `Future.set_result(value)` and the parent's `future.result()` read, via the `Future`'s internal `threading.Condition`. This guarantees `value` (the result of `fn(item)`) is visible to the parent after `wait()` returns. quent does **not** guarantee visibility of worker-side mutations to **shared external state** that are not the returned value — such state must be synchronized by the user. Holds under GIL and PEP 703 free-threaded.
 
 ### 11.4 Async Concurrent Execution
 
 Selected when first item/fn returns awaitable.
 
 - `asyncio.Semaphore` limits concurrency.
-- **3.11+:** `asyncio.TaskGroup`; failures via `TaskGroup`'s `ExceptionGroup`.
-- **3.10:** `asyncio.gather()` fallback; on failure, pending tasks cancelled and awaited before triage.
+- **3.11+:** `asyncio.TaskGroup`. The TaskGroup's own `ExceptionGroup` is **not** surfaced — quent catches it, extracts the sub-exceptions, and re-triages per §5.3/§5.5/§7.3. The user-visible exception is either a single propagating exception, a quent-specific `ExceptionGroup` with op-name in the message (`"gather() encountered N exceptions"` or `"foreach()/foreach_do() encountered N exceptions"`), or a propagating control-flow signal.
+- **3.10:** `asyncio.gather()` fallback; on failure, pending tasks cancelled and awaited before triage; same user-visible wrapping rules as 3.11+.
 - **Async iterables:** inputs with `__aiter__` but not `__iter__` fully materialized before dispatch. For large/unbounded → use sequential.
 
 ### 11.5 Sync/Async Detection
 
-Probe first item/fn: call; awaitable → async path; non-awaitable → sync path; later worker returning awaitable on sync path → `TypeError`.
+Probe first item/fn: call **exactly once**; awaitable → async path; non-awaitable → sync path; later worker returning awaitable on sync path → `TypeError`. The probe's result is reused as the first batch result — fn0 is **not** invoked a second time. Side effects of the probe execute regardless of the subsequent path (sync or async).
 
 Callables must be **consistently** sync or async across all items/fns in one op. Mixed → `TypeError`.
 
@@ -648,10 +769,17 @@ Callables must be **consistently** sync or async across all items/fns in one op.
 
 - **`reraise=True` + coroutine return in sync pipeline** → async transition. `run()` returns coroutine; caller awaits; handler completes; original re-raised. Ensures handler side-effects (e.g. async logging) complete before propagation.
 - **`reraise=False` + coroutine return** → normal async transition. Coroutine → result; `run()` returns for `await`.
+- **`Q.return_(fn)` lazy callable returning awaitable in sync pipeline** → same transition; outermost `run()` returns coroutine that resolves to `fn`'s value (§7.1 lazy evaluation).
+
+**Mechanism.** The sync engine walks the linked list inline; when a handler (or lazy return value) yields an awaitable, the sync engine constructs and returns a small `async def` continuation coroutine that: (a) awaits the pending awaitable, (b) applies the appropriate post-handler semantics (re-raise / return / chain into `finally_`), (c) resolves to the final pipeline result. `run()` returns the continuation; the user sees a coroutine. The synchronous vs asynchronous distinction at the call site is preserved — caller `await`s only if `run()` returned a coroutine.
 
 ### 11.7 Context Variable Propagation
 
 `contextvars` propagate to `ThreadPoolExecutor` workers via `copy_context().run()`. Workers see context vars with values at submit time. Async tasks inherit naturally through asyncio.
+
+> **Isolation guarantee.** `copy_context().run(fn)` gives `fn` its own snapshot of all `ContextVar`s — any `ContextVar.set` inside is invisible to siblings and to the parent. This is asyncio/contextvars builtin behavior. The user-facing `Q.set`/`Q.get` API (§15) layers on a copy-on-write dict pattern (each `Q.set` creates a new dict, never mutates), which is defense-in-depth and also enables single-threaded re-entrancy. Either mechanism alone suffices for worker isolation.
+
+> **Implementation note — loop detection.** §16.2's "is an event loop running?" check uses CPython's private `asyncio._get_running_loop()` (returns the running loop or `None`, no exception raised) for speed. This is implementation-internal and may need adaptation on alternate runtimes. The behavior contract: under an active asyncio/trio/curio loop, async protocol is preferred for dual-protocol objects.
 
 ### 11.8 Why Per-Invocation Executor
 
@@ -716,6 +844,8 @@ Q(fetch_data)
 
 Nested pipelines render with 4-space-per-level indentation. `<----` appears on exactly one step. `except_`, `finally_`, `if_` with `else_` (both branches) all appear.
 
+> **Implementation note.** The `<quent>` frame is realized as a synthetic Python frame: at import time quent compiles a constant `raise __exc__` code object; on each pipeline exception, the code object's `co_name`/`co_qualname` is replaced (via `code.replace`) with the visualization string and the result is `exec()`'d inside a controlled namespace where `__exc__` is bound to the exception. The replaced `co_name` becomes the function-name field rendered by Python's `traceback` formatter — that is the visualization. The pre-compiled code object is the **only** thing `exec()`'d (security invariant: user data flows only into traceback metadata, never into executed code). Implementations filtering tracebacks by frame name should expect `co_name` to contain the visualization string and `co_filename` to be `'<quent>'`.
+
 ### 13.2 Error Marker — First-Write-Wins
 
 Across nested pipelines, only the **innermost** failing step is recorded. Marker points to deepest origin, not intermediate re-raise.
@@ -769,7 +899,7 @@ Visualization is best-effort. On failure: `RuntimeWarning` emitted; failure logg
 
 ### 13.10 `__repr__` via Visualization
 
-`repr(q)` uses same format without `<----`. Respects `QUENT_TRACEBACK_VALUES=0`. Same limits. Named: `Q[label](root)`.
+`repr(q)` uses same format without `<----`. Respects `QUENT_TRACEBACK_VALUES=0`. Same limits. Named: `Q[label](root)`. **Format is not stable across versions** — for debugging and logs only; use `name()` labels (§5.12) for stable identification in tests.
 
 ---
 
@@ -792,7 +922,7 @@ def on_step(q: Q, step_name: str, input_value: Any, result: Any,
 | Arg | Meaning |
 |---|---|
 | `q` | Instance being executed. |
-| `step_name` | `'root'` for root, else registering method: `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'while_'`, `'drive_gen'`, `'except_'`, `'finally_'`. `'if_'` covers entire conditional regardless of branch. `'else_'`/`'else_do'` appear in visualizations but NOT reported as separate events — part of `if_`. |
+| `step_name` | `'root'` for root, else registering method: `'then'`, `'do'`, `'foreach'`, `'foreach_do'`, `'gather'`, `'with_'`, `'with_do'`, `'if_'`, `'while_'`, `'drive_gen'`, `'except_'`, `'finally_'`. `'if_'` covers entire conditional regardless of branch. `'else_'`/`'else_do'` appear in visualizations but NOT reported as separate events — part of `if_`. Instance `q.set(...)` reports as `'do'` (it discards its return like `.do()`); instance `q.get(...)` reports as `'then'` (it replaces CV like `.then()`); both share the plain-callable name path. Iteration **terminals** (`iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`) and the `buffer(n)` modifier do not themselves fire `on_step` — they construct an iterator whose `__iter__`/`__aiter__` runs the pipeline; the pipeline's own steps inside fire normally. |
 | `input_value` | CV passed to step, normalized `None` if absent. `'root'`: run value (or `None`). `'except_'`: `QuentExcInfo`. `'finally_'`: root value (or `None`). |
 | `result` | Value produced. `None` on failure. |
 | `elapsed_ns` | Wall-clock ns via `time.perf_counter_ns()`. |
@@ -946,8 +1076,11 @@ Objects like `aiohttp.ClientSession` implement both, but their sync protocol is 
 | CV not iterable (iteration ops) | Run | `TypeError` |
 | CV not a CM (`with_`/`with_do`) | Run | `TypeError` |
 | CV not generator/factory (`drive_gen`) | Run | `TypeError` |
-| Control flow signal escaping outermost `run()` | Run | `QuentException` |
-| Signal misused (in handler, in `if_` predicate, in `gather`, outside scope) | Run | `QuentException` |
+| `Q.return_()` raised inside `except_`/`finally_` handler | Run | `QuentException` |
+| `Q.break_()` raised inside `except_`/`finally_` handler | Run | `QuentException` |
+| `Q.break_()` raised inside `gather()` worker | Run | `QuentException` |
+| `Q.break_()` escaping outermost `run()` with no enclosing iteration scope | Run | `QuentException` |
+| Control-flow signal (`Q.return_`/`Q.break_`) raised by a lazy callable inside another signal's value | Run | `QuentException` |
 
 ### 16.4 Signals as `BaseException`
 
@@ -982,38 +1115,57 @@ Pickling NOT blocked. Most contents naturally fail to pickle; explicit preventio
 
 The **only** places where §2 does not hold without qualification.
 
-### 17.1 Sync `iterate()` Raises `TypeError` on Awaitable
+### 17.1 Sync Iteration Raises `TypeError` on Awaitable
 
-`for item in q.iterate()` with awaitable from pipeline or `fn`:
+Sync iteration (`for item in q.iterate()`, `for item in q.iterate_do()`, `for item in q.flat_iterate()`, `for item in q.flat_iterate_do()`) cannot await. Every entry point where an awaitable could appear during sync iteration raises `TypeError`:
 
-> Cannot use sync iteration on an async pipeline; use 'async for' instead
+| Source of awaitable | Where it fails |
+|---|---|
+| Pipeline `run()` phase returns a coroutine | `iterate*` setup, before first yield |
+| Callback `fn(item)` returns a coroutine | `iterate*` per-element |
+| `flat_iterate.fn`/`flush` returns a coroutine | `flat_iterate*` per-element / at flush time |
+| Deferred `with_(fn)` whose `fn` returns a coroutine, or async-only CM | At iteration start (deferred CM entry) |
+| `finally_()` returns a coroutine in a sync `for` over `iterate*` | When the generator's `finally:` runs |
 
-> iterate() callback returned a coroutine. Use "async for" with `__aiter__` instead of "for" with `__iter__`.
-
-Sync generator cannot `await`. No language mechanism bridges this within `__iter__`/`__next__`. Switch to `async for`. A sync pipeline's coroutine-returning `finally_()` during sync iteration also raises.
+Sample messages: `"Cannot use sync iteration on an async pipeline; use 'async for' instead"`; `"iterate() callback returned a coroutine. Use 'async for' with __aiter__ instead of 'for' with __iter__"`. Sync generators cannot `await` — no language mechanism bridges this within `__iter__`/`__next__`. Switch to `async for`.
 
 ### 17.2 Concurrent Sync Workers Cannot Return Awaitables
 
 In a concurrent op selected as sync (first probe non-awaitable), later worker returning awaitable → `TypeError`. Awaitable closed (if `.close()` exists) to prevent leaks. No event loop in worker threads.
 
-### 17.3 `return_(value)` Differs Between `run()` and Iteration
+### 17.3 `return_(value)` / `exit_(value)` During Deferred Iteration
 
-| Context | `Q.return_(value)` |
-|---|---|
-| `run()` | Replaces pipeline's entire result. |
-| `iterate()` etc. | Yields `value` as one final item before stopping. Prior items preserved — already emitted, cannot be retracted. |
+When `Q.return_(value)` or `Q.exit_(value)` is raised by a step running during iteration of an iteration terminal (`iterate`/`iterate_do`/`flat_iterate`/`flat_iterate_do`), the iterator yields `value` as one final item and stops. Prior items are preserved (already emitted, cannot be retracted).
+
+This is a quent-specific extension. The Python analogy — `return X` inside a generator function — discards `X` (it goes into `StopIteration.value`, but `for x in gen():` doesn't see it). quent's iterators surface the value as a final yield instead, because the pipeline's step is producing data for the consumer; discarding the final return would be surprising for a data pipeline.
+
+`Q.exit_()` behaves the same as `Q.return_()` here because there is no outermost `run()` boundary during deferred iteration — the iterator is being driven externally. Treating exit_ as "yield-and-stop" is the most useful interpretation: it terminates iteration cleanly with a final value, mirroring `Q.return_()`.
+
+In **non-iteration** contexts, `Q.return_()` follows §7.1 cleanly — returns from the current `Q` (the one whose pipeline contains the call); the value becomes that `Q`'s `run()` return (or, if nested, that nested step's result). `Q.exit_()` follows §7.5 — propagates to outermost `run()`.
 
 ### 17.4 Concurrent Operations Require Uniform Sync/Async
 
 In `foreach`/`foreach_do` with concurrency, or `gather()`, all callables must be uniformly sync or async. First probe decides; opposite kind later → `TypeError`. Bridge does NOT hold for individual callable replacement here — replace all uniformly. Sync uses `ThreadPoolExecutor` (no loop in worker threads); async uses `asyncio.Task`. Mutually exclusive execution models.
 
-### 17.5 `StopIteration` → `RuntimeError` in Async (PEP 479)
+### 17.5 `StopIteration` → `RuntimeError` (PEP 479) — Path-Dependent
 
-Sync callback raising `StopIteration` propagates as-is. Async callback raising `StopIteration` wrapped as `RuntimeError` by Python (PEP 479) before quent sees it. Same logical error, different observable exception type. Language constraint, not a quent choice.
+PEP 479 applies to **generator frames**: a `StopIteration` raised inside a running generator becomes `RuntimeError`. Whether a callback's `StopIteration` is converted depends on which iteration path quent uses:
+
+| Iteration path | quent internal | Callback `StopIteration` |
+|---|---|---|
+| `foreach` / `foreach_do` (sync) | `while next(it)` loop — not a generator frame | Propagates as-is |
+| `iterate` / `iterate_do` / `flat_iterate*` (sync) | Generator frame (`def _sync_generator`) | Wrapped as `RuntimeError` (PEP 479) |
+| Any async path with `async def` callback raising `StopIteration` | Python converts at call site | `RuntimeError` regardless |
+
+Same logical error, different observable exception type depending on path. Language constraint, not a quent choice — but the spec calls out the path so users can predict.
 
 ### 17.6 Dual-Protocol Behavior Depends on Runtime State
 
 A value implementing both protocols takes a different code path depending on whether an async loop is running (§16.2). Same pipeline + same value may behave differently under different ambient state. Trade-off: objects like `aiohttp.ClientSession` need this preference to behave correctly.
+
+### 17.7 `drive_gen()` `fn` Ignores Standard Calling Conventions
+
+§4.1 introduces the calling conventions as "universal — steps, predicates, handlers, branches, bodies. Sole exception: `drive_gen()`'s step fn (§5.11)." The exception is normative: `drive_gen`'s `fn` is **always** called as `fn(yielded_value)`, ignoring Rule 1 even when `args`/`kwargs` are provided (none can be provided — `drive_gen(fn, /)` has no varargs in its signature). This is a calling-convention asymmetry (not a bridge-contract asymmetry — sync/async equivalence still holds for `drive_gen`).
 
 ---
 

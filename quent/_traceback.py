@@ -1,15 +1,9 @@
 # SPDX-License-Identifier: MIT
-"""Traceback enhancement — inject pipeline visualizations into exception output.
+"""Traceback enhancement — inject pipeline visualizations into exceptions.
 
-Importing this module installs two global patches:
-  - ``sys.excepthook`` is replaced with ``_quent_excepthook`` to clean
-    quent-internal frames before the default exception display.
-  - ``traceback.TracebackException.__init__`` is patched so that all
-    rendering paths (logging, ``traceback.format_exception``, etc.) also
-    receive cleaned tracebacks.
-
-Both patches are skipped when the environment variable
-``QUENT_NO_TRACEBACK=1`` is set before the module is imported.
+Installs two global patches at import: ``sys.excepthook`` and
+``traceback.TracebackException.__init__``. Both skipped when
+``QUENT_NO_TRACEBACK=1`` is set before import.
 """
 
 from __future__ import annotations
@@ -48,11 +42,9 @@ if TYPE_CHECKING:
 
 
 def _cleanup_outermost_meta(meta: dict[str, Any]) -> None:
-  """Defense-in-depth: ensure heavy refs are removed even if visualization failed."""
+  """Defense-in-depth — heavy refs removed even if visualization failed."""
   _pop_heavy_meta_keys(meta)
 
-
-# ---- Module-level constants ----
 
 _log = logging.getLogger('quent')
 
@@ -60,13 +52,8 @@ _quent_dir: str = os.path.dirname(os.path.realpath(__file__)) + os.sep
 
 
 def _user_stacklevel() -> int:
-  """Compute the stacklevel needed for warnings.warn() to point at the first user frame outside quent/.
-
-  Walks the call stack upward from the caller of this function until it finds a frame whose
-  filename is not inside the quent package directory.  Returns the level count suitable
-  for passing directly to ``warnings.warn(..., stacklevel=_user_stacklevel())``.
-  """
-  frame = sys._getframe(1)  # caller of _user_stacklevel
+  """Stacklevel for warnings.warn() that points at the first user frame."""
+  frame = sys._getframe(1)
   level = 1
   while frame is not None:
     if not frame.f_code.co_filename.startswith(_quent_dir):
@@ -76,37 +63,29 @@ def _user_stacklevel() -> int:
   return level
 
 
-# Pre-compiled code object used as a template for the traceback injection hack.
-# Its co_name is replaced with the pipeline visualization string at runtime, so
-# the visualization appears as the "function name" in Python's traceback output.
+# Pre-compiled template; co_name gets replaced with the pipeline viz string,
+# making the viz appear as the "function name" in Python's traceback output.
 _RAISE_CODE: types.CodeType = compile('raise __exc__', '<quent>', 'exec')
 
-# Python 3.11+ supports code.replace(co_qualname=...), which newer traceback
-# formatters read instead of co_name.  We need to set both for full coverage.
+# 3.11+ formatters read co_qualname instead of co_name — set both.
 _HAS_QUALNAME: bool = sys.version_info >= (3, 11)
 
-# PEP 579: TracebackType() can construct traceback objects directly.
 _TracebackType: type[types.TracebackType] = types.TracebackType
 
-# QUENT_NO_TRACEBACK=1 disables all traceback modifications (visualization
-# injection, frame cleaning, hook patching).
 _traceback_enabled: bool = os.environ.get('QUENT_NO_TRACEBACK', '').strip().lower() not in ('1', 'true', 'yes')
 if not _traceback_enabled:
   _log.info('quent traceback enhancement disabled via QUENT_NO_TRACEBACK')
 
 
-# ---- Frame cleaning ----
-
-
 def _clean_internal_frames(tb: types.TracebackType | None) -> types.TracebackType | None:
-  """Remove quent-internal frames from a traceback, keeping user and synthetic frames."""
+  """Strip quent-internal frames, keep user and synthetic frames."""
   stack = []
   tb_next = None
 
   frame_tb = tb
   while frame_tb is not None:
     filename = frame_tb.tb_frame.f_code.co_filename
-    # Keep <quent> synthetic frames and frames outside the quent package.
+    # Keep <quent> synthetic frames and user frames.
     if filename == '<quent>' or not filename.startswith(_quent_dir):
       stack.append(frame_tb)
     frame_tb = frame_tb.tb_next
@@ -122,7 +101,7 @@ _MAX_CHAINED_EXCEPTION_DEPTH: int = 1000
 
 
 def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None:
-  """Iteratively clean internal frames from chained exceptions."""
+  """Iteratively clean frames from chained exceptions (incl. ExceptionGroup)."""
   stack = [exc]
   depth = 0
   while stack:
@@ -137,12 +116,8 @@ def _clean_chained_exceptions(exc: BaseException | None, seen: set[int]) -> None
       exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
     stack.append(exc.__cause__)
     stack.append(exc.__context__)
-    # Python 3.11+: ExceptionGroup wraps sub-exceptions.
     if hasattr(exc, 'exceptions'):
       stack.extend(exc.exceptions)
-
-
-# ---- Traceback injection ----
 
 
 def _inject_visualization(
@@ -153,12 +128,7 @@ def _inject_visualization(
   meta: dict[str, Any],
   extra_links: list[tuple[Link, str]] | None,
 ) -> None:
-  """Build pipeline visualization string and inject it into the traceback via code object hack.
-
-  Creates a synthetic <quent> frame whose co_name is the pipeline visualization,
-  so it appears as the "function name" in Python's traceback output.
-  Falls back to plain frame cleaning on visualization failure.
-  """
+  """Build viz string, inject via the code-object hack. Falls back on failure."""
   globals_: dict[str, Any] | None = None
   try:
     ctx = _VizContext(
@@ -166,57 +136,41 @@ def _inject_visualization(
       link_temp_args=meta.pop(META_LINK_TEMP_ARGS, None),
     )
     viz_source = _stringify_q(q, nest_lvl=0, root_link=root_link, ctx=ctx, extra_links=extra_links)
-    # Indent the pipeline visualization so it appears nested under the <quent> frame header.
+    # Indent so viz nests under the <quent> frame header.
     viz_source = _make_indent(1).join(['', *viz_source.splitlines()])
 
-    # HACK — code object injection trick
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # We exec() a ``raise`` statement using a code object whose co_name has been
-    # replaced with the pipeline visualization string.  Python's traceback machinery
-    # reads co_name as the "function name", so the pipeline structure appears inline
-    # in the traceback as if it were a function name.  The exec() creates a real
-    # traceback frame that we then graft onto the exception.
-    # SECURITY INVARIANT: The code argument to exec() MUST remain the pre-compiled
-    # constant ``_RAISE_CODE`` (``compile('raise __exc__', ...)``, line 49).
-    # User-controlled data (callable names, repr output) MUST only flow into
-    # ``co_name``/``co_qualname`` metadata via ``code.replace()``, never into
-    # executed code or the ``globals_`` dict.  The ``globals_`` dict contains
-    # only the exception object under a fixed key.
+    # SECURITY INVARIANT: exec() arg MUST remain pre-compiled _RAISE_CODE.
+    # User-controlled data (callable names, reprs) flows ONLY into
+    # co_name/co_qualname metadata via code.replace() — never into executed
+    # code or globals_. globals_ holds only the exception under a fixed key.
     filename = '<quent>'
     exc_value = exc
     globals_ = {'__name__': filename, '__file__': filename, '__exc__': exc_value}
     if _HAS_QUALNAME:
-      # Python 3.11+: newer traceback formatters prefer co_qualname over co_name,
-      # so we must set both to ensure the visualization renders everywhere.
-      code = _RAISE_CODE.replace(co_name=viz_source, co_qualname=viz_source)  # type: ignore[call-arg]  # co_qualname added in Python 3.11; mypy doesn't know about it
+      code = _RAISE_CODE.replace(co_name=viz_source, co_qualname=viz_source)  # type: ignore[call-arg]  # co_qualname added in 3.11
     else:
       code = _RAISE_CODE.replace(co_name=viz_source)
     if code.co_code != _RAISE_CODE.co_code:
       raise RuntimeError('SECURITY: exec() must only use _RAISE_CODE')
     try:
-      exec(code, globals_, {})  # nosec B102 — code object is pre-compiled from constant 'raise __exc__'; user input only reaches co_name metadata, never executed code
+      exec(code, globals_, {})  # nosec B102 — code object is pre-compiled from constant 'raise __exc__'
     except BaseException as caught_exc:
-      # Must be BaseException (not Exception) to catch the deliberately re-raised
-      # exc, which may be any BaseException subclass.
-      # Safety: if a KeyboardInterrupt or SystemExit arrives during exec(),
-      # re-raise it immediately — these must never be absorbed by traceback
-      # machinery.
+      # Must be BaseException — exc may be any subclass. But KI/SystemExit
+      # arriving during exec() must never be absorbed.
       if caught_exc is not exc_value and isinstance(caught_exc, (KeyboardInterrupt, SystemExit)):
         raise
-      new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]  # exc_info()[1] is guaranteed non-None inside except block
+      new_tb = sys.exc_info()[1].__traceback__  # type: ignore[union-attr]
       exc.__traceback__ = _clean_internal_frames(new_tb)
     finally:
-      # Clear the globals dict to break the reference cycle:
-      # exc -> __traceback__ -> frame -> f_globals -> globals_ -> exc
+      # Break the cycle: exc → __traceback__ → frame → f_globals → globals_ → exc.
       if globals_ is not None:
         globals_.clear()
-        globals_ = None  # Release the dict object itself
+        globals_ = None
   except Exception as viz_exc:
     if globals_ is not None:
       globals_.clear()
       globals_ = None
-    # Graceful degradation: visualization failures must never break exception
-    # handling.  Emit a warning and fall back to plain frame cleaning.
+    # Viz failures must never break exception handling — fall back to plain cleaning.
     _log.debug('pipeline visualization failed: %r', viz_exc)
     warnings.warn(
       f'quent: pipeline visualization failed: {viz_exc!r}',
@@ -227,10 +181,7 @@ def _inject_visualization(
 
 
 def _attach_exception_note(exc: BaseException, q: Q[Any], source_link: Link | None) -> None:
-  """Attach a concise one-line note identifying the failing step (Python 3.11+).
-
-  Exception notes survive traceback reformatting/stripping.
-  """
+  """One-line exception note identifying the failing step (3.11+; survives reformatting)."""
   if not hasattr(exc, 'add_note'):
     return
   existing_notes = getattr(exc, '__notes__', [])
@@ -246,7 +197,7 @@ def _attach_exception_note(exc: BaseException, q: Q[Any], source_link: Link | No
     q_label = f'Q[{_sanitize_repr(q._name)}]' if q._name is not None else 'Q'
     exc.add_note(f'quent: exception at {step_name} in {q_label}({root_name})')
   except Exception as note_exc:
-    _log.debug('exception note attachment failed: %r', note_exc)  # never let note generation break exception handling
+    _log.debug('exception note attachment failed: %r', note_exc)  # never let notes break exception handling
 
 
 def _modify_traceback(
@@ -257,31 +208,24 @@ def _modify_traceback(
   extra_links: list[tuple[Link, str]] | None = None,
   is_nested: bool = False,
 ) -> BaseException:
-  """Inject pipeline visualization into the traceback, or just strip internal frames.
+  """Inject viz into traceback, or just strip internal frames.
 
-  Always returns the exception for use in ``raise`` expressions.
+  Returns the exception for use in ``raise`` expressions.
 
-  *is_nested* indicates whether the pipeline is executing as a nested step
-  inside another pipeline.  When True, only frame cleaning is performed
-  (no visualization injection) — visualization is reserved for the
-  outermost pipeline.
+  is_nested=True: only frame cleaning, no viz (reserved for outermost).
 
-  Not thread-safe.  If concurrent threads process exceptions that share
-  ``__cause__`` or ``__context__`` objects, traceback mutations may race.
-  This is accepted as a known limitation — traceback enhancement is
-  best-effort and must never suppress the underlying exception.
+  Not thread-safe; concurrent threads sharing __cause__/__context__ may race.
+  Accepted limitation — traceback enhancement is best-effort and must never
+  suppress the underlying exception.
   """
   if not _traceback_enabled:
-    # Clean heavy metadata even when traceback enhancement is disabled,
-    # to prevent Link objects, callables, and runtime values from leaking
-    # via __quent_meta__ to user code.  Only at the outermost pipeline boundary
-    # (same condition as the enabled path) and only if metadata is present.
+    # Still clean heavy meta so Link/callables/values don't leak via
+    # __quent_meta__ — only at outermost boundary, same as the enabled path.
     if q is not None and link is not None and not is_nested:
       _meta = getattr(exc, '__quent_meta__', None)
       if _meta is not None:
         _cleanup_outermost_meta(_meta)
       _clean_quent_idx(exc)
-    # Return unmodified exception for consistent caller interface.
     return exc.with_traceback(exc.__traceback__)
 
   meta = _get_exc_meta(exc)
@@ -300,14 +244,10 @@ def _modify_traceback(
     meta[META_QUENT] = True
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
-  # Defense-in-depth cleanup for the outermost pipeline only: remove heavy
-  # pipeline-internal references from __quent_meta__ so they don't leak to
-  # user code.  Intentionally redundant with _inject_visualization's
-  # internal pops — covers the fallback path if visualization failed.
+  # Defense-in-depth — redundant with _inject_visualization's internal pops,
+  # covers the fallback path if viz failed.
   if q is not None and link is not None and not is_nested:
     _cleanup_outermost_meta(meta)
-  # Clean _quent_idx: ad-hoc attribute attached by concurrent workers
-  # (see _exc_meta._clean_quent_idx docstring).
   _clean_quent_idx(exc)
 
   seen: set[int] = set()
@@ -316,11 +256,8 @@ def _modify_traceback(
   return exc.with_traceback(exc.__traceback__)
 
 
-# ---- Hook installation ----
-
-
 def _try_clean_quent_exc(exc_value: BaseException | None) -> tuple[bool, types.TracebackType | None]:
-  """Check for ``__quent_meta__`` flag and clean frames if present."""
+  """Check the __quent_meta__ flag; clean frames if present."""
   try:
     meta = getattr(exc_value, '__quent_meta__', None) if exc_value is not None else None
     if meta is not None and meta.get(META_QUENT, False):
@@ -334,18 +271,15 @@ def _try_clean_quent_exc(exc_value: BaseException | None) -> tuple[bool, types.T
 def _quent_excepthook(
   exc_type: type[BaseException], exc_value: BaseException, exc_tb: types.TracebackType | None
 ) -> None:
-  """Custom ``sys.excepthook`` that cleans quent-internal frames before display."""
   cleaned, tb = _try_clean_quent_exc(exc_value)
   if cleaned:
     exc_tb = tb
   _prev_excepthook(exc_type, exc_value, exc_tb)
 
 
-# Unconditionally capture the current hooks *before* any patching, so
-# ``_traceback_enabled`` toggle always has valid restore targets — even if
-# mutated by external code.
-# Guard with _hooks_captured to ensure the true originals are captured
-# exactly once — importlib.reload() must not re-capture already-patched hooks.
+# Capture originals before patching; _hooks_captured guard ensures the true
+# originals are saved exactly once — importlib.reload() must not re-capture
+# already-patched hooks.
 if not globals().get('_hooks_captured', False):
   _prev_excepthook = sys.excepthook
   _original_te_init = traceback.TracebackException.__init__
@@ -359,32 +293,24 @@ def _patched_te_init(
   exc_traceback: types.TracebackType | None = None,
   **kwargs: Any,
 ) -> None:
-  """Patched ``TracebackException.__init__`` that cleans quent frames."""
   cleaned, tb = _try_clean_quent_exc(exc_value)
   if cleaned:
     exc_traceback = tb
-  _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]  # signature matches CPython's TracebackException.__init__
+  _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]
 
 
-# ---- Hook installation (runs once at import time) ----
-
-# These module-level patches are serialized by Python's import lock on first
-# import.  importlib.reload(quent) is not supported and may produce race
-# conditions if called concurrently from multiple threads.
+# Module-level patches serialized by Python's import lock. importlib.reload()
+# is not supported and may race under concurrent imports.
 if _traceback_enabled:
-  # Verify TracebackException.__init__ has the expected positional signature.
-  # If a future Python version changes the parameter order, our patch would
-  # silently misbehave.  Detect this early and skip the TE patch.
+  # Verify TE.__init__ signature — a future Python version changing param
+  # order would make our patch silently misbehave.
   import inspect as _inspect
 
   _te_signature_ok = True
   try:
-    # Check the current TE.__init__ (not _original_te_init) to detect
-    # if a future Python version changed the parameter order.
     _te_params = list(_inspect.signature(traceback.TracebackException.__init__).parameters.keys())
     if _te_params[:4] != ['self', 'exc_type', 'exc_value', 'exc_traceback']:
       _te_signature_ok = False
-      # stacklevel=1: module-level code during import; no user frame above.
       warnings.warn(
         'quent: TracebackException.__init__ has an unexpected signature; '
         'skipping TracebackException patch to avoid incorrect argument forwarding.',
@@ -395,13 +321,10 @@ if _traceback_enabled:
     pass  # inspect.signature can fail on builtins/C extensions
   del _inspect
 
-  # Idempotency guard: prevent stacking patches on importlib.reload(quent).
-  # Without this, reload would save the already-patched hook as _prev_excepthook,
-  # creating an infinite recursion: new hook -> old hook -> _prev_excepthook (== old hook).
-  # Note: _prev_excepthook and _original_te_init are NOT re-captured here —
-  # the true originals were captured once by the _hooks_captured guard above.
+  # Idempotency — prevents reload stacking patches (would cause infinite recursion:
+  # new hook → old hook → _prev_excepthook (== old hook)).
   if sys.excepthook is not _quent_excepthook:
     sys.excepthook = _quent_excepthook
   if _te_signature_ok and traceback.TracebackException.__init__ is not _patched_te_init:
-    traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]  # monkeypatching __init__ for traceback enhancement
+    traceback.TracebackException.__init__ = _patched_te_init  # type: ignore[method-assign]
   del _te_signature_ok

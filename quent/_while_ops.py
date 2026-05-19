@@ -14,11 +14,8 @@ from ._types import _EMPTY_TUPLE, Null, _Break, _ControlFlowSignal
 def _eval_step(link: Link, current_value: Any) -> Any:
   """Evaluate a while-loop step (predicate or body) with standard exception handling.
 
-  - ``_Break`` propagates to the caller (for break handling).
-  - Other ``_ControlFlowSignal`` subclasses (``_Return``) propagate directly.
-  - Any other ``BaseException`` gets link metadata attached, then re-raises.
-
-  Returns the raw result from ``_evaluate_value`` (may be awaitable).
+  _Break/other control flow signals propagate; other BaseExceptions get link
+  metadata attached. May return an awaitable.
   """
   __tracebackhide__ = True
   try:
@@ -33,7 +30,7 @@ def _eval_step(link: Link, current_value: Any) -> Any:
 
 
 class _WhileOp:
-  """While-loop operation: repeatedly evaluate a body while a predicate is truthy."""
+  """Repeatedly evaluate a body while a predicate is truthy."""
 
   __slots__ = ('_body_link', '_ignore_result', '_link_name', '_predicate_link')
 
@@ -49,7 +46,7 @@ class _WhileOp:
     self._link_name = 'while_'
 
   def _handle_break(self, exc: _Break, current_value: Any) -> Any:
-    """Handle a _Break signal from the loop body or predicate."""
+    """Handle a _Break from the loop body or predicate (including nested-Q predicates)."""
     try:
       if exc.value is Null:
         return None if current_value is Null else current_value
@@ -63,9 +60,7 @@ class _WhileOp:
       exc.signal_kwargs = None
 
   def __call__(self, current_value: Any = Null) -> Any:
-    """Evaluate the while loop: sync fast path with async transition on first awaitable."""
     __tracebackhide__ = True
-    # Step 1: Evaluate predicate
     if self._predicate_link is not None:
       try:
         pred = _eval_step(self._predicate_link, current_value)
@@ -76,9 +71,7 @@ class _WhileOp:
     else:
       pred = False if current_value is Null else current_value
 
-    # Step 2: Loop while predicate is truthy
     while pred:
-      # Evaluate body
       try:
         result = _eval_step(self._body_link, current_value)
       except _Break as exc:
@@ -88,7 +81,6 @@ class _WhileOp:
       if not self._ignore_result:
         current_value = result
 
-      # Re-evaluate predicate
       if self._predicate_link is not None:
         try:
           pred = _eval_step(self._predicate_link, current_value)
@@ -102,14 +94,12 @@ class _WhileOp:
     return current_value
 
   async def _async_handle_break(self, exc: _Break, current_value: Any) -> Any:
-    """Handle a _Break signal in async context, awaiting if the break value is awaitable."""
     result = self._handle_break(exc, current_value)
     if _isawaitable(result):
       return await result
     return result
 
   async def _async_from_pred(self, pred_awaitable: Any, current_value: Any) -> Any:
-    """Transition to async after an awaitable predicate result."""
     __tracebackhide__ = True
     try:
       pred = await pred_awaitable
@@ -120,7 +110,6 @@ class _WhileOp:
     return await self._full_async_body_first(current_value)
 
   async def _async_from_body(self, result_awaitable: Any, current_value: Any) -> Any:
-    """Transition to async after an awaitable body result."""
     __tracebackhide__ = True
     try:
       result = await result_awaitable
@@ -131,7 +120,7 @@ class _WhileOp:
     return await self._full_async(current_value)
 
   async def _full_async_body_first(self, current_value: Any) -> Any:
-    """Evaluate body first (predicate was already truthy), then enter full async loop."""
+    """Evaluate body once (predicate already truthy), then full async loop."""
     __tracebackhide__ = True
     try:
       result = _eval_step(self._body_link, current_value)
@@ -147,10 +136,8 @@ class _WhileOp:
     return await self._full_async(current_value)
 
   async def _full_async(self, current_value: Any) -> Any:
-    """Full async while loop: predicate and body both awaited."""
     __tracebackhide__ = True
     while True:
-      # Evaluate predicate
       if self._predicate_link is not None:
         try:
           pred = _eval_step(self._predicate_link, current_value)
@@ -167,7 +154,6 @@ class _WhileOp:
       if not pred:
         return current_value
 
-      # Evaluate body
       try:
         result = _eval_step(self._body_link, current_value)
       except _Break as exc:
@@ -192,5 +178,4 @@ class _WhileOp:
 
 
 async def _await_break_value(result: Any) -> Any:
-  """Await an async break value."""
   return await result

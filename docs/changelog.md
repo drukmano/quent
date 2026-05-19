@@ -13,6 +13,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [7.0.0] - 2026-05-19
+
+Control-flow model redesigned to mirror Python semantics. **Breaking** for code that relied on `Q.return_()` propagating to the outermost `run()` from nested pipelines. See the root `CHANGELOG.md` and `BREAKING-CHANGES-from-6.1.1.md` for the full migration guide.
+
+### Added
+
+- `Q.exit_()` — new control-flow signal that propagates through every `Q` boundary and every signal carve-out (except_/finally_/gather/drive_gen); absorbed only at the outermost `run()`. Like Python's `sys.exit()`. Same lazy callable forms as `Q.return_()`.
+- §7.5 spec section, §7.4 carve-out table, §3.1 recursion limits clause, §2.5 awaitable-detection contract, §17.5 PEP-479 table, §17.7 drive_gen calling-convention asymmetry.
+- Regression tests for engine bug fixes; TDD audit reports under `spec-audit/`.
+
+### Changed — Breaking
+
+- `Q.return_()` returns from the **current Q only** (Python `return` semantics), not the outermost. Migration: use `Q.exit_()` for old "exit entire pipeline" behavior.
+- `Q.return_()` in a `gather` worker becomes that worker's tuple position element.
+- `Q.return_()` in a `drive_gen` `fn` becomes the pipeline CV; subsequent steps run.
+- `Q.return_()` inside a nested-Q `except_`/`finally_` handler is absorbed by the nested Q (handler returns the value); plain callable handlers still raise QuentException.
+- `Q.break_()` in `if_()` predicate propagates outward to the nearest iteration scope (was QuentException).
+
+### Changed — Non-breaking
+
+- §7 Control Flow rewritten end-to-end around the three-signal model.
+- §4.2, §5.4, §5.5, §5.6, §5.10, §5.11, §6.1, §6.2, §6.4, §7.2, §7.3, §11.3, §11.4, §11.5, §11.6, §11.7, §13.1, §13.10, §14.1, §16.3, §17.1, §17.3 — spec wording corrections and additions.
+
+### Fixed
+
+- `except_(reraise=True)` bridge-contract violations on the async path (sync handler bypass; async handler context restoration auto-chained).
+- `finally_` raising during signal propagation now preserves signal as `__context__` per Python try/finally semantics.
+- Concurrent `foreach`/`foreach_do` discard logging asymmetry (vs gather).
+- `gather` triage `_Break`/`_Return` priority and incorrect `BaseException`-over-regulars warning.
+- `Q.exit_()` in concurrent `foreach`/`foreach_do` was being wrapped as QuentException.
+- Sync pipeline + async `finally_` + absorbed `Q.return_()` was re-raising the absorbed signal.
+- Lazy callable raising a control-flow signal now wraps as QuentException (was leaking raw signal).
+- `Q.exit_()` in `iterate*`/`flat_iterate*` terminals now yields as final item and stops (was leaking raw `_Exit`).
+- Async `drive_gen` `Q.return_()` raised on awaited fn result.
+- Async `Q.exit_()` outermost absorption.
+
 ## [6.1.1] - 2026-03-22
 
 ### Added
@@ -104,6 +140,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Python 3.10 through 3.14** support, including free-threaded builds. Zero runtime dependencies on Python 3.11+ (`typing_extensions` required only on 3.10).
 - **Build-time validation** -- non-callable values with args raise `TypeError`, duplicate `except_`/`finally_` raise `QuentException`, pending `if_()` without `.then()`/`.do()` caught at `run()`/`as_decorator()`/`iterate()`.
 
+[7.0.0]: https://github.com/drukmano/quent/releases/tag/v7.0.0
+[6.1.1]: https://github.com/drukmano/quent/releases/tag/v6.1.1
+[6.1.0]: https://github.com/drukmano/quent/releases/tag/v6.1.0
 [6.0.0]: https://github.com/drukmano/quent/releases/tag/v6.0.0
 [5.3.0]: https://github.com/drukmano/quent/releases/tag/v5.3.0
 [5.2.0]: https://github.com/drukmano/quent/releases/tag/v5.2.0

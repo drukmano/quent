@@ -6,27 +6,22 @@ from __future__ import annotations
 from types import AsyncGeneratorType, GeneratorType
 from typing import Any
 
-from ._eval import _isawaitable
+from ._eval import _handle_return_exc, _isawaitable
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
-from ._types import _ControlFlowSignal
+from ._types import _ControlFlowSignal, _Return
 
 
 class _DriveGenOp:
   """Drive a sync or async generator bidirectionally with a step function.
 
-  Abstracts over the protocol split between sync generators
-  (``next``/``.send``/``StopIteration``/``.close``) and async generators
-  (``__anext__``/``.asend``/``StopAsyncIteration``/``.aclose``).
+  Abstracts over the protocol split between sync (next/send/StopIteration/close)
+  and async (__anext__/asend/StopAsyncIteration/aclose) generators.
 
-  Three-tier execution (matching quent's standard pattern)::
-
-    Scenario                          Method pipeline
-    --------------------------------  -------------------------------------------
-    Sync gen + sync step_fn           __call__ -> _sync_drive (returns value)
-    Sync gen + async step_fn          __call__ -> _sync_drive -> _mid_transition
-                                        (returns coroutine on first awaitable)
-    Async gen (any step_fn)           __call__ -> _full_async (returns coroutine)
+  Three tiers:
+    Sync gen + sync fn   → __call__ → _sync_drive
+    Sync gen + async fn  → __call__ → _sync_drive → _mid_transition (returns coro)
+    Async gen (any fn)   → __call__ → _full_async (returns coro)
   """
 
   __slots__ = ('_fn', '_link', '_link_name')
@@ -41,11 +36,10 @@ class _DriveGenOp:
     self._link_name = 'drive_gen'
 
   def __call__(self, current_value: Any) -> Any:
-    """Resolve the current value as a generator and dispatch to the appropriate tier."""
     __tracebackhide__ = True
     gen = current_value
 
-    # If callable (but not already a generator), invoke to get the generator.
+    # Callable but not yet a generator? Invoke to obtain one.
     if not isinstance(gen, (GeneratorType, AsyncGeneratorType)) and callable(gen):
       gen = gen()
 
@@ -61,11 +55,10 @@ class _DriveGenOp:
     raise TypeError(msg)
 
   def _sync_drive(self, gen: Any) -> Any:
-    """Tier 1: sync fast path -- sync generator + sync step_fn.
+    """Tier 1: sync gen + sync fn.
 
-    Does NOT use a finally block because of the sync-to-async transition:
-    when ``_mid_transition`` is returned as a coroutine, the generator must
-    remain open for the continuation.  Cleanup is explicit in each exit path.
+    No outer finally — generator must remain open across the sync→async
+    transition. Cleanup is explicit on each exit path.
     """
     __tracebackhide__ = True
     try:
@@ -77,6 +70,14 @@ class _DriveGenOp:
     while True:
       try:
         last_result = self._fn(yielded)
+      except _Return as ret_exc:
+        # Q.return_() inside fn returns from fn — value becomes pipeline CV.
+        last_result = _handle_return_exc(ret_exc)
+        if _isawaitable(last_result):
+          # Lazy fn returned an awaitable — transition to async to await it.
+          return self._mid_transition(gen, last_result)
+        gen.close()
+        return last_result
       except _ControlFlowSignal:
         gen.close()
         raise
@@ -86,7 +87,7 @@ class _DriveGenOp:
         raise
 
       if _isawaitable(last_result):
-        # Transfer generator ownership to _mid_transition -- it handles cleanup.
+        # Transfer ownership to _mid_transition for cleanup.
         return self._mid_transition(gen, last_result)
 
       try:
@@ -99,10 +100,17 @@ class _DriveGenOp:
         raise
 
   async def _mid_transition(self, gen: Any, first_awaitable: Any) -> Any:
-    """Tier 2: sync gen + async step_fn -- await results, use sync gen.send()."""
+    """Tier 2: sync gen + async fn — await results, use sync gen.send()."""
     __tracebackhide__ = True
     try:
-      last_result = await first_awaitable
+      # First-awaitable wait — may raise _Return inside the coroutine.
+      try:
+        last_result = await first_awaitable
+      except _Return as ret_exc:
+        last_result = _handle_return_exc(ret_exc)
+        if _isawaitable(last_result):
+          last_result = await last_result
+        return last_result
 
       while True:
         try:
@@ -110,21 +118,27 @@ class _DriveGenOp:
         except StopIteration:
           return last_result
 
+        # Call fn AND await its result inside the same try/except _Return —
+        # for async fns, _Return is raised on `await`, not on call.
         try:
           last_result = self._fn(yielded)
+          if _isawaitable(last_result):
+            last_result = await last_result
+        except _Return as ret_exc:
+          last_result = _handle_return_exc(ret_exc)
+          if _isawaitable(last_result):
+            last_result = await last_result
+          return last_result
         except _ControlFlowSignal:
           raise
         except BaseException as exc:
           _set_link_temp_args(exc, self._link, current_value=yielded)
           raise
-
-        if _isawaitable(last_result):
-          last_result = await last_result
     finally:
       gen.close()
 
   async def _full_async(self, gen: Any) -> Any:
-    """Tier 3: async generator -- all generator operations awaited."""
+    """Tier 3: async generator — all generator ops awaited."""
     __tracebackhide__ = True
     try:
       try:
@@ -133,16 +147,22 @@ class _DriveGenOp:
         return None
 
       while True:
+        # Call fn AND await its result inside the same try/except _Return —
+        # for async fns, _Return is raised on `await`, not on call.
         try:
           last_result = self._fn(yielded)
+          if _isawaitable(last_result):
+            last_result = await last_result
+        except _Return as ret_exc:
+          last_result = _handle_return_exc(ret_exc)
+          if _isawaitable(last_result):
+            last_result = await last_result
+          return last_result
         except _ControlFlowSignal:
           raise
         except BaseException as exc:
           _set_link_temp_args(exc, self._link, current_value=yielded)
           raise
-
-        if _isawaitable(last_result):
-          last_result = await last_result
 
         try:
           yielded = await gen.asend(last_result)

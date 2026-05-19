@@ -757,7 +757,13 @@ class DriveGenControlFlowTests(IsolatedAsyncioTestCase):
   """§5.11 + §7 — Control flow signals: return_(), break_() through drive_gen."""
 
   async def test_return_from_step_fn_sync(self) -> None:
-    """return_() in sync step_fn: chain returns early, generator cleaned up."""
+    """SPEC §7.4: Q.return_() in sync step_fn returns from fn — value becomes pipeline CV.
+
+    drive_gen's "last fn result → CV" rule applies; the generator is closed
+    (drive_gen exits early), subsequent steps run with the return value.
+    (Old behavior: Q.return_() exited the whole pipeline with 'early'.
+    New model: Q.return_() returns from fn; downstream steps still run.)
+    """
     closed = []
 
     def gen():
@@ -773,12 +779,40 @@ class DriveGenControlFlowTests(IsolatedAsyncioTestCase):
         return Q.return_('early')
       return x
 
+    result = Q(gen()).drive_gen(step).then(lambda x: f'continued-with-{x}').run()
+    self.assertEqual(result, 'continued-with-early')
+    self.assertIn('closed', closed)
+
+  async def test_exit_from_step_fn_sync(self) -> None:
+    """SPEC §7.5, §7.4: Q.exit_() in sync step_fn propagates past drive_gen.
+
+    Pipeline terminates at outermost run() with the exit value; downstream
+    steps do NOT run (in contrast to Q.return_()).  Generator is closed.
+    """
+    closed = []
+
+    def gen():
+      try:
+        yield 1
+        yield 2
+        yield 3
+      finally:
+        closed.append('closed')
+
+    def step(x):
+      if x == 1:
+        return Q.exit_('early')
+      return x
+
     result = Q(gen()).drive_gen(step).then(lambda x: 'should not reach').run()
     self.assertEqual(result, 'early')
     self.assertIn('closed', closed)
 
   async def test_return_from_step_fn_async(self) -> None:
-    """return_() in async step_fn: chain returns early, generator cleaned up."""
+    """SPEC §7.4: Q.return_() in async step_fn returns from fn — value becomes CV.
+
+    Subsequent steps run with the value; the generator is closed.
+    """
     closed = []
 
     async def gen():
@@ -794,12 +828,15 @@ class DriveGenControlFlowTests(IsolatedAsyncioTestCase):
         return Q.return_('early')
       return x
 
-    result = await Q(gen()).drive_gen(step).then(lambda x: 'should not reach').run()
-    self.assertEqual(result, 'early')
+    result = await Q(gen()).drive_gen(step).then(lambda x: f'continued-with-{x}').run()
+    self.assertEqual(result, 'continued-with-early')
     self.assertIn('closed', closed)
 
   async def test_return_from_step_fn_mid_transition(self) -> None:
-    """return_() in async step_fn with sync generator: mid-transition mode."""
+    """SPEC §7.4: Q.return_() in async step_fn (sync gen) — mid-transition path.
+
+    fn's return value becomes drive_gen's CV; subsequent steps run.
+    """
     closed = []
 
     def gen():
@@ -812,8 +849,8 @@ class DriveGenControlFlowTests(IsolatedAsyncioTestCase):
     async def step(x):
       return Q.return_('mid_early')
 
-    result = await Q(gen()).drive_gen(step).then(lambda x: 'unreachable').run()
-    self.assertEqual(result, 'mid_early')
+    result = await Q(gen()).drive_gen(step).then(lambda x: f'continued-with-{x}').run()
+    self.assertEqual(result, 'continued-with-mid_early')
     self.assertIn('closed', closed)
 
   async def test_break_from_step_fn_standalone_raises(self) -> None:
