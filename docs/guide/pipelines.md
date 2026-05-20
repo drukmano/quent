@@ -261,7 +261,7 @@ Q(5).then(42).run()           # 42 (non-callable, replaces value)
 
 ### Nested Pipelines
 
-When the step's value is itself a `Q` instance, the nested pipeline is executed with the current value passed as its input. Control flow signals (`return_()`, `break_()`) propagate from the nested pipeline to the outer pipeline.
+When the step's value is itself a `Q` instance, the nested pipeline is executed with the current value passed as its input.
 
 ```python
 from quent import Q
@@ -274,11 +274,19 @@ result = Q(5).then(inner).run()
 # result = 11
 ```
 
+**Control flow signals at nested-`Q` boundaries:**
+
+| Signal | Behavior |
+|---|---|
+| `Q.return_()` | Absorbed by the nested `Q`; the value flows out as the nested step's result. |
+| `Q.break_()` | Propagates through the nested boundary toward the nearest enclosing iteration scope. |
+| `Q.exit_()` | Propagates through every `Q` boundary; absorbed only at the outermost `run()`. |
+
 **Edge cases:**
 
 - Nested pipeline *visualization* is truncated at depth 50. There is no execution depth limit.
-- When a pipeline is used as a step in another pipeline, control flow signals propagate through to the outer pipeline.
-- When a pipeline is executed directly via `.run()`, escaped control flow signals are caught and wrapped in `QuentException`.
+- When a pipeline is executed directly via `.run()`, an escaped `Q.break_()` (no enclosing iteration scope) is wrapped in `QuentException`. `Q.return_()` and `Q.exit_()` are absorbed (return_ at each `Q` boundary, exit_ at the outermost `run()`).
+- Lambda wrapping (`.then(lambda cv: inner.run(cv))`) makes `inner.run()` outermost from `inner`'s perspective — a `Q.break_()` escaping `inner` is wrapped at the lambda's call and never reaches the outer iteration. To preserve `Q.break_()` propagation across nesting, register directly via `.then(inner)`.
 
 ### Summary Table
 
@@ -374,7 +382,7 @@ Without `concurrency`, elements are processed sequentially.
 
 **Sequential:** Exceptions propagate immediately, stopping iteration at the failing element.
 
-**Concurrent:** When a single worker fails, that exception propagates directly. When multiple workers fail, exceptions are wrapped in an `ExceptionGroup`. Control flow signals take priority: `return_()` > `break_()` > regular exceptions.
+**Concurrent:** When a single worker fails, that exception propagates directly. When multiple workers fail, exceptions are wrapped in an `ExceptionGroup`. Control flow signals take priority: `return_()` > `break_()` > regular exceptions. (`Q.exit_()` bypasses the iteration carve-out entirely and propagates to the outermost `run()`.)
 
 ### break_() in Iteration
 
@@ -442,7 +450,10 @@ Without `concurrency`, all functions run concurrently with no limit.
 
 - **Single failure:** The exception propagates directly (not wrapped).
 - **Multiple failures:** Regular exceptions are wrapped in an `ExceptionGroup`.
-- **Control flow:** `Q.return_()` takes absolute priority. `Q.break_()` is not allowed in `gather()` -- it raises `QuentException`.
+- **Control flow signals inside workers:**
+    - `Q.return_()` **returns from that worker** -- the value becomes the gather position's tuple element. Sibling workers continue. (Changed in 7.0.0; pre-7.0 it exited the entire pipeline -- use `Q.exit_()` for that.) When a `_Return` signal escapes a worker from a deeper nested `Q.run()`, it wins at gather-level triage with absolute priority over co-occurring exceptions; regular exceptions are discarded with a `RuntimeWarning`.
+    - `Q.break_()` is not allowed in `gather()` workers -- raises `QuentException` (gather is concurrent fan-out, not iteration).
+    - `Q.exit_()` propagates outward; sibling tasks are cancelled per asyncio/threadpool semantics; absorbed at the outermost `run()`.
 
 ### After gather: Accessing Results
 
@@ -524,7 +535,7 @@ If `fn` raises and `__exit__` returns a truthy value (suppressing the exception)
 
 ### Control Flow Signals
 
-If `fn` raises a control flow signal (`return_()` or `break_()`), `__exit__` is called with no exception info (clean exit), and the signal propagates to the outer pipeline.
+If `fn` raises a control flow signal (`return_()`, `break_()`, or `exit_()`), `__exit__` is called with no exception info (clean exit), and the signal propagates per its scope rules.
 
 ---
 
@@ -637,7 +648,7 @@ The value passed to `.then()` can be a callable, a non-callable value (used as-i
 Predicates use the standard 2-rule calling convention. If args/kwargs are provided to `.if_()`, they are forwarded to the predicate callable.
 
 !!! note
-    When a predicate is a nested `Q` instance, `return_()` inside the predicate pipeline propagates to the outer pipeline (early exit is valid from a predicate). `break_()` inside a predicate pipeline raises `QuentException` -- predicates are not iteration contexts.
+    When a predicate is a nested `Q` instance: `return_()` returns from that nested `Q` -- the value is used as the predicate result (truthy/falsy test). `break_()` propagates outward through `if_` toward the nearest enclosing iteration scope (per §7.2; changed in 7.0.0 -- pre-7.0 it raised `QuentException`). If `if_` has no enclosing iteration, the escaping break wraps as `QuentException` at the outermost `run()`. `exit_()` propagates through everything to the outermost `run()`.
 
 ### Async Predicates and Branches
 
@@ -813,7 +824,10 @@ The mid-transition case (sync generator + async `fn`) is the primary motivating 
 
 - **Exception from `fn`:** Propagates out of `drive_gen`. The generator is closed in cleanup. The exception is **not** injected into the generator (no `gen.throw()`).
 - **Exception from `gen.send()`:** Propagates out of `drive_gen`. The generator is closed in cleanup.
-- **Control flow signals** (`return_()`, `break_()`): Propagate unchanged to the enclosing pipeline. The generator is closed in cleanup.
+- **Control flow signals inside `fn`:**
+    - `Q.return_()` **returns from `fn`** -- value becomes the pipeline CV (drive_gen's normal "last fn result → CV" rule); subsequent steps run. Generator closed in cleanup. (Changed in 7.0.0; pre-7.0 it exited the entire pipeline -- use `Q.exit_()` for that.)
+    - `Q.break_()` propagates outward through `drive_gen` toward the nearest enclosing iteration scope. Generator closed first via `close()`/`aclose()`, then signal propagates.
+    - `Q.exit_()` propagates outward; absorbed at the outermost `run()`. Generator closed in cleanup.
 
 Cleanup via `gen.close()` / `gen.aclose()` is guaranteed on all exit paths.
 

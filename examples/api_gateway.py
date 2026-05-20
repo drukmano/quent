@@ -139,8 +139,12 @@ def authenticate(request: Request) -> Request:
   token = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
   user = TOKEN_DB.get(token)
   if user is None:
-    # Q.return_() signals early termination of the entire pipeline.
-    # The return value becomes the pipeline's result -- downstream steps are skipped.
+    # Q.return_() returns from the current Q (Python-`return`-style; since 7.0.0).
+    # This is a top-level flat pipeline so the value becomes run()'s result --
+    # downstream steps are skipped. If this pipeline were nested as a step inside
+    # an outer Q, the outer pipeline would continue with this Response as the
+    # nested step's value. Use Q.exit_() to exit the entire top-level pipeline
+    # regardless of nesting.
     return Q.return_(Response(
       status=401,
       body={'error': 'Unauthorized', 'detail': 'Invalid or missing token'},

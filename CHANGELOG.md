@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Control-flow model redesigned to mirror Python semantics. **Breaking** for code that relied on `Q.return_()` propagating to the outermost `run()` from nested pipelines.
 
-See `BREAKING-CHANGES-from-6.1.1.md` for the full migration guide.
+See the [Migrating to 7.0](https://quent.readthedocs.io/en/latest/migrating-to-7/) guide (`docs/migrating-to-7.md`) for the full migration walkthrough.
 
 ### Added
 

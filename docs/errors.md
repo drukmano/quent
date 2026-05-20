@@ -377,41 +377,47 @@ These errors are raised during pipeline execution when control flow signals are 
 
 ---
 
-### `Q.break_() cannot be used outside of an iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).`
+### `Q.break_() cannot be used outside of a loop or iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do, while_).`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_engine.py` (lines 1018–1019, 1185–1186)
+**Source:** `quent/_engine.py` (`_run_link_walk` outer break handler)
 
-**Trigger:** `Q.break_()` was used inside a `.then()`, `.do()`, or other non-iteration pipeline step. The `_Break` signal escaped the pipeline's link-walk loop with no iteration context to catch it.
+**Trigger:** `Q.break_()` escaped the outermost `run()` with no enclosing iteration scope. The `_Break` signal propagates outward through `Q` boundaries, `if_`/`else_*`, `with_`/`with_do`, `drive_gen`, and other non-iteration positions; if it never finds an iteration scope to catch it, it surfaces as `QuentException`.
 
-**Fix:** `Q.break_()` is only valid inside callbacks passed to `.foreach()` or `.foreach_do()`. Use `Q.return_()` to exit the entire pipeline early from a non-iteration step:
+**Fix:** Either move the `Q.break_()` inside an iteration scope, or use `Q.return_()` (to exit the current `Q`) / `Q.exit_()` (to exit the entire pipeline):
 
 ```python
-# Wrong — break_() in a .then() step
-q.then(lambda x: Q.break_(x) if x > 3 else x)
+# Wrong — break_() in a non-iteration pipeline
+Q(5).then(lambda x: Q.break_(x) if x > 3 else x).run()
 
-# Correct — use return_() for early pipeline exit
-q.then(lambda x: Q.return_(x) if x > 3 else x * 2)
+# Correct — return_() exits the current Q early
+Q(5).then(lambda x: Q.return_(x) if x > 3 else x * 2).run()
 
-# Correct — use break_() inside foreach
-q.foreach(lambda x: Q.break_() if x > 3 else x * 2)
+# Correct — exit_() exits the entire top-level pipeline
+Q(5).then(lambda x: Q.exit_(x) if x > 3 else x * 2).run()
+
+# Correct — break_() inside an iteration scope
+Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_() if x > 3 else x * 2).run()
 ```
+
+!!! note "Changed in 7.0.0"
+    Pre-7.0, `Q.break_()` was trapped at `if_`/`with_`/`drive_gen`/nested-`Q` boundaries with custom error messages. It now propagates through all of these toward the nearest iteration scope; the generic message above applies when no scope is found. (The `if_()`-predicate-specific message no longer exists.)
 
 ---
 
 ### `Using _Return inside except handlers is not allowed.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_engine.py` (line 74, via `_signal_in_handler_msg`)
+**Source:** `quent/_engine.py` (via `_signal_in_handler_msg`)
 
 ```
 Using _Return inside except handlers is not allowed.
 Using _Break inside except handlers is not allowed.
 ```
 
-**Trigger:** `Q.return_()` or `Q.break_()` was called inside an `.except_()` handler. Control flow signals cannot be raised inside error or cleanup handlers.
+**Trigger:** `Q.return_()` or `Q.break_()` was called inside an `.except_()` handler. They would skip the handler's invariants.
 
-**Fix:** Return the desired value directly from the handler instead of using `Q.return_()`:
+**Fix:** Return the desired value directly from the handler. Use `Q.exit_()` (not trapped) if you need to terminate the entire pipeline from inside a handler:
 
 ```python
 # Wrong
@@ -419,14 +425,20 @@ q.except_(lambda ei: Q.return_('fallback'))
 
 # Correct — handler's return value replaces the pipeline result
 q.except_(lambda ei: 'fallback')
+
+# Correct — exit_() bypasses the handler trap
+q.except_(lambda ei: Q.exit_('aborted'))
 ```
+
+!!! note "Nested Q exception"
+    When an `except_` handler is registered on a **nested** `Q`, that nested `Q` absorbs its own `Q.return_()` -- the handler "returns" with the signal's value and the outer pipeline continues. The trap above applies only to direct invocation in a handler position.
 
 ---
 
 ### `Using _Return inside finally handlers is not allowed.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_engine.py` (lines 155, 186, via `_signal_in_handler_msg`)
+**Source:** `quent/_engine.py` (via `_signal_in_handler_msg`)
 
 ```
 Using _Return inside finally handlers is not allowed.
@@ -435,18 +447,18 @@ Using _Break inside finally handlers is not allowed.
 
 **Trigger:** `Q.return_()` or `Q.break_()` was called inside a `.finally_()` handler.
 
-**Fix:** Remove control flow signals from `finally_()` handlers. The `finally_()` handler's return value is always discarded — use it only for side effects and cleanup. Control flow must happen in the main pipeline.
+**Fix:** Remove control flow signals from `finally_()` handlers. The `finally_()` handler's return value is always discarded — use it only for side effects and cleanup. Use `Q.exit_()` if you need to terminate the entire pipeline from inside the handler (it propagates regardless).
 
 ---
 
 ### `break_() signals are not allowed in gather operations.`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_gather_ops.py` (lines 81, 272)
+**Source:** `quent/_gather_ops.py`
 
-**Trigger:** `Q.break_()` was raised inside a callable passed to `.gather()`. Breaking out of a concurrent gather is not defined.
+**Trigger:** `Q.break_()` was raised inside a callable passed to `.gather()`. `gather()` is concurrent fan-out, not an iteration scope.
 
-**Fix:** Remove `Q.break_()` from gather operations. Use conditional logic inside the callable to decide what to return, or use `.foreach()` with `break_()` for iterable processing:
+**Fix:** Remove `Q.break_()` from gather operations. Use conditional logic inside the callable to decide what to return, use `.foreach()` for iterable processing, or use `Q.exit_()` to abort the entire pipeline (sibling workers will be cancelled, finally_ handlers will run, the value surfaces at the outermost `run()`):
 
 ```python
 # Wrong — break_() in a gather callable
@@ -454,45 +466,61 @@ q.gather(lambda x: Q.break_() if x is None else x)
 
 # Correct — return a sentinel value instead
 q.gather(lambda x: None if x is None else process(x))
+
+# Correct — exit_() if the intent is to abort the entire pipeline
+q.gather(lambda x: Q.exit_('aborted') if x is None else process(x))
 ```
+
+!!! note "Q.return_() in gather workers (changed in 7.0.0)"
+    `Q.return_()` inside a gather worker no longer aborts the entire pipeline; it returns from the worker and that value becomes the gather position's tuple element. For the old "abort entire pipeline" behavior, use `Q.exit_()`.
 
 ---
 
-### `break_() cannot be used inside an if_() predicate.`
+### `Q.return_()`'s / `Q.break_()`'s / `Q.exit_()`'s lazy value raised <SignalType>; signals inside lazy values are misuse (per §7.1 / §7.2 / §7.5).
 
 **Exception type:** `QuentException`
-**Source:** `quent/_if_ops.py` (lines 64, 87)
+**Source:** `quent/_eval.py` (`_handle_return_exc`, `_handle_break_exc`, `_handle_exit_exc`)
 
-**Trigger:** `Q.break_()` was raised inside a callable used as the predicate for `.if_()`.
+**Trigger:** A lazy callable passed as `Q.return_(fn)` / `Q.break_(fn)` / `Q.exit_(fn)` itself raised a control-flow signal when evaluated. The lazy form's `fn` must produce a value, not raise another signal.
 
-**Fix:** Do not use `Q.break_()` inside an `if_()` predicate. Evaluate conditions with regular Python logic or use `Q.return_()` if early exit from the pipeline is needed.
+**Fix:** Resolve to a value inside the lazy callable; do not raise another signal:
+
+```python
+# Wrong — lazy callable raises a signal
+Q.return_(lambda: Q.exit_('nested'))
+
+# Correct — lazy callable returns a value
+Q.return_(lambda: 'done')
+
+# Correct — if the intent is exit_, call it directly
+Q.exit_('nested')
+```
 
 ---
 
 ### `Unknown control flow signal: <signal_type>`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_iter_ops.py` (line 94)
+**Source:** `quent/_iter_ops.py`
 
-**Trigger:** An unrecognized `_ControlFlowSignal` subclass was encountered during iteration. This indicates a bug — only `_Return` and `_Break` are defined control flow signals. If you see this error, it is likely caused by a custom subclass of an internal quent type.
+**Trigger:** An unrecognized `_ControlFlowSignal` subclass was encountered during iteration. This indicates a bug — only `_Return`, `_Break`, and `_Exit` are defined control flow signals. If you see this error, it is likely caused by a custom subclass of an internal quent type.
 
-**Fix:** Do not subclass quent's internal control flow types (`_Return`, `_Break`). Use `Q.return_()` and `Q.break_()` through the public API only.
+**Fix:** Do not subclass quent's internal control flow types (`_Return`, `_Break`, `_Exit`). Use `Q.return_()`, `Q.break_()`, and `Q.exit_()` through the public API only.
 
 ---
 
-### `A _Return signal escaped the pipeline via <method>().`
+### `A _Break signal escaped the pipeline via <method>().`
 
 **Exception type:** `QuentException`
-**Source:** `quent/_q.py` (line 1087)
+**Source:** `quent/_q.py`
 
 ```
-A _Return signal escaped the pipeline via run().
 A _Break signal escaped the pipeline via run().
 ```
 
-**Trigger:** A `_Return` or `_Break` signal propagated past the top-level pipeline boundary. This can happen if a control flow signal is raised in a context that the engine cannot intercept, such as a thread or task spawned outside of quent's execution.
+**Trigger:** A `_Break` signal propagated past the top-level pipeline boundary with no enclosing iteration scope. This can also happen if a control flow signal is raised in a context that the engine cannot intercept, such as a thread or task spawned outside of quent's execution. (`_Return` is absorbed at every `Q` boundary; `_Exit` is absorbed at the outermost `run()`; only `_Break` requires an iteration scope to catch it.)
 
-**Fix:** Use `Q.return_()` and `Q.break_()` only inside callables that are executed directly by pipeline steps. Signals raised in background threads or tasks external to quent cannot be caught.
+**Fix:** Use `Q.break_()` only inside iteration scopes (`foreach`/`foreach_do`/`iterate*`/`flat_iterate*`/`while_`), or rewrite as `Q.return_()` / `Q.exit_()`. Signals raised in background threads or tasks external to quent cannot be caught.
 
 ---
 

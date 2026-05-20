@@ -275,12 +275,20 @@ Q(url)
 </details>
 
 <details>
-<summary><strong>Control Flow</strong> &mdash; return_ / break_</summary>
+<summary><strong>Control Flow</strong> &mdash; return_ / break_ / exit_</summary>
 
 <br>
 
+Three signals modeled on Python:
+
+| Signal | Python analogy | Scope |
+|---|---|---|
+| `Q.return_(v)` | `return` | exits the **current `Q`** only |
+| `Q.break_(v)` | labeled `break` to nearest loop | exits the nearest enclosing **iteration scope** |
+| `Q.exit_(v)` | `sys.exit()` | exits the entire **top-level pipeline** from any depth |
+
 ```python
-# Early return -- skips all remaining steps
+# Return from current Q -- skips all remaining steps in this Q
 Q(5) \
   .then(lambda x: Q.return_(x * 10) if x > 0 else x) \
   .then(str) \
@@ -289,6 +297,11 @@ Q(5) \
 # Break from iteration -- break value is appended to partial results
 Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_(x) if x == 3 else x * 2).run()
 # [2, 4, 3]
+
+# Exit the entire pipeline regardless of nesting (sys.exit() analogy)
+inner = Q().then(lambda x: Q.exit_('STOP') if x < 0 else x)
+outer = Q(-5).then(inner).then(lambda x: x + 100)
+outer.run()  # 'STOP' -- exit_() bypasses inner's boundary and outer's then()
 ```
 
 </details>
@@ -504,8 +517,9 @@ All methods return `self` for fluent chaining.
 
 | Method | Description |
 |:-------|:------------|
-| `Q.return_(v=<no value>, /, *args, **kwargs)` | Signal early return from pipeline |
-| `Q.break_(v=<no value>, /, *args, **kwargs)` | Signal break from iteration or `while_` loop |
+| `Q.return_(v=<no value>, /, *args, **kwargs)` | Return from current `Q` (Python-`return`-style) |
+| `Q.break_(v=<no value>, /, *args, **kwargs)` | Break from nearest iteration scope (labeled-`break`-style) |
+| `Q.exit_(v=<no value>, /, *args, **kwargs)` | Exit entire top-level pipeline from any depth (`sys.exit()`-style) |
 
 ### Context API (Class-Level)
 

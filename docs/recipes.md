@@ -207,9 +207,9 @@ result = validate({'name': 'Bob'})
 
 Key points:
 
-- **`Q.return_(value)` exits the pipeline immediately.** Must be used as `return Q.return_(...)`.
-- **`except_` is a safety net.** Catches unexpected exceptions. Control flow signals (`return_`, `break_`) bypass `except_`.
-- **Validators are plain functions.** They receive data, check it, and either return it or call `Q.return_()`.
+- **`Q.return_(value)` exits the current `Q` immediately** (Python-`return`-style; since 7.0.0). The pipeline above is flat, so it exits the whole thing. If the validation pipeline were nested as a step in an outer `Q`, the outer pipeline would continue with the validation result as the nested step's value. Use `Q.exit_(value)` if you want to exit the entire top-level pipeline from arbitrary nesting depth. Must be used as `return Q.return_(...)` / `return Q.exit_(...)`.
+- **`except_` is a safety net.** Catches unexpected exceptions. Control flow signals (`return_`, `break_`, `exit_`) bypass `except_`.
+- **Validators are plain functions.** They receive data, check it, and either return it or call `Q.return_()` / `Q.exit_()`.
 
 ---
 

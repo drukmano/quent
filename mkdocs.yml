@@ -133,6 +133,7 @@ nav:
   - API Reference: reference.md
   - Error Reference: errors.md
   - Troubleshooting: troubleshooting.md
+  - Migrating to 7.0: migrating-to-7.md
   - Changelog: changelog.md
 
 validation:

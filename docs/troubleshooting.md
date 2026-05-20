@@ -1,6 +1,6 @@
 ---
 title: "Troubleshooting — Common Errors and How to Fix Them"
-description: "Solutions for common quent errors: forgetting return before Q.return_(), break_() outside iteration, else_() without if_(), non-callable in do(), exception handling pitfalls, duplicate handler registration, copying, concurrency validation, nesting depth, and task limits."
+description: "Solutions for common quent errors: forgetting return before Q.return_(), Q.return_() vs Q.exit_() scoping, break_() outside iteration, else_() without if_(), non-callable in do(), exception handling pitfalls, duplicate handler registration, copying, concurrency validation, nesting depth, and task limits."
 tags:
   - troubleshooting
   - errors
@@ -55,17 +55,17 @@ def process(x):
 ### Error
 
 ```
-quent.QuentException: Q.break_() cannot be used outside of an iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do).
+quent.QuentException: Q.break_() cannot be used outside of a loop or iteration context (foreach, foreach_do, iterate, iterate_do, flat_iterate, flat_iterate_do, while_).
 ```
 
 ### Cause
 
-`Q.break_()` is only valid inside callbacks passed to `.foreach()`, `.foreach_do()`, `.while_()`, or an iteration context (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`). If you call it from a `.then()` or `.do()` step, the `_Break` signal has no iteration loop to catch it, so it escapes to `run()` and is wrapped in `QuentException`.
+`Q.break_()` propagates outward through `Q` boundaries, `if_()` predicates and branches, `with_`/`with_do` bodies, `drive_gen`, and other non-iteration positions, looking for the nearest **iteration scope** (`foreach`/`foreach_do`/`iterate`/`iterate_do`/`flat_iterate`/`flat_iterate_do`/`while_`). If none catches it, it surfaces as `QuentException` at the outermost `run()`.
 
 ```python
 from quent import Q
 
-# WRONG -- break_() in a .then() step
+# WRONG -- break_() in a .then() step (no iteration scope)
 result = (
   Q(5)
   .then(lambda x: Q.break_(x) if x > 3 else x)
@@ -76,30 +76,35 @@ result = (
 
 ### Fix
 
-Use `Q.return_()` to exit the entire pipeline early. Use `Q.break_()` only inside iteration callbacks:
+Pick the signal that matches your intent:
+
+| You want | Use |
+|---|---|
+| Exit the current `Q` early (Python-`return`-style) | `Q.return_(v)` |
+| Stop the nearest iteration / loop | `Q.break_(v)` -- but only from inside one |
+| Exit the entire top-level pipeline from any depth | `Q.exit_(v)` |
 
 ```python
 from quent import Q
 
-# Use return_() to exit the pipeline early
-result = (
-  Q(5)
-  .then(lambda x: Q.return_(x) if x > 3 else x * 2)
-  .run()
-)
+# Use return_() to exit the current Q early
+result = Q(5).then(lambda x: Q.return_(x) if x > 3 else x * 2).run()
 # result == 5
 
-# Use break_() inside .foreach()
-result = (
-  Q([1, 2, 3, 4, 5])
-  .foreach(lambda x: Q.break_() if x > 3 else x * 2)
-  .run()
-)
+# Use exit_() to exit the entire pipeline regardless of nesting
+result = Q(5).then(lambda x: Q.exit_(x) if x > 3 else x * 2).run()
+# result == 5
+
+# Use break_() inside an iteration scope
+result = Q([1, 2, 3, 4, 5]).foreach(lambda x: Q.break_() if x > 3 else x * 2).run()
 # result == [2, 4, 6]
 ```
 
 !!! warning
-    `Q.break_()` is also invalid inside `.except_()` and `.finally_()` handlers and inside `.gather()` operations.
+    `Q.break_()` is also invalid inside `.except_()`/`.finally_()` handlers and inside `.gather()` workers. `Q.return_()` is also invalid in handlers (but **allowed** in `gather()`/`drive_gen` — see §13 below). `Q.exit_()` is always allowed.
+
+!!! note "Changed in 7.0.0"
+    The wording of this error changed; `Q.break_()` no longer raises a specific message from inside `if_()` predicates, `with_` bodies, `drive_gen`, or nested-`Q` steps -- it now propagates through them looking for an iteration scope.
 
 ---
 
@@ -478,20 +483,20 @@ q.finally_(lambda rv: sync_cleanup(rv))
 ### Error
 
 ```
-quent.QuentException: Q.return_() cannot be used inside except_() handler.
+quent.QuentException: Using _Return inside except handlers is not allowed.
 ```
 
 ```
-quent.QuentException: Q.break_() cannot be used inside finally_() handler.
+quent.QuentException: Using _Break inside finally handlers is not allowed.
 ```
 
 ### Cause
 
-`Q.return_()` and `Q.break_()` are not allowed inside `except_()` or `finally_()` handlers. Control flow signals must be used in the main pipeline.
+`Q.return_()` and `Q.break_()` are not allowed when raised **directly** inside `except_()` or `finally_()` handlers -- they would skip handler invariants and the "always runs" guarantee. `Q.exit_()` is **allowed** in both (it propagates unconditionally).
 
 ### Fix
 
-Move the control flow logic into the main pipeline using nested pipelines:
+Return the value directly, or use `Q.exit_()` if your intent is to terminate the entire pipeline from inside the handler:
 
 ```python
 from quent import Q
@@ -505,4 +510,46 @@ q = Q(data).then(process).except_(
 q = Q(data).then(process).except_(
   lambda exc: 'fallback'  # handler's return value replaces the result
 )
+
+# RIGHT -- exit_() bypasses the trap when you actually want to abort
+q = Q(data).then(process).except_(
+  lambda exc: Q.exit_('aborted')  # value surfaces at outermost run()
+)
 ```
+
+### Nested-`Q` handler: `Q.return_()` is absorbed locally
+
+When the handler is registered on a **nested** `Q`, that nested `Q` absorbs its own `Q.return_()` -- the handler "returns" with the signal's value and the outer pipeline continues:
+
+```python
+inner = Q().then(may_fail).except_(lambda ei: Q.return_('fallback'))
+outer = Q(data).then(inner).then(next_step)
+outer.run()
+# inner's handler absorbs the signal; 'fallback' flows to next_step as inner's result.
+# (Pre-7.0 this raised QuentException; the handler trap now applies only to direct invocation.)
+```
+
+---
+
+## 14. `Q.return_()` Doesn't Exit the Entire Pipeline From a Nested `Q`
+
+### Symptom
+
+You have a nested `Q` (`outer.then(inner)`) and call `Q.return_()` from inside `inner`. You expected the whole pipeline to short-circuit but the outer pipeline keeps running with the returned value as `inner`'s result.
+
+### Cause
+
+Since 7.0.0, `Q.return_()` returns from the **current `Q` only** -- Python-`return`-style. Each `Q` boundary absorbs its own signal. Pre-7.0, `Q.return_()` propagated to the outermost `run()`.
+
+### Fix
+
+Use `Q.exit_()` for the old "exit the entire pipeline from arbitrary depth" semantics:
+
+```python
+inner = Q().then(lambda x: Q.exit_('STOP') if x < 0 else x).then(lambda x: x * 2)
+outer = Q(-5).then(inner).then(lambda x: x + 100)
+outer.run()
+# 'STOP' -- exit_() bypasses inner's boundary AND outer's; absorbed at outermost run().
+```
+
+Same applies if you used `Q.return_()` inside a `gather()` worker or `drive_gen` `fn` expecting the whole pipeline to abort -- those positions now return from the worker / fn (per §7.4 carve-out). Switch to `Q.exit_()`.

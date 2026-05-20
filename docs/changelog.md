@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [7.0.0] - 2026-05-19
 
-Control-flow model redesigned to mirror Python semantics. **Breaking** for code that relied on `Q.return_()` propagating to the outermost `run()` from nested pipelines. See the root `CHANGELOG.md` and `BREAKING-CHANGES-from-6.1.1.md` for the full migration guide.
+Control-flow model redesigned to mirror Python semantics. **Breaking** for code that relied on `Q.return_()` propagating to the outermost `run()` from nested pipelines. See [Migrating to 7.0](migrating-to-7.md) for the full migration guide.
 
 ### Added
 

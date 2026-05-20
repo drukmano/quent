@@ -12,7 +12,7 @@ unittest.mock. It covers:
   - Cloning pipelines to verify execution independence
   - Using .as_decorator() to wrap functions with pipeline behaviour
   - Using on_step for instrumentation-based testing
-  - Testing control flow (Q.return_, Q.break_)
+  - Testing control flow (Q.return_, Q.break_, Q.exit_)
   - Testing the bridge contract (same pipeline, sync vs async callables)
 
 Key testing insights:
@@ -337,15 +337,21 @@ class TestQAsync(IsolatedAsyncioTestCase):
 
 
 # ---------------------------------------------------------------------------
-# TestControlFlow -- Q.return_ and Q.break_
+# TestControlFlow -- Q.return_, Q.break_, Q.exit_
 # ---------------------------------------------------------------------------
 
 
 class TestControlFlow(unittest.TestCase):
-  """Tests for control flow signals."""
+  """Tests for control flow signals.
+
+  Three signals modeled on Python control flow (since 7.0.0):
+    - Q.return_() -> Python `return`: exits the current Q only
+    - Q.break_()  -> labeled `break`: exits nearest enclosing iteration scope
+    - Q.exit_()   -> sys.exit(): exits entire top-level pipeline from any depth
+  """
 
   def test_early_return(self):
-    """Q.return_() exits the pipeline and produces the return value."""
+    """Q.return_() exits the current Q and produces the return value."""
     result = (
       Q(10)
       .then(lambda x: Q.return_(x * 2) if x > 5 else x)
@@ -353,6 +359,22 @@ class TestControlFlow(unittest.TestCase):
       .run()
     )
     self.assertEqual(result, 20)
+
+  def test_return_scoped_to_current_q(self):
+    """Q.return_() returns from the current Q only -- outer pipeline continues.
+
+    Since 7.0.0, Q.return_() is Python-`return`-scoped. The nested Q absorbs
+    its own signal; the value flows to the outer as the nested step's result.
+    """
+    inner = Q().then(lambda x: Q.return_('INNER') if x > 0 else x).then(str.upper)
+    outer = Q(5).then(inner).then(lambda v: f'OUTER<{v}>')
+    self.assertEqual(outer.run(), 'OUTER<INNER>')  # outer continued
+
+  def test_exit_terminates_entire_pipeline(self):
+    """Q.exit_() bypasses every Q boundary; absorbed only at outermost run()."""
+    inner = Q().then(lambda x: Q.exit_('STOP') if x > 0 else x).then(str.upper)
+    outer = Q(5).then(inner).then(lambda v: f'OUTER<{v}>')
+    self.assertEqual(outer.run(), 'STOP')  # outer's .then() never ran
 
   def test_early_return_no_value(self):
     """Q.return_() with no value produces None."""

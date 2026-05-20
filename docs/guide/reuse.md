@@ -234,11 +234,20 @@ pipeline = (
 
 ### Control Flow Propagation
 
-Control flow signals propagate through nested pipelines:
+Control flow signals propagate through nested pipelines according to their scope (see [Reference](../reference.md#control-flow-class-methods)):
+
+| Signal | Behavior at nested-`Q` boundary |
+|---|---|
+| `Q.return_()` | **Absorbed** by the nested `Q`. The value flows to the outer pipeline as the nested step's result; the outer continues. |
+| `Q.break_()` | **Propagates through.** The nested `Q` does not catch it; it continues outward toward the nearest enclosing iteration scope. |
+| `Q.exit_()` | **Propagates through.** Bypasses every `Q` boundary; absorbed only at the outermost `run()`. |
+
+`Q.return_()` is the right choice when you want the nested pipeline to short-circuit and hand a value back to the outer; `Q.exit_()` is the right choice when you want to terminate the entire top-level pipeline regardless of how deeply you're nested.
 
 ```python
 from quent import Q
 
+# Q.return_() -- nested validate returns; outer continues with the error dict
 validate = (
   Q()
   .if_(lambda x: not x.get('valid')).then(lambda _: Q.return_({'error': 'invalid'}))
@@ -247,14 +256,31 @@ validate = (
 
 pipeline = (
   Q()
-  .then(validate)    # return_() propagates to outer pipeline
-  .then(transform)   # skipped if validate returned early
+  .then(validate)    # return_() ends validate; result flows out as validate's value
+  .if_(lambda v: 'error' in v).then(lambda v: v).else_(transform)
   .then(save)
 )
 
-result = pipeline.run({'valid': False})
-# result = {'error': 'invalid'}
+# Q.exit_() -- nested validate aborts the entire pipeline; transform/save never run
+strict_validate = (
+  Q()
+  .if_(lambda x: not x.get('valid')).then(lambda _: Q.exit_({'error': 'invalid'}))
+  .then(check_permissions)
+)
+
+strict_pipeline = (
+  Q()
+  .then(strict_validate)  # exit_() bypasses this boundary
+  .then(transform)        # skipped — exit_() absorbed only at outermost run()
+  .then(save)
+)
+
+strict_pipeline.run({'valid': False})
+# {'error': 'invalid'}
 ```
+
+!!! note "Lambda wrapping breaks `Q.break_()` propagation"
+    `.then(lambda cv: inner.run(cv))` makes `inner.run()` outermost from `inner`'s perspective, so a `Q.break_()` that escapes `inner` is wrapped as `QuentException` at the lambda's call and never reaches the outer pipeline's iteration scope. To preserve `Q.break_()` propagation across nesting, register the inner `Q` directly via `.then(inner)`. (`Q.return_()` and `Q.exit_()` are unaffected: each `run()` absorbs its own `Q.return_()`; `Q.exit_()` always propagates to the outermost `run()` regardless of how you nested.)
 
 ### Independent Error Handling
 

@@ -142,7 +142,9 @@ Side-effect per element. Original elements kept (fn's returns discarded). Same m
 
 Run multiple functions concurrently on current value. Returns tuple in same order as `fns`. Always concurrent -- no sequential fallback. `concurrency=-1` means unbounded. Sync: ThreadPoolExecutor. Async: TaskGroup (3.11+) / asyncio.gather (3.10). At least one function required. Single failure propagates directly; multiple wrapped in ExceptionGroup.
 - `executor`: optional Executor instance for sync concurrent execution.
-- `Q.break_()` is NOT allowed in gather -- raises QuentException.
+- `Q.break_()` is NOT allowed in gather workers -- raises QuentException (gather is concurrent fan-out, not iteration).
+- `Q.return_()` inside a gather worker returns from that worker; value becomes the gather position's tuple element. Sibling workers continue. (Changed in 7.0.0; pre-7.0 it exited the entire pipeline.)
+- `Q.exit_()` inside a gather worker propagates outward; sibling tasks cancelled; absorbed at outermost `run()`.
 
 ```python
 Q(data).gather(validate, transform, analyze).then(
@@ -167,7 +169,7 @@ Begin a conditional branch. Must be followed by `.then()` or `.do()`.
 - Callable predicate: called with current value per standard conventions.
 - Non-callable: truthiness used directly.
 - Args/kwargs are passed to the predicate callable (Rule 1).
-- Nested Q as predicate: executed with current value; `return_()` propagates, `break_()` raises QuentException.
+- Nested Q as predicate: executed with current value; `return_()` returns from the nested Q (value used as predicate result); `break_()` propagates outward through `if_` toward the nearest enclosing iteration scope; `exit_()` propagates to outermost `run()`.
 
 After `.if_()`, the next `.then(fn)` or `.do(fn)` becomes the truthy branch. Follow with `.else_(v)` or `.else_do(fn)` for the falsy branch.
 
@@ -384,25 +386,73 @@ pipeline = Q.from_steps([p.transform for p in plugins])
 
 ### Control Flow (Class Methods)
 
+Three signals modeled on Python control flow. All three are BaseException subclasses (`_Return`, `_Break`, `_Exit`) -- never caught by `except_()`. Idiom: `return Q.return_(...)` / `return Q.break_(...)` / `return Q.exit_(...)` for type checker / linter satisfaction.
+
+| Signal | Python analogy | Scope |
+|---|---|---|
+| `Q.return_()` | `return` | exits the current `Q` only |
+| `Q.break_()` | labeled `break` to nearest loop | exits nearest enclosing iteration scope |
+| `Q.exit_()` | `sys.exit()` (new in 7.0.0) | exits entire top-level pipeline |
+
+All three support the same lazy-value forms:
+- `Q.X_()` -- value `None`.
+- `Q.X_(v)` -- non-callable: value used as-is.
+- `Q.X_(fn)` -- callable: `fn()` evaluated lazily at the catch frame.
+- `Q.X_(fn, *args, **kwargs)` -- callable: `fn(*args, **kwargs)` lazy.
+- A signal raised by the lazy `fn` itself is wrapped as `QuentException` (signals inside lazy values are misuse).
+
 #### Q.return_(v=Null, /, *args, **kwargs) -> NoReturn
 
-Early return. BaseException subclass -- never caught by `except_()`. Propagates through nested pipelines. Must be called as `return Q.return_(value)`. No value = `None`. Callable value = lazy (invoked when caught). Inside except/finally: raises QuentException.
+Return from the **current `Q`** -- the innermost `Q` whose pipeline contains the call (Python-`return`-style). When caught at the current `Q`'s boundary, that `Q`'s execution ends with the given value. If the current `Q` is a nested step in an outer `Q`, the outer pipeline continues with that value as the nested step's result. If the current `Q` is the outermost `run()`, that value becomes `run()`'s return.
+
+**Carve-outs (§7.4):**
+- Inside `except_`/`finally_` handler: raises QuentException. **Exception:** when the handler is registered on a nested `Q`, the nested `Q` absorbs the signal locally — the handler "returns" with the signal's value and the outer pipeline continues. The trap applies only to direct invocation in a handler position.
+- Inside `gather()` worker callable: returns from the worker — value becomes that gather position's tuple element. Sibling workers continue.
+- Inside `drive_gen` `fn`: returns from `fn` — value becomes the pipeline CV (drive_gen's normal "last fn result → CV" rule applies); subsequent steps run. Generator is closed in cleanup.
+
+**Changed in 7.0.0.** Pre-7.0, `Q.return_()` always propagated to the outermost `run()`. To get the old behavior, use `Q.exit_()`.
 
 ```python
 def check(x):
     if x < 0:
-        return Q.return_(0)  # skips remaining steps, pipeline returns 0
+        return Q.return_(0)  # skips remaining steps in this Q, current Q returns 0
     return x
 ```
 
 #### Q.break_(v=Null, /, *args, **kwargs) -> NoReturn
 
-Break from `foreach`/`foreach_do`. No value = partial results. With value = value is **appended** to partial results. Outside iteration: QuentException. Inside except/finally: QuentException. In `gather()`: QuentException. Concurrent: earliest index wins. Priority: return_ > break_ > exceptions.
+Break from the **nearest enclosing iteration scope** (labeled-`break`-style). Iteration scopes: `foreach`, `foreach_do`, `iterate`, `iterate_do`, `flat_iterate`, `flat_iterate_do`, `while_`. Propagates outward through `Q` boundaries, `if_`/`else_*`, `with_`/`with_do` (CM `__exit__` runs cleanly), `drive_gen` (generator closes), and other non-iteration positions until iteration catches it.
+
+**Value semantics:**
+- `foreach`/`foreach_do`: value **appended** to partial results.
+- `iterate*`/`flat_iterate*`: value **yielded** as one final item before stopping.
+- `while_`: value **replaces** loop value (not append/yield).
+
+**Carve-outs (§7.4):** Trapped (wraps as QuentException) inside `except_`/`finally_` handlers and `gather()` workers. Escaping outermost `run()` with no enclosing iteration scope wraps as `QuentException`.
+
+**Concurrent iteration:** earliest input index wins. Priority: `return_` > `break_` > regular exceptions.
+
+**Changed in 7.0.0.** `Q.break_()` now propagates through `if_()` predicates, `with_`/`with_do` bodies, `drive_gen` `fn`, and nested-`Q` step boundaries. Pre-7.0 these positions raised QuentException with specific messages.
 
 ```python
 Q([1, 2, -1, 3]).foreach(lambda x: Q.break_() if x < 0 else x * 2).run()  # [2, 4]
 Q([1, 2, -1, 3]).foreach(lambda x: Q.break_(x * 10) if x < 0 else x * 2).run()  # [2, 4, -10]
 ```
+
+#### Q.exit_(v=Null, /, *args, **kwargs) -> NoReturn
+
+**New in 7.0.0.** Exit the entire top-level pipeline (`sys.exit()`-style). Propagates through every `Q` boundary, every signal carve-out (§7.4: `except_`/`finally_`/`gather`/`drive_gen`), and every level of nesting. Absorbed only at the outermost `run()`, whose return value becomes the signal's value.
+
+**Cleanup respects Python `try/finally` semantics:** as `_Exit` propagates, every `finally_()` runs, every CM's `__exit__` runs, every `drive_gen` generator closes, every concurrent task cancels and awaits. Resources release. Only after all cleanup unwinds does `_Exit` reach the outermost `run()`.
+
+```python
+inner = Q().foreach(lambda x: Q.exit_('done') if x == 5 else x)
+outer = Q(range(10)).then(inner).then(lambda r: ['POST', r])
+outer.run()
+# 'done'  -- exit_() bypasses inner's run() AND outer's then(), absorbed at outermost
+```
+
+**When to prefer `Q.exit_()` over `Q.return_()`/`Q.break_()`:** when the intent is "exit the entire pipeline from arbitrary depth, regardless of nesting or handler scope". If returning from the current `Q` suffices, use `Q.return_()`. If exiting the nearest iteration suffices, use `Q.break_()`.
 
 ### Instrumentation
 
@@ -460,7 +510,7 @@ Dual sync/async iterator returned by `.iterate()`, `.iterate_do()`, `.flat_itera
 
 ## QuentException
 
-Raised for: duplicate except_/finally_, else_() without if_(), break_() outside iteration, break_() in gather(), control flow signals escaping pipeline or used in handlers, pending if_() at run/as_decorator/iterate, set()/get() while if_() pending, nesting depth exceeded.
+Raised for: duplicate except_/finally_, else_() without if_(), break_() outside any iteration scope (escapes outermost run()), break_() in gather() worker, return_()/break_() inside except_/finally_ handlers (exit_() is allowed), signal raised by lazy callable passed to Q.X_(fn), pending if_() at run/as_decorator/iterate, set()/get() while if_() pending, nesting depth exceeded. (Q.return_() and Q.exit_() never escape unwrapped — return_ absorbed at each Q boundary, exit_ absorbed at outermost run().)
 
 ## Enhanced Tracebacks
 
@@ -615,9 +665,11 @@ class Q:
     @classmethod
     def from_steps(cls, *steps) -> Q: ...
     @classmethod
-    def return_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...
+    def return_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...  # exits current Q
     @classmethod
-    def break_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...
+    def break_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...   # exits nearest iteration scope
+    @classmethod
+    def exit_(cls, v=Null, /, *args, **kwargs) -> NoReturn: ...    # exits entire top-level pipeline (new in 7.0.0)
     on_step: ClassVar[Callable | None] = None
     def __bool__(self) -> bool: ...
     def __repr__(self) -> str: ...
@@ -630,16 +682,16 @@ class Q:
 3. `finally_()` receives the root value, not the current pipeline value. Its return value is always discarded.
 4. `except_()` handler receives `QuentExcInfo(exc, root_value)` as its current value (standard 2-rule convention). Handler return value replaces pipeline result (when `reraise=False`).
 5. `do()` enforces callable (TypeError for non-callables). `then()` accepts any value.
-6. Control flow signals (`_Return`, `_Break`) are `BaseException` subclasses -- never caught by `except_()` handlers.
-7. Using `return_()` or `break_()` inside `except_()` or `finally_()` raises QuentException.
+6. Control flow signals (`_Return`, `_Break`, `_Exit`) are `BaseException` subclasses -- never caught by `except_()` handlers.
+7. Using `return_()` or `break_()` directly inside `except_()` or `finally_()` raises QuentException. `exit_()` is allowed (propagates regardless). When the handler is registered on a nested `Q`, that nested `Q` absorbs its own `return_()` locally (the trap applies to direct invocation only).
 8. `Q.__bool__()` always returns `True`.
 9. `Null` is not `None`. `Q(None).run()` returns `None`. `Q().run()` also returns `None`, but via a different path (Null normalized at boundary).
 10. `gather()` is always concurrent. At least one function required. Returns tuple even for single function.
 11. `with_()` properly handles `__exit__` return value (True suppresses exception; current value becomes None).
 12. `iterate()` in sync mode raises TypeError if fn returns a coroutine.
 13. `copy.copy()`/`copy.deepcopy()` are blocked on Q objects (`TypeError`). Use `.clone()` for independent copies. Pickling is not blocked -- most pipeline contents naturally fail to pickle.
-14. `break_(value)` **appends** the break value to partial results. In `iterate()`, value is yielded as additional item.
-15. `return_(value)` in normal execution replaces pipeline result. In `iterate()`, value is yielded as final item.
+14. `break_(value)` **appends** the break value to partial results in `foreach`/`foreach_do`. In `iterate*`/`flat_iterate*`, value is yielded as one final item. In `while_`, value **replaces** the loop value (not append/yield).
+15. `return_(value)` exits the current `Q` only (Python-`return`-style; since 7.0.0). Each `Q` boundary absorbs its own `return_()`. In `iterate*`, value is yielded as final item. Use `exit_(value)` to exit the entire top-level pipeline from any depth (`sys.exit()`-style).
 16. Root callable failure: except/finally handlers receive root value normalized to `None` (since no root was successfully produced).
 17. `with_do()` on exception suppression: original pipeline value passes through (not None as in `with_()`).
 18. Concurrent mixed sync/async raises TypeError -- first item/function determines the mode.
@@ -651,7 +703,7 @@ class Q:
 24. Deferred `with_` in iteration: CM exits before deferred `finally_()`. Both run on all exit paths.
 25. Context API: `set()` uses copy-on-write semantics. Concurrent workers isolated.
 26. `on_step` always called with 6 args: `(q, step_name, input_value, result, elapsed_ns, exception)`. Called on both success and failure.
-27. `break_()` in `gather()` raises QuentException (break is scoped to iteration, not gather).
+27. `break_()` in `gather()` worker raises QuentException (gather is concurrent fan-out, not iteration). `return_()` in a gather worker returns from that worker (value becomes the gather position's tuple element; sibling workers continue) -- changed in 7.0.0; pre-7.0 it exited the entire pipeline. `exit_()` in a worker propagates outward to outermost run(). Same model in `drive_gen` `fn`: `return_()` returns from `fn` (value → CV), `break_()` propagates outward, `exit_()` propagates to outermost.
 28. `StopIteration` from `fn` in `foreach` propagates out as regular exception (not silently consumed).
 29. Nesting depth limit: 50. Applies to visualization only (traceback rendering and `__repr__`); nested pipelines beyond depth 50 are truncated with a `Q(...<truncated at depth 50>...)` message. Not tracked at runtime.
 30. Dual-protocol objects: async protocol preferred when event loop running (asyncio, trio, curio).

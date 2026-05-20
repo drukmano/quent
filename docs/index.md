@@ -231,7 +231,7 @@ pip install quent
 
     ---
 
-    `Q.return_()` exits early with an optional value. `Q.break_()` stops iteration inside `.foreach()`, `.foreach_do()`, `.while_()`, or any iteration context (`.iterate()`, `.iterate_do()`, `.flat_iterate()`, `.flat_iterate_do()`).
+    Three signals modeled on Python control flow: `Q.return_()` exits the current `Q` (like `return`); `Q.break_()` stops the nearest iteration scope (`foreach`/`foreach_do`/`while_`/`iterate*`/`flat_iterate*`); `Q.exit_()` exits the entire top-level pipeline from any depth (like `sys.exit()`).
 
     [Pipelines & Methods](guide/pipelines.md)
 

@@ -124,8 +124,13 @@ All methods return `self` for fluent chaining.
 
 ### Control Flow
 
-- [Q.return_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Early return from pipeline. Propagates through nested pipelines.
-- [Q.break_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from iteration; value appended to partial results.
+Three signals modeled on Python control flow:
+
+- [Q.return_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#return_) -- Return from the **current `Q` only** (Python-`return`-style). Each `Q` boundary absorbs its own `Q.return_()`; the value flows to the outer pipeline as that nested step's result. Carve-outs: inside `gather()` worker returns from worker (value becomes the gather position's tuple element); inside `drive_gen` `fn` returns from `fn` (value becomes CV, subsequent steps run); inside `except_`/`finally_` handler raises `QuentException` (unless handler is registered on a nested `Q` -- then absorbed locally).
+- [Q.break_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#break_) -- Break from the nearest enclosing iteration scope (`foreach`/`foreach_do`/`iterate*`/`flat_iterate*`/`while_`), labeled-`break`-style. Propagates outward through `Q` boundaries, `if_`, `with_`/`with_do`, `drive_gen`, and other non-iteration positions; CM `__exit__` runs cleanly, generators close. Value semantics: `foreach`/`foreach_do` appends to results; `iterate*` yields as one final item; `while_` replaces loop value. Trapped (raises `QuentException`) inside `except_`/`finally_` handlers and `gather()` workers. Escapes outermost `run()` with no iteration scope → `QuentException`.
+- [Q.exit_(v=<no value>, *args, **kwargs)](https://quent.readthedocs.io/en/latest/reference/#exit_) -- Exit the entire top-level pipeline from any depth (`sys.exit()`-style; new in 7.0.0). Propagates through every `Q` boundary, every signal carve-out, every level of nesting. Absorbed only at the outermost `run()`. Standard Python `try/finally` semantics during propagation: every `finally_()` runs, every CM's `__exit__` runs, every `drive_gen` generator closes, every concurrent task cancels and awaits.
+
+All three accept lazy callable forms (`Q.return_(fn, *args, **kwargs)`); `fn` is evaluated at the catch frame. A signal raised by the lazy `fn` itself is wrapped as `QuentException` (signals inside lazy values are misuse). Idiom: `return Q.return_(...)` / `return Q.break_(...)` / `return Q.exit_(...)`.
 
 ### Instrumentation
 
