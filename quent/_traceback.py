@@ -22,9 +22,9 @@ from ._exc_meta import (
   META_LINK_TEMP_ARGS,
   META_QUENT,
   META_SOURCE_LINK,
+  _clean_exc_meta,
   _clean_quent_idx,
   _get_exc_meta,
-  _pop_heavy_meta_keys,
 )
 from ._link import Link
 from ._viz import (
@@ -39,11 +39,6 @@ from ._viz import (
 
 if TYPE_CHECKING:
   from ._q import Q
-
-
-def _cleanup_outermost_meta(meta: dict[str, Any]) -> None:
-  """Defense-in-depth — heavy refs removed even if visualization failed."""
-  _pop_heavy_meta_keys(meta)
 
 
 _log = logging.getLogger('quent')
@@ -180,7 +175,9 @@ def _inject_visualization(
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
 
 
-def _attach_exception_note(exc: BaseException, q: Q[Any], source_link: Link | None) -> None:
+def _attach_exception_note(
+  exc: BaseException, q: Q[Any], source_link: Link | None, root_link: Link | None = None
+) -> None:
   """One-line exception note identifying the failing step (3.11+; survives reformatting)."""
   if not hasattr(exc, 'add_note'):
     return
@@ -190,10 +187,12 @@ def _attach_exception_note(exc: BaseException, q: Q[Any], source_link: Link | No
   try:
     if source_link is not None:
       obj_name = _get_obj_name(source_link.original_value if source_link.original_value is not None else source_link.v)
-      step_name = f'.{_get_link_name(source_link)}({obj_name})'
+      method = 'root' if source_link is root_link else _get_link_name(source_link)
+      step_name = f'.{method}({obj_name})'
     else:
       step_name = '?'
-    root_name = _get_obj_name(q._root_link.v) if q._root_link is not None else ''
+    root = root_link if root_link is not None else q._root_link
+    root_name = _get_obj_name(root.v) if root is not None else ''
     q_label = f'Q[{_sanitize_repr(q._name)}]' if q._name is not None else 'Q'
     exc.add_note(f'quent: exception at {step_name} in {q_label}({root_name})')
   except Exception as note_exc:
@@ -222,10 +221,7 @@ def _modify_traceback(
     # Still clean heavy meta so Link/callables/values don't leak via
     # __quent_meta__ — only at outermost boundary, same as the enabled path.
     if q is not None and link is not None and not is_nested:
-      _meta = getattr(exc, '__quent_meta__', None)
-      if _meta is not None:
-        _cleanup_outermost_meta(_meta)
-      _clean_quent_idx(exc)
+      _clean_exc_meta(exc)
     return exc.with_traceback(exc.__traceback__)
 
   meta = _get_exc_meta(exc)
@@ -239,7 +235,7 @@ def _modify_traceback(
     meta.pop(META_GATHER_FN, None)
 
     _inject_visualization(exc, q, root_link, source_link, meta, extra_links)
-    _attach_exception_note(exc, q, source_link)
+    _attach_exception_note(exc, q, source_link, root_link)
   else:
     meta[META_QUENT] = True
     exc.__traceback__ = _clean_internal_frames(exc.__traceback__)
@@ -247,7 +243,7 @@ def _modify_traceback(
   # Defense-in-depth — redundant with _inject_visualization's internal pops,
   # covers the fallback path if viz failed.
   if q is not None and link is not None and not is_nested:
-    _cleanup_outermost_meta(meta)
+    _clean_exc_meta(exc)
   _clean_quent_idx(exc)
 
   seen: set[int] = set()
@@ -271,9 +267,9 @@ def _try_clean_quent_exc(exc_value: BaseException | None) -> tuple[bool, types.T
 def _quent_excepthook(
   exc_type: type[BaseException], exc_value: BaseException, exc_tb: types.TracebackType | None
 ) -> None:
-  cleaned, tb = _try_clean_quent_exc(exc_value)
+  cleaned, _ = _try_clean_quent_exc(exc_value)
   if cleaned:
-    exc_tb = tb
+    exc_tb = _clean_internal_frames(exc_tb)
   _prev_excepthook(exc_type, exc_value, exc_tb)
 
 
@@ -293,9 +289,10 @@ def _patched_te_init(
   exc_traceback: types.TracebackType | None = None,
   **kwargs: Any,
 ) -> None:
-  cleaned, tb = _try_clean_quent_exc(exc_value)
+  cleaned, _ = _try_clean_quent_exc(exc_value)
   if cleaned:
-    exc_traceback = tb
+    # Respect explicit None and caller-selected traceback slices.
+    exc_traceback = _clean_internal_frames(exc_traceback)
   _original_te_init(self, exc_type, exc_value, exc_traceback, **kwargs)  # type: ignore[arg-type]
 
 

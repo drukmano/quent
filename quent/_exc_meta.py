@@ -86,9 +86,26 @@ def _pop_heavy_meta_keys(meta: dict[str, Any]) -> None:
 
 
 def _clean_exc_meta(exc: BaseException) -> None:
-  """Remove heavy refs after an exception is consumed (reraise=False)."""
-  meta = getattr(exc, '__quent_meta__', None)
-  if meta is None:
-    return
-  _pop_heavy_meta_keys(meta)
-  _clean_quent_idx(exc)
+  """Release heavy refs across a completed exception graph, including group leaves."""
+  pending = [exc]
+  seen: set[int] = set()
+  while pending:
+    current = pending.pop()
+    if id(current) in seen:
+      continue
+    seen.add(id(current))
+    meta = getattr(current, '__quent_meta__', None)
+    if isinstance(meta, dict):
+      _pop_heavy_meta_keys(meta)
+    _clean_quent_idx(current)
+    if current.__cause__ is not None:
+      pending.append(current.__cause__)
+    if current.__context__ is not None:
+      pending.append(current.__context__)
+    try:
+      children = getattr(current, 'exceptions', ())
+    except Exception:
+      # Optional group metadata must not replace the exception being cleaned.
+      children = ()
+    if isinstance(children, (tuple, list)):
+      pending.extend(child for child in children if isinstance(child, BaseException))

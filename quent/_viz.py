@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import os
 import re
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from ._link import Link
+from ._link import Link, _is_q
 from ._types import Null
 
 if TYPE_CHECKING:
@@ -87,14 +88,14 @@ def _get_link_name(link: Link) -> str:
   """
   op: _PipelineOp | Any = link.v
   link_name: str | None = getattr(op, '_link_name', None)
-  if link_name is not None:
-    return link_name
+  if isinstance(link_name, str):
+    return _sanitize_repr(link_name)
   return 'do' if link.ignore_result else 'then'
 
 
 def _get_obj_name(obj: Any, _depth: int = 0) -> str:
-  if getattr(obj, '_quent_is_q', False):
-    base = type(obj).__name__
+  if _is_q(obj):
+    base = _sanitize_repr(type(obj).__name__)
     q_name = getattr(obj, '_name', None)
     return f'{base}[{_sanitize_repr(q_name)}]' if q_name is not None else base
   try:
@@ -102,20 +103,21 @@ def _get_obj_name(obj: Any, _depth: int = 0) -> str:
     if name is None:
       name = getattr(obj, '__qualname__', None)
     if name is not None:
-      return str(name)
+      name = _sanitize_repr(str(name))
+      return name[:_MAX_REPR_LEN] + '...' if len(name) > _MAX_REPR_LEN else name
   except Exception:
     pass
-  if hasattr(obj, 'func'):
+  if isinstance(obj, partial):
     if _depth >= 10:  # pragma: no cover
       return 'partial(<...>)'
     return f'partial({_get_obj_name(obj.func, _depth + 1)})'
   if not _show_traceback_values:  # pragma: no cover  # tested via subprocess
-    return f'<{type(obj).__name__}>'
+    return f'<{_sanitize_repr(type(obj).__name__)}>'
   try:
     r = _sanitize_repr(repr(obj))
     return r[:_MAX_REPR_LEN] + '...' if len(r) > _MAX_REPR_LEN else r
   except Exception:
-    return type(obj).__name__
+    return _sanitize_repr(type(obj).__name__)
 
 
 def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> str:
@@ -123,7 +125,7 @@ def _format_call_args(args: tuple[Any, ...] | None, kwargs: dict[str, Any] | Non
   if args:
     parts.extend(_get_obj_name(a) for a in args)
   if kwargs:
-    parts.extend(f'{k}={_get_obj_name(v)}' for k, v in kwargs.items())
+    parts.extend(f'{_sanitize_repr(k)}={_get_obj_name(v)}' for k, v in kwargs.items())
   result = ', '.join(parts)
   return result[:_MAX_CALL_ARGS_LEN] + '...' if len(result) > _MAX_CALL_ARGS_LEN else result
 
@@ -140,7 +142,7 @@ def _get_true_source_link(
     depth += 1
     if source_link.is_q:
       nested = source_link.v
-    elif getattr(source_link.original_value, '_quent_is_q', False):
+    elif _is_q(source_link.original_value):
       nested = source_link.original_value
     else:
       break
@@ -165,9 +167,8 @@ def _resolve_nested_chain(
 ) -> str:
   """Resolve a nested pipeline link to its indented string repr.
 
-  Fresh _VizContext per level — total_calls is isolated so one deep pipeline
-  can't exhaust the budget and truncate siblings. The `found` flag is synced
-  bidirectionally since it affects error-marker placement globally.
+  Share the traversal budget across descendants: aliases and cycles must not
+  multiply work beyond the rendering limit.
   """
   original_value = link.original_value if link.original_value is not None else link.v
   nested_root_link = None
@@ -181,16 +182,13 @@ def _resolve_nested_chain(
         args=nested_args[1:] if len(nested_args) > 1 else None,
         kwargs=nested_kwargs or None,
       )
-  nested_ctx = _VizContext(source_link=ctx.source_link, link_temp_args=ctx.link_temp_args)
-  nested_ctx.found = ctx.found
   result = _stringify_q(
     original_value,
     nest_lvl=nest_lvl + 1,
     root_link=nested_root_link,
-    ctx=nested_ctx,
+    ctx=ctx,
     max_depth=max_depth,
   )
-  ctx.found = nested_ctx.found
   return result
 
 
@@ -209,9 +207,7 @@ def _stringify_q(
     return f'{_make_indent(nest_lvl)}Q(...<truncated at depth {max_depth}>...)'
   output = ''
   truncated_count = 0
-  root = q._root_link
-  if root is None and root_link is not None:
-    root = root_link
+  root = root_link if root_link is not None else q._root_link
 
   if nest_lvl > 0:
     output += _make_indent(nest_lvl)
@@ -227,8 +223,9 @@ def _stringify_q(
   link = q._first_link
   while link is not None:
     links.append((link, _get_link_name(link)))
-    if getattr(link.v, '_else_link', None) is not None:
-      links.append((link.v._else_link, 'else_do' if link.v._else_link.ignore_result else 'else_'))
+    else_link = getattr(link.v, '_else_link', None)
+    if isinstance(else_link, Link):
+      links.append((else_link, 'else_do' if else_link.ignore_result else 'else_'))
     link = link.next_link
   if q._on_except_link is not None:
     links.append((q._on_except_link, 'except_'))
@@ -239,7 +236,10 @@ def _stringify_q(
     truncated_count = len(links) - _VIZ_MAX_LINKS_PER_LEVEL
     links = links[:_VIZ_MAX_LINKS_PER_LEVEL]
 
-  for link, method_name in links:
+  for index, (link, method_name) in enumerate(links):
+    if ctx.total_calls >= _VIZ_MAX_TOTAL_CALLS or len(output) >= _VIZ_MAX_LENGTH:
+      truncated_count += len(links) - index
+      break
     output += _make_indent(nest_lvl)
     output += _format_link(link, nest_lvl=nest_lvl, ctx=ctx, method_name=method_name, max_depth=max_depth)
     ctx.mark_found(link)
@@ -288,13 +288,13 @@ def _format_link(
 
   if original_value is None:
     original_value = user_link.v
-  if user_link.is_q or getattr(original_value, '_quent_is_q', False):
+  if user_link.is_q or _is_q(original_value):
     link_v = _resolve_nested_chain(user_link, args, kwargs, nest_lvl, ctx, max_depth=max_depth)
     args = kwargs = None
     is_q = True
   else:
     _fns = getattr(op, '_fns', None)
-    if _fns is not None:
+    if isinstance(_fns, tuple):
       link_v = ', '.join(_get_obj_name(f) for f in _fns)
     else:
       link_v = _get_obj_name(original_value)
@@ -312,7 +312,7 @@ def _format_link(
       call_args = _format_call_args(args, kwargs)
       call_prefix = f', {call_args}' if call_args else ''
       _concurrency = getattr(op, '_concurrency', None)
-      if _concurrency is not None:
+      if isinstance(_concurrency, int):
         c_str = f'concurrency={_concurrency}'
         call_prefix = f'{call_prefix}, {c_str}' if call_prefix else f', {c_str}'
       output += f'({link_v}{call_prefix})'
