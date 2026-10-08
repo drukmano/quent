@@ -79,7 +79,9 @@ bench = [
     "line-profiler>=5.0.2",
 ]
 docs = [
-    "mkdocs-material[imaging]>=9.7.5",  # also in docs/requirements.txt (for ReadTheDocs)
+    "mkdocs-material[imaging]>=9.7.7",  # also in docs/requirements.txt (for ReadTheDocs)
+    # 11.x includes regex security fixes; 12.x rewrites emphasis rendering.
+    "pymdown-extensions>=11.0.2,<12",
 ]
 
 [tool.coverage.run]

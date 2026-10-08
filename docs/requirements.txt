@@ -1,4 +1,6 @@
 # This file exists for ReadTheDocs, which does not natively read pyproject.toml
 # dependency groups. Keep in sync with pyproject.toml [dependency-groups].docs.
 # See also: .readthedocs.yml which references this file.
-mkdocs-material[imaging]>=9.7.5
+mkdocs-material[imaging]>=9.7.7
+# Match the tested rendering behavior; 12.x rewrites emphasis handling.
+pymdown-extensions>=11.0.2,<12
