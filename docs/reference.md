@@ -61,7 +61,7 @@ Q()
 ```
 
 !!! note "Q(None) vs Q()"
-    `Q(None)` creates a pipeline with root value `None`. `Q()` creates a pipeline with no root value -- the two are distinct. When the current value is `None`, a callable step receives `fn(None)`. When there is no value (internal `Null`), a callable step receives `fn()` with zero arguments. See [Null Sentinel](#null-sentinel).
+    `Q(None)` creates a pipeline with root value `None`. `Q()` creates a pipeline with no root value -- the two are distinct. When the current value is `None`, a callable step receives `fn(None)`. When there is no value (internal `Null`), a callable step receives `fn()` with zero arguments. See [Null Sentinel](#null-sentinel-internal).
 
 ---
 
@@ -146,7 +146,7 @@ Apply `fn` to each element of the current iterable value. Collects results into 
 |-----------|------|---------|-------------|
 | `fn` | `Callable \| None` | `None` | Callable applied to each element, or `None` for identity collection. |
 | `concurrency` | `int \| None` | `None` | Maximum concurrent executions. `None` = sequential. See [Concurrent Execution](#concurrent-execution). |
-| `executor` | `Executor \| None` | `None` | Optional executor for sync concurrent execution. When provided, used instead of creating a new ThreadPoolExecutor (caller manages lifecycle). |
+| `executor` | `Executor \| None` | `None` | Same-interpreter executor for sync concurrent execution; caller manages lifecycle. Positive `concurrency` still bounds submissions. `ProcessPoolExecutor` and `InterpreterPoolExecutor` are rejected before execution. |
 
 **Returns:** `self` (`Q`). The current value becomes `list[result]`.
 
@@ -186,7 +186,7 @@ Apply `fn` as a side-effect to each element. The **original** elements are colle
 |-----------|------|---------|-------------|
 | `fn` | `Callable` | *(required)* | Side-effect callable applied to each element. |
 | `concurrency` | `int \| None` | `None` | Maximum concurrent executions. `None` = sequential. See [Concurrent Execution](#concurrent-execution). |
-| `executor` | `Executor \| None` | `None` | Optional executor for sync concurrent execution. When provided, used instead of creating a new ThreadPoolExecutor (caller manages lifecycle). |
+| `executor` | `Executor \| None` | `None` | Same-interpreter executor for sync concurrent execution; caller manages lifecycle. Positive `concurrency` still bounds submissions. `ProcessPoolExecutor` and `InterpreterPoolExecutor` are rejected before execution. |
 
 **Returns:** `self` (`Q`). The current value becomes a list of the original elements.
 
@@ -214,7 +214,7 @@ Run multiple functions on the current pipeline value **concurrently**. Returns a
 |-----------|------|---------|-------------|
 | `*fns` | `Callable` | *(required)* | One or more callables. Each receives the current value. |
 | `concurrency` | `int` | `-1` | Maximum simultaneous executions. `-1` = unbounded (all run concurrently). See [Concurrent Execution](#concurrent-execution). |
-| `executor` | `Executor \| None` | `None` | Optional executor for sync concurrent execution. When provided, used instead of creating a new ThreadPoolExecutor (caller manages lifecycle). |
+| `executor` | `Executor \| None` | `None` | Same-interpreter executor for sync concurrent execution; caller manages lifecycle. Positive `concurrency` still bounds submissions. `ProcessPoolExecutor` and `InterpreterPoolExecutor` are rejected before execution. |
 
 **Returns:** `self` (`Q`). The current value becomes a `tuple` of results.
 
@@ -496,7 +496,7 @@ Q(gen()).drive_gen(step_fn).except_(handle_error).finally_(cleanup).run()
 ```
 
 !!! note "Calling convention"
-    Unlike other pipeline steps, `drive_gen`'s step function does **not** follow the standard 2-rule calling convention. The yielded value is always passed directly as `fn(yielded_value)` — no args/kwargs dispatch.
+    Unlike other pipeline steps, `drive_gen`'s step function always receives the yielded value as its single argument — no args/kwargs dispatch. A directly registered `Q` uses nested dispatch, so outward `break_()` and `exit_()` propagation is preserved. An explicit call to `inner.run()` instead creates a public execution boundary.
 
 !!! note "Error semantics"
     Exceptions from `fn` or `gen.send()` propagate out of `drive_gen`. The generator is always closed in cleanup (via `gen.close()` or `await gen.aclose()`). Exceptions are NOT injected into the generator (no `gen.throw()`).
@@ -949,8 +949,10 @@ Attach a backpressure-aware bounded buffer for use with iteration terminals (`it
 - **Async** (`async for`): the producer runs as a background `asyncio.Task` using `asyncio.Queue(maxsize=n)`.
 - Items are delivered in order (FIFO).
 - When the buffer is full, the producer blocks (backpressure). When empty, the consumer blocks.
-- If the producer raises, the exception is propagated to the consumer at the next read.
-- If the consumer exits early (`break`, `GeneratorExit`), the producer is signaled to stop.
+- Producer exceptions are delivered after already-queued items, even when the consumer is slow. Source-raised async cancellation also propagates.
+- Closing the terminal stops its producer before deferred context-manager exit and `finally_()`. The producer owns and closes its source iterator when `close()`/`aclose()` is available. Close a retained iterator explicitly when abandoning it; `break` alone does not close it.
+- Sync shutdown waits up to five seconds, then warns if user code keeps the daemon producer blocked. Async shutdown cancels and awaits the producer task.
+- Producer threads and tasks inherit a context-variable snapshot; producer writes do not flow back to the consumer.
 
 ```python
 # Producer runs ahead up to 10 items
@@ -1273,7 +1275,7 @@ Q.on_step = None  # disable
 
 Pipeline steps are positional -- each step receives only the current value from the immediately preceding step. When non-adjacent steps need to share data (e.g., an early step produces a value that a later step needs, but intermediate transformations change the current value), the context API provides named storage scoped to the execution context, accessible from any step without altering the pipeline's value flow.
 
-Storage is backed by a `ContextVar`-based dictionary. Each `set()` creates a new dict (copy-on-write), ensuring concurrent workers (via `foreach`/`gather` with `concurrency`) are properly isolated -- a worker's `set()` does not affect the parent or sibling workers.
+Storage is backed by a `ContextVar`-based dictionary. Each `set()` creates a new dict (copy-on-write), isolating dispatched thread/task workers from the parent and siblings. The first concurrent callback is invoked inline to detect sync versus async: synchronous writes made during that invocation affect the caller and the context inherited by later workers. An `async def` body executes in its task, but a synchronous factory returning an awaitable still performs its factory work inline.
 
 #### set (instance -- pipeline step)
 
@@ -1547,7 +1549,7 @@ Two patches installed at import time:
 - Nesting depth: 50
 - Links per level: 100
 - Total length: 10,000 characters
-- Total recursive calls: 500 per level
+- Total recursive calls: 500 across the rendered graph, shared by nested pipelines
 
 ### Repr Sanitization (CWE-117)
 

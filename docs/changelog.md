@@ -13,6 +13,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Preserve sync/async parity for runtime awaitable roots, lazy control-flow values, generator driving, handler failures, and cleanup ordering. Broad exception handlers no longer consume `exit_()`.
+- Propagate independent child cancellation after draining sibling tasks instead of returning partial concurrent results. Honor positive concurrency limits on caller-owned executors.
+- Make buffer error/end delivery stop-aware; preserve producer context; close owned producers and source iterators before deferred context-manager exit and pipeline cleanup.
+- Preserve outward control flow for directly registered nested `Q` callbacks. Explicit public `run()` calls still introduce their own outermost boundary.
+- Clone pipeline-bearing operation callbacks independently, preserve subclass state shallowly, and keep diagnostics aligned with cloned execution links.
+- Keep failed conditional/loop construction retryable; enforce execution guards on nested calls and decorators; correct callback/decorator return annotations and plain mock detection.
+- Record resolved async handler results and failure events; instrument deferred context-manager steps. Preserve caller-selected tracebacks, release exception-group metadata, sanitize diagnostic names, and bound visualization work across the full graph.
+- Make Python 3.10 exception-group filtering recursive and lossless for stateful predicates.
+- Bind releases to successful trusted push CI for the exact tagged/built commit. Permit retries of matching tags and partial PyPI uploads. No release is created by the local tests.
+- Propagate coverage-gate failures, repair the local QA environment path/argument forwarding, and update instrumentation examples.
+
+### Compatibility and security
+
+- Reject process/interpreter executors before callbacks run; custom same-interpreter executors remain supported.
+- Buffering owns closable source iterators. Explicitly close retained iteration terminals when abandoning them; blocking synchronous source code still cannot be forcibly stopped.
+- Document the initial inline concurrency probe's context-variable side effects rather than claiming all callbacks are isolated.
+- Update seven advisory-matched development/documentation dependencies. Keep PyMdown Extensions on the tested 11.x rendering behavior instead of adopting the 12.x rewrite. Runtime dependencies are unchanged.
+
 ## [7.0.0] - 2026-05-19
 
 Control-flow model redesigned to mirror Python semantics. **Breaking** for code that relied on `Q.return_()` propagating to the outermost `run()` from nested pipelines. See [Migrating to 7.0](migrating-to-7.md) for the full migration guide.

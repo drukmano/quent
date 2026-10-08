@@ -69,7 +69,7 @@ Each variant is independent. Extending `for_api` does not affect `for_db`, `for_
 
 - The linked list of nodes -- each clone has its own nodes
 - Nested pipelines within steps are **recursively cloned** via their own `clone()` method, preventing cross-clone state sharing
-- Conditional operations (`if_`/`else_`) are deep-copied (they carry mutable state)
+- Operation-owned callback links are copied, including conditionals, loops, iteration, gather, context managers, and generator driving. Directly registered `Q` callbacks are recursively cloned
 - Error handlers (`except_`/`finally_`) have their nodes cloned. If the handler callable is a `Q` instance, it is recursively cloned
 - Keyword argument dictionaries are shallow-copied (dicts are mutable)
 
@@ -79,6 +79,7 @@ Each variant is independent. Extending `for_api` does not affect `for_db`, `for_
 - Values and argument objects (individual args tuple elements, kwargs dict values)
 - Exception type tuples for `except_()`
 - Positional argument tuples (tuples are immutable)
+- Subclass attributes are shallow-copied; mutable values in subclass dictionaries and slots remain shared
 
 This means stateful callables are shared between original and clone:
 
@@ -280,7 +281,7 @@ strict_pipeline.run({'valid': False})
 ```
 
 !!! note "Lambda wrapping breaks `Q.break_()` propagation"
-    `.then(lambda cv: inner.run(cv))` makes `inner.run()` outermost from `inner`'s perspective, so a `Q.break_()` that escapes `inner` is wrapped as `QuentException` at the lambda's call and never reaches the outer pipeline's iteration scope. To preserve `Q.break_()` propagation across nesting, register the inner `Q` directly via `.then(inner)`. (`Q.return_()` and `Q.exit_()` are unaffected: each `run()` absorbs its own `Q.return_()`; `Q.exit_()` always propagates to the outermost `run()` regardless of how you nested.)
+    `.then(lambda cv: inner.run(cv))` makes `inner.run()` outermost from `inner`'s perspective. An escaping `Q.break_()` becomes `QuentException`, and `Q.exit_()` is absorbed by that inner public call, allowing the caller to continue. Register the inner `Q` directly via `.then(inner)` to preserve outward `break_()` and `exit_()` propagation. `Q.return_()` remains local to the inner pipeline in either form. The same distinction applies to directly registered iteration, gather, and `drive_gen` callbacks.
 
 ### Independent Error Handling
 

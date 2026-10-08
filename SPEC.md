@@ -172,8 +172,11 @@ Q(5).then(42)                                 # Rule 2 non-callable: CV = 42
 |---|---|
 | `Q.return_()` | **Absorbed.** The nested `Q`'s execution ends with the given value; that value flows to the outer pipeline as the nested step's result; the outer chain continues. (Like Python's `return` exits the current function.) |
 | `Q.break_()` | **Propagates through.** The nested `Q` does not catch it; it continues outward toward the nearest enclosing iteration scope. (Like Python's labeled break — a function boundary is not a loop boundary.) |
+| `Q.exit_()` | **Propagates through.** The outermost execution boundary resolves the signal after cleanup. |
 
 **Lambda wrapping breaks `Q.break_()` propagation:** `.then(lambda cv: inner(cv))` invokes `inner.run(cv)` directly. `inner.run()` is the **outermost** `run()` from `inner`'s perspective, so a `Q.break_()` that escapes `inner` (without being caught by an iteration scope inside `inner`) is wrapped as `QuentException` at the lambda's call — it never reaches the outer pipeline's iteration scope. To preserve `Q.break_()` propagation across nesting, register the inner `Q` directly via `.then(inner)`. (`Q.return_()` is unaffected: each `run()` absorbs its own `Q.return_()` either way.)
+
+The same explicit public call also absorbs `Q.exit_()` at `inner.run()`, so the caller continues with its value. Register a `Q` directly to preserve outward `exit_()` propagation. This nested dispatch also applies to directly registered iteration, gather, and `drive_gen` callbacks; wrapping a public call in a lambda does not make it nested dispatch.
 
 ### 4.3 CV By Context
 
@@ -311,7 +314,7 @@ Drive sync or async generator bidirectionally via send protocol. `fn` processes 
 
 - `fn` callable (build `TypeError`).
 - At execution: CV must be sync/async generator OR callable producing one (else `TypeError`).
-- `fn` **always called as `fn(yielded_value)`** — ignores §4; no args/kwargs dispatch. Nested `Q` works because `Q.__call__(yielded) == Q.run(yielded)`.
+- `fn` **always receives one argument, `yielded_value`** — no args/kwargs dispatch. A directly registered `Q` uses nested dispatch (§4.2), preserving outward `break_()`/`exit_()` propagation rather than introducing a public `run()` boundary.
 
 **Loop:** (1) CV callable → invoke to get generator; (2) first yield: sync `next(gen)` / async `await gen.__anext__()`; (3) `result = fn(yielded)`, await if awaitable; (4) send: sync `gen.send(result)` / async `await gen.asend(result)`; Stop → exit, pipeline CV = `result`; (5) **cleanup always:** sync `gen.close()` / async `await gen.aclose()` — on normal termination, exceptions, signals.
 
@@ -336,7 +339,7 @@ Mid-transition (sync gen + async `fn`) is the primary motivating use case — e.
 - `Q.return_(value)` raised inside `fn` **returns from `fn`** — `value` becomes the pipeline's CV (drive_gen's normal "last `fn` return → CV" rule applies). Generator is closed in cleanup. The signal is **not** propagated to the outer pipeline.
 - `Q.break_()` raised inside `fn` propagates outward through drive_gen toward the nearest enclosing iteration scope (per §7.2). Generator is closed first via `close()`/`aclose()` in the cleanup `finally:`, then the signal propagates.
 
-**Cloning:** reference-copied (no mutable state). **Traceback:** `.drive_gen(fn_name)`.
+**Cloning:** the callback link is cloned; a directly registered `Q` is recursively cloned, while other callables are shared. **Traceback:** `.drive_gen(fn_name)`.
 
 ### 5.12 `name(label, /)`
 
@@ -650,7 +653,11 @@ Backpressure-aware bounded buffer between producer (pipeline iterable) and consu
 - Async: producer as `asyncio.Task` + `asyncio.Queue(maxsize=n)`.
 - Wraps iterable **after** run phase and deferred `with_` entry, but **before** the `fn` callback.
 
-**Errors:** producer exception propagates to consumer at next `get()`. Early consumer exit (`break`, `GeneratorExit`): sync → `threading.Event` set, producer checks during `put()`; async → producer task cancelled. Cleanup guaranteed via `finally:` on both ends.
+**Errors:** producer exceptions, including source-raised cancellation on the async path, reach the consumer after previously queued items. Error and end markers obey backpressure without a delivery timeout. Consumer shutdown stops marker delivery rather than leaving the producer blocked on a full queue.
+
+**Ownership and cleanup:** the producer closes its source iterator (`close()`/`aclose()` when available) on completion or shutdown. The iteration terminal closes its owned buffer before leaving a deferred context manager or running `finally_()`. Close a retained iterator explicitly when abandoning it; a Python `for`/`async for` `break` alone does not close a retained generator. Sync shutdown sets a stop event and joins the producer for up to five seconds; a source blocked inside user code cannot be forcibly stopped, so timeout emits `RuntimeWarning` and the daemon thread may remain alive. Async shutdown cancels and awaits its producer task.
+
+**Context:** producer threads inherit a `copy_context()` snapshot at startup; async producers inherit task context. Producer context writes do not propagate back to the consumer. Context values themselves are shallow references.
 
 **Interactions:** `clone()` preserves buffer size. Iterator reuse preserves. With deferred `with_`, buffer wraps iterable after CM entry and inner `fn`'s iterable.
 
@@ -662,9 +669,11 @@ Backpressure-aware bounded buffer between producer (pipeline iterable) and consu
 
 Independent copy. Subclass-safe via `type(self).__new__`.
 
-**Deep-copied:** pipeline structure (linked list); nested `Q` within steps (recursively via own `clone()` — prevents cross-clone state sharing); `if_`/`else_` ops (mutable else-branch ref); `while_` ops (predicate + body links); `except_`/`finally_` step nodes (handler `Q` recursively cloned); kwargs dicts (shallow); pipeline name.
+**Deep-copied:** pipeline structure (linked list); nested `Q` within steps and operation callbacks (recursively via own `clone()` — prevents cross-clone state sharing); operation-owned links (`if_`/`else_`, `while_`, `foreach`/`foreach_do`, `gather`, `with_`/`with_do`, `drive_gen`); `except_`/`finally_` step nodes (handler `Q` recursively cloned); kwargs dicts (shallow); pipeline name.
 
 **Shared by reference:** non-`Q` callables (functions, lambdas, bound methods); positional args tuples (immutable); kwargs values; exception type tuples.
+
+Subclass-owned `__dict__` entries and initialized slots are shallow-copied. Their mutable values remain shared; base pipeline links retain the independent structural cloning described above.
 
 **State reset:** clones behave as top-level by default, regardless of original's nested usage. When used as a step, adopts nested behavior at that point.
 
@@ -679,7 +688,7 @@ Wrap pipeline as function decorator. Decorated function's return → pipeline in
 
 **Async decorated:** `async def` decorated fn returns coroutine when called. Pipeline treats coroutine as root; standard awaitable detection triggers async transition. Wrapper is always sync (returns plain value or coroutine); caller `await`s on transition.
 
-**Errors:** pending `if_`/`while_` → `QuentException`. Escaped signals → `QuentException`.
+**Errors:** pending `if_`/`while_` or `buffer()` without an iteration terminal → `QuentException`. Escaped signals → `QuentException`.
 
 ### 10.3 `from_steps(*steps)` (classmethod)
 
@@ -730,7 +739,8 @@ On `foreach()`, `foreach_do()`, `gather()`.
 | Value | Behavior |
 |---|---|
 | `None` (default) | New `ThreadPoolExecutor` per invocation; shut down (`wait=True`) after. |
-| `Executor` instance | Used for sync concurrent; quent does NOT shut down — caller's responsibility. |
+| Same-interpreter `Executor` instance | Used for sync concurrent; quent does NOT shut down — caller's responsibility. |
+| `ProcessPoolExecutor` / `InterpreterPoolExecutor` | Build-time `TypeError`: serialized callbacks cannot carry the execution context. |
 | anything else | `TypeError`. |
 
 **Scope:** sync concurrent path only. Async path (semaphore + TaskGroup/`asyncio.gather`) unaffected.
@@ -738,6 +748,8 @@ On `foreach()`, `foreach_do()`, `gather()`.
 **By op:** `foreach`/`foreach_do` use `executor` only when `concurrency` is set (sequential ignores). `gather` always uses on sync path.
 
 **Context propagation:** worker submissions use `copy_context().run()` regardless of executor source.
+
+Custom executors must accept same-interpreter, non-serialized callables. Positive `concurrency` bounds outstanding worker submissions even when the supplied pool has more workers.
 
 ### 11.3 Sync Concurrent Execution
 
@@ -755,6 +767,8 @@ Selected when first item/fn returns awaitable.
 - `asyncio.Semaphore` limits concurrency.
 - **3.11+:** `asyncio.TaskGroup`. The TaskGroup's own `ExceptionGroup` is **not** surfaced — quent catches it, extracts the sub-exceptions, and re-triages per §5.3/§5.5/§7.3. The user-visible exception is either a single propagating exception, a quent-specific `ExceptionGroup` with op-name in the message (`"gather() encountered N exceptions"` or `"foreach()/foreach_do() encountered N exceptions"`), or a propagating control-flow signal.
 - **3.10:** `asyncio.gather()` fallback; on failure, pending tasks cancelled and awaited before triage; same user-visible wrapping rules as 3.11+.
+- Child cancellation without another winning failure cancels and drains siblings, then propagates `CancelledError`; it never returns a partial successful result. Explicit source-raised `CancelledError` participates in BaseException triage (§7.3). Cancellation induced by sibling cleanup does not replace the error or signal that caused cleanup.
+- **Cancellation provenance limit:** the public task API does not identify who issued a `Task.cancel()` request. A request racing another failure cannot always be distinguished from sibling cleanup. TaskGroup retains the other failure in that ambiguous case; the Python 3.10 fallback records cancellations observed before its cleanup phase. Exact attribution in these races is not guaranteed. Python 3.10 can also discard cancellation message arguments at task/gather boundaries independently of quent.
 - **Async iterables:** inputs with `__aiter__` but not `__iter__` fully materialized before dispatch. For large/unbounded → use sequential.
 
 ### 11.5 Sync/Async Detection
@@ -778,6 +792,8 @@ Callables must be **consistently** sync or async across all items/fns in one op.
 `contextvars` propagate to `ThreadPoolExecutor` workers via `copy_context().run()`. Workers see context vars with values at submit time. Async tasks inherit naturally through asyncio.
 
 > **Isolation guarantee.** `copy_context().run(fn)` gives `fn` its own snapshot of all `ContextVar`s — any `ContextVar.set` inside is invisible to siblings and to the parent. This is asyncio/contextvars builtin behavior. The user-facing `Q.set`/`Q.get` API (§15) layers on a copy-on-write dict pattern (each `Q.set` creates a new dict, never mutates), which is defense-in-depth and also enables single-threaded re-entrancy. Either mechanism alone suffices for worker isolation.
+
+**Probe exception:** the first callback is invoked inline in the caller's context (§11.5). Synchronous work performed during that invocation can change the parent context, and subsequent workers inherit that changed context. Only the dispatched work is isolated. For an `async def` callback, its body runs later in its task; a synchronous factory returning an awaitable still performs its factory work inline.
 
 > **Implementation note — loop detection.** §16.2's "is an event loop running?" check uses CPython's private `asyncio._get_running_loop()` (returns the running loop or `None`, no exception raised) for speed. This is implementation-internal and may need adaptation on alternate runtimes. The behavior contract: under an active asyncio/trio/curio loop, async protocol is preferred for dual-protocol objects.
 
@@ -889,9 +905,9 @@ All `repr()` in visualizations is sanitized as defense-in-depth:
 | Nesting depth | 50 | `Q(...<truncated at depth 50>...)` |
 | Links per level | 100 | `... and N more steps` |
 | Total length | 10,000 chars | `... <truncated>` |
-| Total recursive calls per pipeline | 500 | (rendering stops) |
+| Total recursive calls across the rendered graph | 500 | (rendering stops) |
 
-Each nested pipeline gets its own budget.
+Nested pipelines share the traversal budget, so branching and repeated references cannot multiply the work limit.
 
 ### 13.9 Graceful Degradation
 
@@ -1028,7 +1044,7 @@ Q(fetch_data).then(lambda data: process(data, Q.get('config'))).run()
 
 **Non-concurrent:** context persists in caller's thread. Values from one execution visible to subsequent in same thread (direct consequence of `contextvars`).
 
-**Concurrent workers (`foreach`/`gather` with concurrency):** inherit snapshot via `copy_context().run()` (§11.7). Each worker starts with copy at dispatch time. Worker `set()` does NOT propagate back to parent or siblings — guaranteed by `copy_context()` (shallow copy) + copy-on-write dict semantics.
+**Concurrent workers (`foreach`/`gather` with concurrency):** inherit snapshot via `copy_context().run()` (§11.7). Each dispatched worker starts with a copy at dispatch time. Worker `set()` does NOT propagate back to parent or siblings. The initial inline probe is the exception described in §11.7; its synchronous context writes persist in the caller.
 
 **Async concurrent tasks:** inherit naturally through asyncio. Same isolation guarantees.
 
@@ -1071,6 +1087,7 @@ Objects like `aiohttp.ClientSession` implement both, but their sync protocol is 
 | Non-`.then()`/`.do()` while `if_`/`while_` pending | Build | `QuentException` |
 | `concurrency` out of range or wrong type | Build | `ValueError`/`TypeError` |
 | `executor` not an `Executor` | Build | `TypeError` |
+| `ProcessPoolExecutor` / `InterpreterPoolExecutor` | Build | `TypeError` |
 | `buffer(n)` with invalid `n` | Build | `ValueError`/`TypeError` |
 | Pending `if_`/`while_` at `run()`/`as_decorator()`/`debug()` | Run | `QuentException` |
 | CV not iterable (iteration ops) | Run | `TypeError` |

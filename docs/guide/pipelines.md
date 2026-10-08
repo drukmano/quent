@@ -446,6 +446,10 @@ Q(data).gather(fn_a, fn_b, fn_c, fn_d, concurrency=2).run()
 
 Without `concurrency`, all functions run concurrently with no limit.
 
+A supplied same-interpreter executor (for example, `ThreadPoolExecutor`) remains caller-owned; a positive `concurrency` still limits this operation's outstanding submissions. `ProcessPoolExecutor` and `InterpreterPoolExecutor` are rejected at build time because they serialize callbacks and cannot carry quent's context. This applies to concurrent `foreach` and `foreach_do` too.
+
+The first callback is invoked inline to select sync or async execution. Its synchronous context-variable writes affect the caller and later workers; only dispatched thread/task work is isolated.
+
 ### Error Behavior
 
 - **Single failure:** The exception propagates directly (not wrapped).
@@ -952,7 +956,11 @@ async for item in Q(async_produce).buffer(10).iterate():
 
 **FIFO ordering** is guaranteed -- items are delivered in the same order they were produced.
 
-**Error behavior:** If the producer raises an exception, it is propagated to the consumer at the next `get()`. If the consumer exits early (`break`, `GeneratorExit`), the producer is signaled to stop and cleanup is guaranteed.
+**Error behavior:** Producer exceptions reach the consumer after already-buffered items; a slow consumer does not lose an error marker. Source-raised async cancellation also propagates instead of hanging the consumer.
+
+**Ownership:** Buffering owns its source iterator and calls `close()` or `aclose()` when available. Closing the terminal closes its buffer before leaving a deferred context manager or running `finally_()`. Explicitly close a retained iterator when abandoning it: `break` alone does not close a retained generator. Sync shutdown waits up to five seconds and warns if user code keeps the daemon producer blocked; Python cannot forcibly stop that thread. Async shutdown cancels and awaits its producer.
+
+Producer threads inherit the current context-variable snapshot, as async producer tasks do; producer writes remain isolated from the consumer.
 
 !!! note
     `n` must be a positive integer. `bool` values, `0`, and negative values raise `ValueError` or `TypeError`. The buffer size is preserved across `clone()` and when calling a `QuentIterator` with new arguments.
@@ -1034,7 +1042,7 @@ Q(fetch).name('auth_pipeline').then(validate).run()
 
 The Context API provides named storage scoped to the execution context. It is useful when non-adjacent steps need to share data without altering the pipeline's value flow.
 
-Storage is backed by a `ContextVar`-based dictionary. Each `set()` creates a new dict (copy-on-write), ensuring concurrent workers are properly isolated.
+Storage is backed by a `ContextVar`-based dictionary. Each `set()` creates a new dict (copy-on-write), isolating dispatched workers. The initial concurrency probe runs inline: synchronous writes made by that first invocation remain in the caller's context and are inherited by later workers.
 
 ### Instance methods (pipeline steps)
 
