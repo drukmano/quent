@@ -80,8 +80,9 @@ def _coverage_finalize() -> int:
     print('(coverage report exited non-zero — threshold may not be met)')
 
   print('\n==> Generating coverage.xml')
-  subprocess.run([sys.executable, '-m', 'coverage', 'xml'])
-  return 0
+  xml_rc = subprocess.run([sys.executable, '-m', 'coverage', 'xml']).returncode
+  # Produce the artifact even below the threshold, but keep the quality gate red.
+  return rc or xml_rc
 
 
 def main() -> int:

@@ -26,17 +26,19 @@ bash scripts/setup.sh
 
 ## Running Tests
 
-Full QA pipeline (format, lint, type check, tests):
+Full QA pipeline, including slow stress and memory tests (uses the active environment or `.venv`):
 
 ```bash
-bash run_tests.sh
+bash run_tests.sh --slow
 ```
 
 Tests only (parallel — wall-clock time equals the slowest module):
 
 ```bash
-python scripts/run_tests_parallel.py
+python scripts/run_tests_parallel.py --slow
 ```
+
+Omit `--slow` for the shorter development suite. Add `--coverage` to enforce the configured coverage threshold and generate `coverage.xml`.
 
 Run a single test file:
 
@@ -90,6 +92,6 @@ For more on the design philosophy, see [Why quent](https://quent.readthedocs.io/
 - Branch from `master` for all contributions.
 - One feature or fix per PR.
 - Include tests for new behavior. Derive test assertions from `SPEC.md`.
-- Ensure the full QA pipeline passes (`bash run_tests.sh`).
+- Ensure the full QA pipeline passes (`bash run_tests.sh --slow`).
 - Use concise, imperative-mood commit messages (e.g., "Add gather exception handling").
 - If your change is breaking, describe the impact in the PR description.

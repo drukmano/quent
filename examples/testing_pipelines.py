@@ -21,18 +21,16 @@ Key testing insights:
    module-level names with 'patch'. This keeps tests explicit and avoids
    fragile string targets.
 
-2. Always use MagicMock(spec=fn) or create_autospec(fn) when passing mocks
-   into pipelines. Plain MagicMock() has a _quent_is_q attribute auto-created
-   by MagicMock's attribute machinery, which causes quent to treat the mock as
-   a nested pipeline (duck-typing: getattr(v, '_quent_is_q', False)). The
-   spec= parameter restricts attribute access to the real function's interface.
+2. Use MagicMock(spec=fn) to restrict mock attributes to the real interface,
+   or create_autospec(fn) to check its calling signature too. Plain MagicMock
+   and AsyncMock also work as pipeline callbacks.
 
 3. Pipeline input convention: pass the initial value to .run(v), not as the
    pipeline root. Use Q().then(step1).then(step2).run(input) so that
    .run(input) threads the input into the first step as its argument.
 
 Run with:
-    python -m unittest examples.testing_chains
+    python -m unittest examples.testing_pipelines
     # or:
     python examples/testing_chains.py
 """
@@ -117,8 +115,7 @@ class TestQSync(unittest.TestCase):
 
   def test_happy_path(self):
     """Mock fetch and save; assert save receives enriched user and result matches."""
-    # Use spec= so quent's duck-typing check (_quent_is_q) returns False,
-    # not a truthy MagicMock attribute.
+    # spec= catches accidental access to attributes outside the real interface.
     mock_fetch = MagicMock(
       spec=fetch_user,
       return_value={'id': 1, 'name': 'Bob', 'email': 'bob@example.com'},
@@ -481,10 +478,10 @@ class TestOnStep(unittest.TestCase):
     Q.on_step = self._original_on_step
 
   def test_on_step_records_steps(self):
-    """on_step receives (q, step_name, input_value, result, elapsed_ns) for each step."""
+    """on_step receives each completed step and its optional exception."""
     steps_log: list[tuple[str, object]] = []
 
-    def recorder(q, step_name, input_value, result, elapsed_ns):
+    def recorder(q, step_name, input_value, result, elapsed_ns, exception):
       steps_log.append((step_name, result))
 
     Q.on_step = recorder
@@ -516,12 +513,13 @@ class TestOnStep(unittest.TestCase):
     """elapsed_ns is a non-negative integer for each step."""
     elapsed_values: list[int] = []
 
-    def recorder(q, step_name, input_value, result, elapsed_ns):
+    def recorder(q, step_name, input_value, result, elapsed_ns, exception):
       elapsed_values.append(elapsed_ns)
 
     Q.on_step = recorder
     Q(1).then(lambda x: x + 1).run()
 
+    self.assertEqual(len(elapsed_values), 2)
     for ns in elapsed_values:
       self.assertIsInstance(ns, int)
       self.assertGreaterEqual(ns, 0)

@@ -1,23 +1,9 @@
 name: Release & Publish
 
-# SECURITY NOTE (workflow_run + contents:write + id-token:write):
-# This workflow triggers on workflow_run completion, which is a known privilege
-# escalation vector in GitHub Actions when combined with write permissions.
-# This usage is safe because:
-#   1. It only triggers on the master branch (not PRs or forks).
-#   2. It does NOT download or process artifacts from the triggering workflow.
-#   3. It only reads pyproject.toml from the checked-out code (not from artifacts).
-#   4. The only user-controlled input is the commit SHA (github.event.workflow_run.head_sha),
-#      which is a hex hash — not arbitrary text — and is passed via environment variable
-#      (not shell interpolation).
-#   5. The gh API call and release creation use environment variables, not ${{ }} interpolation
-#      in run: blocks, preventing script injection.
-#   6. PyPI publishing uses trusted publishing (id-token:write) scoped to the `pypi`
-#      environment, which requires environment protection rules.
-#   7. Build artifacts are produced and consumed within this workflow only —
-#      never downloaded from external sources.
-# If modifying this workflow, do NOT introduce artifact processing or user-controlled
-# string interpolation in run: blocks. See GitHub Security Lab advisories on workflow_run.
+# Privileged workflow_run handling: accept only this repository's master pushes.
+# Verify the candidate against CI before checking it out; branch names alone do
+# not establish trust. Build and tag the same verified SHA, never a moving branch.
+# Consume only artifacts created here. Protect the pypi environment separately.
 
 on:
   workflow_dispatch:
@@ -32,61 +18,72 @@ concurrency:
 
 jobs:
   release:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: read
     outputs:
-      published: ${{ steps.create_release.outputs.published }}
+      publish: ${{ steps.version.outputs.publish }}
       tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.verify.outputs.sha }}
     steps:
-      - name: Verify CI passed (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          STATUS=$(gh api "repos/$REPO/commits/$SHA/status" --jq '.state')
-          if [ "$STATUS" != "success" ]; then
-            echo "::error::CI has not passed on this commit (status: $STATUS). Aborting release."
-            exit 1
-          fi
+      # On workflow_run github.sha is trusted default-branch code, not the
+      # triggering workflow's potentially untrusted head. Run policy from here.
+      - name: Checkout release policy
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify release candidate passed trusted CI
+        id: verify
+        run: python3 scripts/verify_release.py
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
 
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.verify.outputs.sha }}
 
-      - name: Check for version bump
+      - name: Prepare verified release tag
         id: version
         run: |
           VERSION=$(python3 -c "import tomllib; f=open('pyproject.toml','rb'); v=tomllib.load(f)['project']['version']; f.close(); print(v)")
           TAG="v$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag $TAG already exists, skipping release."
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG"; then
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            if [ "$(git rev-parse "$TAG^{commit}")" != "$RELEASE_SHA" ]; then
+              # Ordinary commits after a release keep its version until bumped.
+              echo "Version $VERSION belongs to another commit; nothing to publish."
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "New version $VERSION detected, will create release."
+            STATUS=$?
+            # ls-remote returns 2 for an absent ref; transport failures are fatal.
+            if [ "$STATUS" -ne 2 ]; then exit "$STATUS"; fi
+            gh release create "$TAG" --target "$RELEASE_SHA" --title "$TAG" --generate-notes
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
           fi
-
-      - name: Create GitHub Release
-        id: create_release
-        if: steps.version.outputs.exists == 'false'
-        run: |
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --generate-notes
-          echo "published=true" >> "$GITHUB_OUTPUT"
+          test "$(git rev-parse "$TAG^{commit}")" = "$RELEASE_SHA"
+          # An existing matching tag may represent a failed/partial publication.
+          echo "publish=true" >> "$GITHUB_OUTPUT"
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_SHA: ${{ steps.verify.outputs.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     needs: release
-    if: needs.release.outputs.published == 'true'
+    if: needs.release.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -96,6 +93,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.release.outputs.sha }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -147,3 +146,6 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          # PyPI files are immutable; retries upload only missing distributions.
+          skip-existing: true
