@@ -22,7 +22,7 @@ from ._concurrency import (
   _run_taskgroup,
   _run_threadpool_sync,
 )
-from ._eval import _handle_break_exc, _isawaitable, _should_use_async_protocol
+from ._eval import _bind_callback, _handle_break_exc, _isawaitable, _should_use_async_protocol
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._types import _UNPROCESSED, ExceptionGroup, Null, QuentException, _Break, _ControlFlowSignal, _Exit, _Return
@@ -152,7 +152,7 @@ class _IterOp:
   def __init__(self, link: Link, mode: Literal['foreach', 'foreach_do']) -> None:
     if mode not in ('foreach', 'foreach_do'):  # pragma: no cover
       raise ValueError(f'invalid _IterOp mode: {mode!r}')  # pragma: no cover
-    self._fn = link.v
+    self._fn = _bind_callback(link.v)
     self._link = link
     if mode == 'foreach_do':
       self._link_name = 'foreach_do'
@@ -160,6 +160,11 @@ class _IterOp:
     else:
       self._link_name = 'foreach'
       self._collect = _IterOp._collect_foreach
+
+  def _clone(self) -> _IterOp:
+    from ._link import _clone_link
+
+    return _IterOp(_clone_link(self._link), self._link_name)  # type: ignore[arg-type]
 
   # Specialized at factory time — saves ~11ns/item vs string dispatch.
 
@@ -284,13 +289,18 @@ class _ConcurrentIterOp:
   ) -> None:
     if mode not in ('foreach', 'foreach_do'):  # pragma: no cover
       raise ValueError(f'invalid _ConcurrentIterOp mode: {mode!r}')  # pragma: no cover
-    self._fn = link.v
+    self._fn = _bind_callback(link.v)
     self._link = link
     self._mode = mode
     self._batch_collect = _BATCH_COLLECT_DISPATCH[mode]
     self._concurrency = concurrency
     self._executor = executor
     self._link_name = mode
+
+  def _clone(self) -> _ConcurrentIterOp:
+    from ._link import _clone_link
+
+    return _ConcurrentIterOp(_clone_link(self._link), self._mode, self._concurrency, self._executor)
 
   async def _from_aiter(self, current_value: Any) -> list[Any]:
     """Materialize an async iterable into a list, then run concurrently.
@@ -314,6 +324,8 @@ class _ConcurrentIterOp:
     fn = self._fn
     link = self._link
     batch_collect = self._batch_collect
+    cancellations: list[BaseException] = []
+    cleanup_started = False
 
     async def _worker(idx: int) -> None:
       __tracebackhide__ = True
@@ -332,6 +344,8 @@ class _ConcurrentIterOp:
       except _ControlFlowSignal:
         raise
       except BaseException as exc:
+        if not _HAS_TASK_GROUP and isinstance(exc, asyncio.CancelledError) and not cleanup_started:
+          cancellations.append(exc)
         exc._quent_idx = idx  # type: ignore[attr-defined]
         _set_link_temp_args(exc, link, item=items[idx], index=idx)
         raise
@@ -361,8 +375,11 @@ class _ConcurrentIterOp:
       try:
         await asyncio.gather(*tasks)
       except BaseException:
+        cleanup_started = True
         await _cancel_pending_tasks(tasks)
-        task_exceptions: list[BaseException] = []
+        # Cancelled tasks cannot expose their exception through task.exception().
+        # Preserve cancellations observed before our own sibling cleanup began.
+        task_exceptions: list[BaseException] = list(cancellations)
         for t in tasks:
           if t.done() and not t.cancelled():
             exc = t.exception()

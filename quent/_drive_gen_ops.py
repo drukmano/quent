@@ -6,7 +6,7 @@ from __future__ import annotations
 from types import AsyncGeneratorType, GeneratorType
 from typing import Any
 
-from ._eval import _handle_return_exc, _isawaitable
+from ._eval import _bind_callback, _handle_return_exc, _isawaitable
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._types import _ControlFlowSignal, _Return
@@ -32,7 +32,7 @@ class _DriveGenOp:
 
   def __init__(self, link: Link) -> None:
     self._link = link
-    self._fn = link.v
+    self._fn = _bind_callback(link.v)
     self._link_name = 'drive_gen'
 
   def __call__(self, current_value: Any) -> Any:
@@ -72,10 +72,13 @@ class _DriveGenOp:
         last_result = self._fn(yielded)
       except _Return as ret_exc:
         # Q.return_() inside fn returns from fn — value becomes pipeline CV.
-        last_result = _handle_return_exc(ret_exc)
+        try:
+          last_result = _handle_return_exc(ret_exc)
+        except BaseException:
+          gen.close()
+          raise
         if _isawaitable(last_result):
-          # Lazy fn returned an awaitable — transition to async to await it.
-          return self._mid_transition(gen, last_result)
+          return self._finish_return(gen, last_result)
         gen.close()
         return last_result
       except _ControlFlowSignal:
@@ -98,6 +101,18 @@ class _DriveGenOp:
       except BaseException:
         gen.close()
         raise
+
+  def _clone(self) -> _DriveGenOp:
+    from ._link import _clone_link
+
+    return _DriveGenOp(_clone_link(self._link))
+
+  async def _finish_return(self, gen: Any, result: Any) -> Any:
+    """A lazy return ends driving; unlike a step result it is never sent back."""
+    try:
+      return await result
+    finally:
+      gen.close()
 
   async def _mid_transition(self, gen: Any, first_awaitable: Any) -> Any:
     """Tier 2: sync gen + async fn — await results, use sync gen.send()."""

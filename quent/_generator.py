@@ -6,11 +6,14 @@ from __future__ import annotations
 import sys
 import warnings
 from collections.abc import AsyncIterator, Callable, Iterator
+from functools import partial
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from ._buffer_ops import _async_buffer_iter, _sync_buffer_iter
-from ._engine import _run_async_finally, _run_sync_finally
-from ._eval import _eval_signal_value, _evaluate_value, _isawaitable, _should_use_async_protocol
+from ._engine import _perf_counter_ns, _record_step, _run_async_finally, _run_sync_finally, _timing_ctx
+from ._engine import _run as _engine_run
+from ._eval import _bind_callback, _evaluate_value, _isawaitable, _should_use_async_protocol
+from ._eval import _resolve_signal_value as _eval_resolved_signal_value
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
 from ._traceback import _modify_traceback
@@ -42,15 +45,18 @@ def _resolve_signal_value(
   q: Q[Any] | None,
   ignore_result: bool,
   idx: int,
+  *,
+  guard_awaitable: bool = True,
 ) -> Any:
   """Evaluate a signal's value; returns _NO_VALUE if Null. Caller handles awaitables."""
   __tracebackhide__ = True
   if exc.value is Null:
     return _NO_VALUE
+  value = exc.value
   try:
-    return _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+    return _eval_resolved_signal_value(exc, guard_awaitable=guard_awaitable)
   except BaseException as eval_exc:
-    _handle_iterate_exc(eval_exc, link, q, ignore_result, exc.value, idx)
+    _handle_iterate_exc(eval_exc, link, q, ignore_result, value, idx)
     raise eval_exc  # explicit so modified __traceback__ is respected on Python <3.11
 
 
@@ -71,7 +77,7 @@ def _run_deferred_finally_sync(q: Q[Any], deferred: list[Any]) -> None:
   active_exc = sys.exc_info()[1]
   if isinstance(active_exc, (GeneratorExit, _ControlFlowSignal)):
     active_exc = None
-  result = _run_sync_finally(q, root_value, root_link, active_exc, exec_id=exec_id)
+  result = _run_sync_finally(q, root_value, root_link, active_exc, exec_id=exec_id, wrap_awaitable=False)
   if result is not None:
     if hasattr(result, 'close'):
       result.close()
@@ -238,6 +244,43 @@ async def _flush_async(flush: Callable[[], Any]) -> Any:
   return flush_result
 
 
+def _start_deferred_with(q: Q[Any] | None) -> tuple[Any, bool, int] | None:
+  if q is None:
+    return None
+  on_step, debug, needs_timing = _timing_ctx(q)
+  return (on_step, debug, _perf_counter_ns()) if needs_timing else None
+
+
+def _record_deferred_with(
+  q: Q[Any] | None,
+  timing: tuple[Any, bool, int] | None,
+  cm: Any,
+  result: Any,
+  ignore_result: bool,
+  deferred: list[Any] | None,
+  exception: BaseException | None = None,
+) -> None:
+  if timing is None or q is None:
+    return
+  link = q._current_link or q._first_link
+  if link is None:
+    return
+  on_step, debug, started = timing
+  _record_step(
+    q,
+    link,
+    q._root_link,
+    cm,
+    result,
+    started,
+    on_step,
+    debug,
+    step_name='with_do' if ignore_result else 'with_',
+    exec_id=deferred[2] if deferred is not None else 0,
+    exception=exception,
+  )
+
+
 # Module-level so we don't bind `self` in the generator closure.
 
 
@@ -262,7 +305,13 @@ def _sync_generator(
   _cm_exited = False
 
   try:
-    result = _run_pipeline(q_run, run_args, _build_run_kwargs(_deferred, deferred_with))
+    run_kw = _build_run_kwargs(_deferred, deferred_with)
+    if isinstance(q_run, partial) and q_run.func is _engine_run:
+      # Only our engine supports raw rejection; public custom runners keep their signature.
+      if run_kw is None:
+        run_kw = {}
+      run_kw['raw_return_awaitable'] = True
+    result = _run_pipeline(q_run, run_args, run_kw)
 
     if _isawaitable(result):
       # Coroutines have .close(); Tasks/Futures have .cancel().
@@ -273,54 +322,78 @@ def _sync_generator(
       msg = "Cannot use sync iteration on an async pipeline; use 'async for' instead"
       raise TypeError(msg)
 
-    if deferred_with is not None:
-      _dw_inner_link, _dw_ignore_result = deferred_with
-      cm = result
-      if not hasattr(cm, '__enter__'):
-        msg = "Context manager does not support sync protocol; use 'async for' instead."
-        raise TypeError(msg)
-      ctx = cm.__enter__()
-      _with_cm = cm
-      inner_result = _evaluate_value(_dw_inner_link, ctx)
-      if _isawaitable(inner_result):
-        if hasattr(inner_result, 'close'):
-          inner_result.close()
-        msg = "iterate(): deferred with_ inner function returned a coroutine. Use 'async for' with __aiter__ instead."
-        raise TypeError(msg)
-      result = cm if _dw_ignore_result else inner_result
-
-    if buffer_size is not None:
-      result = _sync_buffer_iter(result, buffer_size)
-
     idx = 0
+    _buffer = None
     try:
-      for item in result:
-        if fn is None:
-          if flat:
-            for sub in item:
-              yield sub
-          else:
-            yield item
+      if deferred_with is not None:
+        _dw_inner_link, _dw_ignore_result = deferred_with
+        cm = result
+        _with_timing = _start_deferred_with(q)
+        try:
+          if not hasattr(cm, '__enter__'):
+            msg = "Context manager does not support sync protocol; use 'async for' instead."
+            raise TypeError(msg)
+          ctx = cm.__enter__()
+          _with_cm = cm
+          inner_result = _evaluate_value(_dw_inner_link, ctx)
+          if _isawaitable(inner_result):
+            if hasattr(inner_result, 'close'):
+              inner_result.close()
+            msg = (
+              "iterate(): deferred with_ inner function returned a coroutine. Use 'async for' with __aiter__ instead."
+            )
+            raise TypeError(msg)
+          result = cm if _dw_ignore_result else inner_result
+        except _ControlFlowSignal:
+          raise
+        except BaseException as exc:
+          _record_deferred_with(q, _with_timing, cm, None, _dw_ignore_result, _deferred, exc)
+          raise
         else:
-          fn_result = _call_fn_sync(fn, item, link, q, ignore_result, idx)
-          if flat:
-            if ignore_result:
-              for _unused in fn_result:
-                pass
-              yield item
-            else:
-              for sub in fn_result:
-                yield sub
-          else:
-            yield item if ignore_result else fn_result
-        idx += 1
+          _record_deferred_with(q, _with_timing, cm, result, _dw_ignore_result, _deferred)
 
-      if flush is not None:
-        for sub in _flush_sync(flush):
-          yield sub
+      if buffer_size is not None:
+        _buffer = _sync_buffer_iter(result, buffer_size)
+        result = _buffer
+
+      try:
+        for item in result:
+          if fn is None:
+            if flat:
+              for sub in item:
+                yield sub
+            else:
+              yield item
+          else:
+            fn_result = _call_fn_sync(fn, item, link, q, ignore_result, idx)
+            if flat:
+              if ignore_result:
+                for _unused in fn_result:
+                  pass
+                yield item
+              else:
+                for sub in fn_result:
+                  yield sub
+            else:
+              yield item if ignore_result else fn_result
+          idx += 1
+
+        if flush is not None:
+          for sub in _flush_sync(flush):
+            yield sub
+
+      finally:
+        if _buffer is not None:
+          active_exc = sys.exc_info()[1]
+          try:
+            _buffer.close()
+          except BaseException as cleanup_exc:
+            if active_exc is not None and cleanup_exc is not active_exc:
+              cleanup_exc.__context__ = active_exc
+            raise
 
     except (_Break, _Return, _Exit) as exc:
-      resolved = _resolve_signal_value(exc, link, q, ignore_result, idx)
+      resolved = _resolve_signal_value(exc, link, q, ignore_result, idx, guard_awaitable=False)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
           _close_and_raise_sync(resolved, type(exc).__name__)
@@ -377,86 +450,110 @@ async def _async_generator(
     if _isawaitable(iterator):
       iterator = await iterator
 
-    if deferred_with is not None:
-      _dw_inner_link, _dw_ignore_result = deferred_with
-      cm = iterator
-      _use_async_cm_result = _should_use_async_protocol(cm, '__enter__', '__aenter__')
-      if _use_async_cm_result is True:
-        _use_async_cm = True
-        ctx = await cm.__aenter__()
-      elif _use_async_cm_result is False:
-        ctx = cm.__enter__()
-      else:
-        msg = (
-          f'{type(cm).__name__} object does not support the context manager protocol '
-          f'(__enter__/__exit__ or __aenter__/__aexit__). '
-          f'Ensure the pipeline value at this step is a context manager.'
-        )
-        raise TypeError(msg)
-      _with_cm = cm
-      inner_result = _evaluate_value(_dw_inner_link, ctx)
-      if _isawaitable(inner_result):
-        inner_result = await inner_result
-      iterator = cm if _dw_ignore_result else inner_result
-
-    if buffer_size is not None:
-      iterator = _async_buffer_iter(iterator, buffer_size)
-
-    if not hasattr(iterator, '__aiter__'):
-      iterator = _aiter_wrap(iterator)
-
     idx = 0
+    _buffer = None
     try:
-      async for item in iterator:
-        if fn is None:
-          if flat:
-            if hasattr(item, '__aiter__'):
-              async for sub in item:
-                yield sub
-            else:
-              for sub in item:
-                yield sub
+      if deferred_with is not None:
+        _dw_inner_link, _dw_ignore_result = deferred_with
+        cm = iterator
+        _with_timing = _start_deferred_with(q)
+        try:
+          _use_async_cm_result = _should_use_async_protocol(cm, '__enter__', '__aenter__')
+          if _use_async_cm_result is True:
+            _use_async_cm = True
+            ctx = await cm.__aenter__()
+          elif _use_async_cm_result is False:
+            ctx = cm.__enter__()
           else:
-            yield item
+            msg = (
+              f'{type(cm).__name__} object does not support the context manager protocol '
+              f'(__enter__/__exit__ or __aenter__/__aexit__). '
+              f'Ensure the pipeline value at this step is a context manager.'
+            )
+            raise TypeError(msg)
+          _with_cm = cm
+          inner_result = _evaluate_value(_dw_inner_link, ctx)
+          if _isawaitable(inner_result):
+            inner_result = await inner_result
+          iterator = cm if _dw_ignore_result else inner_result
+        except _ControlFlowSignal:
+          raise
+        except BaseException as exc:
+          _record_deferred_with(q, _with_timing, cm, None, _dw_ignore_result, _deferred, exc)
+          raise
         else:
-          result = await _call_fn_async(fn, item, link, q, ignore_result, idx)
-          if flat:
-            if ignore_result:
-              if hasattr(result, '__aiter__'):
-                async for _unused in result:
-                  pass
-              else:
-                for _unused in result:
-                  pass
-              yield item
-            else:
-              if hasattr(result, '__aiter__'):
-                async for sub in result:
-                  yield sub
-              else:
-                for sub in result:
-                  yield sub
-          else:
-            yield item if ignore_result else result
-        idx += 1
+          _record_deferred_with(q, _with_timing, cm, iterator, _dw_ignore_result, _deferred)
 
-      if flush is not None:
-        flush_result = await _flush_async(flush)
-        if hasattr(flush_result, '__aiter__'):
-          async for sub in flush_result:
-            yield sub
-        else:
-          for sub in flush_result:
-            yield sub
+      if buffer_size is not None:
+        _buffer = _async_buffer_iter(iterator, buffer_size)
+        iterator = _buffer
+
+      if not hasattr(iterator, '__aiter__'):
+        iterator = _aiter_wrap(iterator)
+
+      try:
+        async for item in iterator:
+          if fn is None:
+            if flat:
+              if hasattr(item, '__aiter__'):
+                async for sub in item:
+                  yield sub
+              else:
+                for sub in item:
+                  yield sub
+            else:
+              yield item
+          else:
+            result = await _call_fn_async(fn, item, link, q, ignore_result, idx)
+            if flat:
+              if ignore_result:
+                if hasattr(result, '__aiter__'):
+                  async for _unused in result:
+                    pass
+                else:
+                  for _unused in result:
+                    pass
+                yield item
+              else:
+                if hasattr(result, '__aiter__'):
+                  async for sub in result:
+                    yield sub
+                else:
+                  for sub in result:
+                    yield sub
+            else:
+              yield item if ignore_result else result
+          idx += 1
+
+        if flush is not None:
+          flush_result = await _flush_async(flush)
+          if hasattr(flush_result, '__aiter__'):
+            async for sub in flush_result:
+              yield sub
+          else:
+            for sub in flush_result:
+              yield sub
+
+      finally:
+        if _buffer is not None:
+          active_exc = sys.exc_info()[1]
+          try:
+            await _buffer.aclose()
+          except BaseException as cleanup_exc:
+            # aclose injects GeneratorExit; retain the consumer failure it replaces.
+            if active_exc is not None and cleanup_exc is not active_exc:
+              cleanup_exc.__context__ = active_exc
+            raise
 
     except (_Break, _Return, _Exit) as exc:
+      signal_value = exc.value
       resolved = _resolve_signal_value(exc, link, q, ignore_result, idx)
       if resolved is not _NO_VALUE:
         if _isawaitable(resolved):
           try:
             resolved = await resolved
           except BaseException as await_exc:
-            _handle_iterate_exc(await_exc, link, q, ignore_result, exc.value, idx)
+            _handle_iterate_exc(await_exc, link, q, ignore_result, signal_value, idx)
             raise await_exc
         yield resolved
       return
@@ -523,7 +620,7 @@ class QuentIterator(_UncopyableMixin, Generic[_T]):
     buffer_size: int | None = None,
   ) -> None:
     self._q_run = q_run
-    self._fn = fn
+    self._fn = _bind_callback(fn) if fn is not None else None
     self._ignore_result = ignore_result
     self._q = q
     self._link = link

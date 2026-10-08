@@ -8,6 +8,7 @@ import sys
 import warnings
 from collections.abc import Awaitable, Callable, Coroutine, Iterable
 from concurrent.futures import Executor
+from types import MemberDescriptorType
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, NoReturn, ParamSpec, TypeVar, overload
 
 from ._context import _GetDescriptor, _SetDescriptor
@@ -383,14 +384,24 @@ class Q(Generic[_T], _UncopyableMixin):
     return self._then(fn, args, kwargs, ignore_result=True, _skip_validation=True)
 
   @overload
-  def foreach(self, /, *, concurrency: int | None = None, executor: Executor | None = None) -> Q[list[Any]]: ...
+  def foreach(
+    self, fn: None = None, /, *, concurrency: int | None = None, executor: Executor | None = None
+  ) -> Q[list[Any]]: ...
+  @overload
+  def foreach(
+    self, fn: Q[_U], /, *, concurrency: int | None = None, executor: Executor | None = None
+  ) -> Q[list[_U]]: ...
+  @overload
+  def foreach(
+    self, fn: Callable[[Any], Awaitable[_U]], /, *, concurrency: int | None = None, executor: Executor | None = None
+  ) -> Q[list[_U]]: ...
   @overload
   def foreach(
     self, fn: Callable[[Any], _U], /, *, concurrency: int | None = None, executor: Executor | None = None
   ) -> Q[list[_U]]: ...
   def foreach(
-    self, fn: Callable[[Any], _U] | None = None, /, *, concurrency: int | None = None, executor: Executor | None = None
-  ) -> Q[list[_U]]:
+    self, fn: Callable[[Any], Any] | None = None, /, *, concurrency: int | None = None, executor: Executor | None = None
+  ) -> Q[list[Any]]:
     """Apply *fn* to each element of the current iterable, collecting results.
 
     The current pipeline value must be iterable. Each element is passed to
@@ -439,7 +450,7 @@ class Q(Generic[_T], _UncopyableMixin):
 
   def foreach_do(
     self, fn: Callable[[Any], Any], /, *, concurrency: int | None = None, executor: Executor | None = None
-  ) -> Self:
+  ) -> Q[list[Any]]:
     """Apply *fn* to each element as a side-effect, keeping original elements.
 
     Like .foreach(), but *fn*'s return values are discarded. The original
@@ -477,7 +488,7 @@ class Q(Generic[_T], _UncopyableMixin):
         # returns: [1, 2, 3] (original elements preserved)
     """
     _require_callable(fn, 'foreach_do', self)
-    return self._build_foreach(fn, 'foreach_do', concurrency, executor)
+    return self._build_foreach(fn, 'foreach_do', concurrency, executor)  # type: ignore[return-value]
 
   def _build_foreach(
     self,
@@ -669,8 +680,9 @@ class Q(Generic[_T], _UncopyableMixin):
     if predicate is None and (args or kwargs):
       msg = 'if_() received args/kwargs but no predicate — pass a callable or value as the first argument.'
       raise QuentException(msg)
+    predicate_link = Link(predicate, args or None, kwargs or None) if predicate is not None else None
     self._pending_if = True
-    self._if_predicate_link = Link(predicate, args or None, kwargs or None) if predicate is not None else None
+    self._if_predicate_link = predicate_link
     return self
 
   def _build_if_step(
@@ -682,13 +694,16 @@ class Q(Generic[_T], _UncopyableMixin):
     ignore_result: bool,
   ) -> Self:
     """Consume a pending if_() (called by then/do when _pending_if is True)."""
+    # Validate the body before consuming the guard so a failed build can retry.
+    fn_link = Link(v, args, kwargs, ignore_result=ignore_result)
     self._pending_if = False
     predicate_link = self._if_predicate_link
     self._if_predicate_link = None
-    fn_link = Link(v, args, kwargs, ignore_result=ignore_result)
     return self._then(_IfOp(predicate_link, fn_link), original_value=fn_link)
 
   def _validate_else_precondition(self, method: str) -> Link:
+    if self._pending_while:
+      raise QuentException('while_() must be followed by .then() or .do() to register the loop body.')
     if self._pending_if:
       msg = (
         f'{method}() called while if_() is still pending — '
@@ -810,14 +825,15 @@ class Q(Generic[_T], _UncopyableMixin):
     Example::
 
         Q(1).while_(lambda x: x < 10).then(lambda x: x + 1).run()  # 10
-        Q(1).while_(lambda x: x < 10).do(print).run()  # prints 1 nine times, returns 1
+        Q(1).while_().do(lambda x: Q.break_(x)).run()  # 1; .do() alone does not change the loop value
     """
     self._ensure_if_consumed()
     if predicate is None and (args or kwargs):
       msg = 'while_() received args/kwargs but no predicate — pass a callable or value as the first argument.'
       raise QuentException(msg)
+    predicate_link = Link(predicate, args or None, kwargs or None) if predicate is not None else None
     self._pending_while = True
-    self._while_predicate_link = Link(predicate, args or None, kwargs or None) if predicate is not None else None
+    self._while_predicate_link = predicate_link
     return self
 
   def _build_while_step(
@@ -829,10 +845,10 @@ class Q(Generic[_T], _UncopyableMixin):
     ignore_result: bool,
   ) -> Self:
     """Consume a pending while_() (called by then/do when _pending_while is True)."""
+    body_link = Link(v, args, kwargs, ignore_result=ignore_result)
     self._pending_while = False
     predicate_link = self._while_predicate_link
     self._while_predicate_link = None
-    body_link = Link(v, args, kwargs, ignore_result=ignore_result)
     return self._then(_WhileOp(predicate_link, body_link, ignore_result), original_value=body_link)
 
   def drive_gen(self, fn: Callable[[Any], Any], /) -> Self:
@@ -1008,10 +1024,21 @@ class Q(Generic[_T], _UncopyableMixin):
   ) -> Any:
     """Thin wrapper around _engine._run so _eval can call v._run() without importing _engine.
 
-    is_nested=True (from _evaluate_value) lets _Return/_Break propagate up;
-    False (from run/as_decorator) catches them as errors.
+    is_nested=True lets breaks reach the enclosing iteration; each engine call
+    still absorbs its own return_. Public run/as_decorator handle outermost exit_.
     """
+    self._ensure_runnable()
     return _run(self, v, args, kwargs, is_nested)
+
+  def _ensure_runnable(self) -> None:
+    """Apply the same execution guards to public and nested pipeline calls."""
+    self._ensure_if_consumed()
+    if self._buffer_size is not None:
+      raise QuentException(
+        'buffer() requires an iteration terminal'
+        ' (iterate, iterate_do, flat_iterate, flat_iterate_do);'
+        ' run() is not supported with buffer()'
+      )
 
   def run(self, v: Any = Null, /, *args: Any, **kwargs: Any) -> _T | Coroutine[Any, Any, _T]:
     """Execute the pipeline and return the final pipeline value.
@@ -1048,13 +1075,6 @@ class Q(Generic[_T], _UncopyableMixin):
 
         Q(5).then(lambda x: x * 2).run()  # 10
     """
-    self._ensure_if_consumed()
-    if self._buffer_size is not None:
-      raise QuentException(
-        'buffer() requires an iteration terminal'
-        ' (iterate, iterate_do, flat_iterate, flat_iterate_do);'
-        ' run() is not supported with buffer()'
-      )
     if v is Null and (args or kwargs):
       raise TypeError('run() keyword arguments require a root value as the first positional argument')
     if v is not Null and (args or kwargs) and not callable(v):
@@ -1128,7 +1148,7 @@ class Q(Generic[_T], _UncopyableMixin):
     debug_q = _make_debug_q(self)
     return _debug_run(debug_q, v, args, kwargs)
 
-  def as_decorator(self) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
+  def as_decorator(self) -> Callable[[Callable[_P, _R]], Callable[_P, _T | Coroutine[Any, Any, _T]]]:
     """Wrap the pipeline as a function decorator.
 
     The decorated function's return value becomes the pipeline's input value.
@@ -1144,12 +1164,12 @@ class Q(Generic[_T], _UncopyableMixin):
 
         get_name()  # 'ALICE'
     """
-    self._ensure_if_consumed()
+    self._ensure_runnable()
     q = self.clone()
 
-    def _decorator(fn: Callable[_P, _R]) -> Callable[_P, _R]:
+    def _decorator(fn: Callable[_P, _R]) -> Callable[_P, _T | Coroutine[Any, Any, _T]]:
       @functools.wraps(fn)
-      def _wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
+      def _wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T | Coroutine[Any, Any, _T]:
         __tracebackhide__ = True
         from ._eval import _isawaitable
 
@@ -1164,7 +1184,7 @@ class Q(Generic[_T], _UncopyableMixin):
         except _ControlFlowSignal as signal:
           raise Q._wrap_escaped_signal(signal, 'as_decorator') from None
         if _isawaitable(result):
-          return q._await_outermost(result)  # type: ignore[return-value]
+          return q._await_outermost(result)
         return result  # type: ignore[no-any-return]
 
       return _wrapper
@@ -1301,6 +1321,20 @@ class Q(Generic[_T], _UncopyableMixin):
     self._ensure_if_consumed()
     cls = type(self)
     new = cls.__new__(cls)
+    # Subclass-owned state is shallow, like user argument values. Base pipeline
+    # links below retain their independent cloning semantics.
+    if hasattr(self, '__dict__'):
+      new.__dict__.update(self.__dict__)
+    for base in cls.__mro__:
+      if base is Q:
+        break
+      for descriptor in base.__dict__.values():
+        if isinstance(descriptor, MemberDescriptorType):
+          try:
+            value = descriptor.__get__(self, cls)
+          except AttributeError:
+            continue  # An intentionally uninitialized subclass slot stays unset.
+          descriptor.__set__(new, value)
     new._name = self._name
     new._buffer_size = self._buffer_size
     new._pending_if = self._pending_if
@@ -1335,7 +1369,7 @@ class Q(Generic[_T], _UncopyableMixin):
       new._root_link.next_link = new._first_link
 
     if __debug__:
-      _missing = [s for s in self.__slots__ if getattr(new, s, _CLONE_SENTINEL) is _CLONE_SENTINEL]
+      _missing = [s for s in Q.__slots__ if getattr(new, s, _CLONE_SENTINEL) is _CLONE_SENTINEL]
       if _missing:
         raise QuentException(f'clone() missing slots: {_missing}')
 

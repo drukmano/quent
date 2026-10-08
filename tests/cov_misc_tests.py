@@ -319,7 +319,7 @@ class ExceptionGroupPolyfillSubgroupTest(TestCase):
     """subgroup(callable) filters using the callable predicate."""
     EG = self._get_polyfill_cls()
     eg = EG('test', [ValueError('a'), ValueError('b'), TypeError('c')])
-    result = eg.subgroup(lambda e: 'a' in str(e))
+    result = eg.subgroup(lambda e: isinstance(e, ValueError) and str(e) == 'a')
     self.assertIsNotNone(result)
     self.assertEqual(len(result.exceptions), 1)
     self.assertEqual(str(result.exceptions[0]), 'a')

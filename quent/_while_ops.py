@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._eval import _eval_signal_value, _evaluate_value, _isawaitable
+from ._eval import _evaluate_value, _isawaitable, _resolve_signal_value
 from ._exc_meta import _set_link_temp_args
 from ._link import Link
-from ._types import _EMPTY_TUPLE, Null, _Break, _ControlFlowSignal
+from ._types import Null, _Break, _ControlFlowSignal
 
 
 def _eval_step(link: Link, current_value: Any) -> Any:
@@ -47,17 +47,9 @@ class _WhileOp:
 
   def _handle_break(self, exc: _Break, current_value: Any) -> Any:
     """Handle a _Break from the loop body or predicate (including nested-Q predicates)."""
-    try:
-      if exc.value is Null:
-        return None if current_value is Null else current_value
-      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
-      if _isawaitable(result):
-        return _await_break_value(result)
-      return result
-    finally:
-      exc.value = Null
-      exc.signal_args = _EMPTY_TUPLE
-      exc.signal_kwargs = None
+    if exc.value is Null:
+      return None if current_value is Null else current_value
+    return _resolve_signal_value(exc)
 
   def __call__(self, current_value: Any = Null) -> Any:
     __tracebackhide__ = True
@@ -175,7 +167,3 @@ class _WhileOp:
     new_op._ignore_result = self._ignore_result
     new_op._link_name = self._link_name
     return new_op
-
-
-async def _await_break_value(result: Any) -> Any:
-  return await result

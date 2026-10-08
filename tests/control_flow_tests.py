@@ -680,18 +680,11 @@ class ExitInForeachTest(SymmetricTestCase):
     result = Q([1, 2, 3, 4, 5]).foreach(mapper).then(lambda x: 'should not reach').run()
     self.assertEqual(result, 'full_exit')
 
-  async def test_exit_in_direct_q_foreach_callback_absorbed_at_inner_run(self) -> None:
-    """Direct-Q callback acts like §4.2 lambda-wrapping case.
-
-    When foreach receives a Q directly, it invokes ``inner(item)`` which is
-    ``inner.run(item)`` — the outermost run() from inner's perspective.
-    ``inner.run()`` absorbs Q.exit_() locally. Use a plain function or
-    `.then(inner)` registration to propagate Q.exit_() across nesting.
-    """
+  async def test_exit_in_direct_q_foreach_callback_exits_outermost(self) -> None:
+    """Directly registered pipelines preserve the enclosing execution boundary."""
     inner = Q().then(lambda x: Q.exit_('local_exit') if x == 3 else x * 2)
-    result = Q([1, 2, 3, 4, 5]).foreach(inner).run()
-    # foreach gets ['local_exit'] returned by inner.run() at x=3.
-    self.assertEqual(result, [2, 4, 'local_exit', 8, 10])
+    result = Q([1, 2, 3, 4, 5]).foreach(inner).then(lambda _: 'unreached').run()
+    self.assertEqual(result, 'local_exit')
 
 
 class ExitWithCarveOutsTest(SymmetricTestCase):
@@ -801,10 +794,7 @@ class AsyncNestedBreakPropagationTest(IsolatedAsyncioTestCase):
     chain_a = Q().then(chain_b)
     chain_wrapper = Q().then(chain_a)
 
-    # foreach_do catches the QuentException from the outermost q
-    with self.assertRaises(QuentException) as ctx:
-      await Q([1, 2, 3]).foreach_do(chain_wrapper).run()
-    self.assertIn('cannot be used outside', str(ctx.exception))
+    self.assertEqual(await Q([1, 2, 3]).foreach_do(chain_wrapper).run(), [1])
 
 
 # ---------------------------------------------------------------------------

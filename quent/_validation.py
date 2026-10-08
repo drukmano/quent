@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 from collections.abc import Iterable
-from concurrent.futures import Executor
+from concurrent.futures import Executor, ProcessPoolExecutor
 from typing import Any
 
 from ._types import QuentException
@@ -39,6 +40,14 @@ def _validate_executor(executor: Executor | None, method: str) -> None:
   if executor is not None and not isinstance(executor, Executor):
     msg = f'{method}() executor must be a concurrent.futures.Executor instance, got {type(executor).__name__}'
     raise TypeError(msg)
+  interpreter_pool = getattr(concurrent.futures, 'InterpreterPoolExecutor', None)
+  if isinstance(executor, ProcessPoolExecutor) or (
+    interpreter_pool is not None and isinstance(executor, interpreter_pool)
+  ):
+    raise TypeError(
+      f'{method}() executor must run callbacks in the same-process interpreter; '
+      f'{type(executor).__name__} serializes callbacks and cannot propagate contextvars'
+    )
 
 
 def _normalize_exception_types(

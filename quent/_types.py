@@ -37,25 +37,34 @@ if sys.version_info < (3, 11):  # pragma: no cover
     def subgroup(
       self, condition: type[BaseException] | tuple[type[BaseException], ...] | Callable[[BaseException], bool]
     ) -> _ExceptionGroup | None:
-      if isinstance(condition, (type, tuple)):
-        matched = [e for e in self._exceptions if isinstance(e, condition)]
-      else:
-        matched = [e for e in self._exceptions if condition(e)]
-      if not matched:
-        return None
-      return self.derive(matched)
+      matched, _ = self.split(condition)
+      return matched
 
     def split(
       self, condition: type[BaseException] | tuple[type[BaseException], ...] | Callable[[BaseException], bool]
     ) -> tuple[_ExceptionGroup | None, _ExceptionGroup | None]:
-      if isinstance(condition, (type, tuple)):
-        match = [e for e in self._exceptions if isinstance(e, condition)]
-        rest = [e for e in self._exceptions if not isinstance(e, condition)]
-      else:
-        match = [e for e in self._exceptions if condition(e)]
-        rest = [e for e in self._exceptions if not condition(e)]
+      def matches(exc: BaseException) -> bool:
+        return isinstance(exc, condition) if isinstance(condition, (type, tuple)) else bool(condition(exc))
+
+      # Test each node once. Separate comprehensions lose or duplicate errors
+      # when a predicate has state, and flat filtering misses nested failures.
+      if matches(self):
+        return self, None
+      matched: list[Exception] = []
+      rest: list[Exception] = []
+      for exc in self._exceptions:
+        if isinstance(exc, _ExceptionGroup):
+          inner_match, inner_rest = exc.split(condition)
+          if inner_match is not None:
+            matched.append(inner_match)
+          if inner_rest is not None:
+            rest.append(inner_rest)
+        elif matches(exc):
+          matched.append(exc)
+        else:
+          rest.append(exc)
       return (
-        self.derive(match) if match else None,
+        self.derive(matched) if matched else None,
         self.derive(rest) if rest else None,
       )
 
@@ -64,6 +73,9 @@ if sys.version_info < (3, 11):  # pragma: no cover
       eg.__traceback__ = self.__traceback__
       eg.__cause__ = self.__cause__
       eg.__context__ = self.__context__
+      # Assigning __cause__, even None, implicitly suppresses context. derive()
+      # deliberately does not inherit suppression under our compatibility contract.
+      eg.__suppress_context__ = False
       if hasattr(self, '__notes__'):
         eg.__notes__ = self.__notes__[:]  # type: ignore[attr-defined]
       return eg

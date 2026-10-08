@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ._types import QuentException, _UncopyableMixin
 
-if TYPE_CHECKING:
-  from ._if_ops import _IfOp
-  from ._while_ops import _WhileOp
+
+def _is_q(value: Any) -> bool:
+  """Recognize pipeline instances without querying dynamic instance attributes."""
+  return callable(value) and not isinstance(value, type) and getattr(type(value), '_quent_is_q', False) is True
 
 
 class Link(_UncopyableMixin):
@@ -47,13 +48,10 @@ class Link(_UncopyableMixin):
     ignore_result: bool = False,
     original_value: Any | None = None,
   ) -> None:
-    # Duck-typing: Q sets `_quent_is_q = True` and is always callable.
-    # getattr() avoids the circular import.
     self.v = v
     _is_callable = callable(v)
-    _is_q = _is_callable and getattr(v, '_quent_is_q', False)
-    self.is_q = _is_q
-    self.is_callable = _is_callable and not _is_q
+    self.is_q = _is_q(v)
+    self.is_callable = _is_callable and not self.is_q
     # Non-callable values cannot receive args/kwargs (pipelines do — Rule 1).
     if (args or kwargs) and not self.is_callable and not self.is_q:
       msg = f'Arguments were provided but the value is not callable (got {type(v).__name__})'
@@ -70,26 +68,26 @@ class Link(_UncopyableMixin):
 _CLONE_SENTINEL = object()
 
 
-_IfOp_cls: type[_IfOp] | None = None
-_WhileOp_cls: type[_WhileOp] | None = None
+_CLONE_OP_TYPES: tuple[type[Any], ...] | None = None
 
 
 def _clone_link(link: Link) -> Link:
   """Shallow copy of a Link (next_link is None).
 
-  Nested pipelines and stateful ops (_IfOp, _WhileOp) are deep-cloned so
-  each clone has independent state. Any new stateful op must be added here.
+  Operation wrappers own links too: clone them even when the wrapper itself
+  has no mutable execution state, so its nested pipelines remain independent.
   """
-  global _IfOp_cls, _WhileOp_cls
-  if _IfOp_cls is None:
+  global _CLONE_OP_TYPES
+  if _CLONE_OP_TYPES is None:
     # Python's import lock serializes the import; redundant assignment is benign.
+    from ._drive_gen_ops import _DriveGenOp
+    from ._gather_ops import _ConcurrentGatherOp
     from ._if_ops import _IfOp
-
-    _IfOp_cls = _IfOp
-  if _WhileOp_cls is None:
+    from ._iter_ops import _ConcurrentIterOp, _IterOp
     from ._while_ops import _WhileOp
+    from ._with_ops import _WithOp
 
-    _WhileOp_cls = _WhileOp
+    _CLONE_OP_TYPES = (_IfOp, _WhileOp, _IterOp, _ConcurrentIterOp, _ConcurrentGatherOp, _WithOp, _DriveGenOp)
 
   new = Link.__new__(Link)
   new.v = link.v
@@ -103,8 +101,14 @@ def _clone_link(link: Link) -> Link:
   new.next_link = None
   if link.is_q:
     new.v = link.v.clone()
-  elif isinstance(link.v, (_IfOp_cls, _WhileOp_cls)):
+  elif isinstance(link.v, _CLONE_OP_TYPES):
     new.v = link.v._clone()
+    # Visualization must follow the same cloned inner link as execution.
+    if isinstance(link.original_value, Link):
+      for attr in ('_link', '_v_link', '_body_link'):
+        if link.original_value is getattr(link.v, attr, None):
+          new.original_value = getattr(new.v, attr)
+          break
   if __debug__:
     for _s in Link.__slots__:
       if getattr(new, _s, _CLONE_SENTINEL) is _CLONE_SENTINEL:

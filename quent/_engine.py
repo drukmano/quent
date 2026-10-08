@@ -19,9 +19,10 @@ from types import CoroutineType
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from ._eval import (
+  _SYNC_TYPES,
   _evaluate_value,
-  _handle_return_exc,
   _isawaitable,
+  _resolve_signal_value,
 )
 from ._exc_meta import META_SOURCE_LINK, _clean_exc_meta, _clean_quent_idx, _get_exc_meta, _set_link_temp_args
 from ._link import Link
@@ -43,9 +44,6 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger('quent')
 
-# Common sync types — O(1) frozenset (~30ns) avoids _isawaitable (~350ns)
-# for the ~90% of steps that return basic types.
-_SYNC_TYPES = frozenset({int, str, float, bool, list, dict, tuple, set, bytes})
 _perf_counter_ns = time.perf_counter_ns
 _DEBUG_LEVEL = logging.DEBUG
 _exec_counter = itertools.count()
@@ -95,9 +93,16 @@ def _null_to_none(value: Any) -> Any:
   return None if value is Null else value
 
 
+def _safe_exception_text(exc: BaseException, *, use_repr: bool = False) -> str:
+  try:
+    return _sanitize_repr(repr(exc) if use_repr else str(exc))
+  except Exception:
+    return f'<{_sanitize_repr(type(exc).__name__)}: formatting failed>'
+
+
 def _warn_except_handler_failed(original_exc: BaseException, handler_exc: BaseException) -> None:
   """Log+warn when an except handler (reraise=True) fails; attach a note."""
-  sanitized = _sanitize_repr(repr(handler_exc))
+  sanitized = _safe_exception_text(handler_exc, use_repr=True)
   _log.warning('except handler (reraise=True) failed: %s', sanitized)
   warnings.warn(
     f'quent: except handler (reraise=True) failed and its error was discarded: {sanitized}',
@@ -105,7 +110,10 @@ def _warn_except_handler_failed(original_exc: BaseException, handler_exc: BaseEx
     stacklevel=_user_stacklevel(),
   )
   if hasattr(original_exc, 'add_note'):
-    original_exc.add_note(f'quent: except handler (reraise=True) also failed: {sanitized}')
+    try:
+      original_exc.add_note(f'quent: except handler (reraise=True) also failed: {sanitized}')
+    except Exception:
+      pass  # Diagnostic notes must not replace the error being propagated.
 
 
 def _except_handler_body(
@@ -118,6 +126,8 @@ def _except_handler_body(
 ) -> Any:
   """Evaluate the except handler. QuentExcInfo is the current value (unified convention)."""
   __tracebackhide__ = True
+  if isinstance(exc, _Exit):
+    raise exc
   try:
     _modify_traceback(exc, q, link, root_link, is_nested=is_nested)
   except Exception as e:
@@ -139,7 +149,7 @@ def _except_handler_body(
   except _ControlFlowSignal as signal:
     if signal.__context__ is None:
       signal.__context__ = exc
-    raise QuentException(_signal_in_handler_msg(signal, 'except')) from exc
+    raise  # Dispatchers convert misuse outside ordinary handler-error absorption.
   except BaseException as exc_:
     _set_link_temp_args(exc_, q._on_except_link, exc=exc)
     _modify_traceback(exc_, q, q._on_except_link, root_link, is_nested=is_nested)
@@ -186,15 +196,39 @@ async def _await_finally_result(
   root_value: Any,
   root_link: Link | None,
   is_nested: bool = False,
-) -> None:
+) -> Any:
   """Await an async finally handler with proper error handling."""
   __tracebackhide__ = True
   assert q._on_finally_link is not None
   _finally_link = q._on_finally_link
   try:
-    await finally_result
+    return await finally_result
   except BaseException as exc_:
     _handle_finally_exc(exc_, q, _finally_link, root_link, root_value, is_nested)
+
+
+async def _complete_async_finally(
+  result: Any,
+  q: Q[Any],
+  root_value: Any,
+  root_link: Link | None,
+  is_nested: bool,
+  t0: int,
+  on_step: Any,
+  debug: bool,
+  needs_timing: bool,
+  exec_id: int,
+) -> Any:
+  """Finish a sync-origin async handler before recording its single outcome."""
+  try:
+    result = await _await_finally_result(result, q, root_value, root_link, is_nested)
+  except BaseException as exc:
+    if needs_timing and not isinstance(exc, _ControlFlowSignal):
+      _record_finally_step(q, root_value, root_link, None, t0, on_step, debug, exec_id, exception=exc)
+    raise
+  if needs_timing:
+    _record_finally_step(q, root_value, root_link, result, t0, on_step, debug, exec_id)
+  return result
 
 
 def _run_sync_finally(
@@ -204,14 +238,35 @@ def _run_sync_finally(
   active_exc: BaseException | None,
   is_nested: bool = False,
   exec_id: int = 0,
+  *,
+  wrap_awaitable: bool = True,
 ) -> Any:
-  """Sync finally execution. Returns the awaitable result if coroutine, else None."""
+  """Run finally, returning an awaitable if completion requires awaiting.
+
+  Immediate sync rejection requests the raw awaitable so closing it disposes
+  the handler coroutine rather than only an unstarted instrumentation wrapper.
+  """
   __tracebackhide__ = True
   _on_step, _debug, _needs_timing = _timing_ctx(q)
   try:
     if _needs_timing:
       _t0_fin = _perf_counter_ns()
     result = _finally_handler_body(q, root_value, root_link, is_nested=is_nested)
+    if _isawaitable(result):
+      if not wrap_awaitable:
+        return result
+      return _complete_async_finally(
+        result,
+        q,
+        root_value,
+        root_link,
+        is_nested,
+        _t0_fin if _needs_timing else 0,
+        _on_step,
+        _debug,
+        _needs_timing,
+        exec_id,
+      )
     if _needs_timing:
       _record_finally_step(
         q,
@@ -223,10 +278,20 @@ def _run_sync_finally(
         _debug,
         exec_id=exec_id,
       )
-    if _isawaitable(result):
-      return result
     return None
   except BaseException as finally_exc:
+    if _needs_timing and not isinstance(finally_exc, _ControlFlowSignal):
+      _record_finally_step(
+        q,
+        root_value,
+        root_link,
+        None,
+        _t0_fin,
+        _on_step,
+        _debug,
+        exec_id,
+        exception=finally_exc,
+      )
     if active_exc is not None:
       _chain_finally_exc(finally_exc, active_exc)
     raise
@@ -301,8 +366,9 @@ def _record_step(
       elapsed = _perf_counter_ns() - t0
       on_step(q, step_name, input_value, result, elapsed, exception)
     except Exception as cb_exc:
-      _log.warning('quent: on_step callback raised: %r', cb_exc)
-      warnings.warn(f'quent: on_step callback raised: {cb_exc!r}', RuntimeWarning, stacklevel=_user_stacklevel())
+      detail = _safe_exception_text(cb_exc, use_repr=True)
+      _log.warning('quent: on_step callback raised: %s', detail)
+      warnings.warn(f'quent: on_step callback raised: {detail}', RuntimeWarning, stacklevel=_user_stacklevel())
   if debug:
     _log.debug('[exec:%06x] pipeline %r: %s -> %s', exec_id, q, step_name, _debug_repr(result))
 
@@ -316,10 +382,13 @@ def _chain_finally_exc(finally_exc: BaseException, active_exc: BaseException) ->
   if finally_exc.__context__ is None:
     finally_exc.__context__ = active_exc
   if hasattr(finally_exc, 'add_note'):
-    finally_exc.add_note(
-      f'quent: This finally handler error replaced the original pipeline exception: '
-      f'{type(active_exc).__name__}: {_sanitize_repr(str(active_exc))}'
-    )
+    try:
+      finally_exc.add_note(
+        f'quent: This finally handler error replaced the original pipeline exception: '
+        f'{_sanitize_repr(type(active_exc).__name__)}: {_safe_exception_text(active_exc)}'
+      )
+    except Exception:
+      pass  # Preserve cleanup failure even when user-defined note handling fails.
 
 
 def _log_exc_debug(
@@ -342,6 +411,7 @@ def _record_finally_step(
   on_step: Any,
   debug: bool,
   exec_id: int = 0,
+  exception: BaseException | None = None,
 ) -> None:
   """Record on_step + debug log for a finally handler. Caller must check _needs_timing."""
   assert q._on_finally_link is not None
@@ -356,6 +426,7 @@ def _record_finally_step(
     debug,
     step_name='finally_',
     exec_id=exec_id,
+    exception=exception,
   )
 
 
@@ -369,6 +440,7 @@ def _record_except_step(
   on_step: Any,
   debug: bool,
   exec_id: int = 0,
+  exception: BaseException | None = None,
 ) -> None:
   """Record on_step + debug log for an except handler. Caller must verify timing+link."""
   assert q._on_except_link is not None
@@ -384,6 +456,7 @@ def _record_except_step(
     debug,
     step_name='except_',
     exec_id=exec_id,
+    exception=exception,
   )
 
 
@@ -476,11 +549,53 @@ def _run_sync_except_handler(
   # Save original context chain so we can restore it if reraise=True handler fails.
   _orig_context = exc.__context__
   _orig_suppress = exc.__suppress_context__
+  _record_handler = (
+    _needs_timing
+    and q._on_except_link is not None
+    and q._on_except_exceptions is not None
+    and isinstance(exc, q._on_except_exceptions)
+    and not isinstance(exc, _ControlFlowSignal)
+  )
   try:
     if _needs_timing:
       _t0_exc = _perf_counter_ns()
     result = _except_handler_body(exc, q, link, root_link, root_value, is_nested=is_nested)
+  except _Exit as signal:
+    _active_exc = signal
+    _exc_to_propagate = signal
+  except _ControlFlowSignal as signal:
+    error = QuentException(_signal_in_handler_msg(signal, 'except'))
+    error.__cause__ = exc
+    error.__context__ = signal
+    if _needs_timing:
+      _record_except_step(
+        q,
+        exc,
+        root_value,
+        root_link,
+        None,
+        _t0_exc,
+        _on_step,
+        _debug,
+        _exec_id,
+        exception=error,
+      )
+    _active_exc = error
+    _exc_to_propagate = error
   except BaseException as propagating_exc:
+    if _record_handler:
+      _record_except_step(
+        q,
+        exc,
+        root_value,
+        root_link,
+        None,
+        _t0_exc,
+        _on_step,
+        _debug,
+        _exec_id,
+        exception=propagating_exc,
+      )
     if propagating_exc is exc:
       # Filter mismatch or no handler — _except_handler_body re-raised unchanged.
       _active_exc = exc
@@ -503,6 +618,8 @@ def _run_sync_except_handler(
         root_value,
         root_link,
         reraise=_reraise,
+        original_context=_orig_context,
+        original_suppress=_orig_suppress,
         sync_t0=_t0_exc if _needs_timing else 0,
         is_nested=is_nested,
         exec_id=_exec_id,
@@ -567,17 +684,13 @@ def _run_sync_finally_dispatch(
     #    pass _active_exc only for chain-if-finally-raises (per §6.2 context preservation).
     # 3. Otherwise _active_exc set (error in flight, no result) → re-raise after finally.
     if _exc_to_propagate is not None:
-      return _async_finally_transition(
-        _fin_coro, Null, _exc_to_propagate, q, root_value, root_link, is_nested=is_nested
-      )
+      return _async_finally_transition(_fin_coro, Null, _exc_to_propagate)
     elif _sync_result is not Null:
       # Absorbed _Return (or normal pipeline success).  Pass _active_exc — the
       # transition uses it only for finally-chain (pipeline_result is set, so no re-raise).
-      return _async_finally_transition(
-        _fin_coro, _sync_result, _active_exc, q, root_value, root_link, is_nested=is_nested
-      )
+      return _async_finally_transition(_fin_coro, _sync_result, _active_exc)
     elif _active_exc is not None:
-      return _async_finally_transition(_fin_coro, Null, _active_exc, q, root_value, root_link, is_nested=is_nested)
+      return _async_finally_transition(_fin_coro, Null, _active_exc)
     else:
       # Defensive: nothing to propagate. Close to avoid ResourceWarning.
       if hasattr(_fin_coro, 'close'):
@@ -641,6 +754,7 @@ def _run(
   *,
   deferred_finally: list[Any] | None = None,
   deferred_with: bool = False,
+  raw_return_awaitable: bool = False,
 ) -> Any:
   """Sync execution engine — walks the Link list, threading current value.
 
@@ -652,6 +766,9 @@ def _run(
   to avoid `return` inside finally. ignore_finally=True guard prevents the
   finally block from re-running when delegating to _run_async (which has its
   own finally handling).
+
+  Sync iteration requests raw lazy-return awaitables for immediate rejection
+  and disposal; its terminal owns deferred cleanup and does not await them.
   """
   __tracebackhide__ = True
   root_link: Link | None = q._root_link
@@ -683,7 +800,14 @@ def _run(
   try:
     # Fast path: non-callable run(v) with no args — skip Link allocation entirely.
     # Disabled with on_step/debug active to preserve callback behavior.
-    if has_run_value and not args and not kwargs and not callable(v) and not _needs_timing:
+    if (
+      has_run_value
+      and not args
+      and not kwargs
+      and not callable(v)
+      and not _needs_timing
+      and (v is None or type(v) in _SYNC_TYPES or not _isawaitable(v))
+    ):
       current_value = v
       root_value = v
       first_link_processed = True
@@ -780,7 +904,25 @@ def _run(
     # Each Q boundary absorbs its own _Return. Set _active_exc so a finally
     # handler raising during signal propagation sees the signal as __context__.
     _active_exc = exc
-    _sync_result = _handle_return_exc(exc)
+    try:
+      _sync_result = _resolve_signal_value(exc, guard_awaitable=not raw_return_awaitable)
+    except BaseException as lazy_exc:
+      # Store lazy failures so async cleanup can still return a continuation.
+      _active_exc = lazy_exc
+      _exc_to_propagate = lazy_exc
+    else:
+      if not raw_return_awaitable and _isawaitable(_sync_result):
+        ignore_finally = True
+        return _async_return_transition(
+          _sync_result,
+          exc,
+          q,
+          root_value,
+          root_link,
+          is_nested,
+          _exec_id,
+          deferred_finally,
+        )
 
   except _Break as exc:
     if _debug:
@@ -868,6 +1010,7 @@ def _run(
 from ._engine_async import (  # noqa: E402
   _async_except_handler,
   _async_finally_transition,
+  _async_return_transition,
   _run_async,
   _run_async_finally,  # noqa: F401 — re-exported for _generator.py
 )

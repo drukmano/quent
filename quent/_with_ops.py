@@ -42,6 +42,11 @@ class _WithOp:
     self._ignore_result = ignore_result
     self._link_name = 'with_do' if ignore_result else 'with_'
 
+  def _clone(self) -> _WithOp:
+    from ._link import _clone_link
+
+    return _WithOp(_clone_link(self._link), self._ignore_result)
+
   def _suppressed_result(self, outer_value: Any) -> Any:
     return outer_value if self._ignore_result else None
 
@@ -115,6 +120,8 @@ class _WithOp:
       if await suppress:
         return self._suppressed_result(outer_value)
     except BaseException as exit_exc:
+      if exit_exc.__context__ is None:
+        exit_exc.__context__ = exc
       raise exit_exc from exc
     raise exc
 
@@ -130,6 +137,8 @@ class _WithOp:
     try:
       await exit_result
     except BaseException as exit_exc:
+      if exit_exc.__context__ is None:
+        exit_exc.__context__ = signal
       raise exit_exc from signal
     raise signal
 

@@ -21,9 +21,9 @@ from ._concurrency import (
   _run_taskgroup,
   _run_threadpool_sync,
 )
-from ._eval import _handle_return_exc, _isawaitable
+from ._eval import _bind_callback, _handle_return_exc, _isawaitable, _resolve_signal_value
 from ._exc_meta import _set_gather_meta
-from ._types import _UNPROCESSED, ExceptionGroup, QuentException, _Break, _ControlFlowSignal, _Exit, _Return
+from ._types import _UNPROCESSED, ExceptionGroup, Null, QuentException, _Break, _ControlFlowSignal, _Exit, _Return
 
 _log = logging.getLogger('quent')
 
@@ -134,8 +134,9 @@ class _ConcurrentGatherOp:
   per sync invocation, shut down after. concurrency=-1 resolves to len(fns) at runtime.
   """
 
-  __slots__ = ('_concurrency', '_executor', '_fns', '_link_name')
+  __slots__ = ('_callbacks', '_concurrency', '_executor', '_fns', '_link_name')
 
+  _callbacks: tuple[Callable[[Any], Any], ...]
   _concurrency: int
   _executor: Executor | None
   _fns: tuple[Callable[[Any], Any], ...]
@@ -143,15 +144,25 @@ class _ConcurrentGatherOp:
 
   def __init__(self, fns: tuple[Callable[[Any], Any], ...], concurrency: int, executor: Executor | None = None) -> None:
     self._fns = fns
+    self._callbacks = tuple(_bind_callback(fn) for fn in fns)
     self._concurrency = concurrency
     self._executor = executor
     self._link_name = 'gather'
 
+  def _clone(self) -> _ConcurrentGatherOp:
+    from ._link import _is_q
+
+    fns = tuple(fn.clone() if _is_q(fn) else fn for fn in self._fns)  # type: ignore[attr-defined]
+    return _ConcurrentGatherOp(fns, self._concurrency, self._executor)
+
   async def _async_concurrent(self, results: list[Any], current_value: Any) -> tuple[Any, ...]:
     __tracebackhide__ = True
     fns = self._fns
+    callbacks = self._callbacks
     n = len(fns)
     effective_concurrency = n if self._concurrency == -1 else self._concurrency
+    cancellations: list[BaseException] = []
+    cleanup_started = False
 
     async def _worker(idx: int) -> None:
       __tracebackhide__ = True
@@ -160,7 +171,7 @@ class _ConcurrentGatherOp:
           if results[idx] is not _UNPROCESSED:
             r = results[idx]
           else:
-            r = fns[idx](current_value)
+            r = callbacks[idx](current_value)
           if _isawaitable(r):
             r = await r
         except _Return as ret_exc:
@@ -173,6 +184,8 @@ class _ConcurrentGatherOp:
       except _ControlFlowSignal:
         raise
       except BaseException as exc:
+        if not _HAS_TASK_GROUP and isinstance(exc, asyncio.CancelledError) and not cleanup_started:
+          cancellations.append(exc)
         # _quent_idx: read by 3.10 fallback to recover fn index when task
         # completion order no longer matches input order.
         exc._quent_idx = idx  # type: ignore[attr-defined]
@@ -192,10 +205,11 @@ class _ConcurrentGatherOp:
       try:
         await asyncio.gather(*tasks)
       except BaseException:
+        cleanup_started = True
         await _cancel_pending_tasks(tasks)
         # Worker already calls _set_gather_meta (first-write-wins); this is a
         # safety net for exceptions created by asyncio internals.
-        raw_exceptions: list[BaseException] = []
+        raw_exceptions: list[BaseException] = list(cancellations)
         for t in tasks:
           if t.done() and not t.cancelled():
             exc = t.exception()
@@ -214,11 +228,12 @@ class _ConcurrentGatherOp:
     """Probe first fn to detect sync vs async; dispatch to ThreadPool or async tasks."""
     __tracebackhide__ = True
     fns = self._fns
+    callbacks = self._callbacks
     n = len(fns)
     results: list[Any] = [_UNPROCESSED] * n
     try:
       try:
-        results[0] = fns[0](current_value)
+        results[0] = callbacks[0](current_value)
       except _Return as ret_exc:
         r = _handle_return_exc(ret_exc)
         if _isawaitable(r):
@@ -248,9 +263,11 @@ class _ConcurrentGatherOp:
     def _worker_sync(idx: int) -> Any:
       __tracebackhide__ = True
       try:
-        return fns[idx](current_value)
+        return callbacks[idx](current_value)
       except _Return as ret_exc:
-        r = _handle_return_exc(ret_exc)
+        # This path rejects awaitables immediately. Close the original coroutine,
+        # not an unstarted signal-guard wrapper that would leave it unclosed.
+        r: Any = None if ret_exc.value is Null else _resolve_signal_value(ret_exc, guard_awaitable=False)
         if _isawaitable(r):
           # Lazy fn returned awaitable in sync gather worker — no loop on thread.
           if hasattr(r, 'close'):

@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Awaitable
 from types import CoroutineType, GeneratorType
 from typing import Any
 
-from ._link import Link
+from ._link import Link, _is_q
 from ._types import _EMPTY_TUPLE, Null, _Break, _ControlFlowSignal, _Exit, _Return
 
 # Private C-level fn for zero-overhead loop detection. Returns None instead of
@@ -52,22 +53,25 @@ def _has_running_loop() -> bool:
 
 # CPython CO_ITERABLE_COROUTINE flag, stable since 3.5.
 _CO_ITERABLE_COROUTINE = 0x100
+# Exact types only: subclasses may implement the await protocol.
+_SYNC_TYPES = frozenset({int, str, float, bool, list, dict, tuple, set, bytes})
 
 
 def _isawaitable(value: Any) -> bool:
-  """Fast awaitable check, replacing inspect.isawaitable() (~30ns vs ~380ns).
+  """Awaitability detection with fast rejection of common synchronous results.
 
   Covers native coroutines, @types.coroutine generator coroutines, and
   __await__-bearing objects (Future/Task/custom).
   """
+  if value is None or type(value) in _SYNC_TYPES:
+    return False
   if isinstance(value, CoroutineType):
     return True
   if isinstance(value, GeneratorType):
     return bool(value.gi_code.co_flags & _CO_ITERABLE_COROUTINE)
-  try:
-    return getattr(value, '__await__', None) is not None
-  except Exception:
-    return False
+  # Special methods belong to the type; instance attribute probing can both
+  # invent awaitability for data objects and hide a valid __await__ method.
+  return isinstance(value, Awaitable)
 
 
 def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
@@ -108,6 +112,17 @@ def _evaluate_value(link: Link, current_value: Any = Null) -> Any:
   return v(*(link.args or _EMPTY_TUPLE), **link.kwargs) if link.kwargs else v(*(link.args or _EMPTY_TUPLE))
 
 
+def _bind_callback(fn: Any) -> Any:
+  """Resolve nested-Q dispatch once; ordinary callbacks retain their raw call path."""
+  if not _is_q(fn):
+    return fn
+
+  def nested(value: Any) -> Any:
+    return fn._run(value, None, None, is_nested=True)
+
+  return nested
+
+
 def _eval_signal_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, Any] | None) -> Any:
   """Evaluate a control flow signal's value per the args calling convention."""
   args = args or _EMPTY_TUPLE
@@ -116,27 +131,64 @@ def _eval_signal_value(v: Any, args: tuple[Any, ...] | None, kwargs: dict[str, A
   return v() if callable(v) else v
 
 
-def _handle_break_exc(exc: _Break, fallback: Any) -> Any:
-  """Append the break value to fallback if one was provided.
+def _resolve_signal_value(exc: _ControlFlowSignal, *, guard_awaitable: bool = True) -> Any:
+  """Resolve a lazy signal value, guarding both invocation and asynchronous work.
 
-  Per spec §7.2: if the lazy callable raises a control-flow signal, wrap as
-  QuentException (signals inside lazy values are misuse).
+  Callers needing a no-value fallback must check exc.value before calling.
+  Payloads are cleared even when invocation fails. A synchronous iterator that
+  immediately rejects awaitables may disable wrapping so it can close the original.
   """
-  from ._types import QuentException as _QE
+  from ._types import QuentException
 
-  if exc.value is Null:
-    return fallback
+  name, section = (
+    ('return_', '7.1')
+    if isinstance(exc, _Return)
+    else ('break_', '7.2')
+    if isinstance(exc, _Break)
+    else ('exit_', '7.5')
+  )
   try:
     try:
-      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
+      result = None if exc.value is Null else _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
     except _ControlFlowSignal as signal:
-      raise _QE(
-        f"Q.break_()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §7.2)."
+      raise QuentException(
+        f"Q.{name}()'s lazy value raised {type(signal).__name__}; "
+        f'signals inside lazy values are misuse (per §{section}).'
       ) from signal
   finally:
     exc.value = Null
     exc.signal_args = _EMPTY_TUPLE
     exc.signal_kwargs = None
+  if guard_awaitable and _isawaitable(result):
+    return _await_signal_value(result, exc, name, section)
+  return result
+
+
+async def _await_signal_value(result: Any, original: _ControlFlowSignal, name: str, section: str) -> Any:
+  from ._types import QuentException
+
+  try:
+    return await result
+  except _ControlFlowSignal as signal:
+    if signal.__context__ is None:
+      signal.__context__ = original
+    raise QuentException(
+      f"Q.{name}()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §{section})."
+    ) from signal
+
+  except BaseException as exc:
+    # A sync-origin coroutine runs after the catch frame has returned. Restore
+    # the signal context Python supplies naturally when evaluation stays inline.
+    if exc.__context__ is None:
+      exc.__context__ = original
+    raise
+
+
+def _handle_break_exc(exc: _Break, fallback: Any) -> Any:
+  """Resolve and append a supplied break value; preserve the no-value fallback."""
+  if exc.value is Null:
+    return fallback
+  result = _resolve_signal_value(exc)
   if _isawaitable(result):
     return _append_break_value_async(result, fallback)
   fallback.append(result)
@@ -167,52 +219,10 @@ def _should_use_async_protocol(value: Any, sync_attr: str, async_attr: str) -> b
 
 
 def _handle_return_exc(exc: _Return) -> Any:
-  """Extract and evaluate a _Return signal's value.
-
-  Each Q boundary absorbs its own _Return; callers extract value via this
-  helper and return it — the signal is not re-raised.
-
-  Per spec §7.1: if the lazy callable itself raises a control-flow signal,
-  wrap as QuentException (signals inside lazy values are misuse).
-  """
-  # Local import to avoid circular dependency at module load.
-  from ._types import QuentException as _QE
-
-  if exc.value is Null:
-    return None
-  try:
-    try:
-      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
-    except _ControlFlowSignal as signal:
-      raise _QE(
-        f"Q.return_()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §7.1)."
-      ) from signal
-  finally:
-    # Release eagerly — value/args may hold large callables/data.
-    exc.value = Null
-    exc.signal_args = _EMPTY_TUPLE
-    exc.signal_kwargs = None
-  return result
+  """Resolve an absorbed return signal's lazy value."""
+  return _resolve_signal_value(exc)
 
 
 def _handle_exit_exc(exc: _Exit) -> Any:
-  """Extract and evaluate a _Exit signal's value (caught at outermost run()).
-
-  Per spec §7.5: signal inside lazy value is misuse → QuentException.
-  """
-  from ._types import QuentException as _QE
-
-  if exc.value is Null:
-    return None
-  try:
-    try:
-      result = _eval_signal_value(exc.value, exc.signal_args, exc.signal_kwargs)
-    except _ControlFlowSignal as signal:
-      raise _QE(
-        f"Q.exit_()'s lazy value raised {type(signal).__name__}; signals inside lazy values are misuse (per §7.5)."
-      ) from signal
-  finally:
-    exc.value = Null
-    exc.signal_args = _EMPTY_TUPLE
-    exc.signal_kwargs = None
-  return result
+  """Resolve an exit signal absorbed at the outermost execution boundary."""
+  return _resolve_signal_value(exc)

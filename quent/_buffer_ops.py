@@ -11,7 +11,8 @@ import asyncio
 import queue
 import threading
 import warnings
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, Generator
+from contextvars import copy_context
 from typing import Any
 
 from ._concurrency import _create_task_fn
@@ -29,7 +30,7 @@ class _ProducerError:
     self.exc = exc
 
 
-def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
+def _sync_buffer_iter(iterable: Any, maxsize: int) -> Generator[Any, None, None]:
   """Yield items from *iterable* via a bounded queue.Queue.
 
   A daemon thread feeds the queue. On consumer early exit, _stop is set so
@@ -37,31 +38,42 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
   """
   buf: queue.Queue[Any] = queue.Queue(maxsize=maxsize)
   stop_event = threading.Event()
+  cleanup_error: BaseException | None = None
+  delivered_error: BaseException | None = None
+
+  def _put(item: Any) -> bool:
+    # Terminal markers obey the same backpressure and shutdown rules as data.
+    while not stop_event.is_set():
+      try:
+        buf.put(item, timeout=0.05)
+        return True
+      except queue.Full:
+        continue
+    return False
 
   def _producer() -> None:
+    nonlocal cleanup_error
     try:
-      for item in iterable:
-        if stop_event.is_set():
-          return
-        # Polling put so we can periodically check stop_event.
-        while True:
-          if stop_event.is_set():
-            return
-          try:
-            buf.put(item, timeout=0.05)
-            break
-          except queue.Full:
-            continue
-      buf.put(_END)
-    except BaseException as exc:
+      source = iter(iterable)
       try:
-        buf.put(_ProducerError(exc), timeout=1.0)
-      except queue.Full:
-        # Consumer gone — re-raise system exceptions so they're not silently dropped.
-        if not isinstance(exc, Exception):
-          raise
+        for item in source:
+          if not _put(item):
+            return
+      finally:
+        close = getattr(source, 'close', None)
+        if close is not None:
+          try:
+            close()
+          except BaseException as exc:
+            cleanup_error = exc
+            raise
+      _put(_END)
+    except BaseException as exc:
+      if not _put(_ProducerError(exc)) and exc is not cleanup_error and not isinstance(exc, Exception):
+        raise
 
-  t = threading.Thread(target=_producer, daemon=True)
+  context = copy_context()
+  t = threading.Thread(target=context.run, args=(_producer,), daemon=True)
   t.start()
   try:
     while True:
@@ -69,6 +81,7 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
       if item is _END:
         return
       if isinstance(item, _ProducerError):
+        delivered_error = item.exc
         raise item.exc
       yield item
   finally:
@@ -86,42 +99,75 @@ def _sync_buffer_iter(iterable: Any, maxsize: int) -> Iterator[Any]:
         RuntimeWarning,
         stacklevel=2,
       )
+    elif cleanup_error is not None and cleanup_error is not delivered_error:
+      raise cleanup_error
 
 
-async def _async_buffer_iter(iterable: Any, maxsize: int) -> AsyncIterator[Any]:
+async def _async_buffer_iter(iterable: Any, maxsize: int) -> AsyncGenerator[Any, None]:
   """Yield items from *iterable* via a bounded asyncio.Queue.
 
   Background task feeds the queue; on consumer early exit, the task is cancelled.
   """
   buf: asyncio.Queue[Any] = asyncio.Queue(maxsize=maxsize)
   stop = False
+  cleanup_error: BaseException | None = None
+  delivered_error: BaseException | None = None
 
   async def _producer() -> None:
-    nonlocal stop
+    nonlocal cleanup_error
     try:
       if hasattr(iterable, '__aiter__'):
-        async for item in iterable:
-          if stop:
-            return
-          await buf.put(item)
+        source = aiter(iterable)
+        try:
+          async for item in source:
+            if stop:
+              return
+            await buf.put(item)
+        finally:
+          aclose = getattr(source, 'aclose', None)
+          if aclose is not None:
+            try:
+              await aclose()
+            except BaseException as exc:
+              cleanup_error = exc
+              raise
       else:
-        for item in iterable:
-          if stop:
-            return
-          await buf.put(item)
+        sync_source = iter(iterable)
+        try:
+          for item in sync_source:
+            if stop:
+              return
+            await buf.put(item)
+        finally:
+          close = getattr(sync_source, 'close', None)
+          if close is not None:
+            try:
+              close()
+            except BaseException as exc:
+              cleanup_error = exc
+              raise
       await buf.put(_END)
-    except asyncio.CancelledError:
-      return
     except BaseException as exc:
+      if stop:
+        if exc is not cleanup_error and not isinstance(exc, (Exception, asyncio.CancelledError)):
+          raise
+        return
+      # Source cancellation is a producer failure, not a consumer shutdown.
       await buf.put(_ProducerError(exc))
 
-  task = _create_task_fn(_producer())
+  producer = _producer()
+  try:
+    task = _create_task_fn(producer)
+  except BaseException:
+    producer.close()
+    raise
   try:
     while True:
       item = await buf.get()
       if item is _END:
         return
       if isinstance(item, _ProducerError):
+        delivered_error = item.exc
         raise item.exc
       yield item
   finally:
@@ -132,3 +178,5 @@ async def _async_buffer_iter(iterable: Any, maxsize: int) -> AsyncIterator[Any]:
         await task
       except (asyncio.CancelledError, Exception):
         pass
+    if cleanup_error is not None and cleanup_error is not delivered_error:
+      raise cleanup_error

@@ -24,6 +24,7 @@ from ._engine import (
   _log_exc_debug,
   _null_to_none,
   _perf_counter_ns,
+  _record_except_step,
   _record_finally_step,
   _record_step,
   _should_defer_with,
@@ -55,10 +56,6 @@ async def _async_finally_transition(
   finally_result: Any,
   pipeline_result: Any,
   active_exc: BaseException | None,
-  q: Q[Any],
-  root_value: Any,
-  root_link: Link | None,
-  is_nested: bool = False,
 ) -> Any:
   """Async transition for a sync pipeline whose finally handler returned a coroutine.
 
@@ -73,7 +70,7 @@ async def _async_finally_transition(
   """
   __tracebackhide__ = True
   try:
-    await _await_finally_result(finally_result, q, root_value, root_link, is_nested=is_nested)
+    await finally_result
   except BaseException as finally_exc:
     if active_exc is not None:
       _chain_finally_exc(finally_exc, active_exc)
@@ -82,10 +79,34 @@ async def _async_finally_transition(
   # exception IS what propagates (error path, not absorbed signal).
   if active_exc is not None and pipeline_result is Null:
     raise active_exc
-  # Await if the pipeline result is itself a coroutine (e.g. Q.return_(async_fn)).
-  if _isawaitable(pipeline_result):
-    return await pipeline_result
   return None if pipeline_result is Null else pipeline_result
+
+
+async def _async_return_transition(
+  result: Any,
+  signal: _Return,
+  q: Q[Any],
+  root_value: Any,
+  root_link: Link | None,
+  is_nested: bool,
+  exec_id: int,
+  deferred_finally: list[Any] | None,
+) -> Any:
+  """Finish a lazy return before cleanup, without re-entering except_ dispatch."""
+  __tracebackhide__ = True
+  active_exc: BaseException | None = signal
+  try:
+    return await result
+  except BaseException as exc:
+    active_exc = exc
+    raise
+  finally:
+    if deferred_finally is not None:
+      deferred_finally[0] = root_value
+      deferred_finally[1] = root_link
+      deferred_finally[2] = exec_id
+    elif q._on_finally_link is not None:
+      await _run_async_finally(q, root_value, root_link, active_exc, is_nested, exec_id)
 
 
 async def _run_async_finally(
@@ -104,7 +125,7 @@ async def _run_async_finally(
       _t0_fin = _perf_counter_ns()
     finally_result = _finally_handler_body(q, root_value, root_link, is_nested=is_nested)
     if _isawaitable(finally_result):
-      await _await_finally_result(finally_result, q, root_value, root_link, is_nested=is_nested)
+      finally_result = await _await_finally_result(finally_result, q, root_value, root_link, is_nested=is_nested)
     if _needs_timing:
       _record_finally_step(
         q,
@@ -117,6 +138,18 @@ async def _run_async_finally(
         exec_id=exec_id,
       )
   except BaseException as finally_exc:
+    if _needs_timing and not isinstance(finally_exc, _ControlFlowSignal):
+      _record_finally_step(
+        q,
+        root_value,
+        root_link,
+        None,
+        _t0_fin,
+        _on_step,
+        _debug,
+        exec_id,
+        exception=finally_exc,
+      )
     if active_exc is not None:
       _chain_finally_exc(finally_exc, active_exc)
     raise
@@ -130,6 +163,8 @@ async def _async_except_handler(
   root_link: Link | None,
   *,
   reraise: bool,
+  original_context: BaseException | None,
+  original_suppress: bool,
   sync_t0: int = 0,
   is_nested: bool = False,
   exec_id: int = 0,
@@ -140,26 +175,51 @@ async def _async_except_handler(
   _active_exc: BaseException | None = exc
   _on_step, _debug, _needs_timing = _timing_ctx(q)
   result: Any = None
-  # Save original context chain so we can restore it if reraise=True handler fails.
-  _orig_context = exc.__context__
-  _orig_suppress = exc.__suppress_context__
+  # The sync dispatcher snapshots before calling a coroutine-returning factory.
+  _orig_context = original_context
+  _orig_suppress = original_suppress
+  _t0 = sync_t0 if sync_t0 else _perf_counter_ns() if _needs_timing else 0
+  handler_failed = False
   try:
     try:
-      if reraise:
-        await handler_coro
-      else:
-        result = await handler_coro
-    except _Exit:
+      result = await handler_coro
+    except _Exit as signal:
+      _active_exc = signal
       raise
     except _ControlFlowSignal as signal:
       if signal.__context__ is None:
         signal.__context__ = exc
-      msg = _signal_in_handler_msg(signal, 'except')
-      # `from exc`: original exc is the most relevant context regardless of reraise.
-      # No _clean_exc_meta — code after raise is unreachable, and exc meta was
-      # already cleaned by _modify_traceback in _except_handler_body.
-      raise QuentException(msg) from exc
+      error = QuentException(_signal_in_handler_msg(signal, 'except'))
+      _active_exc = error
+      if _needs_timing:
+        _record_except_step(
+          q,
+          exc,
+          root_value,
+          root_link,
+          None,
+          _t0,
+          _on_step,
+          _debug,
+          exec_id,
+          exception=error,
+        )
+      raise error from exc
     except BaseException as handler_exc:
+      handler_failed = True
+      if _needs_timing:
+        _record_except_step(
+          q,
+          exc,
+          root_value,
+          root_link,
+          None,
+          _t0,
+          _on_step,
+          _debug,
+          exec_id,
+          exception=handler_exc,
+        )
       if _except_handler_failed(exc, handler_exc, reraise, _orig_context, _orig_suppress):
         pass  # Absorbed — falls through to reraise below.
       elif reraise:
@@ -170,19 +230,19 @@ async def _async_except_handler(
         # reraise=False: handler exc propagates with original as __cause__.
         _active_exc = handler_exc
         raise handler_exc from exc
-    _t0 = sync_t0 if sync_t0 else _perf_counter_ns()
-    _except_handler_succeeded(
-      exc,
-      result,
-      q,
-      root_value,
-      root_link,
-      _t0,
-      _needs_timing,
-      _on_step,
-      _debug,
-      exec_id,
-    )
+    if not handler_failed:
+      _except_handler_succeeded(
+        exc,
+        result,
+        q,
+        root_value,
+        root_link,
+        _t0,
+        _needs_timing,
+        _on_step,
+        _debug,
+        exec_id,
+      )
     if reraise:
       raise exc
     # Consumed — finally sees success-path context.
@@ -220,6 +280,13 @@ async def _run_async_except_dispatch(
   _t0_exc = 0
   _orig_context = exc.__context__
   _orig_suppress = exc.__suppress_context__
+  _record_handler = (
+    _needs_timing
+    and q._on_except_link is not None
+    and q._on_except_exceptions is not None
+    and isinstance(exc, q._on_except_exceptions)
+    and not isinstance(exc, _ControlFlowSignal)
+  )
   # Handler result accounting. We raise OUTSIDE any active `except` block so
   # Python's auto-chaining of __context__ doesn't undo restoration that
   # _except_handler_failed performed.
@@ -232,9 +299,24 @@ async def _run_async_except_dispatch(
       if _needs_timing:
         _t0_exc = _perf_counter_ns()
       result = _except_handler_body(exc, q, link, root_link, root_value, is_nested=is_nested)
+    except _ControlFlowSignal:
+      raise
     except BaseException as propagating_exc:
+      if _record_handler:
+        _record_except_step(
+          q,
+          exc,
+          root_value,
+          root_link,
+          None,
+          _t0_exc,
+          _on_step,
+          _debug,
+          exec_id,
+          exception=propagating_exc,
+        )
       if propagating_exc is exc:
-        # Filter mismatch — handler not invoked. Propagate as-is.
+        # No handler, a filter mismatch, or a handler re-raising its input.
         _active_exc = exc
         raise
       if _except_handler_failed(exc, propagating_exc, q._on_except_reraise, _orig_context, _orig_suppress):
@@ -251,11 +333,22 @@ async def _run_async_except_dispatch(
           result = await result
         except _Exit:
           raise
-        except _ControlFlowSignal as signal:
-          if signal.__context__ is None:
-            signal.__context__ = exc
-          raise QuentException(_signal_in_handler_msg(signal, 'except')) from exc
+        except _ControlFlowSignal:
+          raise  # The shared outer trap records the converted handler failure.
         except BaseException as handler_exc:
+          if _needs_timing:
+            _record_except_step(
+              q,
+              exc,
+              root_value,
+              root_link,
+              None,
+              _t0_exc,
+              _on_step,
+              _debug,
+              exec_id,
+              exception=handler_exc,
+            )
           if _except_handler_failed(exc, handler_exc, q._on_except_reraise, _orig_context, _orig_suppress):
             _active_exc = exc
             _propagate_original = True
@@ -291,6 +384,19 @@ async def _run_async_except_dispatch(
       signal.__context__ = exc
     qe = QuentException(_signal_in_handler_msg(signal, 'except'))
     _active_exc = qe
+    if _needs_timing:
+      _record_except_step(
+        q,
+        exc,
+        root_value,
+        root_link,
+        None,
+        _t0_exc,
+        _on_step,
+        _debug,
+        exec_id,
+        exception=qe,
+      )
     raise qe from exc
   # Outside the except block — raise without auto-chain interference.
   if _propagate_original:
@@ -411,10 +517,14 @@ async def _run_async(
     # Each Q absorbs its own _Return. Set _active_exc so finally sees the signal
     # as in-flight exception.
     _active_exc = exc
-    result = _handle_return_exc(exc)
-    if _isawaitable(result):
-      return await result
-    return result
+    try:
+      result = _handle_return_exc(exc)
+      if _isawaitable(result):
+        return await result
+      return result
+    except BaseException as lazy_exc:
+      _active_exc = lazy_exc
+      raise
 
   except _Break as exc:
     if _debug:

@@ -23,6 +23,14 @@ else:
   _create_task_fn = asyncio.create_task
 
 
+class _CancelledWorker(Exception):
+  """Make independent child cancellation abort TaskGroup and drain siblings."""
+
+  def __init__(self, exc: asyncio.CancelledError, independent: bool) -> None:
+    self.exc = exc
+    self.independent = independent
+
+
 async def _run_taskgroup(n: int, worker_fn: Callable[[int], Coroutine[Any, Any, None]]) -> list[BaseException] | None:
   """Run *n* workers via asyncio.TaskGroup.
 
@@ -30,17 +38,53 @@ async def _run_taskgroup(n: int, worker_fn: Callable[[int], Coroutine[Any, Any, 
   Non-group exceptions re-raise immediately.
   """
   __tracebackhide__ = True
+  parent = asyncio.current_task()
+  initial_cancellations = parent.cancelling() if parent is not None else 0  # type: ignore[attr-defined]
+
+  async def _worker(idx: int) -> None:
+    __tracebackhide__ = True
+    try:
+      await worker_fn(idx)
+      task = asyncio.current_task()
+      if task is not None and task.cancelling():  # type: ignore[attr-defined]  # TaskGroup path is 3.11+
+        # A callback can cancel its own task and return without another await.
+        # Deliver any pending cancellation before TaskGroup can hide it.
+        await asyncio.sleep(0)
+    except asyncio.CancelledError as exc:
+      # TaskGroup treats a cancelled child as successful completion. Converting
+      # it temporarily to a failure also prevents waiting forever on siblings.
+      task = asyncio.current_task()
+      # An explicit raise or cancelled awaited Future has no task-cancel request.
+      # Requests racing sibling cleanup have no public sender identity; retain
+      # them when cancellation is the only outcome, not over another failure.
+      independent = task is None or task.cancelling() == 0  # type: ignore[attr-defined]
+      if not independent and parent is not None and parent.cancelling() > initial_cancellations:  # type: ignore[attr-defined]
+        # Let TaskGroup preserve a parent's cancellation, including its message.
+        # Its own abort also cancels the parent; those sibling cancellations
+        # must not replace the initiating error with our temporary marker.
+        raise
+      raise _CancelledWorker(exc, independent) from None
+
   try:
     async with asyncio.TaskGroup() as tg:  # type: ignore[attr-defined]  # not available on Python 3.10
       for idx in range(n):
-        tg.create_task(worker_fn(idx))
+        tg.create_task(_worker(idx))
     return None
   except BaseException as eg:
-    # TaskGroup always raises ExceptionGroup/BaseExceptionGroup on 3.11+.
-    # Duck-type via hasattr to handle subclasses and avoid F821 on 3.10.
+    # Worker failures are grouped; cancellation/system signals may be ungrouped.
+    # Duck-type groups to avoid referencing unavailable builtins on Python 3.10.
     sub_exceptions = getattr(eg, 'exceptions', None)
     if sub_exceptions is not None:
-      return list(sub_exceptions)
+      failures = [
+        exc.exc if isinstance(exc, _CancelledWorker) else exc
+        for exc in sub_exceptions
+        if not isinstance(exc, _CancelledWorker) or exc.independent
+      ]
+      if failures:
+        # Explicit cancellation retains BaseException priority; requests from
+        # sibling cleanup do not replace the error/signal that caused cleanup.
+        return failures
+      raise sub_exceptions[0].exc from None
     raise
 
 
@@ -119,11 +163,18 @@ def _run_threadpool_sync(
   cm = nullcontext(executor) if executor is not None else ThreadPoolExecutor(max_workers=min(concurrency, n - 1))
   with cm as pool:
     futures: list[concurrent.futures.Future[Any]] = []
+    pending: set[concurrent.futures.Future[Any]] = set()
     try:
       for idx in range(1, n):
-        futures.append(submit(pool, idx))
+        # Shared pools can exceed this operation's limit. Bound submissions
+        # rather than occupying their extra threads with semaphore waiters.
+        if len(pending) >= concurrency:
+          _, pending = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+        future = submit(pool, idx)
+        futures.append(future)
+        pending.add(future)
     except BaseException as submit_exc:
-      # Cancel already-submitted futures so shutdown(wait=True) doesn't block.
+      # Cancel queued work; owned-pool shutdown still waits for running calls.
       for f in futures:
         f.cancel()
       if hasattr(submit_exc, 'add_note'):
